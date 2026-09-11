@@ -48,7 +48,7 @@
 ```bash
 export ARK_API_KEY=...
 cd scenarios/ma-replica/skills/ma-replica-builder
-python example-demo/scripts/run.py --case-dir ../../ma-cases/demo --mock custom --model doubao-seed-2-1-pro-260628
+python example-demo/scripts/run.py --case-dir ../../ma-cases/demo --mock custom --model doubao-seed-evolving
 # 默认只跑第一条 query；--all 跑全部；--keep 保留 agent/env/session 不删
 ```
 

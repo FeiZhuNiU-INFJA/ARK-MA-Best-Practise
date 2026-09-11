@@ -72,7 +72,7 @@ diff -rq ../../ma-cases/demo/shared example-demo/data --exclude=ma_runs --exclud
 ```bash
 export ARK_API_KEY=...
 cd scenarios/ma-replica/skills/ma-replica-builder
-python example-demo/scripts/run.py --case-dir ../../ma-cases/demo --model doubao-seed-2-1-pro-260628 --all   # 默认 files 模式
+python example-demo/scripts/run.py --case-dir ../../ma-cases/demo --model doubao-seed-evolving --all   # 默认 files 模式
 # 或高保真：python example-demo/scripts/run.py --case-dir ../../ma-cases/demo --mock custom --all
 # 产出 ../../ma-cases/demo/files-mode/<traj>/run.json（或 custom-mode/）+ ../../ma-cases/demo/reports/comparison-<mode>.md
 ```

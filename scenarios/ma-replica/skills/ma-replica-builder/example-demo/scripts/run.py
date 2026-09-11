@@ -50,7 +50,7 @@ from ma_runtime import (build_agent_config, run_session,      # noqa: E402
 from report import build_report               # noqa: E402  (冻结层)
 from replay_lib import strict_lookup  # noqa: E402  (Acme 特有键逻辑)
 
-DEFAULT_MODEL = "doubao-seed-2-1-pro-260628"
+DEFAULT_MODEL = "doubao-seed-evolving"
 
 
 def build_custom_tools(replay_map: dict, api_tool: str, time_tool: str) -> list[dict]:
