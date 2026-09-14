@@ -110,7 +110,7 @@ async def run_query(ark: ArkMin, session_id: str, query: str, resolve: ResolveFn
       - session.status_idle/terminated/error → 收尾
 
     events_path 非空时，把**原始事件流**逐条落盘为 JSONL（每行一个未加工的 MA 事件）。
-    这是可回放、可做内容级 diff 的"复刻新轨迹"原料——现有精简指标 rep<i>.json 不受影响。
+    这是可回放、可做内容级 diff 的"MA 侧新轨迹"原料——现有精简指标 rep<i>.json 不受影响。
     采用边收边写：不在内存里囤全量事件，进程中断也能保留已发生的部分。
     """
     t0 = time.time()
@@ -127,7 +127,7 @@ async def run_query(ark: ArkMin, session_id: str, query: str, resolve: ResolveFn
     events_fh = events_path.open("w") if events_path else None
     try:
         async for ev in ark.stream_events(session_id):
-            if events_fh is not None:      # 原始事件流：未加工原样落盘，作复刻新轨迹的可回放原料
+            if events_fh is not None:      # 原始事件流：未加工原样落盘，作 MA 侧新轨迹的可回放原料
                 events_fh.write(json.dumps(ev, ensure_ascii=False) + "\n")
             et = ev.get("type", "")
             if et == "agent.custom_tool_use":
@@ -260,7 +260,7 @@ async def _run_one_repeat(ark: ArkMin, agent_id: str, env_id: str, query: str,
                           events_path: Optional[Path] = None) -> dict:
     """单次重复：单开 session → 跑事件循环 → 收尾删 session。供并发调用。
 
-    events_path 非空时，本次重复的原始事件流落盘到该 JSONL（复刻新轨迹原料）。
+    events_path 非空时，本次重复的原始事件流落盘到该 JSONL（MA 侧新轨迹原料）。
     """
     session_id = await ark.create_session(agent_id, env_id)
     res = await run_query(ark, session_id, query, resolve, events_path=events_path)
@@ -287,7 +287,7 @@ async def run_session(ark: ArkMin, *, agent_config: dict, queries: list[dict],
     resolve：客户侧提供的工具结果路由回调。
     repeats：每条轨迹重复次数（默认 1）；concurrency：同一轨迹内并发上限（默认=repeats，全并发）。
     record_events：True（默认）时把每次重复的**原始事件流**落盘为
-        runs_dir/<轨迹stem>/rep<i>.events.jsonl —— 可回放、可做内容级 diff 的"复刻新轨迹"原料。
+        runs_dir/<轨迹stem>/rep<i>.events.jsonl —— 可回放、可做内容级 diff 的"MA 侧新轨迹"原料。
     落盘：runs_dir/<轨迹stem>/rep<i>.json（每次重复精简指标）+ rep<i>.events.jsonl（原始事件流，可关）
     + runs_dir/<轨迹stem>/run.json（聚合，失败 rep 不计入耗时/token 均值，但统计 fail_ratio）。返回每条轨迹的聚合列表。
     """

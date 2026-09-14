@@ -1,7 +1,7 @@
 # MA 内置 bash 工具「抢戏」现象排查报告
 
 > 面向对象：火山方舟 Managed Agents（MA）产品 / 工程团队
-> 提交方：MA 复刻自研 Agent 迁移评估项目组
+> 提交方：客户自研 Agent 轨迹 MA 重放对比评估项目组
 > 日期：2026-09-10
 > 一句话：**当 Agent 同时挂载内置工具集（含 `bash`）与业务工具（custom tool / MCP tool）时，
 > doubao 模型有时会绕过已注入的业务工具，改用 `bash` 去沙箱里 `ls`/`find`/扫端口找"本地服务"，

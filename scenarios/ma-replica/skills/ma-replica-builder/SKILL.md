@@ -1,22 +1,28 @@
 ---
 name: ma-replica-builder
-description: 把客户自研 Agent 的运行轨迹在火山方舟 Managed Agents(MA) 上复刻出来，用同样的 user message 重跑 Session，再和原轨迹对比耗时/token/cache。当用户拿到客户自研 Agent 的若干条轨迹（含 system prompt、skill、工具调用）想在 MA 上复刻并做性能对比、或要评估"迁移到 MA 是否更优"时使用。默认用文件静态 mock，可选 custom tool 动态回放；产出一份对比报告。
+description: 把客户自研 Agent 的运行轨迹在火山方舟 Managed Agents(MA) 上尽力模拟重放，用同样的 user message 重跑 Session，再和原轨迹对比耗时/token/cache。当用户拿到客户自研 Agent 的若干条轨迹（含 system prompt、skill、工具调用）想在 MA 上重放并做性能对比、或要评估"迁移到 MA 是否更优"时使用。注意这是基于轨迹的模拟重放、不是复刻或逆向真实 agent（system prompt 只取轨迹可见部分、工具全 mock、未披露 skill 留空）。默认用文件静态 mock，可选 custom tool 动态回放；产出一份对比报告。
 ---
 
-# ma-replica-builder：MA 复刻构建器
+# ma-replica-builder：客户轨迹 MA 重放构建器
 
-把「客户自研 Agent 的运行轨迹」在火山方舟 Managed Agents(MA) 上**复刻**出来，用**同样的 user
+把「客户自研 Agent 的运行轨迹」在火山方舟 Managed Agents(MA) 上**尽力模拟重放**，用**同样的 user
 message** 重跑，再和原轨迹对比**端到端耗时 / token 消耗 / cache 命中率**，用来评估"迁移到 MA 是否更优"。
+
+> ⚠️ **能力边界（先读）**：这**不是复刻、也不是逆向出**客户那个真实 agent——拿不到它的源码、完整
+> system prompt、真实工具实现和未在轨迹里出现过的分支。本 skill 做的是**基于轨迹的模拟重放**：
+> system prompt 只取轨迹里**可见的部分**（可能不完整）；工具全部是 **mock**（回放录制过的返回，没录到就没数据）；
+> skill 里**未被渐进式披露**的子文档只能留空。所以对比结论只在「同样输入、同样可见上下文」口径下成立，
+> 用于横向感受 MA 的耗时/缓存表现，**不等于**"把这个 agent 搬到 MA 上会一模一样"。
 
 > ⚠️ 这是一套**方法论 + 两层冻结的可复用件**，不是一键脚本。每个客户的轨迹结构、工具名、接口参数
 > 都不同，**把原始轨迹拆成中间产物**的那段代码要由你分析完这个客户的轨迹后**现写**（照 `example-demo/` 写）。
-> 但只要你产出的中间产物符合契约，下游的 skill 还原 / 文件 mock / MA 实跑 / 对比就全部白嫖复用。
+> 但只要你产出的中间产物符合契约，下游的 skill 重建 / 文件 mock / MA 实跑 / 对比就全部白嫖复用。
 
 ## 怎么用（前置准备）
 
 开始前请准备：
 
-1. **≥1 条客户自研 Agent 的运行轨迹**（JSON）。轨迹越多，还原越完整（渐进式披露的 skill 子文档、
+1. **≥1 条客户自研 Agent 的运行轨迹**（JSON）。轨迹越多，重放越接近原状（渐进式披露的 skill 子文档、
    分叉查询都需要更多轨迹覆盖）。轨迹格式**不强求统一**——不同客户导出会有差异，你要先打开看它长什么样
    （顶层是不是 `messages[]`？工具调用在 `tool_calls` 还是别处？有没有 `usage`？）。
 2. **火山方舟 `ARK_API_KEY`**（live 实跑必需；只做离线抽取/建 mock 可以先不给）。
@@ -29,7 +35,7 @@ message** 重跑，再和原轨迹对比**端到端耗时 / token 消耗 / cache
 ## 工作目录规范（一个 case 一个目录）
 
 **所有产物都落在本 skill 的场景级目录 `../../ma-cases/<case>/`（即 `scenarios/ma-replica/ma-cases/<case>/`）下**，
-一个 case（= 一次「拿某客户某批轨迹做复刻实验」）一个独立目录，互不干扰。
+一个 case（= 一次「拿某客户某批轨迹做重放对比实验」）一个独立目录，互不干扰。
 下文命令均**以 skill 根 `scenarios/ma-replica/skills/ma-replica-builder/` 为工作目录**，故 case 目录写作 `../../ma-cases/<case>`。
 这套布局由冻结层 [scripts/case_paths.py](scripts/case_paths.py) 钉死，所有脚本共用 `--case-dir` 一个开关：
 
@@ -39,7 +45,7 @@ message** 重跑，再和原轨迹对比**端到端耗时 / token 消耗 / cache
 ├── shared/                  # 两种 mock 模式共享的抽取产物（extract/build/gen_file_mocks 输出）
 │   ├── system_prompt.txt / system_sections.md
 │   ├── skill_bodies.json / replay_map.json / queries.json / coverage.json / index.json
-│   ├── skills/<code>/SKILL.md …        # 还原出的业务 skill（两模式都用）
+│   ├── skills/<code>/SKILL.md …        # 依据轨迹可见内容重建的业务 skill（两模式都用）
 │   ├── mocks-skill/…                   # 文件静态 mock 数据（仅 files 模式会挂）
 │   └── mock_system_appendix.md         # 离线取数附录（仅 files 模式拼进 system）
 ├── files-mode/<traj>/       # 静态文件模式：每条轨迹一子目录，放 rep<i>.json（精简指标）+ rep<i>.events.jsonl（原始事件流）+ run.json（聚合）
@@ -86,7 +92,7 @@ message** 重跑，再和原轨迹对比**端到端耗时 / token 消耗 / cache
 - **失败剔除**：某次重复若 `session.error` / stop_reason 为 error / 零模型请求，判为**失败**，
   **不计入耗时/token 均值**；但会统计并展示**失败率**（逐条 + 整体）作为可靠性参考。
 - 落盘：`<mode>-mode/<traj>/rep<i>.json`（每次重复精简指标）+ `rep<i>.events.jsonl`（每次重复的**原始
-  事件流**，可回放、可做内容级 diff 的"复刻新轨迹"原料；`--no-record-events` 可关）+ `run.json`（该轨迹聚合，含 fail_ratio 与成功均值）。
+  事件流**，可回放、可做内容级 diff 的"MA 侧新轨迹"原料；`--no-record-events` 可关）+ `run.json`（该轨迹聚合，含 fail_ratio 与成功均值）。
 - 一条命令（最终口径，cwd = skill 根 `scenarios/ma-replica/skills/ma-replica-builder/`）：
   ```bash
   python example-demo/scripts/run.py --case-dir ../../ma-cases/<case> --mock both --all --repeats 5
@@ -104,7 +110,7 @@ message** 重跑，再和原轨迹对比**端到端耗时 / token 消耗 / cache
     靠你传入 `custom_tools` 声明 + `resolve(name,args)` 回调，自身不含客户逻辑。
   - `report.py`：通用对比报告（MA 侧口径固定；自研侧耗时靠你传 `self_side` 回调）。
 - **② 冻结·契约转换器 `scripts/`（只依赖中间产物契约，直接用）**：
-  - `build_skill_bundle.py`：读 `skill_bodies.json` → 还原成 Claude Skills `SKILL.md` 树。
+  - `build_skill_bundle.py`：读 `skill_bodies.json` → 重建成 Claude Skills `SKILL.md` 树（未披露的留空）。
   - `gen_file_mocks.py`：读 `replay_map.json` → 物化变体 B 的文件 mock。
   - 这两个**从不读原始轨迹**，只吃下面那套中间产物，所以跨客户不用改。
 - **③ 客户·生成式代码 `example-demo/scripts/`（依赖客户轨迹，现写）**：
@@ -124,8 +130,8 @@ message** 重跑，再和原轨迹对比**端到端耗时 / token 消耗 / cache
 ## 整体流程
 
 ```
-客户轨迹 → ① 拆 system prompt → ② 还原 skill → ③ mock 所有工具调用(默认文件/可选 custom)
-         → ④ 在 MA 建 Agent/Env/Session → ⑤ 发同一 query 重跑 → ⑥ 对比耗时/token/cache
+客户轨迹 → ① 拆 system prompt → ② 重建 skill(可见部分) → ③ mock 所有工具调用(默认文件/可选 custom)
+         → ④ 在 MA 建 Agent/Env/Session → ⑤ 发同一 query 重放 → ⑥ 对比耗时/token/cache
 ```
 
 每一步详细做法见 `references/`（按需读取）：
@@ -133,7 +139,7 @@ message** 重跑，再和原轨迹对比**端到端耗时 / token 消耗 / cache
 - 三层结构 + 中间产物契约边界：`references/00-frozen-vs-client.md`
 - 识别工具角色（加载器/网关/取时间）：`references/07-tool-roles.md`
 - 拆 system prompt：`references/01-parse-system-prompt.md`
-- 还原 skill（未披露内容留空标注）：`references/02-extract-skills.md`
+- 重建 skill（未披露内容留空标注）：`references/02-extract-skills.md`
 - **变体 B**（文件静态 mock，**默认**）：`references/04-mock-variant-b-files.md`
 - **变体 A**（custom tool 动态回放，需要更高保真时选用）：`references/03-mock-variant-a-custom-tool.md`
 - 在 MA 上建并重跑：`references/05-build-and-run-ma.md`

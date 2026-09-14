@@ -40,7 +40,7 @@ python example-demo/scripts/extract_trajectories.py --traj-dir <轨迹目录> --
 3. **它是不是在取时间/环境这类确定性小工具**？→ 归到**取时间**（或按需扩一类"固定返回"工具）。
 
 判断完，把名字填进 `--skill-loader/--api-tool/--time-tool`（或直接改脚本默认值）。若客户**没有**加载器
-（skill 正文直接写死在 system prompt 里），`skill_bodies.json` 会是空的，还原 skill 这步跳过即可。
+（skill 正文直接写死在 system prompt 里），`skill_bodies.json` 会是空的，重建 skill 这步跳过即可。
 
 > 注意：这几个 `--flag` 只解决"改个工具名"。若客户轨迹**结构**不同（工具调用不在 `tool_calls`、
 > 或返回不在 `role:tool` 消息里），要改的是 `extract_trajectories.py` 的解析逻辑本身——

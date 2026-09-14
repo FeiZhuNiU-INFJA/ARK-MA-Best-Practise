@@ -1,4 +1,4 @@
-"""extract_trajectories.py —— 从客户自研 Agent 的若干条运行轨迹抽取 MA 复刻所需素材。
+"""extract_trajectories.py —— 从客户自研 Agent 的若干条运行轨迹抽取 MA 重放对比所需素材。
 
 输入：--traj-dir 下的全部 *.json（每个是一次运行，顶层 messages[]）。
 输出（写到 --out-dir）：
@@ -50,7 +50,7 @@ def other_tool_key(name: str, args: dict) -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    ap = argparse.ArgumentParser(description="从轨迹抽取 MA 复刻素材")
+    ap = argparse.ArgumentParser(description="从轨迹抽取 MA 重放对比素材")
     # case 布局（推荐）：轨迹从 <case>/trajectories 读，产物写 <case>/shared。
     ap.add_argument("--case-dir", help="case 工作目录（项目根 ma-cases/<case>）；轨迹取 trajectories/、产物落 shared/")
     # 旧口径（向后兼容）：显式指定轨迹目录与输出目录。

@@ -19,7 +19,7 @@
 
 - 自研 Agent 的 skill 详情靠 `skill_invoke` 运行时按需拉取，**一条轨迹只披露这次用到的那部分**。
 - `example-demo` 里 3 条轨迹仍有 **4 个子文档从未被披露**（`ticket_triage` 缺 2、`kb_search` 缺 2），
-  这些在还原出的 SKILL.md 里**留空并显式标注**，不是 bug。
+  这些在重建出的 SKILL.md 里**留空并显式标注**，不是 bug。
 - 解法：**补覆盖到缺失分支的轨迹**再重跑 extract，`build_skill_bundle` 会自动填上、从 `missing` 移出。
 
 ## 三、严格回放：未命中不喂假数据
