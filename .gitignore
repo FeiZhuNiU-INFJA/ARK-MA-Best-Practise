@@ -17,3 +17,4 @@ experiments/
 
 # MA 复刻实验的 per-case 工作目录（原始轨迹 / 抽取产物 / 实跑 artifact / 报告都在这，属运行期数据不入库）
 scenarios/ma-replica/ma-cases/
+.DS_Store
