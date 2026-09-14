@@ -18,11 +18,12 @@ skill**。用法不是你自己背命令去敲，而是：**把这个 skill 装�
 
 ### 第一步：把 skill 交给 agent
 
-- 用一个能加载本地 skill 的 agent（如 Trae / Claude 等），把 `skills/ma-replica-builder/` 作为 skill
-  目录挂上（不同 agent 挂载方式不同，通常是指向 skill 根目录或把它放进 agent 的 skills 搜索路径）。
-- skill 的触发时机写在 `SKILL.md` 的 frontmatter `description` 里：当你说到「客户自研 agent 轨迹」
-  「在 MA 上复刻」「对比耗时/token/是否迁移更优」这类意图时，agent 会**自动**认出该用这个 skill。
-  你不需要点名脚本，描述清楚意图即可。
+- 最省事的办法：在对话里直接 **`@` 这个 skill 目录**（`skills/ma-replica-builder/`）或它的
+  **`@ SKILL.md`**，agent 就会读到并按里面的流程走——不用纠结"skill 该放哪、怎么挂载"。
+- 如果你的 agent 支持固定的 skill 搜索路径，也可以把 `skills/ma-replica-builder/` 挂上去，
+  之后就能靠意图自动触发。触发时机写在 `SKILL.md` 的 frontmatter `description` 里：当你说到
+  「客户自研 agent 轨迹」「在 MA 上复刻」「对比耗时/token/是否迁移更优」这类意图时，agent 会认出该用它。
+  无论哪种方式，你都只需描述意图，不用点名具体脚本。
 
 ### 第二步：准备素材（对话前先放好）
 
