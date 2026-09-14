@@ -23,7 +23,7 @@ cd scenarios/ma-replica/skills/ma-replica-builder
 python example-demo/scripts/run.py --case-dir ../../ma-cases/demo                     # 默认 files 模式，跑第一条
 python example-demo/scripts/run.py --case-dir ../../ma-cases/demo --mock custom --all # custom 模式，跑全部
 python example-demo/scripts/run.py --case-dir ../../ma-cases/demo --mock both --all --repeats 5  # 最终交付口径
-# --model 换模型（默认 doubao-seed-2-1-pro-260628）；--keep 跑完不删 agent/env/session
+# --model 换模型（默认 doubao-seed-evolving）；--keep 跑完不删 agent/env/session
 # 旧口径仍可用：python example-demo/scripts/run.py --out-dir ../../data
 ```
 
