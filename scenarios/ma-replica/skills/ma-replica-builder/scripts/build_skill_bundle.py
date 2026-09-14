@@ -13,7 +13,7 @@
   - <skill_code>/SKILL.md            : YAML frontmatter(name+description) + 去掉加载器头部的正文
   - <skill_code>/references/<doc>.md : 该技能正文里引用到的子文档
         * 轨迹里已披露 → 写真实内容
-        * 轨迹里未披露 → 留空并显式标注（补更多轨迹可还原）
+        * 轨迹里未披露 → 留空并显式标注（补更多轨迹可补全）
   - index.json                       : skill_code -> {dir, docs[], missing[]}
 
 自包含：只读 --out-dir 下的 JSON；不 import 客户层，也不 import 主项目。
@@ -36,7 +36,7 @@ from case_paths import add_case_args, resolve_shared_dir
 _HEADER_LINE = re.compile(r"^(?:\[skill_invoke_result\]|skill_code=|version=|title=|document_key=)")
 _DOC_REF = re.compile(r"[A-Za-z0-9_\-]+\.md")
 _UNDISCLOSED = ("> ⚠️ 该子文档在提供的轨迹中未被披露，内容留空；"
-                "补更多覆盖到它的轨迹即可还原。\n")
+                "补更多覆盖到它的轨迹即可补全。\n")
 
 
 def strip_meta_header(body) -> tuple[dict, str]:
@@ -74,7 +74,7 @@ def make_description(skill_code: str, title: str, body: str) -> str:
     summary = first_summary_line(body)
     parts = [p for p in (title, summary) if p]
     base = "；".join(parts) if parts else skill_code
-    return f"{base}（从客户 Agent 轨迹还原的技能，用于 MA 复刻实验）"
+    return f"{base}（依据客户 Agent 轨迹可见内容重建，用于 MA 重放对比实验）"
 
 
 def yaml_escape(s: str) -> str:

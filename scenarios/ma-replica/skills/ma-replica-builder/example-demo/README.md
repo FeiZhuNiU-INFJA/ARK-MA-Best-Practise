@@ -43,12 +43,12 @@ diff -rq ../../ma-cases/demo/shared example-demo/data --exclude=ma_runs --exclud
 ## 抽取结果（已验证）
 
 - **api 回放键**：9（工具名 `api_call`），另加 1 个 `current_time` → `replay_map` 共 10 条。
-- **skill 正文/子文档**：5 份（加载器 `skill_invoke`），还原成 3 个 SKILL.md：
+- **skill 正文/子文档**：5 份（加载器 `skill_invoke`），重建成 3 个 SKILL.md：
   - `ticket_triage`：主文档 + 2 个已披露子文档（`severity-rubric.md` / `sla-policy.md`）；
     **2 个未披露**（`escalation-paths.md` / `response-templates.md`）已留空标注。
   - `kb_search`：主文档；**2 个子文档全未披露**（`query-syntax.md` / `ranking-signals.md`）留空标注。
   - `macro_suggester`：仅主文档。
-- **未披露子文档共 4 个** —— 直接印证"轨迹越多、还原越完整"：补覆盖到这些分支的轨迹再重跑，
+- **未披露子文档共 4 个** —— 直接印证"轨迹越多、重建越完整"：补覆盖到这些分支的轨迹再重跑，
   它们会被自动填上。
 - **键冲突 1 处**（同键不同返回），抽取端按"取最长成功版"归并。
 - **错误回放键 1 个**（`api|query_object|obj=interaction_log|where=ticket_id=T-1003`）——录制里就是错误返回，

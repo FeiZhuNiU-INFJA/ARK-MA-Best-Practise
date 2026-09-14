@@ -45,10 +45,12 @@ sys.path.insert(0, str(HERE))                 # 本地 replay_lib
 sys.path.insert(0, str(FROZEN))               # 冻结 ark_min / ma_runtime / report
 from ark_min import ArkMin, ArkMinError       # noqa: E402  (冻结层)
 from case_paths import CasePaths              # noqa: E402  (冻结层：case 目录布局)
+from equivalence import (build_equivalence,   # noqa: E402  (冻结层：等效性评估)
+                         collect_product_pairs)
 from ma_runtime import (build_agent_config, run_session,      # noqa: E402
                         upload_skills)
 from report import build_report               # noqa: E402  (冻结层)
-from replay_lib import strict_lookup  # noqa: E402  (Acme 特有键逻辑)
+from replay_lib import api_call_key, strict_lookup  # noqa: E402  (Acme 特有键逻辑)
 
 DEFAULT_MODEL = "doubao-seed-evolving"
 
@@ -123,6 +125,144 @@ def make_self_side(traj_dir: Path):
     return self_side
 
 
+# ── 等效性抽取（★客户特有：业务调用键规则 + 最终产物在轨迹/事件里长什么样）──
+# 只把「业务网关调用」（api_call）纳入对齐——skill 的加载方式两侧不同（原轨迹用 skill_invoke，
+# MA 用文件 read），不可直接比，故等效性只核对可比的业务接口调用。键复用 replay_lib.api_call_key，
+# 保证与"回放命中"完全同一口径。
+
+def _extract_final_text(texts: list[str]) -> str:
+    """从若干 assistant 文本里取"最终交付物"：优先最后一段像盘点卡片的（含 markdown 标题），
+    否则退回最后一段非空文本。"""
+    for t in reversed(texts):
+        if t and ("\n#" in t or t.lstrip().startswith("#") or "##" in t):
+            return t
+    return next((t for t in reversed(texts) if t and t.strip()), "")
+
+
+def make_orig_calls(api_tool: str):
+    """原轨迹（OpenAI messages 格式）→ 业务调用序列。只收 api_tool 的调用，键同回放口径。"""
+    def orig_calls(traj_path: Path) -> list[dict]:
+        msgs = json.loads(traj_path.read_text()).get("messages", [])
+        calls = []
+        for m in msgs:
+            if m.get("role") != "assistant":
+                continue
+            for tc in (m.get("tool_calls") or []):
+                fn = tc.get("function", {}) or {}
+                if fn.get("name") != api_tool:
+                    continue
+                try:
+                    args = json.loads(fn.get("arguments") or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                key = api_call_key(args)
+                calls.append({"key": key, "name": api_tool, "label": key})
+        return calls
+    return orig_calls
+
+
+def make_ma_calls(api_tool: str):
+    """MA rep 事件流 → 业务调用序列。custom 模式下业务调用是 agent.custom_tool_use（name=api_tool）。
+
+    files 模式没注册 custom tool，此处返回空（等效性模块据此判为"不可测"）。
+    """
+    def ma_calls(events_path: Path) -> list[dict]:
+        calls = []
+        with events_path.open() as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if ev.get("type") == "agent.custom_tool_use" and ev.get("name") == api_tool:
+                    inp = ev.get("input") or {}
+                    key = api_call_key(inp)
+                    calls.append({"key": key, "name": api_tool, "label": key})
+        return calls
+    return ma_calls
+
+
+def orig_product(traj_path: Path) -> str:
+    """原轨迹最终产物：最后一段 assistant 文本（content 可能是 str 或 block 列表）。"""
+    msgs = json.loads(traj_path.read_text()).get("messages", [])
+    texts = []
+    for m in msgs:
+        if m.get("role") != "assistant":
+            continue
+        c = m.get("content")
+        if isinstance(c, str):
+            texts.append(c)
+        elif isinstance(c, list):
+            texts.append("".join(b.get("text", "") for b in c
+                                 if isinstance(b, dict) and b.get("type") == "text"))
+    return _extract_final_text(texts)
+
+
+def ma_product(events_path: Path) -> str:
+    """MA rep 最终产物：事件流里 agent.message 文本，取最终交付段。"""
+    texts = []
+    with events_path.open() as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if ev.get("type") == "agent.message":
+                texts.append("".join(b.get("text", "") for b in (ev.get("content") or [])
+                                     if isinstance(b, dict) and b.get("type") == "text"))
+    return _extract_final_text(texts)
+
+
+_JUDGE_SYS = (
+    "你是资深评测员。给你两份「销售用户盘点卡片」：A=客户原系统交付、B=在方舟MA上重放交付。"
+    "判断 B 与 A 在**业务结论**上是否等效——关注：用户画像/意向等级、关键卡点与动阻力、"
+    "跟进诊断、下一步策略与话术方向是否一致；忽略排版差异与措辞。"
+    "只输出一个 JSON：{\"score\": 0-100 整数, \"verdict\": \"等效|基本等效|部分偏差|明显不等效\", "
+    "\"notes\": \"一句话关键差异\"}。score=100 表示业务结论完全一致。"
+)
+
+
+async def judge_products(ark: ArkMin, model: str, pairs: list[dict]) -> dict:
+    """对每条轨迹的 (原产物, MA产物) 做 LLM 语义判分，返回 {traj: {score, verdict, notes}}。
+
+    judge 失败（网络/解析）不阻塞报告：该轨迹标注失败原因、score=None。
+    """
+    out: dict[str, dict] = {}
+    for pr in pairs:
+        user = (f"A（客户原交付）：\n{pr['orig_text'][:3500]}\n\n"
+                f"B（MA重放交付）：\n{pr['ma_text'][:3500]}\n\n只输出 JSON。")
+        try:
+            raw = await ark.chat(model, [
+                {"role": "system", "content": _JUDGE_SYS},
+                {"role": "user", "content": user},
+            ], temperature=0.0, max_tokens=400)
+            verdict = _parse_judge(raw)
+        except (ArkMinError, ValueError) as e:
+            verdict = {"score": None, "verdict": "判分失败", "notes": str(e)[:120]}
+        out[pr["traj"]] = verdict
+    return out
+
+
+def _parse_judge(raw: str) -> dict:
+    """从模型回复里抠出 JSON 判分（容忍 ```json 包裹与前后闲话）。"""
+    s = raw.strip()
+    if "```" in s:
+        s = s.split("```")[1]
+        if s.startswith("json"):
+            s = s[4:]
+    l, r = s.find("{"), s.rfind("}")
+    if l >= 0 and r > l:
+        s = s[l:r + 1]
+    d = json.loads(s)
+    return {"score": d.get("score"), "verdict": d.get("verdict", ""), "notes": d.get("notes", "")}
+
+
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Acme 客户样板：MA 重跑 + 对比（冻结引擎 + 客户特有工具面）")
     g = ap.add_mutually_exclusive_group(required=True)
@@ -141,8 +281,16 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--concurrency", type=int, default=None,
                     help="同一轨迹内的并发上限（默认=repeats，即全并发）")
     ap.add_argument("--keep", action="store_true", help="跑完不删 agent/env/session")
+    ap.add_argument("--report-only", action="store_true",
+                    help="不实跑 MA，仅用已落盘的 <mode>-mode/*/rep*.events.jsonl 重出对比报告")
     ap.add_argument("--no-record-events", action="store_true",
-                    help="不落盘原始事件流（默认每次重复都写 rep<i>.events.jsonl 作复刻新轨迹原料）")
+                    help="不落盘原始事件流（默认每次重复都写 rep<i>.events.jsonl 作 MA 侧新轨迹原料）")
+    ap.add_argument("--no-equivalence", action="store_true",
+                    help="跳过等效性评估（默认开：业务调用对齐 + 产物结构/语义对比）")
+    ap.add_argument("--no-judge", action="store_true",
+                    help="等效性里跳过 LLM 语义判分，只出结构指标（省一次对话模型调用）")
+    ap.add_argument("--judge-model", default=None,
+                    help="产物语义判分用的对话模型 id（默认同 --model）")
     ap.add_argument("--base-url", default=os.environ.get(
         "ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"))
     return ap.parse_args()
@@ -208,9 +356,33 @@ async def run_one_mode(ark: ArkMin, a: argparse.Namespace, mock_mode: str) -> No
         repeats=a.repeats, concurrency=a.concurrency,
         record_events=not a.no_record_events)
 
-    # 对比报告（自研侧耗时用 Acme 轨迹结构）
+    await emit_report(ark, a, runs_dir, report_md, traj_dir)
+
+
+async def emit_report(ark: ArkMin, a: argparse.Namespace,
+                      runs_dir: Path, report_md: Path, traj_dir: Path) -> None:
+    """出对比报告：性能（自研侧耗时用 Acme 轨迹结构）+ 等效性（业务调用对齐 + 产物对比）。
+
+    等效性默认开；需要事件流（rep*.events.jsonl）才能核对 MA 侧业务调用/产物——
+    故建议实跑时不加 --no-record-events。judge 走对话模型（--judge-model，默认同 --model）。
+    """
     report_md.parent.mkdir(parents=True, exist_ok=True)
-    build_report(runs_dir, report_md, self_side=make_self_side(traj_dir))
+    equiv = None
+    if not a.no_equivalence:
+        judgments: dict = {}
+        if not a.no_judge:
+            pairs = collect_product_pairs(
+                trajectories_dir=traj_dir, runs_dir=runs_dir,
+                orig_product=orig_product, ma_product=ma_product)
+            if pairs:
+                print(f"  等效性：LLM 语义判分 {len(pairs)} 条产物…")
+                judgments = await judge_products(ark, a.judge_model or a.model, pairs)
+        judge_fn = (lambda traj, o, m: judgments.get(traj, {})) if judgments else None
+        equiv = build_equivalence(
+            trajectories_dir=traj_dir, runs_dir=runs_dir,
+            orig_calls=make_orig_calls(a.api_tool), ma_calls=make_ma_calls(a.api_tool),
+            orig_product=orig_product, ma_product=ma_product, judge=judge_fn)
+    build_report(runs_dir, report_md, self_side=make_self_side(traj_dir), equiv=equiv)
 
 
 async def amain() -> None:
@@ -222,7 +394,12 @@ async def amain() -> None:
     modes = ["files", "custom"] if a.mock == "both" else [a.mock]
     async with ArkMin(api_key, a.base_url) as ark:
         for mode in modes:                # both：两个模式串行跑（各自独立建 agent/env）
-            await run_one_mode(ark, a, mode)
+            if a.report_only:             # 只用已落盘的 rep*.events.jsonl 重出报告，不再实跑 MA
+                _, runs_dir, report_md, traj_dir = resolve_layout(a, mode)
+                print(f"=== 模式 {mode}：仅重出报告（report-only）===")
+                await emit_report(ark, a, runs_dir, report_md, traj_dir)
+            else:
+                await run_one_mode(ark, a, mode)
 
 
 def main() -> None:

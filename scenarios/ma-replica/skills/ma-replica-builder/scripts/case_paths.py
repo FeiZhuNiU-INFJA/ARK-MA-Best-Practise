@@ -1,6 +1,6 @@
 """case_paths.py —— 冻结层：case 工作目录的标准布局解析（永不随客户变）。
 
-一个 case = 一次「拿某客户某批轨迹做 MA 复刻实验」的完整工作目录，放在项目根 `ma-cases/<case>/` 下。
+一个 case = 一次「拿某客户某批轨迹做 MA 重放对比实验」的完整工作目录，放在项目根 `ma-cases/<case>/` 下。
 本模块把「布局约定」钉死成一处，供所有脚本（extract / build / gen_file_mocks / run）共用，
 避免各脚本各写一套路径拼接、日后漂移。
 
@@ -11,7 +11,7 @@
     ├── shared/                # 两种 mock 模式共享的抽取产物（extract/build/gen_file_mocks 的输出）
     │   ├── system_prompt.txt / system_sections.md
     │   ├── skill_bodies.json / replay_map.json / queries.json / coverage.json / index.json
-    │   ├── skills/<code>/SKILL.md …          # 还原出的业务 skill（两模式都用）
+    │   ├── skills/<code>/SKILL.md …          # 依据轨迹可见内容重建的业务 skill（两模式都用）
     │   ├── mocks-skill/…                     # 文件静态 mock 数据（仅 files 模式会挂）
     │   └── mock_system_appendix.md           # 离线取数附录（仅 files 模式拼进 system）
     ├── files-mode/<traj>/     # 静态文件模式：每条轨迹一子目录，放该轨迹的 MA 实跑 artifact

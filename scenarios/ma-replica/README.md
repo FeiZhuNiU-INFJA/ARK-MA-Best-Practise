@@ -1,11 +1,20 @@
-# 场景2：MA 复刻客户 Agent
+# 场景2：客户轨迹在 MA 上重放对比
 
-> 把**客户自研 Agent 的运行轨迹**在火山方舟 Managed Agents（MA）上**复刻**出来，用**同样的
+> 把**客户自研 Agent 的运行轨迹**在火山方舟 Managed Agents（MA）上**尽力模拟重放**，用**同样的
 > user message** 重跑 Session，再和原轨迹对比**端到端耗时 / token 消耗 / cache 命中率**，
 > 用来评估「迁移到 MA 是否更优」。
 
 客户给若干条自研 Agent 轨迹（含 system prompt、skill、工具调用）→ 离线拆成中间产物 →
-在 MA 上还原 skill + mock 工具返回 + 实跑 Session → 出一份对比报告。
+在 MA 上用抽取出的 system prompt + mock 工具返回搭一个**近似的**运行环境 + 实跑 Session → 出一份对比报告。
+
+> ⚠️ **能力边界（重要）**：这**不是复刻、也不是逆向出**客户那个真实 agent。我们拿不到它的源码、
+> 完整 system prompt、真实工具实现和未在轨迹里出现过的分支。本场景做的是**基于轨迹的模拟重放**：
+> - system prompt 是从轨迹里**抠出来的可见部分**，可能不完整；
+> - 工具全部是 **mock**（回放录制过的返回），没录到的调用就没有数据；
+> - skill 里**未被渐进式披露**的子文档只能留空。
+>
+> 所以对比结论只在「同样的输入、同样可见的上下文」这个口径下成立，用于**横向感受 MA 的耗时/缓存表现**，
+> 不等于"把这个 agent 搬到 MA 上会一模一样"。
 
 ## 这不是一个命令行工具，而是一个 skill
 
@@ -22,13 +31,13 @@ skill**。用法不是你自己背命令去敲，而是：**把这个 skill 装�
   **`@ SKILL.md`**，agent 就会读到并按里面的流程走——不用纠结"skill 该放哪、怎么挂载"。
 - 如果你的 agent 支持固定的 skill 搜索路径，也可以把 `skills/ma-replica-builder/` 挂上去，
   之后就能靠意图自动触发。触发时机写在 `SKILL.md` 的 frontmatter `description` 里：当你说到
-  「客户自研 agent 轨迹」「在 MA 上复刻」「对比耗时/token/是否迁移更优」这类意图时，agent 会认出该用它。
+  「客户自研 agent 轨迹」「在 MA 上重放对比」「对比耗时/token/是否迁移更优」这类意图时，agent 会认出该用它。
   无论哪种方式，你都只需描述意图，不用点名具体脚本。
 
 ### 第二步：准备素材（对话前先放好）
 
 1. **≥1 条客户自研 Agent 的运行轨迹（JSON）**：放进 `ma-cases/<你的case名>/trajectories/`。
-   轨迹越多，还原越完整。格式不强求统一，agent 会先打开看结构。
+   轨迹越多，重放越接近原状（能覆盖更多 skill 子文档与工具调用分支）。格式不强求统一，agent 会先打开看结构。
 2. **火山方舟 `ARK_API_KEY`**：live 实跑必需（只做离线抽取/建 mock 可以先不给）。
    放在 agent 能读到的地方（如 `~/.arkagent/config.env`）并在对话里告诉它。
 
@@ -38,11 +47,11 @@ skill**。用法不是你自己背命令去敲，而是：**把这个 skill 装�
 
 ```text
 你：我在 scenarios/ma-replica/ma-cases/nio/trajectories/ 放了 6 条客户自研 agent 的轨迹，
-    帮我在 MA 上复刻这个 agent。
+    帮我在 MA 上重放并对比一下。
 
 agent：（读 SKILL.md → 打开轨迹分析结构 → 现写 extract 把轨迹拆成中间产物
-       → 还原 skill、把工具调用物化成文件 mock）已完成离线抽取：拆出 N 个 api 调用、
-       M 个 skill、生成 K 个文件 mock，放在 ma-cases/nio/shared/。要现在 live 实跑对比吗？
+       → 依据轨迹里可见的 skill 内容重建 SKILL.md、把工具调用物化成文件 mock）已完成离线抽取：
+       拆出 N 个 api 调用、M 个 skill、生成 K 个文件 mock，放在 ma-cases/nio/shared/。要现在 live 实跑对比吗？
 
 你：跑吧，api key 在 ~/.arkagent/config.env。两种 mock 都跑，每条轨迹并发 5 次。
 
@@ -68,7 +77,7 @@ agent：（起 run.py 后台跑，自己定时轮询直到两份报告生成）�
         │  ① extract：认这个客户的轨迹结构，拆成中间产物契约
         ▼
   中间产物（replay_map / skill_bodies / system_prompt / queries …）
-        │  ② build_skill_bundle：还原成 Claude Skills SKILL.md 树
+        │  ② build_skill_bundle：依据轨迹可见内容重建 Claude Skills SKILL.md 树（未披露的留空）
         │  ③ gen_file_mocks：把每次工具调用物化成文件（变体 B）
         ▼
    两种 mock 模式在 MA 上实跑同样的 user message
@@ -84,7 +93,7 @@ agent：（起 run.py 后台跑，自己定时轮询直到两份报告生成）�
 ```bash
 cd scenarios/ma-replica/skills/ma-replica-builder
 
-# ① 离线：抽取中间产物 → 还原 skill → 物化文件 mock
+# ① 离线：抽取中间产物 → 重建 skill（可见部分）→ 物化文件 mock
 #    （先把客户轨迹放进 ../../ma-cases/<case>/trajectories/）
 python example-demo/scripts/extract_trajectories.py --case-dir ../../ma-cases/<case>
 python scripts/build_skill_bundle.py               --case-dir ../../ma-cases/<case>
@@ -105,14 +114,14 @@ python example-demo/scripts/run.py --case-dir ../../ma-cases/<case> --mock both 
 scenarios/ma-replica/
 ├── README.md                 # 本文件：场景导览（用户视角怎么用）
 ├── skills/
-│   └── ma-replica-builder/   # ★ 本场景核心：复刻构建器（方法论 + 冻结层脚本 + 参照样板）
+│   └── ma-replica-builder/   # ★ 本场景核心：轨迹重放构建器（方法论 + 冻结层脚本 + 参照样板）
 │       ├── SKILL.md          # agent 读的主文档：完整流程、命令、执行纪律、口径
 │       ├── PROBLEMS.md       # 踩坑与口径边界（换客户前先读）
 │       ├── scripts/          # 冻结层：ark_min / ma_runtime / report / build_skill_bundle / gen_file_mocks / case_paths
 │       ├── references/       # 分步参考（00~07）
 │       └── example-demo/     # 合成参照样板（Acme 客服工单分诊）：extract/run + 轨迹 + data 基准
 ├── ma-cases/                 # ★ per-case 运行期数据（原始轨迹/抽取产物/实跑/报告），不入库（.gitignore）
-│   └── <case>/               # 一个 case = 一次「拿某客户某批轨迹做复刻实验」
+│   └── <case>/               # 一个 case = 一次「拿某客户某批轨迹做重放对比实验」
 └── context/                  # 场景相关的客户原始材料，不入库（.gitignore）
 ```
 

@@ -2,7 +2,7 @@
 
 设计目标（本 skill 的硬约束）：
   * 完全自包含：只依赖 httpx，**不 import 主项目 arkagent**。
-  * 覆盖复刻实验所需的最小 API 面：
+  * 覆盖重放对比实验所需的最小 API 面：
       - create_agent / create_environment / create_session
       - send_event（发 user.message、user.custom_tool_result）
       - stream_events（SSE 事件流迭代）
@@ -79,6 +79,27 @@ class ArkMin:
             return resp.json()
         except json.JSONDecodeError:
             return {}
+
+    # ---- chat completions（等效性 LLM 判分用；与 MA agent/session 无关）----
+    async def chat(self, model: str, messages: list[dict],
+                   temperature: float = 0.0, max_tokens: int = 1024) -> str:
+        """最小 chat-completions：发一组 messages，返回首条回复的文本。
+
+        用于 equivalence 的「原产物 vs MA 产物」语义判分——那是一次性的打分请求，
+        不需要工具/流式，走方舟兼容 OpenAI 的 /chat/completions 即可。model 用普通对话模型 id。
+        """
+        payload = await self._request("POST", "/chat/completions", {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        })
+        data = _unwrap(payload)
+        choices = data.get("choices") or payload.get("choices") or []
+        if not choices:
+            raise ArkMinError(f"chat 无 choices: {json.dumps(payload, ensure_ascii=False)[:300]}")
+        msg = choices[0].get("message") or {}
+        return str(msg.get("content") or "")
 
     # ---- agents ----
     async def create_agent(self, config: dict) -> str:
