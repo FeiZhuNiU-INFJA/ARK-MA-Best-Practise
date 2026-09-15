@@ -143,7 +143,7 @@ scenarios/feishu-bot/
 | [node_helper.py](arkagent/node_helper.py) | 封装 Node 小岛 | `registerApp` 无 Python 等价物；子进程运行，stderr 透传二维码，从临时 JSON 读回 `{appId,appSecret,userOpenId}` |
 | [gateway.py](arkagent/gateway.py) | 网关编排核心 | 串行队列；指令分发（`/new` `/role` `/whoami` `/remember`）；创建 Session 时组装 `env_overrides`（OpenID 透传）+ `vault_ids`（凭据）+ `resources`（挂 Memory Store） |
 | [ark.py](arkagent/ark.py) | 方舟 MA 异步客户端 | `create_session`(resources) / `send_message`(system.message) / `create_static_bearer_credential` / `create_memory_store`+`create_memory` / `update_agent`；SSE 流式 + 超时回查 |
-| [feishu.py](arkagent/feishu.py) | 飞书接入层 | 基于 `lark-oapi`；WS 回调只做去重与入队（不等 Agent 执行）；单聊全量、群聊仅 `@Bot` |
+| [feishu.py](arkagent/feishu.py) | 飞书接入层 | 入站基于官方 `lark-channel-sdk`（`FeishuChannel`：WS 长连接/断线重连/事件归一化/去重打包），出站沿用 SDK 自带的同步 OpenAPI `Client`；单聊全量、群聊仅 `@Bot` |
 | [role.py](arkagent/role.py) | 岗位信息（软层） | 24h TTL 缓存；仅在「本 Session 未注入过」时挂一次 `system.message`；`on_role_change` 清标记强制重注入；HR Provider 可替换（默认 mock） |
 | [memory.py](arkagent/memory.py) | 跨 Session 记忆 | 每 open_id 一个专属 Store，仅创建 Session 时挂载；岗位调动不新建 Store 只开新 Session；写入靠应用侧 `/remember` 调 API（Agent 对 `/mnt/memory` 只读） |
 | [store.py](arkagent/store.py) | SQLite 持久化 | 会话映射、事件去重、`role_cache`、`memory_stores`/`team_stores` 表 |
