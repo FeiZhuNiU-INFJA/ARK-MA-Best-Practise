@@ -109,7 +109,7 @@ def _main() -> None:
     print("    事件订阅（长连接 + im.message.receive_v1）、开启机器人能力，然后【发布版本】。")
     print("  · 启动 demo（会自己 source 出这些变量）：")
     print("      set -a && source ~/.arkagent/config.env && set +a")
-    print("      python scenarios/feishu-bot/cases/group-bot/demo_a_serial.py")
+    print("      python scenarios/feishu-bot/cases/group-bot/client_serial_bot.py")
     print("=" * 60)
 
 
