@@ -32,10 +32,12 @@ import threading
 from shared import (
     GroupBotConfig,
     GroupConversationKey,
-    InMemorySessionMap,
-    build_actor_input,
+    SqliteSessionMap,
+    build_windowed_input,
     is_authorized,
     load_group_bot_config,
+    message_log_tag,
+    setup_logging,
     should_handle,
     to_group_key,
 )
@@ -51,8 +53,10 @@ BACKOFF_CAP_S = 15.0
 
 
 def _is_runtime_busy(error: Exception) -> bool:
-    """方舟队列满会返回 409 RuntimeBusy。ArkClient 把状态码/报文拼进异常字符串，
-    这里按字符串识别（示例够用；生产建议让客户端透出结构化状态码）。"""
+    """方舟队列满会返回 409 RuntimeBusy。优先用 ArkError 的结构化 status_code 判定，
+    非 ArkError（或没带状态码）时退回按字符串识别。"""
+    if isinstance(error, ArkError) and error.status_code == 409:
+        return True
     text = str(error)
     return " 409" in text or "RuntimeBusy" in text
 
@@ -71,17 +75,22 @@ class ConcurrentGroupBot:
         self._ark = ark
         self._sender = sender
         self._loop = loop
-        self._sessions = InMemorySessionMap()
+        self._sessions = SqliteSessionMap()
         # 每个群 key 一个「建会话锁」，避免并发首条消息重复建 Session。
         self._create_locks: dict[str, asyncio.Lock] = {}
         self._consumers: dict[str, asyncio.Task] = {}
 
     def accept(self, message: IncomingMessage) -> bool:
+        tag = message_log_tag(message)
+        log.info("%s 收到消息，text=%r", tag, message.text[:80])
         if not should_handle(message):
+            log.info("%s 丢弃：群消息未 @bot 或空文本（should_handle=False）", tag)
             return False
         if not self._sessions.claim_event(message.event_id):
+            log.info("%s 丢弃：event 已处理过（去重命中）", tag)
             return False
         # 直接投递处理协程（不串行化）——多条消息可并发进入 _handle。
+        log.info("%s 直投处理协程（方舟原生队列，不客户端排队）", tag)
         self._loop.call_soon_threadsafe(
             lambda: self._loop.create_task(self._handle(message))
         )
@@ -91,13 +100,17 @@ class ConcurrentGroupBot:
         await self._loop.run_in_executor(None, self._sender.send_to_chat, chat_id, text)
 
     async def _handle(self, message: IncomingMessage) -> None:
+        tag = message_log_tag(message)
+        log.info("%s 开始处理", tag)
         try:
             if not is_authorized(self._config, message.user_open_id):
+                log.info("%s 未授权，拒绝：open_id=%s", tag, message.user_open_id)
                 await self._send_to_chat(message.chat_id, "当前用户未授权。请联系管理员把你的 open_id 加入白名单。")
                 return
 
             key = to_group_key(message)
             if message.text.strip() == "/new":
+                log.info("%s 指令 /new：重置本群会话并停消费协程", tag)
                 self._sessions.reset(key)
                 await self._stop_consumer(key)
                 await self._send_to_chat(message.chat_id, "已重置本群会话，下一条消息会创建新的共享 Session。")
@@ -110,11 +123,14 @@ class ConcurrentGroupBot:
             await self._send_to_chat(message.chat_id, f"执行失败：{str(error)[:240]}")
 
     async def _ensure_session(self, message: IncomingMessage, key: GroupConversationKey) -> str:
+        tag = message_log_tag(message)
         lock = self._create_locks.setdefault(key.as_str(), asyncio.Lock())
         async with lock:
             session_id = self._sessions.get(key)
             if session_id:
+                log.info("%s 命中已有 Session=%s", tag, session_id)
                 return session_id
+            log.info("%s 无现成 Session，创建新的共享 Session", tag)
             await self._send_to_chat(message.chat_id, "已收到，正在为本群创建共享会话，首次可能需要几分钟。")
             session_id = await self._ark.create_session(
                 self._config.ark_agent_id,
@@ -126,23 +142,57 @@ class ConcurrentGroupBot:
             self._consumers[key.as_str()] = self._loop.create_task(
                 self._consume(session_id, message.chat_id, key)
             )
+            log.info("%s 已建 Session=%s，并起消费协程", tag, session_id)
             return session_id
 
     async def _post_message(self, session_id: str, message: IncomingMessage) -> None:
-        """直发 user.message；running 时方舟写入待处理队列。满队列 409 则退避重试。"""
-        actor_input = build_actor_input(message)
+        """直发 user.message；running 时方舟写入待处理队列。满队列 409 则退避重试。
+
+        另兜一层 session 失效：持久化的 session_id 可能已在方舟侧过期/被清（重启后尤甚），
+        send_message 会 404。此时重置映射、停掉旧消费协程、重建一个新 Session（并起新消费
+        协程），换用新 session_id 重发一次。
+        """
+        tag = message_log_tag(message)
+        key = to_group_key(message)
+        actor_input = await self._windowed_input(message)
+        log.debug("%s 完整 input：\n%s", tag, actor_input)
         delay = BACKOFF_BASE_S
         for attempt in range(MAX_409_RETRIES + 1):
             try:
                 await self._ark.send_message(session_id, actor_input)
+                log.info("%s 已直发方舟 Session=%s，input 长度=%d", tag, session_id, len(actor_input))
                 return
             except ArkError as error:
+                if error.status_code == 404:
+                    # Session 失效：清掉旧映射与旧消费协程，重建后换新 session_id 重发。
+                    log.warning("%s Session 已失效(404)，重建后重发：%s", tag, error)
+                    self._sessions.reset(key)
+                    await self._stop_consumer(key)
+                    session_id = await self._ensure_session(message, key)
+                    log.info("%s 已重建 Session=%s，重发本条", tag, session_id)
+                    continue
                 if not _is_runtime_busy(error) or attempt == MAX_409_RETRIES:
                     raise
                 # 队列满：不要猛重试。退避等待 Agent 消费掉队列后再发。
-                log.info("队列忙(409)，第 %d 次退避 %.1fs 后重试", attempt + 1, delay)
+                log.info("%s 队列忙(409)，第 %d 次退避 %.1fs 后重试", tag, attempt + 1, delay)
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, BACKOFF_CAP_S)
+
+    async def _windowed_input(self, message: IncomingMessage) -> str:
+        """读群历史 → 取「倒数第二次 @bot → 当前」窗口 → 拼成一条 user message。
+
+        与 Demo A 完全一致：群聊才读历史，私聊直接空窗口；lark-oapi 同步调用丢 executor，
+        读失败降级为无上下文。方案 C 直发到 running 中的 Session，这条 user message 会被
+        方舟写入待处理队列、在可调度边界处消费——窗口本身仍是「这一条消息」的完整上下文。
+        """
+        if message.chat_type != "group":
+            return build_windowed_input(message, [])
+        try:
+            history = await self._loop.run_in_executor(None, self._sender.list_messages, message)
+        except Exception as error:  # noqa: BLE001 - 历史读失败不该拖垮本轮，降级为无上下文
+            log.warning("读取群历史失败，本轮不带上下文：%s", error)
+            history = []
+        return build_windowed_input(message, history)
 
     async def _consume(self, session_id: str, chat_id: str, key: GroupConversationKey) -> None:
         """常驻读取 Session 事件流：每到一个回合结束(idle)，把该回合最后一条
@@ -167,8 +217,10 @@ class ConcurrentGroupBot:
                             # 一个可调度回合结束：把合并后的最终回复发出去。
                             if pending:
                                 await self._send_to_chat(chat_id, pending[-1])
+                                log.info("[session=%s] 回合结束，回复已发出", session_id)
                                 pending.clear()
                         elif etype in ("session.error", "session.status_failed"):
+                            log.warning("[session=%s] 会话出错，回执错误提示", session_id)
                             await self._send_to_chat(chat_id, "本群会话执行出错，请稍后重试或 /new 重置。")
                             pending.clear()
             except asyncio.CancelledError:
@@ -188,7 +240,7 @@ class ConcurrentGroupBot:
 
 
 def main() -> None:
-    logging.basicConfig(level="INFO", format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    setup_logging(level="INFO")
     config = load_group_bot_config()
 
     ark = ArkClient(config.ark_api_key, config.ark_base_url)

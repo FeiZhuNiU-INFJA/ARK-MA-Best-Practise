@@ -28,8 +28,22 @@ async function main() {
       desc: "由火山方舟 Managed Agents 驱动的飞书机器人（迁移方案演示）"
     },
     addons: {
-      // 仅 tenant 身份：发消息 + 订阅消息事件。不申请任何 user scope（无用户 OAuth）。
-      scopes: { tenant: ["im:message:send_as_bot"], user: [] },
+      // 仅 tenant 身份，不申请任何 user scope（无用户 OAuth）：
+      //   - im:message:send_as_bot   以应用身份发消息 / 回复
+      //   - im:message               基础消息读取
+      //   - im:message.group_msg     读整段群历史（窗口上下文靠 im.v1.message.list 拉历史，缺此 scope 会 400 / 230027）
+      //   - im:chat:readonly         读群信息（thread/chat 容器，可选但保险）
+      //   - im:resource              下载消息中的文件 / 图片资源（im.v1.message_resource.get；读群文件必需）
+      scopes: {
+        tenant: [
+          "im:message:send_as_bot",
+          "im:message",
+          "im:message.group_msg",
+          "im:chat:readonly",
+          "im:resource"
+        ],
+        user: []
+      },
       events: { items: { tenant: ["im.message.receive_v1"] } }
     },
     onQRCodeReady(info) {

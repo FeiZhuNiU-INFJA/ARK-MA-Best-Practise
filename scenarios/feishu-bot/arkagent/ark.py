@@ -31,7 +31,18 @@ class RunResult:
 
 
 class ArkError(RuntimeError):
-    pass
+    """方舟请求异常。
+
+    除消息文本外带上结构化字段，供调用方可靠判定（不必再靠字符串匹配）：
+      - status_code：HTTP 状态码（404=Session 不存在、409=RuntimeBusy 等）。
+      - body：响应体前若干字符，便于日志排查。
+    向后兼容：状态码仍拼进 message 字符串，老的 `" 409" in str(error)` 判断照常工作。
+    """
+
+    def __init__(self, message: str, status_code: Optional[int] = None, body: str = ""):
+        super().__init__(message)
+        self.status_code = status_code
+        self.body = body
 
 
 def _now_ms() -> int:
@@ -75,7 +86,14 @@ class ArkClient:
         if response.status_code >= 400:
             request_id = response.headers.get("x-request-id")
             suffix = f" ({request_id})" if request_id else ""
-            raise ArkError(f"方舟请求失败 {response.status_code}{suffix}: {response.text[:300]}")
+            body = response.text[:300]
+            # 带上结构化 status_code/body，调用方可据 404（Session 失效）/409（队列忙）精准兜底，
+            # 无需再解析 message 字符串。message 里仍保留状态码，兼容旧的字符串判断。
+            raise ArkError(
+                f"方舟请求失败 {response.status_code}{suffix}: {body}",
+                status_code=response.status_code,
+                body=body,
+            )
         if not response.content:
             return {}
         try:
@@ -357,7 +375,16 @@ class _EventStream:
         self._ctx = self._client._client.stream("GET", url, headers=headers, timeout=None)
         self._response = await self._ctx.__aenter__()
         if self._response.status_code >= 400:
-            raise ArkError(f"方舟事件流失败 {self._response.status_code}")
+            body = ""
+            try:
+                body = (await self._response.aread()).decode("utf-8", "replace")[:300]
+            except Exception:  # noqa: BLE001 - 读错误体失败不影响抛出状态码
+                body = ""
+            raise ArkError(
+                f"方舟事件流失败 {self._response.status_code}: {body}",
+                status_code=self._response.status_code,
+                body=body,
+            )
         return self._iterate()
 
     async def __aexit__(self, *exc) -> None:
