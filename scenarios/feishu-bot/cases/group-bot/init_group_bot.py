@@ -29,6 +29,7 @@ from arkagent.paths import get_arkagent_paths
 
 DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 DEFAULT_MODEL_ID = "doubao-seed-2-1-pro-260628"
+DEFAULT_BOT_DISPLAY_NAME = "群助手"
 
 
 def _load_existing(config_path: str) -> dict[str, str]:
@@ -56,10 +57,10 @@ def _ensure_config_file(config_path: str) -> None:
     os.chmod(config_path, stat.S_IRUSR | stat.S_IWUSR)
 
 
-async def _create_group_agent(api_key: str, base_url: str, model_id: str) -> str:
+async def _create_group_agent(api_key: str, base_url: str, model_id: str, bot_name: str) -> str:
     ark = ArkClient(api_key, base_url)
     try:
-        agent = await ark.create_agent(build_group_agent_config(model_id))
+        agent = await ark.create_agent(build_group_agent_config(model_id, bot_name))
     finally:
         await ark.aclose()
     return str(agent["id"])
@@ -77,6 +78,8 @@ def _main() -> None:
         )
     base_url = _pick("ARK_BASE_URL", existing, DEFAULT_BASE_URL).rstrip("/")
     model_id = _pick("GROUP_BOT_MODEL_ID", existing, DEFAULT_MODEL_ID)
+    # bot 在飞书群里的显示名，写进 system prompt 供模型识别「@谁=在叫自己」；应与开放平台一致。
+    bot_name = _pick("GROUP_BOT_DISPLAY_NAME", existing, DEFAULT_BOT_DISPLAY_NAME)
 
     # ---- 阶段 1：扫码建飞书应用 ----
     print("【1/3】即将打开扫码建应用流程，请用飞书扫码确认……")
@@ -93,7 +96,7 @@ def _main() -> None:
 
     # ---- 阶段 4：建群聊 Bot-only Agent ----
     print("【2/3】正在创建群聊 Bot-only Agent……")
-    agent_id = asyncio.run(_create_group_agent(api_key, base_url, model_id))
+    agent_id = asyncio.run(_create_group_agent(api_key, base_url, model_id, bot_name))
     print(f"      已创建群聊共享 Agent：{agent_id}")
 
     # ---- 阶段 2（下半）：Agent ID 也写回 config.env ----

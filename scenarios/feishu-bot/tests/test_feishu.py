@@ -3,8 +3,10 @@ from types import SimpleNamespace
 
 from arkagent.feishu import (
     _inbound_to_incoming,
+    _quoted_from_item,
     normalize_feishu_message,
     normalize_history_item,
+    resolve_quote_chain,
 )
 
 
@@ -54,11 +56,29 @@ def test_normalize_extracts_text_and_removes_mention_tokens():
         },
     })
     assert result is not None
-    assert result.text == "帮我总结"
+    assert result.text == "帮我总结"  # mention 无 name，token 删掉
     assert result.mentioned_bot is True
     assert result.user_open_id == "ou-user"
     assert result.chat_type == "group"
     assert result.create_time == 1700000001234
+
+
+def test_normalize_keeps_mention_name_when_present():
+    # mention 带 name 时，@token 换成可读的 @名字（含对 bot 的提及），转录里保留「@谁」。
+    result = normalize_feishu_message({
+        "event_id": "evt-2",
+        "sender": {"sender_id": {"open_id": "ou-user"}},
+        "message": {
+            "message_id": "om-2",
+            "chat_id": "oc-1",
+            "chat_type": "group",
+            "message_type": "text",
+            "content": json.dumps({"text": "@_user_1 帮我总结"}),
+            "mentions": [{"key": "@_user_1", "id": {"open_id": "ou-bot"}, "name": "小助手"}],
+        },
+    })
+    assert result is not None
+    assert result.text == "@小助手 帮我总结"
 
 
 def test_normalize_ignores_non_text_messages():
@@ -163,3 +183,111 @@ def test_inbound_defaults_tenant_when_missing():
     assert result is not None
     assert result.tenant_key == "default"
     assert result.mentioned_bot is False
+
+
+def test_inbound_maps_reply_to_message_id_from_reply():
+    # SDK 把用户显式引用归一化到 msg.reply；_inbound_to_incoming 应取出其 message_id。
+    result = _inbound_to_incoming(
+        _inbound(reply=SimpleNamespace(message_id="om-quoted-1"))
+    )
+    assert result is not None
+    assert result.reply_to_message_id == "om-quoted-1"
+
+
+def test_inbound_reply_to_empty_when_no_reply():
+    # 没有引用（reply 为 None、无便捷属性）时应为空串，resolve_quote_chain 直接返回 []。
+    result = _inbound_to_incoming(_inbound())
+    assert result is not None
+    assert result.reply_to_message_id == ""
+
+
+# ---- 引用链回溯 resolve_quote_chain / _quoted_from_item -----------------------
+
+def _quote_item(mid: str, *, parent_id: str = "", text: str = "", **overrides) -> dict:
+    base = {
+        "message_id": mid,
+        "msg_type": "text",
+        "create_time": "1700000000000",
+        "deleted": False,
+        "parent_id": parent_id,
+        "sender": {"id": f"ou-{mid}", "sender_type": "user", "sender_name": mid},
+        "body": {"content": json.dumps({"text": text or mid})},
+        "mentions": [],
+    }
+    base.update(overrides)
+    return base
+
+
+def test_resolve_quote_chain_empty_when_no_parent():
+    assert resolve_quote_chain("", lambda _mid: None) == []
+
+
+def test_resolve_quote_chain_single_direct_quote():
+    store = {"om-q1": _quote_item("om-q1", text="被引用的话")}
+    chain = resolve_quote_chain("om-q1", store.get)
+    assert [(q.message_id, q.depth, q.text) for q in chain] == [("om-q1", 1, "被引用的话")]
+
+
+def test_resolve_quote_chain_follows_parent_ids_with_depth():
+    # om-q1 引用 om-q2，om-q2 引用 om-q3：depth 依次 1/2/3。
+    store = {
+        "om-q1": _quote_item("om-q1", parent_id="om-q2", text="第一层"),
+        "om-q2": _quote_item("om-q2", parent_id="om-q3", text="第二层"),
+        "om-q3": _quote_item("om-q3", text="第三层"),
+    }
+    chain = resolve_quote_chain("om-q1", store.get)
+    assert [(q.message_id, q.depth) for q in chain] == [("om-q1", 1), ("om-q2", 2), ("om-q3", 3)]
+
+
+def test_resolve_quote_chain_truncates_at_max_depth():
+    # 造一条 8 层长链，默认封顶 MAX_QUOTE_DEPTH=5。
+    store = {
+        f"om-q{i}": _quote_item(f"om-q{i}", parent_id=f"om-q{i + 1}")
+        for i in range(1, 9)
+    }
+    chain = resolve_quote_chain("om-q1", store.get)
+    assert len(chain) == 5
+    assert [q.depth for q in chain] == [1, 2, 3, 4, 5]
+
+
+def test_resolve_quote_chain_respects_custom_max_depth():
+    store = {
+        "om-q1": _quote_item("om-q1", parent_id="om-q2"),
+        "om-q2": _quote_item("om-q2", parent_id="om-q3"),
+        "om-q3": _quote_item("om-q3"),
+    }
+    chain = resolve_quote_chain("om-q1", store.get, max_depth=2)
+    assert [q.message_id for q in chain] == ["om-q1", "om-q2"]
+
+
+def test_resolve_quote_chain_breaks_on_cycle():
+    # A 引 B、B 又引 A：seen 集合应在回到 A 时截断，不无限循环。
+    store = {
+        "om-a": _quote_item("om-a", parent_id="om-b"),
+        "om-b": _quote_item("om-b", parent_id="om-a"),
+    }
+    chain = resolve_quote_chain("om-a", store.get)
+    assert [q.message_id for q in chain] == ["om-a", "om-b"]
+
+
+def test_resolve_quote_chain_stops_when_fetch_returns_none():
+    # 中途某条读不到（撤回/无权限）：停在能读到的部分。
+    store = {"om-q1": _quote_item("om-q1", parent_id="om-missing")}
+    chain = resolve_quote_chain("om-q1", store.get)
+    assert [q.message_id for q in chain] == ["om-q1"]
+
+
+def test_quoted_from_item_deleted_becomes_placeholder():
+    quoted = _quoted_from_item(_quote_item("om-q1", deleted=True, body={"content": None}), depth=1)
+    assert quoted is not None
+    assert "撤回" in quoted.text
+
+
+def test_quoted_from_item_image_placeholder():
+    quoted = _quoted_from_item(
+        _quote_item("om-q1", msg_type="image", body={"content": json.dumps({"image_key": "img-1"})}),
+        depth=2,
+    )
+    assert quoted is not None
+    assert quoted.text == "[图片]"
+    assert quoted.depth == 2

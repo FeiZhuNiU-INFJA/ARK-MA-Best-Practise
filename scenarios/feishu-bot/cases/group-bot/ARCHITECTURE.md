@@ -18,8 +18,9 @@
 
 | 结构 | 定义位置 | 作用 | 关键字段 |
 |---|---|---|---|
-| `IncomingMessage` | [feishu.py:22](../../arkagent/feishu.py) | **单条入站消息的归一化契约**（接入层→业务的防腐层） | `event_id`（去重）、`chat_id`/`thread_id`/`tenant_key`（分桶）、`chat_type`、`mentioned_bot`（是否处理）、`message_id`（回复/筛历史）、`text`、`create_time`（窗口排序/截断）、`user_open_id` |
-| `HistoryMessage` | [feishu.py:36](../../arkagent/feishu.py) | 一条**群历史**消息归一化后的结果，比入站多两个语义判定位 | `at_bot`（切窗口边界）、`is_from_bot`（过滤 bot 回复）、`create_time`（升序）、`sender_name`（转录显示名）、`text` |
+| `IncomingMessage` | [feishu.py:26](../../arkagent/feishu.py) | **单条入站消息的归一化契约**（接入层→业务的防腐层） | `event_id`（去重）、`chat_id`/`thread_id`/`tenant_key`（分桶）、`chat_type`、`mentioned_bot`（是否处理）、`message_id`（回复/筛历史）、`text`、`create_time`（窗口排序/截断）、`user_open_id`、`reply_to_message_id`（显式引用的消息 id→引用链）、`root_id`（话题根消息 id→话题前情） |
+| `HistoryMessage` | [feishu.py:64](../../arkagent/feishu.py) | 一条**群历史**消息归一化后的结果，比入站多两个语义判定位 | `at_bot`（切窗口边界）、`is_from_bot`（过滤 bot 回复）、`create_time`（升序）、`sender_name`（转录显示名，保留 `@名字`）、`text` |
+| `QuotedMessage` | [feishu.py:48](../../arkagent/feishu.py) | 引用链上一条**被引用消息**的归一化结果（`resolve_quote_chain` 产出） | `depth`（1=直接引用，越大越久远，封顶 `MAX_QUOTE_DEPTH`=5）、`sender_name`、`text`、`message_id`（去重用） |
 | `GroupConversationKey` | [shared.py:35](shared.py) | 共享会话键，**刻意不含 user_open_id** | `tenant_key` + `chat_id` + `thread_id` → `as_str()` = `"t:chat:thread"` |
 | `SqliteSessionMap` | [shared.py:343](shared.py) | 群 key → 方舟 session_id 的**持久化映射** + 事件去重，跨重启不丢 | 表 `sessions(key, session_id)`、`seen_events(event_id)` |
 | `RunResult` | [ark.py:27](../../arkagent/ark.py) | 方舟一轮运行的终态结果 | `terminal`（`"idle"`/`"failed"`）、`messages` |
@@ -68,9 +69,11 @@ flowchart TD
     H -- 有 --> J[命中已有 Session]
     I --> K
     J --> K[_windowed_input]
-    K --> L[list_messages 读历史]
+    K --> L[list_messages 读话题/群历史]
     L --> M[select_window 切窗口]
-    M --> N[build_windowed_input\n纯转录，最后一行=当前请求]
+    M --> Q[_quote_chain 沿 parent_id 回溯引用链\nreply_to_message_id 有值时，最多 5 层]
+    Q --> T[_thread_context 读话题前情\nroot_id 有值时：根消息 + 根之前 N 条主时间线]
+    T --> N[build_windowed_input\n话题前情 → 窗口 → 引用块 → 当前请求，统一去重]
     N --> O[发往方舟]
 ```
 
@@ -88,17 +91,26 @@ flowchart TD
 | 8 | 历史项筛选 | `_is_eligible_history` [feishu.py:424](../../arkagent/feishu.py) | `message_id != trigger.message_id` **且** `0 < create_time <= trigger.create_time` | 排除触发消息本身、排除并发到达的"未来"消息 |
 | 9 | at_bot / is_from_bot | `normalize_history_item` [feishu.py:436](../../arkagent/feishu.py) | `mentions[].id == bot_open_id` / `sender_type=="app"` 或 `sender_open_id==bot_open_id` | 给历史项打上切窗/过滤标记 |
 | 10 | 窗口边界 | `select_window` [shared.py:145](shared.py) | 历史项的 `is_from_bot`（先滤掉）、`at_bot`（取最近一条作为窗口起点） | 无 at_bot 时回退最近 `FALLBACK_WINDOW_MESSAGES`(10) 条 |
+| 11 | 是否解析引用链 | `_quote_chain` → `resolve_quote_chain` [feishu.py:399](../../arkagent/feishu.py) | `reply_to_message_id` 非空（SDK 仅在 `parent_id != root_id` 即用户显式引用时填） | 沿 `parent_id` 逐层 `get_message`，最多 `MAX_QUOTE_DEPTH`(5) 层，`seen` 防环 |
+| 12 | 是否补话题前情 | `_thread_context` → `load_thread_context` [feishu.py:337](../../arkagent/feishu.py) | `root_id` 非空（话题群才有） | 读根消息 + 根之前 `THREAD_CONTEXT_BEFORE`(3) 条主时间线，thread 容器读不到故单独补 |
+| 13 | 转录去重 | `build_windowed_input` [shared.py:196](shared.py) | `message_id` 是否已在 `seen_ids`（话题前情/窗口/引用共用一个集合） | 已出现过的不再重复注入 |
 
 窗口规则的语义：「倒数第一次 @bot」= 当前触发消息（不在历史里）；「倒数第二次 @bot」
 = 历史里**最近一条** `at_bot`。从它到现在，正好是上一轮触发点之后、尚未喂过 Session 的增量。
 
-拼出的 user message 是**纯对话转录**（不再有 `<conversation_context>` 等 XML 包裹）：
+拼出的 user message 是**纯对话转录**（不再有 `<conversation_context>` 等 XML 包裹），
+按「话题前情 → 窗口历史 → 引用块 → 当前请求」四段拼接，转录里保留 `@名字`（含 @bot 自己，
+其身份由 Agent system prompt 的 `GROUP_BOT_DISPLAY_NAME` 声明）：
 
 ```
-Alice: 老板说要出周报
+[话题前情 Alice: 上周的周报模板在这]   ← 话题群才有：根消息 + 根之前 N 条主时间线（load_thread_context）
+Alice: 老板说要出周报              ← 窗口历史（select_window）
 Bob: 我这边数据有了
-ou-xxx: 整理成周报发我        ← 最后一行 = 当前 @bot 的请求（只有 open_id 可用时用它兜底）
+[引用 Carol: 三季度销售汇总]        ← 当前这条显式引用别的消息时注入，嵌套层标 [引用·第N层]
+David: @群助手 整理成周报发我        ← 最后一行 = 当前 @bot 的请求（无显示名时用 open_id 兜底）
 ```
+
+四段共用一个 `seen_ids`，同一 `message_id` 只出现一次（如引用的消息已在窗口里则不重复注入）。
 
 ---
 
@@ -114,7 +126,7 @@ flowchart TD
     subgraph C[方舟原生队列]
         C1[accept → 直投 _handle 协程] --> C2[ensure_session\n首建时起常驻消费协程]
         C2 --> C3[send_message 直发\nrunning 中也发]
-        C3 --> C4[_consume 读事件流\nidle 时把合并回复发到群]
+        C3 --> C4[_consume 读事件流\nidle 时把合并回复交 _deliver_reply]
     end
 ```
 
@@ -123,11 +135,14 @@ flowchart TD
 | 排序者 | 客户端 `KeyedQueue`（[gateway.py:28](../../arkagent/gateway.py)，按 key 串行） | 方舟服务端"运行中待处理队列" |
 | 是否合并 | 不会，每条独立成轮 | 会，同一可调度边界前堆积的多条被打包进一次模型请求 |
 | 每人单独回复 | 是 | 不保证 |
-| 回复路径 | `reply(message_id)`——**留在话题内** | `send_to_chat(chat_id)`——发新群消息，**在话题里触发时回复会跑到群主时间线** |
+| 回复路径 | `reply(message_id)`——**留在话题/原消息处** | `_deliver_reply`：话题群 `reply` 到本回合最后一条触发消息（**回复落回话题**），普通群 `send_to_chat` 直发群会话 |
 | 409 `RuntimeBusy` | 不触发 | 会，指数退避（`_is_runtime_busy` 依据 `ArkError.status_code==409`） |
 
 > 判断节点（客户端串行）：`_reply` 依据 `chat_type=="group"` **且** `message_id` 决定
 > reply 原消息还是发群会话。
+> 判断节点（方舟原生队列）：`_deliver_reply` [ma_native_queue_bot.py:131](ma_native_queue_bot.py)
+> 依据 `key.thread_id` 是否非空——话题群 reply 到 `_last_trigger_message_id`（落回话题，失败降级发群），
+> 非话题群直发群会话。合并回复的场景下用**本回合最后一条**触发消息作为 reply 锚点。
 
 ---
 

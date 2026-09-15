@@ -29,7 +29,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from arkagent.feishu import HistoryMessage, IncomingMessage  # noqa: E402  (依赖上面的 sys.path 注入)
+from arkagent.feishu import HistoryMessage, IncomingMessage, QuotedMessage  # noqa: E402  (依赖上面的 sys.path 注入)
 
 
 # ---- 群聊共享会话键 --------------------------------------------------------
@@ -143,6 +143,9 @@ def setup_logging(level: str = "INFO") -> None:
 # 首次触发（历史里还没有「上一次 @bot」）时，回退带入的最近历史条数。
 FALLBACK_WINDOW_MESSAGES = 10
 
+# 话题群里，除了发起话题的根消息，再额外带入根消息之前的几条主时间线消息作为铺垫。
+THREAD_CONTEXT_BEFORE = 3
+
 
 def select_window(history: list[HistoryMessage]) -> list[HistoryMessage]:
     """选出「倒数第二次 @bot」到当前消息之间的群历史（不含当前消息本身）。
@@ -175,21 +178,64 @@ def _history_line(item: HistoryMessage) -> str:
     return _transcript_line(who, item.text)
 
 
+def _quote_line(item: QuotedMessage) -> str:
+    """引用块的一行：`[引用 名字: 内容]`，多层用 depth 标出「引用的引用」。
+    depth=1 直接引用不加层号；depth>=2 标 `第N层` 以区分嵌套的来源。"""
+    who = item.sender_name or item.sender_open_id or "unknown"
+    prefix = "引用" if item.depth <= 1 else f"引用·第{item.depth}层"
+    return f"[{prefix} {who}: {item.text}]"
+
+
+def _thread_context_line(item: HistoryMessage) -> str:
+    """话题前情块的一行：`[话题前情 名字: 内容]`。
+    话题群里这段是「发起话题的根消息及其之前几条主时间线」，thread 容器读不到，单独补进来。"""
+    who = item.sender_name or item.sender_open_id or "unknown"
+    return f"[话题前情 {who}: {item.text}]"
+
+
 def build_windowed_input(
-    message: IncomingMessage, history: Optional[list[HistoryMessage]] = None
+    message: IncomingMessage,
+    history: Optional[list[HistoryMessage]] = None,
+    quote_chain: Optional[list[QuotedMessage]] = None,
+    thread_context: Optional[list[HistoryMessage]] = None,
 ) -> str:
-    """把「上一次 @bot 之后的群消息 + 当前这条」拼成**一条** user message。
+    """把「话题前情 + 上一次 @bot 之后的群消息 +（可选）被引用消息 + 当前这条」拼成**一条** user message。
 
     格式（用户指定）：纯对话转录，一行一个发言人 `名字: 内容`，按时间顺序排列，
     **最后一行就是当前 @ bot 的这条消息**（本轮要回应的请求）。不再包 XML
     （<conversation_context>/<current_actor>/<current_request> 一律去掉）。
 
-    组成 = select_window(history)（上一次 @bot → 现在、已滤掉 bot 自己的回复）
+    组成 = 话题前情块（话题群才有：发起话题的根消息 + 根之前几条主时间线，thread 容器读不到）
+          + select_window(history)（上一次 @bot → 现在、已滤掉 bot 自己的回复）
+          + （若当前消息引用了别的消息）引用块，逐行 `[引用 名字: 内容]`，紧贴当前行之前
           + 追加当前触发消息作为最后一行（它不在 history 里，见 _is_eligible_history）。
-    历史行的发言人取显示名（sender_name），当前行只有 open_id 可用，故用 open_id 兜底。
+
+    去重：话题前情块、引用块都按 message_id 去重——凡是已作为窗口历史行（或前情块）出现过的
+    消息，就不再重复注入，避免同一句话出现两遍。去重集合随注入顺序累积（前情 → 窗口 → 引用）。
+    引用块按 depth 升序（直接引用在前、引用的引用在后）。
+    历史行/引用行的发言人取显示名（sender_name），当前行只有 open_id 可用，故用 open_id 兜底。
     """
     window = select_window(history or [])
-    lines = [_history_line(item) for item in window]
+    seen_ids = {item.message_id for item in window}
+    lines: list[str] = []
+
+    # 话题前情块：话题群里 thread 容器读不到的「根消息 + 根之前几条主时间线」，拼在最前面。
+    # 与窗口重复的（根消息偶尔也会被 thread 容器带出）按 message_id 去重。
+    for item in thread_context or []:
+        if item.message_id in seen_ids:
+            continue
+        seen_ids.add(item.message_id)
+        lines.append(_thread_context_line(item))
+
+    lines.extend(_history_line(item) for item in window)
+
+    # 引用块去重：窗口/前情里已出现过的 message_id 不再重复注入（同一句只留先出现那份）。
+    for quoted in quote_chain or []:
+        if quoted.message_id in seen_ids:
+            continue
+        seen_ids.add(quoted.message_id)
+        lines.append(_quote_line(quoted))
+
     current_who = message.user_open_id or "unknown"
     lines.append(_transcript_line(current_who, message.text.strip()))
     return "\n".join(lines)
@@ -204,7 +250,16 @@ def build_actor_input(message: IncomingMessage) -> str:
 
 GROUP_BOT_NAME = "群聊共享助手（Claude Tag 版）"
 
-GROUP_BOT_SYSTEM = """你是一个加入了飞书群聊的团队助手，类似 Claude Tag：整个群共享你这一个实例。
+# system prompt 里 bot 自称的默认名字。真名以飞书开放平台配的机器人显示名为准，建 Agent 时
+# 由 build_group_agent_config(bot_name=...) 覆盖（见 create_group_agent.py / init_group_bot.py）。
+DEFAULT_BOT_DISPLAY_NAME = "群助手"
+
+GROUP_BOT_SYSTEM_TEMPLATE = """你是一个加入了飞书群聊的团队助手，类似 Claude Tag：整个群共享你这一个实例。
+
+# 你的身份
+- 群里成员用 @ 来叫你，你在群里的名字是「{bot_name}」。
+- 转录里凡是出现「@{bot_name}」，就是有人在叫你、在对你说话；这一行（尤其是最后一行）是需要你回应的请求。
+- 转录里 @ 其他名字是群成员之间互相 @，不是在叫你，别把发给别人的话当成对你的指令。
 
 # 输入格式
 - 每轮消息是一段**群聊对话转录**，一行一个发言人，格式为「名字: 内容」，按时间先后排列。
@@ -224,9 +279,24 @@ GROUP_BOT_SYSTEM = """你是一个加入了飞书群聊的团队助手，类似 
 - 把复杂请求拆成步骤逐步推进；完成后清晰汇报结果。
 - 不臆造数据；工具或信息不足时如实说明并给出下一步建议。"""
 
+# 兼容旧引用：默认名字渲染出的完整 system prompt。
+GROUP_BOT_SYSTEM = GROUP_BOT_SYSTEM_TEMPLATE.format(bot_name=DEFAULT_BOT_DISPLAY_NAME)
 
-def build_group_agent_config(model_id: str = "doubao-seed-2-1-pro-260628") -> dict:
+
+def build_group_system(bot_name: str = DEFAULT_BOT_DISPLAY_NAME) -> str:
+    """把 bot 在群里的显示名填进 system prompt，让模型知道转录里 @ 谁 = 在叫自己。
+    传空则回退到默认名，避免 prompt 里出现「@」这种空指代。"""
+    return GROUP_BOT_SYSTEM_TEMPLATE.format(bot_name=(bot_name or "").strip() or DEFAULT_BOT_DISPLAY_NAME)
+
+
+def build_group_agent_config(
+    model_id: str = "doubao-seed-2-1-pro-260628",
+    bot_name: str = DEFAULT_BOT_DISPLAY_NAME,
+) -> dict:
     """群聊 Bot-only Agent 定义：不挂任何 MCP/个人凭据，纯对话协作助手。
+
+    bot_name：bot 在飞书群里的显示名，写进 system prompt 供模型识别「@谁=在叫自己」；
+    应与开放平台配的机器人显示名一致，建 Agent 时由 create/init 脚本传入。
 
     如需连业务 MCP，可自行往 mcp_servers / tools 里加 mcp_toolset——但注意
     群聊场景下工具应是“团队级/公共”的，不要接需要个人身份鉴权的接口。
@@ -235,7 +305,7 @@ def build_group_agent_config(model_id: str = "doubao-seed-2-1-pro-260628") -> di
         "name": GROUP_BOT_NAME,
         "description": "飞书群聊共享助手：一个群共享一个方舟 Session，多人 @ 协作，Bot-only 身份",
         "model": {"id": model_id},
-        "system": GROUP_BOT_SYSTEM,
+        "system": build_group_system(bot_name),
         "tools": [
             {
                 "type": "agent_toolset_20260701",
