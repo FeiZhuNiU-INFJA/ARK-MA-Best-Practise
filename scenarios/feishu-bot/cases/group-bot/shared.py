@@ -7,11 +7,11 @@
 复用主包里纯基础设施的部分（不含卡点逻辑）：
   - arkagent.ark.ArkClient   —— 方舟 HTTP/SSE 客户端
   - arkagent.feishu          —— 飞书消息归一化 / 发送
-  - arkagent.gateway.KeyedQueue —— 按 key 串行化协程（Demo A 用）
+  - arkagent.gateway.KeyedQueue —— 按 key 串行化协程（客户端串行方案用）
 
 两个脚本各自实现「发送策略」的差异：
-  - demo_a_serial.py       客户端 KeyedQueue 串行：上一轮到 idle 才发下一条，每人各得干净回复。
-  - demo_c_native_queue.py 方舟原生队列：running 中直发，靠可调度边界吸收/合并，处理 409 RuntimeBusy。
+  - client_serial_bot.py    客户端 KeyedQueue 串行：上一轮到 idle 才发下一条，每人各得干净回复。
+  - ma_native_queue_bot.py  方舟原生队列：running 中直发，靠可调度边界吸收/合并，处理 409 RuntimeBusy。
 """
 from __future__ import annotations
 

@@ -57,9 +57,9 @@
 
 ## 两个方案
 
-| | Demo A：客户端串行 | Demo C：方舟原生队列 |
+| | 客户端串行 | 方舟原生队列 |
 |---|---|---|
-| 文件 | `demo_a_serial.py` | `demo_c_native_queue.py` |
+| 文件 | `client_serial_bot.py` | `ma_native_queue_bot.py` |
 | 发送策略 | 上一轮跑到 `idle` 才发下一条 | 消息直发，哪怕 Session 还在 `running` |
 | 排序者 | 客户端 `KeyedQueue` | 方舟服务端「运行中待处理队列」 |
 | 会不会合并 | **不会**，每条独立成轮 | **会**，同一「可调度边界」前堆积的多条被打包进一次模型请求 |
@@ -86,13 +86,13 @@ python scenarios/feishu-bot/cases/group-bot/create_group_agent.py
 export GROUP_BOT_AGENT_ID=<上一步打印的 agent id>
 
 # 3) 二选一启动
-python scenarios/feishu-bot/cases/group-bot/demo_a_serial.py         # 方案 A：串行
-python scenarios/feishu-bot/cases/group-bot/demo_c_native_queue.py   # 方案 C：方舟原生队列
+python scenarios/feishu-bot/cases/group-bot/client_serial_bot.py       # 客户端串行
+python scenarios/feishu-bot/cases/group-bot/ma_native_queue_bot.py     # 方舟原生队列
 ```
 
 把 bot 拉进一个群，多人 @ 它：
-- Demo A：先后 @，观察逐条独立回复；后到的会收到「正在处理，请稍候」。
-- Demo C：让几个人几乎同时 @，观察消息被吸收/合并的效果。
+- 客户端串行：先后 @，观察逐条独立回复；后到的会收到「正在处理，请稍候」。
+- 方舟原生队列：让几个人几乎同时 @，观察消息被吸收/合并的效果。
 
 聊天指令：`/new` 重置本群共享会话（下一条消息会新建 Session）。
 
@@ -103,8 +103,8 @@ python scenarios/feishu-bot/cases/group-bot/demo_c_native_queue.py   # 方案 C�
 
 - `shared.py` —— 公共底座：共享会话键、群历史窗口（`select_window` / `build_windowed_input`）、`<current_actor>` 注入、Bot-only Agent 定义、配置读取、内存会话映射。
 - `create_group_agent.py` —— 创建群聊 Bot-only Agent。
-- `demo_a_serial.py` —— 方案 A：客户端串行；每轮先读群历史取窗口，再串行发送。
-- `demo_c_native_queue.py` —— 方案 C：方舟原生队列 + 常驻事件流消费 + 409 退避；每条消息同样带窗口上下文。
+- `client_serial_bot.py` —— 客户端串行；每轮先读群历史取窗口，再串行发送。
+- `ma_native_queue_bot.py` —— 方舟原生队列 + 常驻事件流消费 + 409 退避；每条消息同样带窗口上下文。
 
 > 群历史读取（`FeishuSender.list_messages`）、`IncomingMessage.create_time`、
 > `HistoryMessage` 归一化在主包 `arkagent/feishu.py`，移植自源项目 `src/lark-channel.ts`。

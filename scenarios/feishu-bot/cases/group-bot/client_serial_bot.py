@@ -1,6 +1,6 @@
-"""Demo A：客户端串行（KeyedQueue）——每人各得一条干净回复。
+"""客户端串行（KeyedQueue）——每人各得一条干净回复。
 
-思路（对应方案 A）：
+思路（客户端串行方案）：
   - 群里所有人 @ bot 共享同一个方舟 Session（to_group_key 抹掉了 user_open_id）。
   - 用 KeyedQueue 按群 key 串行：**上一轮跑到 idle（end_turn）才发下一条**，
     因此每次 POST 时 Session 都是空闲的，从根上不进方舟的“运行中待处理队列”，
@@ -12,7 +12,7 @@
 运行：
   set -a && source ~/.arkagent/config.env && set +a   # 或自行 export 相关变量
   export GROUP_BOT_AGENT_ID=<用 create_group_agent.py 建出的 agent id>
-  python scenarios/feishu-bot/cases/group-bot/demo_a_serial.py
+  python scenarios/feishu-bot/cases/group-bot/client_serial_bot.py
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ from arkagent.ark import ArkClient, ArkError, RunResult
 from arkagent.feishu import FeishuSender, IncomingMessage, start_feishu_gateway
 from arkagent.gateway import KeyedQueue
 
-log = logging.getLogger("group_bot.demo_a")
+log = logging.getLogger("group_bot.client_serial")
 
 
 class SerialGroupBot:
@@ -51,12 +51,15 @@ class SerialGroupBot:
         ark: ArkClient,
         sender: FeishuSender,
         loop: asyncio.AbstractEventLoop,
+        sessions: Optional[object] = None,
     ) -> None:
         self._config = config
         self._ark = ark
         self._sender = sender
         self._loop = loop
-        self._sessions = SqliteSessionMap()
+        # 默认落 SQLite（持久化，重启不丢）；测试可注入临时/内存实现，避免碰 ~/.arkagent。
+        # 只要满足 get/save/reset/claim_event 四个方法即可（鸭子类型，同 InMemorySessionMap）。
+        self._sessions = sessions if sessions is not None else SqliteSessionMap()
         self._queue = KeyedQueue()
 
     # WS 线程入口：只做去重 + 投递，满足飞书 3 秒约束。
@@ -220,7 +223,7 @@ def main() -> None:
     bot = SerialGroupBot(config, ark, sender, loop)
     threading.Thread(target=loop.run_forever, name="group-bot-loop", daemon=True).start()
 
-    print("Demo A（客户端串行）已启动：")
+    print("客户端串行 Bot 已启动：")
     print(f"- 飞书 App ID：{config.feishu_app_id}")
     print(f"- 群聊共享 Agent ID：{config.ark_agent_id}")
     print("- 策略：同一群/话题串行处理，每人各得独立回复；后到的消息排队。")

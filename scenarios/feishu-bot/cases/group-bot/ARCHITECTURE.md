@@ -6,8 +6,8 @@
 2. 流程里有哪些**关键数据结构**，各自装了什么。
 3. 每个**判断节点依据对象的哪个属性**做决策。
 
-代码入口：`shared.py`（公共底座）、`demo_a_serial.py`（方案 A 串行）、
-`demo_c_native_queue.py`（方案 C 方舟原生队列）、`../../arkagent/feishu.py`（飞书接入 +
+代码入口：`shared.py`（公共底座）、`client_serial_bot.py`（客户端串行）、
+`ma_native_queue_bot.py`（方舟原生队列）、`../../arkagent/feishu.py`（飞书接入 +
 归一化）、`../../arkagent/ark.py`（方舟客户端）、`../../arkagent/gateway.py`（`KeyedQueue`）。
 
 > 术语：**触发消息** = 当前这条 @bot 的入站消息；**窗口** = 注入本轮的那段群历史增量。
@@ -106,19 +106,19 @@ ou-xxx: 整理成周报发我        ← 最后一行 = 当前 @bot 的请求（
 
 ```mermaid
 flowchart TD
-    subgraph A[Demo A：客户端串行]
+    subgraph A[客户端串行]
         A1[accept → KeyedQueue.enqueue key] --> A2[同一群 key 串行\n上一轮 idle 才发下一条]
         A2 --> A3[ark.run 阻塞到终态]
         A3 --> A4[reply 到原 message_id]
     end
-    subgraph C[Demo C：方舟原生队列]
+    subgraph C[方舟原生队列]
         C1[accept → 直投 _handle 协程] --> C2[ensure_session\n首建时起常驻消费协程]
         C2 --> C3[send_message 直发\nrunning 中也发]
         C3 --> C4[_consume 读事件流\nidle 时把合并回复发到群]
     end
 ```
 
-| 维度 | Demo A | Demo C |
+| 维度 | 客户端串行 | 方舟原生队列 |
 |---|---|---|
 | 排序者 | 客户端 `KeyedQueue`（[gateway.py:28](../../arkagent/gateway.py)，按 key 串行） | 方舟服务端"运行中待处理队列" |
 | 是否合并 | 不会，每条独立成轮 | 会，同一可调度边界前堆积的多条被打包进一次模型请求 |
@@ -126,7 +126,7 @@ flowchart TD
 | 回复路径 | `reply(message_id)`——**留在话题内** | `send_to_chat(chat_id)`——发新群消息，**在话题里触发时回复会跑到群主时间线** |
 | 409 `RuntimeBusy` | 不触发 | 会，指数退避（`_is_runtime_busy` 依据 `ArkError.status_code==409`） |
 
-> 判断节点（Demo A）：`_reply` 依据 `chat_type=="group"` **且** `message_id` 决定
+> 判断节点（客户端串行）：`_reply` 依据 `chat_type=="group"` **且** `message_id` 决定
 > reply 原消息还是发群会话。
 
 ---
@@ -138,7 +138,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     S1[run / send_message] --> S2{ArkError?}
-    S2 -- status_code==404 --> S3[reset key\n（Demo C 还停旧消费协程）]
+    S2 -- status_code==404 --> S3[reset key\n（方舟原生队列还停旧消费协程）]
     S3 --> S4[create_session + save 覆盖]
     S4 --> S5[换新 session_id 重试本轮]
     S2 -- status_code==409 且未超重试上限 --> S6[退避 sleep 后重试]
@@ -147,9 +147,9 @@ flowchart TD
 
 | 判断节点 | 位置 | 依据属性 | 动作 |
 |---|---|---|---|
-| Session 失效 | Demo A `_process` / Demo C `_post_message` | `ArkError.status_code == 404` | 重置映射 → 重建 Session → 重跑/重发 |
-| 队列忙 | Demo C `_post_message` | `ArkError.status_code == 409`（`_is_runtime_busy`） | 指数退避重试（上限 `MAX_409_RETRIES`） |
-| 运行终态 | `_result_to_text` [demo_a_serial.py](demo_a_serial.py) | `RunResult.terminal` / `messages` | `failed` 报错、`idle` 取最后一条 |
+| Session 失效 | 客户端串行 `_process` / 方舟原生队列 `_post_message` | `ArkError.status_code == 404` | 重置映射 → 重建 Session → 重跑/重发 |
+| 队列忙 | 方舟原生队列 `_post_message` | `ArkError.status_code == 409`（`_is_runtime_busy`） | 指数退避重试（上限 `MAX_409_RETRIES`） |
+| 运行终态 | `_result_to_text` [client_serial_bot.py](client_serial_bot.py) | `RunResult.terminal` / `messages` | `failed` 报错、`idle` 取最后一条 |
 
 `ArkError.status_code` / `body` 由 `ArkClient._request` 与事件流在 4xx 时填充
 （[ark.py:86](../../arkagent/ark.py)），调用方据此精准分流，不再靠字符串匹配。
