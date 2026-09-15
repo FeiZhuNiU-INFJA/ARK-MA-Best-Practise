@@ -11,7 +11,17 @@ if str(_GROUP_BOT_DIR) not in sys.path:
     sys.path.insert(0, str(_GROUP_BOT_DIR))
 
 import shared  # noqa: E402
-from arkagent.feishu import HistoryMessage, IncomingMessage  # noqa: E402
+from arkagent.feishu import HistoryMessage, IncomingMessage, QuotedMessage  # noqa: E402
+
+
+def _quoted(mid: str, *, depth: int = 1, name: str = "", text: str = "") -> QuotedMessage:
+    return QuotedMessage(
+        message_id=mid,
+        sender_open_id=f"ou-{mid}",
+        sender_name=name or mid,
+        text=text or mid,
+        depth=depth,
+    )
 
 
 def _hist(mid: str, ts: int, *, at_bot: bool = False, is_from_bot: bool = False, text: str = "") -> HistoryMessage:
@@ -100,11 +110,151 @@ def test_build_windowed_input_without_history_is_current_only():
     assert text == "ou-cur: 你好"
 
 
+# ---- 引用块注入 + 去重 ------------------------------------------------------
+
+def test_build_windowed_input_injects_quote_before_current():
+    # 被引用消息（窗口外）应作为 `[引用 名字: 内容]` 插在当前请求行之前。
+    quote_chain = [_quoted("om-q1", name="老板", text="这个方案定了")]
+    text = shared.build_windowed_input(_trigger(text="收到，我来落地"), [], quote_chain)
+    lines = text.split("\n")
+    assert lines == [
+        "[引用 老板: 这个方案定了]",
+        "ou-cur: 收到，我来落地",
+    ]
+
+
+def test_build_windowed_input_nested_quote_marks_depth():
+    # 直接引用不加层号；引用的引用标 `第N层`。
+    quote_chain = [
+        _quoted("om-q1", depth=1, name="A", text="第一层"),
+        _quoted("om-q2", depth=2, name="B", text="第二层"),
+        _quoted("om-q3", depth=3, name="C", text="第三层"),
+    ]
+    text = shared.build_windowed_input(_trigger(text="看这段"), [], quote_chain)
+    lines = text.split("\n")
+    assert lines[:3] == [
+        "[引用 A: 第一层]",
+        "[引用·第2层 B: 第二层]",
+        "[引用·第3层 C: 第三层]",
+    ]
+
+
+def test_build_windowed_input_dedups_quote_already_in_window():
+    # 被引用的消息若已作为普通历史行出现在窗口里，就不再重复注入引用块。
+    history = [_hist("m1", 100, at_bot=True, text="老板说要周报"), _hist("m2", 200, text="补充一句")]
+    quote_chain = [_quoted("m1", name="老板", text="老板说要周报")]  # 与窗口里的 m1 同 id
+    text = shared.build_windowed_input(_trigger(text="整理周报"), history, quote_chain)
+    lines = text.split("\n")
+    # m1 只作为历史行出现一次，引用块不再重复它
+    assert lines == [
+        "m1: 老板说要周报",
+        "m2: 补充一句",
+        "ou-cur: 整理周报",
+    ]
+    assert not any(line.startswith("[引用") for line in lines)
+
+
+def test_build_windowed_input_keeps_quote_outside_window():
+    # 引用的是窗口外的老消息（不在 history 里）：应保留注入。
+    history = [_hist("m1", 100, at_bot=True, text="最近的话题")]
+    quote_chain = [_quoted("om-old", name="张三", text="很久以前说的话")]
+    text = shared.build_windowed_input(_trigger(text="翻到这条"), history, quote_chain)
+    lines = text.split("\n")
+    assert lines == [
+        "m1: 最近的话题",
+        "[引用 张三: 很久以前说的话]",
+        "ou-cur: 翻到这条",
+    ]
+
+
+def test_build_windowed_input_no_quote_chain_is_backward_compatible():
+    # 不传 quote_chain 时行为与旧版一致（只有历史 + 当前行）。
+    history = [_hist("m1", 100, at_bot=True, text="hi")]
+    text = shared.build_windowed_input(_trigger(text="继续"), history)
+    assert text.split("\n") == ["m1: hi", "ou-cur: 继续"]
+
+
+# ---- 话题前情块注入 + 去重 --------------------------------------------------
+
+def test_build_windowed_input_injects_thread_context_first():
+    # 话题前情（根消息 + 根之前几条主时间线）作为 `[话题前情 ...]` 拼在最前面。
+    thread_context = [
+        _hist("om-r0", 50, text="发起话题前的一句"),
+        _hist("om-root", 60, text="就基于这条发起了话题"),
+    ]
+    history = [_hist("t1", 100, at_bot=True, text="话题里的讨论")]
+    text = shared.build_windowed_input(
+        _trigger(thread_id="th-1", text="接着聊"), history, None, thread_context
+    )
+    lines = text.split("\n")
+    assert lines == [
+        "[话题前情 om-r0: 发起话题前的一句]",
+        "[话题前情 om-root: 就基于这条发起了话题]",
+        "t1: 话题里的讨论",
+        "ou-cur: 接着聊",
+    ]
+
+
+def test_build_windowed_input_dedups_thread_context_already_in_window():
+    # 话题前情里若有消息已作为窗口历史行出现（根消息偶尔会被 thread 容器带出），不重复注入。
+    history = [_hist("om-root", 60, at_bot=True, text="话题根")]
+    thread_context = [_hist("om-root", 60, text="话题根")]  # 与窗口里的 om-root 同 id
+    text = shared.build_windowed_input(
+        _trigger(thread_id="th-1", text="继续"), history, None, thread_context
+    )
+    lines = text.split("\n")
+    assert lines == ["om-root: 话题根", "ou-cur: 继续"]
+    assert not any(line.startswith("[话题前情") for line in lines)
+
+
+def test_build_windowed_input_thread_context_and_quote_dedup_together():
+    # 前情块先注入并占位；引用块若指向同一条前情消息，则被去重不重复出现。
+    thread_context = [_hist("om-root", 60, text="话题根：讨论报价")]
+    quote_chain = [_quoted("om-root", name="老板", text="话题根：讨论报价")]  # 与前情同 id
+    text = shared.build_windowed_input(
+        _trigger(thread_id="th-1", text="我引用了话题根"), [], quote_chain, thread_context
+    )
+    lines = text.split("\n")
+    assert lines == [
+        "[话题前情 om-root: 话题根：讨论报价]",
+        "ou-cur: 我引用了话题根",
+    ]
+    assert not any(line.startswith("[引用") for line in lines)
+
+
+def test_build_windowed_input_no_thread_context_is_backward_compatible():
+    # 不传 thread_context 时行为与旧版一致（无话题前情块）。
+    history = [_hist("m1", 100, at_bot=True, text="hi")]
+    text = shared.build_windowed_input(_trigger(text="继续"), history)
+    assert text.split("\n") == ["m1: hi", "ou-cur: 继续"]
+    assert not any(line.startswith("[话题前情") for line in text.split("\n"))
+
+
 def test_shared_group_key_excludes_sender():
     a = shared.to_group_key(_trigger(user_open_id="ou-1"))
     b = shared.to_group_key(_trigger(user_open_id="ou-2"))
     assert a == b  # 共享会话键不含发言人
     assert a.as_str() == "t-1:oc-1:-"
+
+
+# ---- Agent 身份：system prompt 里写入 bot 名字 -------------------------------
+
+def test_build_group_system_injects_bot_name():
+    system = shared.build_group_system("小方")
+    assert "你在群里的名字是「小方」" in system
+    assert "@小方" in system  # 转录里 @小方 = 在叫自己
+
+
+def test_build_group_system_falls_back_to_default_name_when_blank():
+    system = shared.build_group_system("  ")
+    assert f"你在群里的名字是「{shared.DEFAULT_BOT_DISPLAY_NAME}」" in system
+    assert "「」" not in system  # 不出现空名指代
+
+
+def test_build_group_agent_config_uses_bot_name_in_system():
+    config = shared.build_group_agent_config(bot_name="小方")
+    assert "@小方" in config["system"]
+    assert config["name"] == shared.GROUP_BOT_NAME
 
 
 # ---- SqliteSessionMap：持久化 + 去重 + 失效重建兜底 --------------------------

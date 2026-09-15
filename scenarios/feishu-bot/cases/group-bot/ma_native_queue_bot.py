@@ -14,8 +14,11 @@
   - 客户端串行：客户端 KeyedQueue 串行，上一轮 idle 才发下一条，每人各得干净回复、无 409。
   - 方舟原生队列：直发，靠方舟侧队列吸收合并；用一个常驻事件流消费协程把回复回到群里。
 
-回复策略：因为可能合并、一条回复可能同时面向多人，这里回到**群会话**（不 reply
-到某条消息），并靠 system prompt 要求 Agent 分别 @ 到对应的人。
+回复策略：因为可能合并、一条回复可能同时面向多人，普通群里回到**群会话**（不 reply
+到某条具体消息），并靠 system prompt 要求 Agent 分别 @ 到对应的人；**话题群**里则 reply
+到本回合任一条触发消息，让合并回复落回该话题串——session 按 thread_id 隔离，同一回合被合并
+的消息必然同属一个话题，故话题始终确定，只是不必精确到「哪一条」（reply 到已在话题内的消息
+不会新开话题）。
 
 运行：
   set -a && source ~/.arkagent/config.env && set +a
@@ -33,6 +36,7 @@ from shared import (
     GroupBotConfig,
     GroupConversationKey,
     SqliteSessionMap,
+    THREAD_CONTEXT_BEFORE,
     build_windowed_input,
     is_authorized,
     load_group_bot_config,
@@ -43,7 +47,13 @@ from shared import (
 )
 
 from arkagent.ark import ArkClient, ArkError, event_text
-from arkagent.feishu import FeishuSender, IncomingMessage, start_feishu_gateway
+from arkagent.feishu import (
+    FeishuSender,
+    HistoryMessage,
+    IncomingMessage,
+    QuotedMessage,
+    start_feishu_gateway,
+)
 
 log = logging.getLogger("group_bot.ma_native")
 
@@ -105,6 +115,34 @@ class ConcurrentGroupBot:
 
     async def _send_to_chat(self, chat_id: str, text: str) -> None:
         await self._loop.run_in_executor(None, self._sender.send_to_chat, chat_id, text)
+
+    async def _reply(self, message_id: str, text: str) -> None:
+        await self._loop.run_in_executor(None, self._sender.reply, message_id, text)
+
+    def _last_trigger_message_id(self, key: GroupConversationKey) -> str | None:
+        """本回合已贴「稍等」表情的最后一条触发消息 id（供话题回复定位用）。
+
+        _pending_reactions[key] 累积的就是本回合触发消息 →(message_id, reaction_id)；
+        在 _consume 撤回它们之前取，即可拿到本回合任一条触发消息。同一回合被合并的消息
+        必然同属一个话题，故取哪条都落回同一话题串，取最后一条即可。"""
+        pending = self._pending_reactions.get(key.as_str())
+        return pending[-1][0] if pending else None
+
+    async def _deliver_reply(self, key: GroupConversationKey, chat_id: str, text: str) -> None:
+        """把合并回复发出去：话题群里 reply 到本回合触发消息（落回话题串），普通群直发群会话。
+
+        session 按 thread_id 隔离，key.thread_id 就是本回合唯一的话题；reply 到一条已在话题内
+        的消息会继承其 thread、不会新开话题。拿不到触发消息（如表情回执失败）或 reply 失败时，
+        降级为发群会话，保证回复不丢。"""
+        if key.thread_id:
+            target = self._last_trigger_message_id(key)
+            if target:
+                try:
+                    await self._reply(target, text)
+                    return
+                except Exception as error:  # noqa: BLE001 - reply 失败降级为发群会话
+                    log.warning("reply 到话题失败，降级为发群会话：%s", error)
+        await self._send_to_chat(chat_id, text)
 
     async def _ack(self, message: IncomingMessage, key: GroupConversationKey) -> None:
         """已收到回执：在触发消息下贴一个「稍等」(OneSecond) 表情，替代之前那句
@@ -228,11 +266,15 @@ class ConcurrentGroupBot:
                 delay = min(delay * 2, BACKOFF_CAP_S)
 
     async def _windowed_input(self, message: IncomingMessage) -> str:
-        """读群历史 → 取「倒数第二次 @bot → 当前」窗口 → 拼成一条 user message。
+        """读群历史 + 被引用消息链 + 话题前情 → 取窗口 → 拼成一条 user message。
 
         与客户端串行方案完全一致：群聊才读历史，私聊直接空窗口；lark-oapi 同步调用丢 executor，
         读失败降级为无上下文。方舟原生队列直发到 running 中的 Session，这条 user message 会被
         方舟写入待处理队列、在可调度边界处消费——窗口本身仍是「这一条消息」的完整上下文。
+        引用链：若这条消息显式引用了别的消息，沿父链最多回溯 MAX_QUOTE_DEPTH 层读出来，交给
+        build_windowed_input 注入并对窗口内重复项去重；读失败降级为无引用。
+        话题前情：话题里 @bot 时，thread 容器读不到「发起话题的根消息 + 根之前几条主时间线」，
+        单独补读（load_thread_context）注入，读失败降级为无前情。
         """
         if message.chat_type != "group":
             return build_windowed_input(message, [])
@@ -241,7 +283,31 @@ class ConcurrentGroupBot:
         except Exception as error:  # noqa: BLE001 - 历史读失败不该拖垮本轮，降级为无上下文
             log.warning("读取群历史失败，本轮不带上下文：%s", error)
             history = []
-        return build_windowed_input(message, history)
+        quote_chain = await self._quote_chain(message)
+        thread_context = await self._thread_context(message)
+        return build_windowed_input(message, history, quote_chain, thread_context)
+
+    async def _quote_chain(self, message: IncomingMessage) -> list[QuotedMessage]:
+        """读被引用消息链（同步 lark-oapi 调用，丢 executor）。无引用/读失败降级为空。"""
+        if not message.reply_to_message_id:
+            return []
+        try:
+            return await self._loop.run_in_executor(None, self._sender.load_quote_chain, message)
+        except Exception as error:  # noqa: BLE001 - 引用读失败不该拖垮本轮，降级为无引用
+            log.warning("读取被引用消息失败，本轮不带引用：%s", error)
+            return []
+
+    async def _thread_context(self, message: IncomingMessage) -> list[HistoryMessage]:
+        """读话题前情（根消息 + 根之前 N 条主时间线）。非话题/读失败降级为空。"""
+        if not message.root_id:
+            return []
+        try:
+            return await self._loop.run_in_executor(
+                None, self._sender.load_thread_context, message, THREAD_CONTEXT_BEFORE
+            )
+        except Exception as error:  # noqa: BLE001 - 话题前情读失败不该拖垮本轮，降级为无前情
+            log.warning("读取话题前情失败，本轮不带话题前情：%s", error)
+            return []
 
     async def _consume(self, session_id: str, chat_id: str, key: GroupConversationKey) -> None:
         """常驻读取 Session 事件流：每到一个回合结束(idle)，把该回合最后一条
@@ -268,13 +334,15 @@ class ConcurrentGroupBot:
                             # 仅在确有回复发出时撤回——空 idle（如刚建会话、消息还没被消费）
                             # 不动表情，避免把刚贴上的「稍等」提前撤掉。
                             if pending:
-                                await self._send_to_chat(chat_id, pending[-1])
+                                await self._deliver_reply(key, chat_id, pending[-1])
                                 log.info("[session=%s] 回合结束，回复已发出", session_id)
                                 pending.clear()
                                 await self._clear_reactions(key)
                         elif etype in ("session.error", "session.status_failed"):
                             log.warning("[session=%s] 会话出错，回执错误提示", session_id)
-                            await self._send_to_chat(chat_id, "本群会话执行出错，请稍后重试或 /new 重置。")
+                            await self._deliver_reply(
+                                key, chat_id, "本群会话执行出错，请稍后重试或 /new 重置。"
+                            )
                             pending.clear()
                             await self._clear_reactions(key)
             except asyncio.CancelledError:

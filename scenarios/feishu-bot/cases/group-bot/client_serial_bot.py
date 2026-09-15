@@ -25,6 +25,7 @@ from shared import (  # 同目录脚本，直接导入
     GroupBotConfig,
     GroupConversationKey,
     SqliteSessionMap,
+    THREAD_CONTEXT_BEFORE,
     build_windowed_input,
     is_authorized,
     load_group_bot_config,
@@ -36,7 +37,13 @@ from shared import (  # 同目录脚本，直接导入
 
 # shared 已把仓库根加入 sys.path，这里能 import 到主包基础设施。
 from arkagent.ark import ArkClient, ArkError, RunResult
-from arkagent.feishu import FeishuSender, IncomingMessage, start_feishu_gateway
+from arkagent.feishu import (
+    FeishuSender,
+    HistoryMessage,
+    IncomingMessage,
+    QuotedMessage,
+    start_feishu_gateway,
+)
 from arkagent.gateway import KeyedQueue
 
 log = logging.getLogger("group_bot.client_serial")
@@ -189,10 +196,15 @@ class SerialGroupBot:
         return session_id
 
     async def _windowed_input(self, message: IncomingMessage) -> str:
-        """读群历史 → 取「倒数第二次 @bot → 当前」窗口 → 拼成一条 user message。
+        """读群历史 + 被引用消息链 + 话题前情 → 取窗口 → 拼成一条 user message。
 
         群聊才读历史；私聊没有「群上下文」概念，直接带发言人标签的空窗口即可。
         历史读取是 lark-oapi 同步调用，丢到 executor 不阻塞事件循环；读失败降级为无历史。
+        引用链同理：若这条消息显式引用了别的消息（reply_to_message_id 非空），沿父链最多
+        回溯 MAX_QUOTE_DEPTH 层读出来交给 build_windowed_input 注入并对窗口内重复项去重；
+        读失败（撤回/无权限/跨会话）降级为无引用，不拖垮本轮。
+        话题前情：话题里 @bot 时，thread 容器读不到「发起话题的根消息 + 根之前几条主时间线」，
+        单独补读（load_thread_context）注入，读失败降级为无前情。
         """
         if message.chat_type != "group":
             return build_windowed_input(message, [])
@@ -201,7 +213,31 @@ class SerialGroupBot:
         except Exception as error:  # noqa: BLE001 - 历史读失败不该拖垮本轮，降级为无上下文
             log.warning("读取群历史失败，本轮不带上下文：%s", error)
             history = []
-        return build_windowed_input(message, history)
+        quote_chain = await self._quote_chain(message)
+        thread_context = await self._thread_context(message)
+        return build_windowed_input(message, history, quote_chain, thread_context)
+
+    async def _quote_chain(self, message: IncomingMessage) -> list[QuotedMessage]:
+        """读被引用消息链（同步 lark-oapi 调用，丢 executor）。无引用/读失败降级为空。"""
+        if not message.reply_to_message_id:
+            return []
+        try:
+            return await self._loop.run_in_executor(None, self._sender.load_quote_chain, message)
+        except Exception as error:  # noqa: BLE001 - 引用读失败不该拖垮本轮，降级为无引用
+            log.warning("读取被引用消息失败，本轮不带引用：%s", error)
+            return []
+
+    async def _thread_context(self, message: IncomingMessage) -> list[HistoryMessage]:
+        """读话题前情（根消息 + 根之前 N 条主时间线）。非话题/读失败降级为空。"""
+        if not message.root_id:
+            return []
+        try:
+            return await self._loop.run_in_executor(
+                None, self._sender.load_thread_context, message, THREAD_CONTEXT_BEFORE
+            )
+        except Exception as error:  # noqa: BLE001 - 话题前情读失败不该拖垮本轮，降级为无前情
+            log.warning("读取话题前情失败，本轮不带话题前情：%s", error)
+            return []
 
 
 def _result_to_text(result: RunResult) -> str:

@@ -18,6 +18,10 @@ import json
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
+# 引用链最多回溯几层：用户 @bot 那条 → 它引用的 → 再上一层……封顶避免有人恶意/无意
+# 串成长链时把回查次数放大（每层一次 im.v1.message.get）。第 1 层是直接被引用的消息。
+MAX_QUOTE_DEPTH = 5
+
 
 @dataclass(frozen=True)
 class IncomingMessage:
@@ -31,6 +35,30 @@ class IncomingMessage:
     text: str
     mentioned_bot: bool
     create_time: int = 0  # 消息创建时间戳（毫秒）；窗口排序必需
+    # 这条消息「引用/回复」的那条消息 id（飞书 parent_id，且 parent_id != root_id 时才是
+    # 用户显式引用——话题根不算，见 Channel SDK normalize/pipeline.py）。为空表示没引用。
+    # 有值时用它沿父链回溯出被引用内容（resolve_quote_chain），注入上下文。
+    reply_to_message_id: str = ""
+    # 话题根消息 id（飞书 root_id）：话题群里「基于某条消息发起话题」的那条由头消息。
+    # 它在主时间线、不在 thread 容器里，故读话题历史时读不到；有值时单独把它（及其之前
+    # 几条主时间线消息）作为「话题前情」补进上下文（load_thread_context）。非话题为空。
+    root_id: str = ""
+
+
+@dataclass(frozen=True)
+class QuotedMessage:
+    """引用链上的一条被引用消息（resolve_quote_chain 归一化后的结果）。
+
+    用户 @bot 的那条消息可能引用了另一条消息，被引用的那条又可能引用更早的一条……
+    逐层回溯得到一条「由近及远」的引用链。depth=1 是直接被引用的那条，depth 越大越久远。
+    文本抽取复用历史归一化那套（_history_item_text），非文本消息给占位（[图片]/[文件…]）。
+    """
+
+    message_id: str
+    sender_open_id: str
+    sender_name: str
+    text: str
+    depth: int  # 1=直接引用，2=引用的引用，……最多到 MAX_QUOTE_DEPTH
 
 
 @dataclass(frozen=True)
@@ -69,10 +97,13 @@ def normalize_feishu_message(event: dict) -> Optional[IncomingMessage]:
     except (json.JSONDecodeError, ValueError):
         return None
     mentions = message.get("mentions") or []
+    # @提及 token 换成可读的 @名字（含对 bot 自己的提及）：让转录里「谁在叫谁」保持可见，
+    # 与历史归一化 _history_item_text、SDK 主路径 content_text 三处口径一致。无名字则删掉 token。
     for mention in mentions:
         key = mention.get("key")
         if key:
-            text = text.replace(key, "")
+            name = mention.get("name")
+            text = text.replace(key, f"@{name}" if name else "")
     sender = event.get("sender") or {}
     sender_id = sender.get("sender_id") or {}
     chat_type = "p2p" if message.get("chat_type") == "p2p" else "group"
@@ -278,12 +309,158 @@ class FeishuSender:
         normalized.sort(key=lambda item: item.create_time)
         return normalized[-max_messages:]
 
+    def get_message(self, message_id: str) -> Optional[dict]:
+        """按 message_id 读取单条消息，拍平成与 list_messages 同构的 dict（含 parent_id）。
+
+        用于引用链回溯：InboundMessage 只带「直接被引用的那条」id，要拿「引用的引用」需按
+        parent_id 逐层 im.v1.message.get。读不到（已撤回/无权限/跨会话）返回 None，由上层降级。
+        """
+        from lark_channel.api.im.v1.model.get_message_request import GetMessageRequest
+
+        request = GetMessageRequest.builder().message_id(message_id).build()
+        response = self._client.im.v1.message.get(request)
+        if not response.success():
+            raise RuntimeError(f"读取消息失败 {response.code}: {response.msg}")
+        items = (response.data.items or []) if response.data else []
+        if not items:
+            return None
+        return _history_item_to_dict(items[0])
+
+    def load_quote_chain(self, message: "IncomingMessage") -> list["QuotedMessage"]:
+        """把 message 引用的那条、及其上溯的引用链读出来（最多 MAX_QUOTE_DEPTH 层）。
+
+        纯 IO 编排：逐层调 get_message 拿 raw，交给纯函数 resolve_quote_chain 归一化 +
+        防环 + 截断。get_message 是 lark-oapi 同步调用，由上层丢 executor；这里不吞异常，
+        读失败交上层降级为「无引用」。"""
+        return resolve_quote_chain(message.reply_to_message_id, self.get_message)
+
+    def load_thread_context(
+        self,
+        message: "IncomingMessage",
+        before_count: int = 3,
+    ) -> list["HistoryMessage"]:
+        """读话题「前情」：发起话题的根消息 + 它之前最多 before_count 条主时间线消息。
+
+        话题群里读历史用的是 thread 容器，只含话题串内部的楼层——**发起话题的那条根消息
+        （root_id）在主时间线、不在 thread 容器里，会被漏掉**；根消息往往正是整段讨论的由头。
+        这里补上：
+          1. get_message(root_id) 直接读根消息（不受话题边界限制、老消息也读得到）；
+          2. chat 容器（普通群里只能取到各话题的根消息，即主时间线）以 end_time 截到根消息
+             时间，取根之前最多 before_count 条主时间线消息，给根消息一点铺垫。
+        非话题（root_id 空）直接返回 []。任一步读失败交上层降级为「无话题前情」。
+        返回 create_time 升序，末尾即根消息。
+        """
+        if not message.root_id:
+            return []
+        bot_open_id = self.bot_open_id()
+        root_item = self.get_message(message.root_id)
+        if not root_item:
+            return []
+        context_items: dict[str, dict] = {message.root_id: root_item}
+        root_time = _to_ms(root_item.get("create_time"))
+        if before_count > 0 and root_time > 0 and message.chat_id:
+            for item in self._list_chat_before(message.chat_id, root_time, before_count):
+                mid = item.get("message_id")
+                if mid and mid != message.root_id and _to_ms(item.get("create_time")) < root_time:
+                    context_items[mid] = item
+        normalized = [
+            normalized_item
+            for item in context_items.values()
+            if (normalized_item := normalize_history_item(item, bot_open_id)) is not None
+        ]
+        normalized.sort(key=lambda item: item.create_time)
+        # 只留「根 + 根之前 before_count 条」，多读的裁掉。
+        return normalized[-(before_count + 1):]
+
+    def _list_chat_before(self, chat_id: str, end_time_ms: int, limit: int) -> list[dict]:
+        """读 chat 容器里 end_time 之前的一页消息（倒序），拍平成 dict。
+
+        话题群里 chat 容器只回主时间线的话题根消息；配合 end_time 截到指定时刻，用于取
+        「发起话题那条之前」的几条主时间线铺垫。limit 很小（默认 3），一页足矣，不翻页。
+        """
+        from lark_channel.api.im.v1.model.list_message_request import ListMessageRequest
+
+        builder = (
+            ListMessageRequest.builder()
+            .container_id_type("chat")
+            .container_id(chat_id)
+            .sort_type("ByCreateTimeDesc")
+            .page_size(max(limit + 5, 20))
+            # end_time 单位是秒；向上取整以包含根消息那一秒（根消息会被调用方按 id 排除）。
+            .end_time(str((end_time_ms + 999) // 1000))
+        )
+        response = self._client.im.v1.message.list(builder.build())
+        if not response.success():
+            raise RuntimeError(f"读取主时间线历史失败 {response.code}: {response.msg}")
+        items = (response.data.items or []) if response.data else []
+        return [_history_item_to_dict(item) for item in items]
+
+
+def resolve_quote_chain(
+    first_parent_id: str,
+    fetch: "callable",
+    max_depth: int = MAX_QUOTE_DEPTH,
+) -> list["QuotedMessage"]:
+    """沿 parent_id 链回溯出被引用消息列表（纯逻辑，fetch 注入便于测试）。
+
+    - first_parent_id：@bot 那条消息直接引用的消息 id（IncomingMessage.reply_to_message_id）。
+    - fetch(message_id) -> Optional[dict]：读单条消息的拍平 dict（含 parent_id），读不到给 None。
+    - 逐层：拿到一条就归一化成 QuotedMessage（depth 从 1 递增），再顺着它的 parent_id 上溯。
+    - 防环：seen 记录已访问 id，遇到重复即停（避免 A 引 B、B 引 A 之类死循环）。
+    - 截断：最多 max_depth 层；到顶或某层读不到（None）就停，返回已拿到的部分。
+    返回顺序：depth 升序（[直接引用, 引用的引用, ...]）。first_parent_id 为空直接返回 []。
+    """
+    if not first_parent_id:
+        return []
+    chain: list[QuotedMessage] = []
+    seen: set[str] = set()
+    current_id: Optional[str] = first_parent_id
+    for depth in range(1, max_depth + 1):
+        if not current_id or current_id in seen:
+            break
+        seen.add(current_id)
+        item = fetch(current_id)
+        if not item:
+            break
+        quoted = _quoted_from_item(item, depth)
+        if quoted is not None:
+            chain.append(quoted)
+        current_id = str(item.get("parent_id") or "") or None
+    return chain
+
+
+def _quoted_from_item(item: dict, depth: int) -> Optional["QuotedMessage"]:
+    """把一条飞书消息 dict 归一化为 QuotedMessage；文本抽取复用历史那套。
+
+    撤回消息给占位文本；文本/富文本抽正文，图片/文件给占位。发言人取显示名，
+    没有则退回 open_id；bot 自己发的消息也照常纳入（引用链里可能引用了 bot 的回复）。"""
+    message_id = str(item.get("message_id") or "")
+    if not message_id:
+        return None
+    mentions = item.get("mentions") or []
+    if bool(item.get("deleted")):
+        text = "[该消息已撤回，原内容不应继续作为有效依据]"
+    else:
+        text = _history_item_text(item.get("msg_type"), (item.get("body") or {}).get("content"), mentions)
+    if not text:
+        return None
+    sender = item.get("sender") or {}
+    return QuotedMessage(
+        message_id=message_id,
+        sender_open_id=str(sender.get("id") or "") or "unknown",
+        sender_name=str(sender.get("sender_name") or ""),
+        text=text,
+        depth=depth,
+    )
+
 
 def _inbound_to_incoming(msg: object) -> Optional[IncomingMessage]:
     """把 Channel SDK 的 `InboundMessage` 映射回本项目的 `IncomingMessage`。
 
-    只处理文本；SDK 已把 @提及 从正文里剥掉并归一化，`content_text` 就是纯净文本，
-    等价于原 normalize_feishu_message 去掉 mention token 后的结果。tenant_key SDK 未在
+    只处理文本。SDK 的 `content_text` **保留了渲染后的 @名字**（含对 bot 自己的提及，
+    见 lark_channel normalize/pipeline.py：“content_text itself keeps the rendered
+    mention”）——所以当前触发消息里 `@小助手` 仍在，转录中「谁 @ 了谁」可见，与历史行口径一致。
+    （SDK 另有剥掉 bot 提及的 body_text 视图，本项目不用它。）tenant_key SDK 未在
     归一化结果里透出（它藏在事件 header），这里从 mentions 里兜底取，取不到给 default
     ——共享会话键里 tenant_key 只是命名空间前缀，同租户内恒定即可。
     """
@@ -298,6 +475,16 @@ def _inbound_to_incoming(msg: object) -> Optional[IncomingMessage]:
         (m.tenant_key for m in mentions if getattr(m, "tenant_key", None)),
         None,
     ) or "default"
+    # SDK 已把「用户显式引用某条消息」归一化到 msg.reply（reply_to_message_id 便捷属性）；
+    # 话题根不会进这里（pipeline 只在 parent_id != root_id 时才设 reply）。取到就带上，
+    # 供 resolve_quote_chain 沿父链把被引用内容补进上下文。
+    reply_to = getattr(msg, "reply_to_message_id", None) or (
+        getattr(getattr(msg, "reply", None), "message_id", None) or ""
+    )
+    # 话题根 id 不在 InboundMessage 的一等字段里，但保留在 raw（include_raw 默认开）。
+    # 话题群里它是「发起话题的那条主时间线消息」；用于 load_thread_context 补话题前情。
+    raw = getattr(msg, "raw", None) or {}
+    root_id = str(raw.get("root_id") or "") if isinstance(raw, dict) else ""
     return IncomingMessage(
         event_id=getattr(msg, "id", "") or "",
         message_id=getattr(msg, "id", "") or "",
@@ -309,6 +496,8 @@ def _inbound_to_incoming(msg: object) -> Optional[IncomingMessage]:
         text=text,
         mentioned_bot=bool(getattr(msg, "mentioned_bot", False)),
         create_time=int(getattr(msg, "create_time", 0) or 0),
+        reply_to_message_id=reply_to or "",
+        root_id=root_id,
     )
 
 
@@ -401,6 +590,8 @@ def _history_item_to_dict(item: object) -> dict:
         "msg_type": getattr(item, "msg_type", None),
         "create_time": getattr(item, "create_time", None),
         "deleted": bool(getattr(item, "deleted", False)),
+        # parent_id：这条消息引用/回复的上一条消息 id，供引用链逐层上溯（get_message 用）。
+        "parent_id": str(getattr(item, "parent_id", "") or ""),
         "sender": {
             "id": getattr(sender, "id", None) if sender else None,
             "sender_type": getattr(sender, "sender_type", None) if sender else None,

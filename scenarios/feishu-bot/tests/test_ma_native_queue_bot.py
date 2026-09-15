@@ -92,6 +92,7 @@ class FakeArk:
 class FakeSender:
     def __init__(self, history_provider=None):
         self.chat_sends: list[tuple[str, str]] = []
+        self.replies: list[tuple[str, str]] = []  # (message_id, text)
         self.reactions: list[tuple[str, str]] = []  # (message_id, emoji)
         self.deleted_reactions: list[tuple[str, str]] = []  # (message_id, reaction_id)
         self._history_provider = history_provider
@@ -99,6 +100,9 @@ class FakeSender:
 
     def send_to_chat(self, chat_id: str, text: str) -> None:
         self.chat_sends.append((chat_id, text))
+
+    def reply(self, message_id: str, text: str) -> None:
+        self.replies.append((message_id, text))
 
     def react(self, message_id: str, emoji_type: str):
         self._reaction_seq += 1
@@ -254,6 +258,42 @@ def test_consumer_merges_and_sends_last_message_of_turn(loop):
         assert ("oc-team", "让我先查一下") not in sender.chat_sends
         # 回复回到群会话（send_to_chat），不 reply 到某条消息。
         assert ("oc-team", "这是最终答复") in sender.chat_sends
+    finally:
+        _shutdown(bot, loop)
+
+
+# ---- 2b. 话题群：合并回复 reply 回本回合触发消息，落回话题串（不冒到群主时间线）----
+
+def test_thread_reply_lands_in_thread(loop):
+    ark = FakeArk()
+    ark.stream_events["sesn-1"] = [
+        _text_event("e1", "话题里的答复"),
+        {"id": "e2", "type": "session.status_idle"},
+    ]
+    bot, ark, sender, _ = _make_bot(loop, ark=ark)
+    try:
+        # 话题内 @bot：thread_id 非空 → key.thread_id 非空 → 回复应 reply 到触发消息。
+        bot.accept(_msg("ou-alice", "@bot 出个方案", mid="om-t1", eid="ev-1",
+                        thread_id="th-1", ts=1000))
+        assert _wait_until(lambda: sender.replies == [("om-t1", "话题里的答复")], loop)
+        # 没有冒到群主时间线（不 send_to_chat 发合并回复）。
+        assert ("oc-team", "话题里的答复") not in sender.chat_sends
+    finally:
+        _shutdown(bot, loop)
+
+
+def test_non_thread_reply_stays_flat(loop):
+    # 普通群（无 thread_id）：仍平铺发群会话，不用 reply。
+    ark = FakeArk()
+    ark.stream_events["sesn-1"] = [
+        _text_event("e1", "群里的答复"),
+        {"id": "e2", "type": "session.status_idle"},
+    ]
+    bot, ark, sender, _ = _make_bot(loop, ark=ark)
+    try:
+        bot.accept(_msg("ou-alice", "@bot 出个方案", mid="om-1", eid="ev-1", ts=1000))
+        assert _wait_until(lambda: ("oc-team", "群里的答复") in sender.chat_sends, loop)
+        assert sender.replies == []
     finally:
         _shutdown(bot, loop)
 
