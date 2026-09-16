@@ -405,6 +405,38 @@ class FeishuSender:
         if not response.success():
             raise RuntimeError(f"飞书回复失败 {response.code}: {response.msg}")
 
+    def reply_in_thread(
+        self, message_id: str, text: str, roster: "Optional[dict[str, str]]" = None
+    ) -> None:
+        """在话题内回复；若目标是主时间线消息，则以它为根创建一个新话题。"""
+        if markdown_render_enabled():
+            try:
+                self._reply_in_thread_with(message_id, "post", _text_to_post_content(text, roster))
+                return
+            except Exception:  # noqa: BLE001 - 富文本失败时仍需在同一话题内降级发送
+                pass
+        self._reply_in_thread_with(
+            message_id, "text", json.dumps({"text": text}, ensure_ascii=False)
+        )
+
+    def _reply_in_thread_with(self, message_id: str, msg_type: str, content: str) -> None:
+        from lark_channel.api.im.v1.model.reply_message_request import (
+            ReplyMessageRequest,
+            ReplyMessageRequestBody,
+        )
+
+        body = (
+            ReplyMessageRequestBody.builder()
+            .content(content)
+            .msg_type(msg_type)
+            .reply_in_thread(True)
+            .build()
+        )
+        request = ReplyMessageRequest.builder().message_id(message_id).request_body(body).build()
+        response = self._client.im.v1.message.reply(request)
+        if not response.success():
+            raise RuntimeError(f"飞书话题回复失败 {response.code}: {response.msg}")
+
     def react(self, message_id: str, emoji_type: str) -> Optional[str]:
         """给某条消息加一个表情回应（im.v1.message_reaction.create）。
         群聊里比文字回执更轻量：@ bot 后直接在原消息下贴个「稍等」(OneSecond) 表情，
@@ -746,9 +778,10 @@ def _inbound_to_incoming(msg: object) -> Optional[IncomingMessage]:
     处理文本与带图片/文件附件的消息。SDK 的 `content_text` **保留了渲染后的 @名字**（含对
     bot 自己的提及，见 lark_channel normalize/pipeline.py：“content_text itself keeps the
     rendered mention”）——所以当前触发消息里 `@小助手` 仍在，转录中「谁 @ 了谁」可见，与历史行
-    口径一致。（SDK 另有剥掉 bot 提及的 body_text 视图，本项目不用它。）tenant_key SDK 未在
-    归一化结果里透出（它藏在事件 header），这里从 mentions 里兜底取，取不到给 default
-    ——共享会话键里 tenant_key 只是命名空间前缀，同租户内恒定即可。
+    口径一致。（SDK 另有剥掉 bot 提及的 body_text 视图，本项目不用它。）Channel SDK 未把
+    事件 header 的 tenant_key 透出，因此这里固定使用 default。不能从 mentions 猜 tenant_key：
+    带 @ 的消息有 mention、不带 @ 的话题续聊没有，会导致同一话题得到两把不同的会话键。
+    chat_id 本身已能稳定隔离会话。
 
     多模态：raw_content_type 为 image/file/post 时，从 SDK 的 resources 抽出图片/文件附件
     （_extract_resources），交由上层「下载→上传方舟→挂载到 /mnt/session/uploads/」。既非文本
@@ -765,11 +798,7 @@ def _inbound_to_incoming(msg: object) -> Optional[IncomingMessage]:
     if resources and getattr(msg, "raw_content_type", None) in ("image", "file"):
         text = ""
     chat_type = "p2p" if getattr(conversation, "chat_type", "") == "p2p" else "group"
-    mentions = getattr(msg, "mentions", None) or []
-    tenant_key = next(
-        (m.tenant_key for m in mentions if getattr(m, "tenant_key", None)),
-        None,
-    ) or "default"
+    tenant_key = "default"
     # SDK 已把「用户显式引用某条消息」归一化到 msg.reply（reply_to_message_id 便捷属性）；
     # 话题根不会进这里（pipeline 只在 parent_id != root_id 时才设 reply）。取到就带上，
     # 供 resolve_quote_chain 沿父链把被引用内容补进上下文。

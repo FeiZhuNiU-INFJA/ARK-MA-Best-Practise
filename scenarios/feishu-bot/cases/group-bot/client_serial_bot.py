@@ -267,7 +267,7 @@ class SerialGroupBot:
     async def _prepare_attachments(
         self, message: IncomingMessage, resources: list[ResourceRef]
     ) -> tuple[list[PreparedAttachment], list[str]]:
-        """把本轮附件逐个「下载 →（内联小文本 / 上传方舟拿 file_id）」，产出待挂载结果 + 降级提示。
+        """把本轮附件逐个「下载 → 上传方舟拿 file_id」，产出待挂载结果 + 降级提示。
 
         resources 由 collect_round_resources 收齐（触发消息 + 落进窗口的历史消息 + 话题前情里的
         附件，按 file_key 去重），下载按各 ref.message_id 定位所属消息——文件常是单独一条消息发的、
@@ -309,8 +309,7 @@ class SerialGroupBot:
     ) -> None:
         """把已上传的附件（有 file_id 的）逐个挂到本 Session 的 /mnt/session/uploads/{mount_path}。
 
-        内联文本（inline_text 非空、无 file_id）不挂载，直接进正文，跳过。单个挂载失败记 warning
-        但不抛——正文里仍会列出该路径，模型读不到时会自行说明，不拖垮本轮其余附件与回复。
+        单个挂载失败记 warning 但不抛——不拖垮本轮其余附件与回复。
 
         去重·挂载记录层：同一资源（file_key）已挂到本 session 就跳过——一个文件在一个会话里
         只需挂一次，之后每轮引用同一路径即可，别反复 add_session_file。store 未实现去重方法

@@ -282,6 +282,7 @@ def test_windowed_input_includes_group_transcript(loop):
 
     lines = captured[0].split("\n")
     assert lines == [
+        "【最新对话】",
         "Alice: 老板要季度总结",
         "Bob: 我这边数据准备好了",
         "ou-alice: 整理成一页纸",  # 当前请求作为最后一行
@@ -442,7 +443,8 @@ def test_attachment_downloaded_uploaded_mounted_before_run(loop, monkeypatch):
     session_id, file_id, mount_path = ark.mounts[0]
     assert session_id == "sesn-1" and file_id == "file-1" and mount_path.endswith("/报告.pdf")
     # 正文把挂载路径拼进去了，供 Agent 读取。
-    assert "文件已挂载到（请用文件工具读取）：" in captured[0]
+    assert "【文件挂载】" in captured[0]
+    assert f"报告.pdf： /mnt/session/uploads/{mount_path}" in captured[0]
     assert f"/mnt/session/uploads/{mount_path}" in captured[0]
 
 
@@ -477,7 +479,7 @@ def test_attachment_from_history_message_is_mounted(loop, monkeypatch):
     assert sender.downloads == [("om-file", "fk-pdf", "file")]
     assert ark.uploads == ["office-requirements.pdf"]
     assert len(ark.mounts) == 1
-    assert "文件已挂载到（请用文件工具读取）：" in captured[0]
+    assert "【文件挂载】" in captured[0]
 
 
 def test_attachment_ignored_when_multimodal_disabled(loop, monkeypatch):
@@ -594,4 +596,3 @@ def test_roster_fetch_failure_does_not_break_reply(loop):
     assert _wait_until(lambda: len(sender.replies) >= 1, loop)
 
     assert sender.reply_rosters[-1] == {}   # 名册失败 → 空名册，但回复没丢
-

@@ -473,6 +473,7 @@ def test_windowed_input_includes_group_transcript(loop):
         assert _wait_until(lambda: len(ark.send_calls) >= 1, loop)
         sent_input = ark.send_calls[0][1]
         assert sent_input.split("\n") == [
+                "【最新对话】",
             "Alice: 客户要报价",
             "Bob: 我发下参数",
             "ou-alice: 汇总一下",
@@ -613,7 +614,8 @@ def test_attachment_downloaded_uploaded_mounted_before_send(loop, monkeypatch):
         assert session_id == "sesn-1" and file_id == "file-1" and mount_path.endswith("/报告.pdf")
         # 直发的 input 里把挂载路径拼进去了，供 Agent 读取。
         sent_input = ark.send_calls[0][1]
-        assert "文件已挂载到（请用文件工具读取）：" in sent_input
+        assert "【文件挂载】" in sent_input
+        assert f"报告.pdf： /mnt/session/uploads/{mount_path}" in sent_input
         assert f"/mnt/session/uploads/{mount_path}" in sent_input
     finally:
         _shutdown(bot, loop)
@@ -651,7 +653,7 @@ def test_attachment_from_history_message_is_mounted(loop, monkeypatch):
         assert ark.uploads == ["office-requirements.pdf"]
         assert len(ark.mounts) == 1
         sent_input = ark.send_calls[0][1]
-        assert "文件已挂载到（请用文件工具读取）：" in sent_input
+        assert "【文件挂载】" in sent_input
     finally:
         _shutdown(bot, loop)
 
@@ -782,4 +784,3 @@ def test_thread_reply_passes_chat_roster(loop):
         assert sender.reply_rosters[-1] == {"张三": "ou-zhangsan"}
     finally:
         _shutdown(bot, loop)
-

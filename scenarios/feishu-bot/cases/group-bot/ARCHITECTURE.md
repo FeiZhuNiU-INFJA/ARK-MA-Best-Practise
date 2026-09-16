@@ -6,8 +6,8 @@
 2. 流程里有哪些**关键数据结构**，各自装了什么。
 3. 每个**判断节点依据对象的哪个属性**做决策。
 
-代码入口：`shared.py`（公共底座）、`client_serial_bot.py`（客户端串行）、
-`ma_native_queue_bot.py`（方舟原生队列）、`../../arkagent/feishu.py`（飞书接入 +
+代码入口：`shared.py`（公共底座）、`topic_session_bot.py`（话题级 Session，推荐）、
+`client_serial_bot.py`（客户端串行）、`ma_native_queue_bot.py`（方舟原生队列）、`../../arkagent/feishu.py`（飞书接入 +
 归一化）、`../../arkagent/ark.py`（方舟客户端）、`../../arkagent/gateway.py`（`KeyedQueue`）。
 
 > 术语：**触发消息** = 当前这条 @bot 的入站消息；**窗口** = 注入本轮的那段群历史增量。
@@ -22,7 +22,7 @@
 | `HistoryMessage` | [feishu.py:64](../../arkagent/feishu.py) | 一条**群历史**消息归一化后的结果，比入站多两个语义判定位 | `at_bot`（切窗口边界）、`is_from_bot`（过滤 bot 回复）、`create_time`（升序）、`sender_name`（转录显示名，保留 `@名字`）、`text`、`resources`（这条历史消息里的图片/文件附件→收进本轮挂载） |
 | `QuotedMessage` | [feishu.py:48](../../arkagent/feishu.py) | 引用链上一条**被引用消息**的归一化结果（`resolve_quote_chain` 产出） | `depth`（1=直接引用，越大越久远，封顶 `MAX_QUOTE_DEPTH`=5）、`sender_name`、`text`、`message_id`（去重用） |
 | `ResourceRef` | [feishu.py:26](../../arkagent/feishu.py) | 一条消息里一个**可下载附件**（图片/文件）的引用（`_extract_resources` / `_extract_history_resources` 产出） | `file_key`（下载键）、`file_name`（清洗后作挂载名）、`type`（`image`/`file`，其它类型不挂）、`message_id`（附件所属消息 id，下载资源必须按各自所属消息取；空则由调用方用当前消息 id 兜底） |
-| `PreparedAttachment` | [shared.py](shared.py) | 一个附件「准备好待注入」的结果，**互斥两态** | `inline_text` 非空=小纯文本内联进正文（不上传）；`file_id` 非空=已上传待挂载；`mount_path`（相对 `/mnt/session/uploads/`）、`name`（提示/错误用）、`file_key`（去重身份：文件缓存键 + 挂载记录键） |
+| `PreparedAttachment` | [shared.py](shared.py) | 一个已上传、待挂载的附件 | `file_id`（方舟文件 ID）、`mount_path`（相对 `/mnt/session/uploads/`）、`name`（提示/错误用）、`file_key`（去重身份） |
 | `GroupConversationKey` | [shared.py:35](shared.py) | 共享会话键，**刻意不含 user_open_id** | `tenant_key` + `chat_id` + `thread_id` → `as_str()` = `"t:chat:thread"` |
 | `SqliteSessionMap` | [shared.py:343](shared.py) | 群 key → 方舟 session_id 的**持久化映射** + 事件去重 + 附件两层去重，跨重启不丢 | 表 `sessions(key, session_id)`、`seen_events(event_id)`、`attachments(file_key, file_id)`（文件缓存·跨 session）、`attachment_mounts(session_id, file_key)`（挂载记录·按 session） |
 | `RunResult` | [ark.py:27](../../arkagent/ark.py) | 方舟一轮运行的终态结果 | `terminal`（`"idle"`/`"failed"`）、`messages` |
@@ -30,7 +30,33 @@
 
 ---
 
-## 2. 总体架构
+## 2. 推荐架构：话题即 Session
+
+```mermaid
+flowchart TD
+    A[群主时间线 @bot] --> K[topic_root_id = 当前 message_id]
+    K --> S[创建独立方舟 Session]
+    S --> R[reply_in_thread=true\n首条回复创建飞书话题]
+    R --> F[话题内普通消息\n不触发回复]
+    F --> A2[下一次 @bot]
+    A2 --> Q[按话题 KeyedQueue 串行]
+    Q --> P[读取当前 thread\n上次 @bot 之后至今]
+    P --> S
+```
+
+`topic_session_bot.py` 只有在收到 `@bot` 时才运行和回复。此时调用
+`FeishuSender.list_messages`，但容器严格限定为当前 thread，再截取
+「上一次 `@bot` 之后到当前」；边界消息已在 Session 中，不会重复注入。普通消息因此进入
+下一轮上下文，却不会单独触发 Bot。
+它不调用 `load_thread_context`，也不读取主群时间线或其他话题。
+
+话题键优先使用 `root_id`，其次 `thread_id`；首条主时间线消息尚无这两个字段时使用自身
+`message_id`。飞书后续话题消息的 `root_id` 会回指该根消息，因此进程重启后仍可从 SQLite
+恢复同一 Session。`@bot /new` 会立即为当前话题创建替代 Session，不删除话题归属。
+
+---
+
+## 3. 旧方案总体架构
 
 ```mermaid
 flowchart LR
@@ -52,7 +78,7 @@ flowchart LR
 
 ---
 
-## 3. 入站数据流与判断节点（从收到到发给方舟）
+## 4. 旧方案入站数据流与判断节点
 
 ```mermaid
 flowchart TD
@@ -70,7 +96,7 @@ flowchart TD
     H -- 无 --> I[create_session + save]
     H -- 有 --> J[命中已有 Session]
     I --> P
-    J --> P[prepare_attachments\n下载→内联/上传拿 file_id]
+    J --> P[prepare_attachments\n下载→上传拿 file_id]
     P --> MNT[add_session_file\n挂到 /mnt/session/uploads/]
     MNT --> K[_windowed_input]
     K --> L[list_messages 读话题/群历史]
@@ -91,7 +117,7 @@ flowchart TD
 | 4 | 会话分桶 | `to_group_key` [shared.py:51](shared.py) | `tenant_key` + `chat_id` + `thread_id` | 决定共享哪个 Session；**话题独立成桶** |
 | 5 | 指令分流 | `_process`/`_handle` | `is_reset_command(text)`（剥掉开头 @提及前缀后 == `/new`；群里 @bot 正文带 `@群助手 ` 前缀，直接严格相等永不命中） | 重置本群会话 |
 | 6 | 是否已有 Session | `SqliteSessionMap.get` [shared.py:391](shared.py) | `key.as_str()` | 无则 `create_session` |
-| 7 | 附件内联 or 上传 | `prepare_attachments` [shared.py](shared.py) | 扩展名（`.md`/`.txt`…）+ UTF-8 可解码 + 内联额度 → 内联；否则上传（超 20 MB / 单轮 40 MB / 下载失败降级为 notice） | 内联填 `inline_text`；上传填 `file_id` 待挂载 |
+| 7 | 附件上传 | `prepare_attachments` [shared.py](shared.py) | 所有文件类型统一上传；超 20 MB / 单轮 40 MB / 下载失败降级为 notice | 填 `file_id` 待挂载 |
 | 8 | 历史容器选择 | `list_messages` [feishu.py:240](../../arkagent/feishu.py) | `thread_id` 非空 → `thread` 容器；否则 → `chat` 容器（且用 `end_time` 截到当前） | 决定拉哪条时间线的历史 |
 | 9 | 历史项筛选 | `_is_eligible_history` [feishu.py:424](../../arkagent/feishu.py) | `message_id != trigger.message_id` **且** `0 < create_time <= trigger.create_time` | 排除触发消息本身、排除并发到达的"未来"消息 |
 | 10 | at_bot / is_from_bot | `normalize_history_item` [feishu.py:436](../../arkagent/feishu.py) | `mentions[].id == bot_open_id` / `sender_type=="app"` 或 `sender_open_id==bot_open_id` | 给历史项打上切窗/过滤标记 |
@@ -108,13 +134,14 @@ flowchart TD
 （含 @bot 自己，其身份由 Agent system prompt 的 `GROUP_BOT_DISPLAY_NAME` 声明）：
 
 ```
+【最新对话】
 [话题前情 Alice: 上周的周报模板在这]   ← 话题群才有：根消息 + 根之前 N 条主时间线（load_thread_context）
 Alice: 老板说要出周报              ← 窗口历史（select_window）
 Bob: 我这边数据有了
 [引用 Carol: 三季度销售汇总]        ← 当前这条显式引用别的消息时注入，嵌套层标 [引用·第N层]
 David: @群助手 整理成周报发我        ← 当前 @bot 的请求（无显示名时用 open_id 兜底；纯图片消息给默认指令）
-文件已挂载到（请用文件工具读取）：   ← 有附件时追加在当前行之后（见 §7 多模态）
-- /mnt/session/uploads/9f3a…/报告.pdf
+【文件挂载】
+报告.pdf： /mnt/session/uploads/9f3a…/报告.pdf
 ```
 
 前四段共用一个 `seen_ids`，同一 `message_id` 只出现一次（如引用的消息已在窗口里则不重复注入）；
@@ -122,7 +149,7 @@ David: @群助手 整理成周报发我        ← 当前 @bot 的请求（无�
 
 ---
 
-## 4. 两个方案的分叉（发送策略 + 回复路径）
+## 5. 两个旧方案的分叉（发送策略 + 回复路径）
 
 ```mermaid
 flowchart TD
@@ -154,7 +181,7 @@ flowchart TD
 
 ---
 
-## 5. 兜底：Session 失效重建
+## 6. 兜底：Session 失效重建
 
 持久化后，`session_id` 可能在方舟侧已过期/被清（重启后尤甚），表现为 **404**。
 
@@ -179,7 +206,7 @@ flowchart TD
 
 ---
 
-## 6. 持久化落点
+## 7. 持久化落点
 
 - `SqliteSessionMap` 默认落 `~/.arkagent/group_bot_sessions.db`（WAL 模式）。
 - `sessions` 表让 gateway 重启后仍复用同一个群/话题的方舟 Session（对话记忆存在方舟侧）。
@@ -188,7 +215,7 @@ flowchart TD
 
 ---
 
-## 7. 多模态：图片 / 文件挂载 Session 文件系统
+## 8. 多模态：图片 / 文件挂载 Session 文件系统
 
 群里 @bot 时发图片/文件（含只发图不带字），bot 把附件**挂进方舟 Session 沙箱**让 Agent
 用文件工具去读，对齐源项目 `src/gateway.ts` 的「上传并挂载」方案（**不**走 user message
@@ -197,12 +224,10 @@ flowchart TD
 ```mermaid
 flowchart TD
     R[IncomingMessage.resources\nResourceRef 图片/文件引用] --> DL[download_resource\nGET /im/v1/messages/{id}/resources/{key}]
-    DL --> SPLIT{prepare_attachments 分流}
-    SPLIT -- 小纯文本 .md/.txt\nUTF-8 且未超内联额度 --> INLINE[inline_text\n直接进正文 <file> 块]
-    SPLIT -- 其余（图片/PDF/大文本） --> UP[ArkClient.upload_file\nPOST /files purpose=agent → file_id]
-    SPLIT -- 下载失败/超 20MB/单轮超 40MB/非 UTF-8 --> DEG[降级为 notice\n拼进正文「另外：…」]
+    DL --> SPLIT{prepare_attachments}
+    SPLIT -- 所有文件类型 --> UP[ArkClient.upload_file\nPOST /files purpose=agent → file_id]
+    SPLIT -- 下载失败/超 20MB/单轮超 40MB --> DEG[降级为 notice\n拼进正文「另外：…」]
     UP --> MNT[ArkClient.add_session_file\nPOST /sessions/id/resources\n→ /mnt/session/uploads/短哈希/名]
-    INLINE --> BUILD[build_windowed_input\n_attachment_blocks 追加在当前行之后]
     MNT --> BUILD
     DEG --> BUILD
 ```
@@ -211,23 +236,22 @@ flowchart TD
 |---|---|---|---|
 | 抽取可挂载附件 | `_extract_resources` [feishu.py](../../arkagent/feishu.py) | `ResourceDescriptor.type ∈ {image, file}` 且 `file_key` 非空 | 映射为 `ResourceRef`；sticker/audio/video 跳过 |
 | 开关 | `multimodal_enabled` [shared.py](shared.py) | `GROUP_BOT_MULTIMODAL` != `0/false/no/off` | 关闭时不下载不上传，正文留「[附件已忽略]」 |
-| 内联 or 上传 | `prepare_attachments` [shared.py](shared.py) | 扩展名 `_INLINE_TEXT_EXTS` + UTF-8 可解码 + `MAX_INLINE_TEXT_BYTES`(256KB) | 内联填 `inline_text`；否则上传拿 `file_id` |
+| 上传 | `prepare_attachments` [shared.py](shared.py) | 图片、PDF、Markdown、纯文本等全部文件类型 | 上传拿 `file_id` |
 | 额度/降级 | `prepare_attachments` [shared.py](shared.py) | `MAX_SINGLE_FILE_BYTES`(20MB) / `MAX_ATTACHMENT_TOTAL_BYTES`(40MB) / 下载·上传异常 | 逐个附件套 try，失败记一条 notice 跳过，不拖垮本轮 |
 | 挂载路径 | `_mount_path` [shared.py](shared.py) | `sha256(file_key)[:16]` + 安全文件名 | `/mnt/session/uploads/{短哈希}/{名}`，同一 `file_key` 恒定映射到同一路径（去重基础），不同文件不覆盖 |
 | 挂到 Session | `_mount_attachments`（两个 bot） | `PreparedAttachment.file_id` 非空 | `add_session_file` 挂载；单个失败记 warning 不抛 |
-| 正文注入 | `_attachment_blocks` [shared.py](shared.py) | `inline_text` 是否为 None 区分挂载/内联 | 挂载列沙箱路径、内联附 `<file>` 原文（`<` 转义）、notice 逐条如实 |
+| 正文注入 | `_attachment_blocks` [shared.py](shared.py) | 已挂载附件列表 | 只列沙箱路径，不展开文件原文；notice 逐条如实 |
 
 要点：
 - **附件先于发消息挂载**——正文里会给出 `/mnt/session/uploads/...` 路径，挂载必须在
   `run`/`send_message` 之前完成，否则 Agent 读路径时文件还没就位。
 - **`file_id` 与 Session 无关**：Session 失效重建（404）时只需把附件重新 `add_session_file`
   到新 Session，无需重新上传。
-- **内联 vs 挂载**：小纯文本内联省一次上传/挂载往返、模型直接看到原文；图片/PDF/大文本挂载，
-  交给 Agent 的文件工具按需读取。
+- **统一挂载**：Markdown、纯文本、图片、PDF 等都只挂载，交给 Agent 的文件工具按需读取。
 - 编排是纯函数（`prepare_attachments` / `_attachment_blocks`），两个 IO 能力（下载、上传）
   由 bot 注入，测试见 `tests/test_group_bot.py`；方舟侧接口测试见 `tests/test_ark.py`。
 
-### 7.1 附件去重（不重复下载 / 上传 / 挂载）
+### 8.1 附件去重（不重复下载 / 上传 / 挂载）
 
 同一个文件可能在多轮对话里被反复引用（多人接力、话题里反复提到同一份报告），甚至跨群/话题
 出现。为避免每次都重新走一遍「下载 → 上传 → 挂载」，用**两层去重**，都挂在 `SqliteSessionMap`
@@ -248,7 +272,7 @@ flowchart TD
   引用 → 0 下载、0 上传，但各 Session 各挂一次（复用同一 `file_id`）。测试见
   `tests/test_client_serial_bot.py`（同 session 复用）、`tests/test_ma_native_queue_bot.py`（跨 session 复用）。
 
-### 7.2 历史消息里的附件（文件单独发、之后另一条消息才 @bot）
+### 8.2 历史消息里的附件（文件单独发、之后另一条消息才 @bot）
 
 飞书里文件/图片常是**单独一条消息**发出来的，用户之后才在**另一条**消息里 @bot「说说这个
 PDF」。此时触发消息本身**没有** `resources`，只有正文——若只看 `message.resources`，那份文件
@@ -269,13 +293,13 @@ PDF」。此时触发消息本身**没有** `resources`，只有正文——若�
   把三段同时喂给 `build_windowed_input`（拼正文）和 `collect_round_resources`（收附件），
   保证「进正文的转录范围」与「挂进 Session 的附件范围」严格一致。
 - 撤回消息只留占位文本、**不带附件**（`file_key` 已失效）。
-- 与去重（§7.1）叠加：历史里收出来的文件同样先查文件缓存，命中则跳过下载/上传。
+- 与去重（§8.1）叠加：历史里收出来的文件同样先查文件缓存，命中则跳过下载/上传。
   测试见 `tests/test_group_bot.py`（`collect_round_resources`）、两个 bot 测试的
   `test_attachment_from_history_message_is_mounted`。
 
 ---
 
-## 8. lark-cli：给 Agent 装飞书操作能力（Bot 身份）
+## 9. lark-cli：给 Agent 装飞书操作能力（Bot 身份）
 
 Agent 光能对话还不够——要让它真去读写飞书文档、云空间、群消息、日历，需要在方舟沙箱里能跑
 `lark-cli`，且带上本应用的 **Bot 身份凭据**。对齐源项目 `src/init.ts` / `src/ark.ts` 的做法，
@@ -320,7 +344,7 @@ flowchart LR
 - **权限**：lark-cli 能做什么，取决于飞书开放平台给这个应用勾了哪些权限——除消息类权限外，
   还需按业务域（docx / drive / calendar…）在开放平台补齐并发布版本。
 
-## 9. 出站渲染：Markdown → 飞书富文本（post）
+## 10. 出站渲染：Markdown → 飞书富文本（post）
 
 Agent 的回复天生是 Markdown，而飞书**纯文本消息不渲染 Markdown**——直发会把 `**`、`##`、
 列表、代码块记号原样显示。出站层把回复转成飞书 **post 富文本**（`msg_type=post`）解决渲染。
@@ -342,12 +366,12 @@ flowchart TD
 | 发送 | `reply` / `send_to_chat` 先发 post；`_reply_with` / `_create_in_chat` 是底层单一 msg_type 发送 | `FeishuSender` [feishu.py](../../arkagent/feishu.py) |
 | 降级 | post 转换或发送抛异常 → 用同一段文字按 text 再发一次（宁可不渲染也要发出去，不吞回复） | `reply` / `send_to_chat` 的 try/except |
 
-- **不改交互形态**：`reply` 仍在原消息下引用回复；两个方案的回复路径（§4）不变，只是载体从
+- **旧方案不改交互形态**：`reply` 仍在原消息下引用回复；两个旧方案的回复路径（§5）不变，只是载体从
   text 换成 post。
 - **回执 / 报错短句**同样走 post——纯文本在 post 里渲染一致，无需按内容分流，实现简单统一。
 - 测试见 `tests/test_feishu.py`（转换的 locale map 结构、开关、post→text 降级分支）。
 
-### 9.1 回复里 @人：`@名字` → 可点击提及（混合渲染）
+### 10.1 回复里 @人：`@名字` → 可点击提及（混合渲染）
 
 Agent 常在回复里点名群成员（「@张三 请跟进」）。直发文字只是几个字、点不动、也不通知到人。
 群聊回复前先取**本群成员名册**（名字 → open_id），把正文里命中名册的 `@名字` 重写成飞书可点击的
@@ -364,7 +388,7 @@ flowchart TD
     E --> TP
     TP --> RS{正文含命中名册的 @名字?}
     RS -- 是 --> MIX[混合：@段 structured + 其余段 native]
-    RS -- 否 --> NAT[纯 native md（同 §9 老路径）]
+    RS -- 否 --> NAT[纯 native md（同 §10 老路径）]
 ```
 
 | 环节 | 做什么 | 代码 |
@@ -379,4 +403,3 @@ flowchart TD
 - **发问人显示名**：转录里「当前请求行」也优先用发言人显示名（`IncomingMessage.user_name`，见 §1），
   取不到才回退 open_id，和历史行同一口径（`build_windowed_input`）。
 - 测试见 `tests/test_feishu.py`（名册归一/消歧、分块、重写与混合渲染）与两个 bot 的测试（名册接线）。
-

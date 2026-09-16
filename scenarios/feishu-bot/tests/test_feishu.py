@@ -243,7 +243,7 @@ def test_inbound_maps_channel_message_to_incoming():
     assert result.user_open_id == "ou-user"
     assert result.text == "@小助手 帮我总结"  # SDK 已剥离 mention token，content_text 直接用
     assert result.mentioned_bot is True
-    assert result.tenant_key == "tenant-1"  # 从 mentions 兜底取到
+    assert result.tenant_key == "default"  # mention 与否不能改变同一话题的会话键
     assert result.create_time == 1700000009999
 
 
@@ -256,6 +256,14 @@ def test_inbound_defaults_tenant_when_missing():
     assert result is not None
     assert result.tenant_key == "default"
     assert result.mentioned_bot is False
+
+
+def test_inbound_mention_and_plain_thread_message_share_tenant_namespace():
+    mentioned = _inbound_to_incoming(_inbound())
+    plain = _inbound_to_incoming(_inbound(mentions=[], mentioned_bot=False))
+
+    assert mentioned is not None and plain is not None
+    assert mentioned.tenant_key == plain.tenant_key == "default"
 
 
 def test_inbound_maps_reply_to_message_id_from_reply():
@@ -536,6 +544,39 @@ def test_reply_sends_plain_text_when_markdown_disabled(monkeypatch):
     assert calls == [("text", json.dumps({"text": "## 不该被渲染"}, ensure_ascii=False))]
 
 
+def test_reply_in_thread_uses_dedicated_thread_sender(monkeypatch):
+    monkeypatch.delenv("GROUP_BOT_MARKDOWN", raising=False)
+    sender = _bare_sender()
+    calls = []
+    sender._reply_in_thread_with = (
+        lambda message_id, msg_type, content: calls.append((message_id, msg_type, content))
+    )
+
+    sender.reply_in_thread("om-root", "## 话题回复")
+
+    assert len(calls) == 1
+    assert calls[0][0:2] == ("om-root", "post")
+    assert "zh_cn" in json.loads(calls[0][2])
+
+
+def test_reply_in_thread_falls_back_to_thread_text(monkeypatch):
+    monkeypatch.delenv("GROUP_BOT_MARKDOWN", raising=False)
+    sender = _bare_sender()
+    calls = []
+
+    def _send(message_id, msg_type, content):
+        if msg_type == "post":
+            raise RuntimeError("post rejected")
+        calls.append((message_id, msg_type, content))
+
+    sender._reply_in_thread_with = _send
+    sender.reply_in_thread("om-root", "**fallback**")
+
+    assert calls == [
+        ("om-root", "text", json.dumps({"text": "**fallback**"}, ensure_ascii=False))
+    ]
+
+
 def test_send_to_chat_uses_post_then_falls_back(monkeypatch):
     monkeypatch.delenv("GROUP_BOT_MARKDOWN", raising=False)
     # 正常：post
@@ -634,4 +675,3 @@ def test_reply_passes_roster_into_post(monkeypatch):
     sender.reply("om-1", "请 @张三 跟进", roster={"张三": "ou_zhangsan"})
     assert calls[0][0] == "post"
     assert "ou_zhangsan" in calls[0][1]
-

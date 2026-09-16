@@ -142,13 +142,13 @@ def _main() -> None:
     print("    确认权限（im:message:send_as_bot / im:message / im:message.group_msg /")
     print("      im:chat:readonly / im:chat.members:read，")
     print("      以及 lark-cli 要操作的业务域权限，如 docx / drive / calendar 等按需勾选），")
-    print("      注意 im:message.group_msg（读取群消息）单列——读整段群历史必需，缺它 list_messages 会 400；")
+    print("      注意 im:message.group_msg（读取群消息）单列——话题增量上下文和旧方案读群历史都需要；")
     print("      im:chat.members:read（读群成员，im:chat:readonly 也满足）——回复里 @人名 渲成可点击 @ 用，")
     print("      缺它 chat_roster 会 400、自动降级为不 @（不影响其余回复）；")
     print("    事件订阅（长连接 + im.message.receive_v1）、开启机器人能力，然后【发布版本】。")
-    print("  · 启动 demo（会自己 source 出这些变量）：")
+    print("  · 启动推荐的话题 Session Bot：")
     print("      set -a && source ~/.arkagent/config.env && set +a")
-    print("      python scenarios/feishu-bot/cases/group-bot/client_serial_bot.py")
+    print("      python scenarios/feishu-bot/cases/group-bot/topic_session_bot.py")
     print("=" * 60)
 
 
