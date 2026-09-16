@@ -23,6 +23,7 @@ def message(**overrides) -> IncomingMessage:
         chat_type="p2p",
         thread_id="",
         user_open_id="user-1",
+        user_name="用户一",
         tenant_key="tenant-1",
         text="你好",
         mentioned_bot=False,

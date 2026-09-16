@@ -30,7 +30,7 @@ import shared  # noqa: E402
 from ma_native_queue_bot import ConcurrentGroupBot, _is_runtime_busy  # noqa: E402
 
 from arkagent.ark import ArkError  # noqa: E402
-from arkagent.feishu import HistoryMessage, IncomingMessage  # noqa: E402
+from arkagent.feishu import HistoryMessage, IncomingMessage, ResourceRef  # noqa: E402
 
 
 # ---- 替身（fakes）----------------------------------------------------------
@@ -68,15 +68,26 @@ class FakeArk:
     def __init__(self):
         self.created = 0
         self.create_calls: list[tuple[str, str]] = []
+        self.create_kwargs: list[dict] = []  # 每次 create_session 的 vault_ids/env_overrides 等
         self.send_calls: list[tuple[str, str]] = []
         self.stream_opens: list[str] = []
         self.stream_events: dict[str, list] = {}
         self.send_hook = None
+        self.uploads: list[str] = []            # 上传过的文件名
+        self.mounts: list[tuple[str, str, str]] = []  # (session_id, file_id, mount_path)
 
-    async def create_session(self, agent_id: str, environment_id: str, **_kw) -> str:
+    async def create_session(self, agent_id: str, environment_id: str, **kw) -> str:
         self.created += 1
         self.create_calls.append((agent_id, environment_id))
+        self.create_kwargs.append(kw)
         return f"sesn-{self.created}"
+
+    async def upload_file(self, name: str, mime_type: str, data: bytes) -> str:
+        self.uploads.append(name)
+        return f"file-{len(self.uploads)}"
+
+    async def add_session_file(self, session_id: str, file_id: str, mount_path: str) -> None:
+        self.mounts.append((session_id, file_id, mount_path))
 
     async def send_message(self, session_id: str, text: str, **_kw) -> None:
         idx = len([c for c in self.send_calls])  # 全局第几次发送
@@ -97,12 +108,24 @@ class FakeSender:
         self.deleted_reactions: list[tuple[str, str]] = []  # (message_id, reaction_id)
         self._history_provider = history_provider
         self._reaction_seq = 0
+        self.downloads: list[tuple[str, str, str]] = []  # (message_id, file_key, type)
+        self.download_data: dict[str, bytes] = {}         # file_key -> bytes
+        self.rosters: dict[str, dict[str, str]] = {}      # chat_id -> {name: open_id}
+        self.roster_calls: list[str] = []                 # 记录 chat_roster 被查了几次
+        self.reply_rosters: list[dict | None] = []        # 每次 reply 收到的名册
+        self.send_rosters: list[dict | None] = []         # 每次 send_to_chat 收到的名册
 
-    def send_to_chat(self, chat_id: str, text: str) -> None:
+    def send_to_chat(self, chat_id: str, text: str, roster=None) -> None:
         self.chat_sends.append((chat_id, text))
+        self.send_rosters.append(roster)
 
-    def reply(self, message_id: str, text: str) -> None:
+    def reply(self, message_id: str, text: str, roster=None) -> None:
         self.replies.append((message_id, text))
+        self.reply_rosters.append(roster)
+
+    def chat_roster(self, chat_id: str) -> dict:
+        self.roster_calls.append(chat_id)
+        return self.rosters.get(chat_id, {})
 
     def react(self, message_id: str, emoji_type: str):
         self._reaction_seq += 1
@@ -111,6 +134,10 @@ class FakeSender:
 
     def delete_reaction(self, message_id: str, reaction_id: str) -> None:
         self.deleted_reactions.append((message_id, reaction_id))
+
+    def download_resource(self, message_id: str, file_key: str, resource_type: str) -> bytes:
+        self.downloads.append((message_id, file_key, resource_type))
+        return self.download_data.get(file_key, b"binary-bytes")
 
     def list_messages(self, message, *_a, **_kw) -> list:
         if self._history_provider is None:
@@ -134,7 +161,8 @@ def _config(**overrides) -> shared.GroupBotConfig:
 
 
 def _msg(user: str, text: str, *, mid: str, eid: str, thread_id: str = "", chat_id: str = "oc-team",
-         chat_type: str = "group", ts: int = 1000, mentioned_bot: bool = True) -> IncomingMessage:
+         chat_type: str = "group", ts: int = 1000, mentioned_bot: bool = True,
+         resources: tuple = (), user_name: str = "") -> IncomingMessage:
     return IncomingMessage(
         event_id=eid,
         message_id=mid,
@@ -142,10 +170,12 @@ def _msg(user: str, text: str, *, mid: str, eid: str, thread_id: str = "", chat_
         chat_type=chat_type,
         thread_id=thread_id,
         user_open_id=user,
+        user_name=user_name,
         tenant_key="t-1",
         text=text,
         mentioned_bot=mentioned_bot,
         create_time=ts,
+        resources=resources,
     )
 
 
@@ -558,3 +588,198 @@ def test_is_runtime_busy_detection():
     assert _is_runtime_busy(RuntimeError("boom 409 something")) is True
     assert _is_runtime_busy(ArkError("not found", status_code=404)) is False
     assert _is_runtime_busy(RuntimeError("unrelated")) is False
+
+
+# ---- 13. 多模态：下载 → 上传 → 挂载，且发生在 send_message 之前 --------------
+
+def test_attachment_downloaded_uploaded_mounted_before_send(loop, monkeypatch):
+    monkeypatch.setenv("GROUP_BOT_MULTIMODAL", "1")
+    ark = FakeArk()
+    sender = FakeSender()
+    sender.download_data["fk-pdf"] = b"%PDF-1.7 ..."
+    bot, ark, sender, _ = _make_bot(loop, ark=ark, sender=sender)
+    try:
+        bot.accept(_msg(
+            "ou-alice", "@bot 看看这份报告", mid="om-1", eid="ev-1", ts=1000,
+            resources=(ResourceRef(file_key="fk-pdf", file_name="报告.pdf", type="file"),),
+        ))
+        assert _wait_until(lambda: len(ark.send_calls) >= 1, loop)
+
+        # 下载 → 上传 → 挂到本 Session，挂载都在 send_message（拿到 input）之前完成。
+        assert sender.downloads == [("om-1", "fk-pdf", "file")]
+        assert ark.uploads == ["报告.pdf"]
+        assert len(ark.mounts) == 1
+        session_id, file_id, mount_path = ark.mounts[0]
+        assert session_id == "sesn-1" and file_id == "file-1" and mount_path.endswith("/报告.pdf")
+        # 直发的 input 里把挂载路径拼进去了，供 Agent 读取。
+        sent_input = ark.send_calls[0][1]
+        assert "文件已挂载到（请用文件工具读取）：" in sent_input
+        assert f"/mnt/session/uploads/{mount_path}" in sent_input
+    finally:
+        _shutdown(bot, loop)
+
+
+# ---- 13b. 历史里的文件：文件单独一条消息发，之后另一条 @bot 才触发 ------------
+
+def test_attachment_from_history_message_is_mounted(loop, monkeypatch):
+    # 复现「读文件有 bug」：文件是 om-file 单独发的，触发消息 om-cur 只有正文、无附件。
+    # 附件应从落进窗口的历史消息里收出来，按各自 message_id 下载并挂到本 Session。
+    monkeypatch.setenv("GROUP_BOT_MULTIMODAL", "1")
+    ark = FakeArk()
+
+    def history(_message):
+        return [
+            HistoryMessage(
+                "om-file", "ou-alice", "Alice", "user", "[文件：office-requirements.pdf]", 900,
+                resources=(ResourceRef(
+                    file_key="fk-pdf", file_name="office-requirements.pdf", type="file",
+                    message_id="om-file",
+                ),),
+            ),
+        ]
+
+    sender = FakeSender(history_provider=history)
+    sender.download_data["fk-pdf"] = b"%PDF-1.7 ..."
+    bot, ark, sender, _ = _make_bot(loop, ark=ark, sender=sender)
+    try:
+        # 触发消息本身没有附件，只有正文。
+        bot.accept(_msg("ou-bob", "@bot 说说这个 PDF", mid="om-cur", eid="ev-1", ts=1000))
+        assert _wait_until(lambda: len(ark.send_calls) >= 1, loop)
+
+        # 关键：按历史文件所属消息 om-file 下载（而非触发消息 om-cur），并挂到本 Session。
+        assert sender.downloads == [("om-file", "fk-pdf", "file")]
+        assert ark.uploads == ["office-requirements.pdf"]
+        assert len(ark.mounts) == 1
+        sent_input = ark.send_calls[0][1]
+        assert "文件已挂载到（请用文件工具读取）：" in sent_input
+    finally:
+        _shutdown(bot, loop)
+
+
+# ---- 14. 多模态关闭：不下载/上传/挂载，正文只留忽略提示 ----------------------
+
+def test_attachment_ignored_when_multimodal_disabled(loop, monkeypatch):
+    monkeypatch.setenv("GROUP_BOT_MULTIMODAL", "off")
+    ark = FakeArk()
+    sender = FakeSender()
+    bot, ark, sender, _ = _make_bot(loop, ark=ark, sender=sender)
+    try:
+        bot.accept(_msg(
+            "ou-alice", "@bot 看看这份报告", mid="om-1", eid="ev-1", ts=1000,
+            resources=(ResourceRef(file_key="fk-pdf", file_name="报告.pdf", type="file"),),
+        ))
+        assert _wait_until(lambda: len(ark.send_calls) >= 1, loop)
+
+        # 关闭多模态：不下载、不上传、不挂载，正文只留忽略提示。
+        assert sender.downloads == []
+        assert ark.uploads == [] and ark.mounts == []
+        assert "[附件已忽略：多模态未开启]" in ark.send_calls[0][1]
+    finally:
+        _shutdown(bot, loop)
+
+
+# ---- 15. 附件去重：跨 session 复用 file_id，只下载/上传一次，各 session 各挂一次 ----
+
+def test_same_attachment_reused_across_sessions(loop, monkeypatch):
+    monkeypatch.setenv("GROUP_BOT_MULTIMODAL", "1")
+    ark = FakeArk()
+    sender = FakeSender()
+    sender.download_data["fk-pdf"] = b"%PDF-1.7 ..."
+    # 两个不同的群 → 两个不同的 Session，但共享同一个 store（含 file 缓存 + 挂载记录）。
+    sessions = shared.InMemorySessionMap()
+    bot, ark, sender, _ = _make_bot(loop, ark=ark, sender=sender, sessions=sessions)
+    try:
+        res = (ResourceRef(file_key="fk-pdf", file_name="报告.pdf", type="file"),)
+        bot.accept(_msg("ou-alice", "@bot 群一发文件", mid="om-1", eid="ev-1", ts=1000,
+                        chat_id="oc-a", resources=res))
+        assert _wait_until(lambda: len(ark.send_calls) >= 1, loop)
+        bot.accept(_msg("ou-bob", "@bot 群二发同一文件", mid="om-2", eid="ev-2", ts=2000,
+                        chat_id="oc-b", resources=res))
+        assert _wait_until(lambda: len(ark.send_calls) >= 2, loop)
+
+        # 两个不同的 Session 建出来了。
+        assert ark.created == 2
+        # 文件缓存跨 session 命中：只下载一次、只上传一次。
+        assert sender.downloads == [("om-1", "fk-pdf", "file")]
+        assert ark.uploads == ["报告.pdf"]
+        # 但每个 Session 各自挂载一次（挂载记录以 session 为粒度），复用同一个 file_id。
+        assert len(ark.mounts) == 2
+        assert {sid for sid, _fid, _mp in ark.mounts} == {"sesn-1", "sesn-2"}
+        assert {fid for _sid, fid, _mp in ark.mounts} == {"file-1"}  # 同一 file_id 复用
+    finally:
+        _shutdown(bot, loop)
+
+
+# ---- 16. lark-cli：配了 Vault 时建 Session 挂 vault + 注入定位环境变量 --------
+
+def test_create_session_mounts_lark_vault_and_env_when_enabled(loop):
+    # 配了 lark_vault_id：建共享 Session 时挂上该 Vault，并注入本群/话题定位环境变量。
+    bot, ark, _sender, _ = _make_bot(loop, config=_config(lark_vault_id="vlt-lark"))
+    try:
+        bot.accept(_msg("ou-alice", "@bot 帮忙建个文档", mid="om-1", eid="ev-1",
+                        thread_id="th-9", ts=1000))
+        assert _wait_until(lambda: ark.created >= 1, loop)
+
+        kw = ark.create_kwargs[0]
+        assert kw["vault_ids"] == ["vlt-lark"]                 # 挂上存 App Secret 的 Vault
+        assert kw["env_overrides"]["FEISHU_CHAT_ID"] == "oc-team"
+        assert kw["env_overrides"]["FEISHU_THREAD_ID"] == "th-9"
+        assert kw["env_overrides"]["FEISHU_TRIGGER_MESSAGE_ID"] == "om-1"
+    finally:
+        _shutdown(bot, loop)
+
+
+def test_create_session_no_lark_vault_stays_plain(loop):
+    # 没配 Vault：不挂 vault、不注入定位变量，Agent 退回纯对话。
+    bot, ark, _sender, _ = _make_bot(loop)  # 默认 lark_vault_id=""
+    try:
+        bot.accept(_msg("ou-alice", "@bot 你好", mid="om-1", eid="ev-1", ts=1000))
+        assert _wait_until(lambda: ark.created >= 1, loop)
+
+        kw = ark.create_kwargs[0]
+        assert kw.get("vault_ids") is None
+        assert kw.get("env_overrides") is None
+    finally:
+        _shutdown(bot, loop)
+
+
+# ---- 可点击 @：合并回复发出前取本群名册并透传给发送 --------------------------
+
+def test_group_send_passes_chat_roster(loop):
+    # 普通群合并回复（send_to_chat）前先取本群名册，并把它透传给发送，供出站渲染可点击 @。
+    ark = FakeArk()
+    ark.stream_events["sesn-1"] = [
+        _text_event("e1", "让张三跟进"),
+        {"id": "e2", "type": "session.status_idle"},
+    ]
+    sender = FakeSender()
+    sender.rosters["oc-team"] = {"张三": "ou-zhangsan"}
+    bot, ark, sender, _ = _make_bot(loop, ark=ark, sender=sender)
+    try:
+        bot.accept(_msg("ou-alice", "@bot 出个方案", mid="om-1", eid="ev-1", ts=1000))
+        assert _wait_until(lambda: ("oc-team", "让张三跟进") in sender.chat_sends, loop)
+        assert sender.roster_calls == ["oc-team"]                   # 取了本群名册
+        assert sender.send_rosters[-1] == {"张三": "ou-zhangsan"}    # 名册透传给 send_to_chat
+    finally:
+        _shutdown(bot, loop)
+
+
+def test_thread_reply_passes_chat_roster(loop):
+    # 话题群 reply 回触发消息时同样透传名册。
+    ark = FakeArk()
+    ark.stream_events["sesn-1"] = [
+        _text_event("e1", "话题里让张三跟进"),
+        {"id": "e2", "type": "session.status_idle"},
+    ]
+    sender = FakeSender()
+    sender.rosters["oc-team"] = {"张三": "ou-zhangsan"}
+    bot, ark, sender, _ = _make_bot(loop, ark=ark, sender=sender)
+    try:
+        bot.accept(_msg("ou-alice", "@bot 出个方案", mid="om-t1", eid="ev-1",
+                        thread_id="th-1", ts=1000))
+        assert _wait_until(lambda: sender.replies == [("om-t1", "话题里让张三跟进")], loop)
+        assert sender.roster_calls == ["oc-team"]
+        assert sender.reply_rosters[-1] == {"张三": "ou-zhangsan"}
+    finally:
+        _shutdown(bot, loop)
+

@@ -24,12 +24,19 @@ from typing import Optional
 from shared import (  # 同目录脚本，直接导入
     GroupBotConfig,
     GroupConversationKey,
+    PreparedAttachment,
     SqliteSessionMap,
     THREAD_CONTEXT_BEFORE,
+    build_lark_session_env,
     build_windowed_input,
+    collect_round_resources,
     is_authorized,
+    is_reset_command,
+    lark_cli_enabled,
     load_group_bot_config,
     message_log_tag,
+    multimodal_enabled,
+    prepare_attachments,
     setup_logging,
     should_handle,
     to_group_key,
@@ -42,6 +49,7 @@ from arkagent.feishu import (
     HistoryMessage,
     IncomingMessage,
     QuotedMessage,
+    ResourceRef,
     start_feishu_gateway,
 )
 from arkagent.gateway import KeyedQueue
@@ -89,12 +97,28 @@ class SerialGroupBot:
         self._loop.call_soon_threadsafe(_enqueue)
         return True
 
-    async def _reply(self, message: IncomingMessage, text: str) -> None:
+    async def _reply(
+        self, message: IncomingMessage, text: str, roster: Optional[dict] = None
+    ) -> None:
         # 群里回复到原消息（reply），私聊直接发到会话。lark-oapi 是同步调用，丢到 executor。
+        # roster（群成员名册）非空时，正文里的 @人名 会被渲染成可点击 <at> 提及。
         if message.chat_type == "group" and message.message_id:
-            await self._loop.run_in_executor(None, self._sender.reply, message.message_id, text)
+            await self._loop.run_in_executor(None, self._sender.reply, message.message_id, text, roster)
         else:
-            await self._loop.run_in_executor(None, self._sender.send_to_chat, message.chat_id, text)
+            await self._loop.run_in_executor(None, self._sender.send_to_chat, message.chat_id, text, roster)
+
+    async def _chat_roster(self, message: IncomingMessage) -> dict:
+        """群成员名册（名字→open_id），供把 Agent 回复里 @人名 渲成可点击提及用。
+
+        仅群聊需要（私聊没有 @ 别人的语义，返回空）。FeishuSender.chat_roster 自带 TTL 缓存 +
+        同名消歧，拉取失败时返回空名册；这里再兜一层异常，名册问题绝不该拖垮回复。"""
+        if message.chat_type != "group" or not message.chat_id:
+            return {}
+        try:
+            return await self._loop.run_in_executor(None, self._sender.chat_roster, message.chat_id)
+        except Exception as error:  # noqa: BLE001 - 名册拉取失败退回不 @，不影响回复
+            log.warning("获取群成员名册失败，本条回复不 @：%s", error)
+            return {}
 
     async def _ack(self, message: IncomingMessage) -> Optional[str]:
         """已收到回执：群里直接在原消息下贴一个「稍等」(OneSecond) 表情，
@@ -127,9 +151,10 @@ class SerialGroupBot:
     async def _run(self, message: IncomingMessage, key: GroupConversationKey) -> None:
         try:
             await self._process(message, key)
-        except Exception as error:  # noqa: BLE001 - 兜底回执，避免一条失败拖垮队列
+        except Exception:  # noqa: BLE001 - 兜底回执，避免一条失败拖垮队列
+            # 详情（含方舟 file_url 超时等内部原因）进日志；回群里的用户只给友好提示，不外泄内部细节。
             log.exception("处理消息失败")
-            await self._reply(message, f"执行失败：{str(error)[:240]}")
+            await self._reply(message, "执行失败，请稍后重试；若持续失败可 @我 发 /new 重置会话。")
 
     async def _process(self, message: IncomingMessage, key: GroupConversationKey) -> None:
         tag = message_log_tag(message)
@@ -139,7 +164,7 @@ class SerialGroupBot:
             await self._reply(message, "当前用户未授权。请联系管理员把你的 open_id 加入白名单。")
             return
 
-        if message.text.strip() == "/new":
+        if is_reset_command(message.text):
             log.info("%s 指令 /new：重置本群会话", tag)
             self._sessions.reset(key)
             await self._reply(message, "已重置本群会话，下一条消息会创建新的共享 Session。")
@@ -152,13 +177,24 @@ class SerialGroupBot:
             session_id = self._sessions.get(key)
             if not session_id:
                 log.info("%s 无现成 Session，创建新的共享 Session", tag)
-                session_id = await self._create_session(key)
+                session_id = await self._create_session(key, message)
                 log.info("%s 已建 Session=%s", tag, session_id)
             else:
                 log.info("%s 命中已有 Session=%s", tag, session_id)
 
             # 关键：串行模式下发消息时 Session 一定是 idle 的，这一轮独立处理、独立回复。
-            actor_input = await self._windowed_input(message)
+            # 先把本轮上下文读齐（群历史窗口 + 引用链 + 话题前情），再据此收集本轮要挂的附件
+            # ——文件常是单独一条消息发的、之后才 @bot，附件得从落进窗口的历史里一并收出来。
+            # 多模态：下载附件并上传方舟拿 file_id（与 Session 无关，只做一次），
+            # 再挂到本 Session 的 /mnt/session/uploads/；正文里告诉模型文件挂在哪、请去读。
+            history, quote_chain, thread_context = await self._read_context(message)
+            prepared, notices = await self._prepare_attachments(
+                message, collect_round_resources(message, history, thread_context)
+            )
+            await self._mount_attachments(session_id, prepared)
+            actor_input = build_windowed_input(
+                message, history, quote_chain, thread_context, prepared=prepared, notices=notices
+            )
             log.info("%s 发往方舟运行，input 长度=%d", tag, len(actor_input))
             log.debug("%s 完整 input：\n%s", tag, actor_input)
             try:
@@ -171,43 +207,54 @@ class SerialGroupBot:
                 if error.status_code != 404:
                     raise
                 log.warning("%s Session 已失效(404)，重建后重试：%s", tag, error)
-                session_id = await self._create_session(key)
+                session_id = await self._create_session(key, message)
                 log.info("%s 已重建 Session=%s，重跑本轮", tag, session_id)
+                # 附件已上传（file_id 与 Session 无关、仍有效），只需重新挂到新 Session。
+                await self._mount_attachments(session_id, prepared)
                 result = await self._ark.run(
                     session_id, actor_input, self._config.session_timeout_ms
                 )
-            await self._reply(message, _result_to_text(result))
+            # Agent 回复里可能点名群成员（「@张三 请跟进」）：取本群名册，把 @人名 渲成可点击提及。
+            roster = await self._chat_roster(message)
+            await self._reply(message, _result_to_text(result), roster)
             log.info("%s 回复已发出", tag)
         finally:
             # 回复已发出（或本轮已结束）：把「稍等」表情撤回，回执使命完成。
             await self._unack(message, reaction_id)
 
-    async def _create_session(self, key: GroupConversationKey) -> str:
+    async def _create_session(self, key: GroupConversationKey, message: IncomingMessage) -> str:
         """建一个新的共享 Session 并落库（覆盖旧映射）。
 
         Bot-only：不注入任何个人 open_id、不挂个人 Vault/Memory Store。
+        lark-cli（Bot 身份）：配了 Vault 才挂——vault 里是 LARKSUITE_CLI_APP_SECRET，
+        env_overrides 补当前群/话题定位（$FEISHU_CHAT_ID 等）。没配则退回纯对话。
         既用于首次建会话，也用于 session 失效(404)后的重建。
         """
         session_id = await self._ark.create_session(
             self._config.ark_agent_id,
             self._config.ark_environment_id,
+            vault_ids=[self._config.lark_vault_id] if lark_cli_enabled(self._config) else None,
+            env_overrides=build_lark_session_env(message) if lark_cli_enabled(self._config) else None,
         )
         self._sessions.save(key, session_id)
         return session_id
 
-    async def _windowed_input(self, message: IncomingMessage) -> str:
-        """读群历史 + 被引用消息链 + 话题前情 → 取窗口 → 拼成一条 user message。
+    async def _read_context(
+        self, message: IncomingMessage
+    ) -> tuple[list[HistoryMessage], list[QuotedMessage], list[HistoryMessage]]:
+        """读本轮上下文：群历史窗口 + 被引用消息链 + 话题前情。返回三段供拼正文/收附件复用。
 
-        群聊才读历史；私聊没有「群上下文」概念，直接带发言人标签的空窗口即可。
+        群聊才读历史；私聊没有「群上下文」概念，直接空窗口即可。
         历史读取是 lark-oapi 同步调用，丢到 executor 不阻塞事件循环；读失败降级为无历史。
         引用链同理：若这条消息显式引用了别的消息（reply_to_message_id 非空），沿父链最多
-        回溯 MAX_QUOTE_DEPTH 层读出来交给 build_windowed_input 注入并对窗口内重复项去重；
-        读失败（撤回/无权限/跨会话）降级为无引用，不拖垮本轮。
+        回溯 MAX_QUOTE_DEPTH 层读出来，读失败（撤回/无权限/跨会话）降级为无引用。
         话题前情：话题里 @bot 时，thread 容器读不到「发起话题的根消息 + 根之前几条主时间线」，
-        单独补读（load_thread_context）注入，读失败降级为无前情。
+        单独补读（load_thread_context），读失败降级为无前情。
+        这三段既拼进正文（build_windowed_input），也用来收本轮要挂的附件（collect_round_resources）
+        ——保证「进正文的转录范围」与「挂进 Session 的附件范围」一致。
         """
         if message.chat_type != "group":
-            return build_windowed_input(message, [])
+            return [], [], []
         try:
             history = await self._loop.run_in_executor(None, self._sender.list_messages, message)
         except Exception as error:  # noqa: BLE001 - 历史读失败不该拖垮本轮，降级为无上下文
@@ -215,7 +262,73 @@ class SerialGroupBot:
             history = []
         quote_chain = await self._quote_chain(message)
         thread_context = await self._thread_context(message)
-        return build_windowed_input(message, history, quote_chain, thread_context)
+        return history, quote_chain, thread_context
+
+    async def _prepare_attachments(
+        self, message: IncomingMessage, resources: list[ResourceRef]
+    ) -> tuple[list[PreparedAttachment], list[str]]:
+        """把本轮附件逐个「下载 →（内联小文本 / 上传方舟拿 file_id）」，产出待挂载结果 + 降级提示。
+
+        resources 由 collect_round_resources 收齐（触发消息 + 落进窗口的历史消息 + 话题前情里的
+        附件，按 file_key 去重），下载按各 ref.message_id 定位所属消息——文件常是单独一条消息发的、
+        之后才 @bot。无附件、或 GROUP_BOT_MULTIMODAL 关闭时直接返回空——关闭时不下载不上传，带附件
+        的消息按纯文本处理（正文里只留一句「[附件已忽略]」占位提示）。下载/上传都是同步调用（前者
+        lark-oapi、后者 httpx.post multipart），丢到 executor 不阻塞事件循环，逐个附件降级由
+        shared.prepare_attachments 内部处理，这里只注入两个 IO 能力。
+
+        去重·文件缓存层：把 store 的 get_attachment/save_attachment 作为 lookup/save 回调注入——
+        同一 file_key 上传过就复用旧 file_id，跳过下载 + 上传（跨 session 也生效）。store 若没实现
+        这两个方法（自定义替身）则不传，退回每次都下载上传的老行为。
+        """
+        if not resources:
+            return [], []
+        if not multimodal_enabled():
+            return [], ["[附件已忽略：多模态未开启]"]
+
+        async def _download(ref: ResourceRef) -> bytes:
+            return await self._loop.run_in_executor(
+                None,
+                self._sender.download_resource,
+                ref.message_id or message.message_id,
+                ref.file_key,
+                ref.type,
+            )
+
+        async def _upload(name: str, mime: str, data: bytes) -> str:
+            return await self._ark.upload_file(name, mime, data)
+
+        lookup = getattr(self._sessions, "get_attachment", None)
+        save = getattr(self._sessions, "save_attachment", None)
+        return await prepare_attachments(
+            message, _download, _upload,
+            lookup_file_id=lookup, save_file_id=save, resources=resources,
+        )
+
+    async def _mount_attachments(
+        self, session_id: str, prepared: list[PreparedAttachment]
+    ) -> None:
+        """把已上传的附件（有 file_id 的）逐个挂到本 Session 的 /mnt/session/uploads/{mount_path}。
+
+        内联文本（inline_text 非空、无 file_id）不挂载，直接进正文，跳过。单个挂载失败记 warning
+        但不抛——正文里仍会列出该路径，模型读不到时会自行说明，不拖垮本轮其余附件与回复。
+
+        去重·挂载记录层：同一资源（file_key）已挂到本 session 就跳过——一个文件在一个会话里
+        只需挂一次，之后每轮引用同一路径即可，别反复 add_session_file。store 未实现去重方法
+        （自定义替身）时退回每轮都挂的老行为。
+        """
+        is_mounted = getattr(self._sessions, "is_attachment_mounted", None)
+        mark_mounted = getattr(self._sessions, "mark_attachment_mounted", None)
+        for item in prepared:
+            if not item.file_id:
+                continue
+            if is_mounted and item.file_key and is_mounted(session_id, item.file_key):
+                continue
+            try:
+                await self._ark.add_session_file(session_id, item.file_id, item.mount_path)
+                if mark_mounted and item.file_key:
+                    mark_mounted(session_id, item.file_key)
+            except Exception as error:  # noqa: BLE001 - 单个挂载失败不该拖垮本轮
+                log.warning("挂载附件「%s」到 Session 失败：%s", item.name, error)
 
     async def _quote_chain(self, message: IncomingMessage) -> list[QuotedMessage]:
         """读被引用消息链（同步 lark-oapi 调用，丢 executor）。无引用/读失败降级为空。"""
@@ -242,7 +355,10 @@ class SerialGroupBot:
 
 def _result_to_text(result: RunResult) -> str:
     if result.terminal == "failed":
-        raise RuntimeError("Agent Session 执行失败")
+        # 带上方舟给的失败摘要（如 file_url 超时）——它会进 _run 的异常日志，便于排查；
+        # 回给群里用户的文案由 _run 兜底成固定友好话术，不直接外泄这里的内部细节。
+        detail = f"：{result.error}" if result.error else ""
+        raise RuntimeError(f"Agent Session 执行失败{detail}")
     if not result.messages:
         raise RuntimeError("Agent Session 已结束，但没有产生回复")
     return result.messages[-1]
