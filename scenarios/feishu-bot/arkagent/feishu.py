@@ -15,12 +15,39 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
 # 引用链最多回溯几层：用户 @bot 那条 → 它引用的 → 再上一层……封顶避免有人恶意/无意
 # 串成长链时把回查次数放大（每层一次 im.v1.message.get）。第 1 层是直接被引用的消息。
 MAX_QUOTE_DEPTH = 5
+
+# 群成员名册（name → open_id）的缓存有效期（秒）：出站把 Agent 回复里的 @名字 重写成可点击
+# <at> 要用它。名册变动不频繁（进退群），60s 内复用同一份，避免每条回复都拉一次成员列表。
+CHAT_ROSTER_TTL_SECONDS = 60.0
+
+
+@dataclass(frozen=True)
+class ResourceRef:
+    """一条消息里的一个可下载附件（图片 / 文件）的引用。
+
+    对齐 Channel SDK 的 `ResourceDescriptor`（type/file_key/file_name）：只保留下载与挂载
+    需要的字段。下载靠 `FeishuSender.download_resource(message_id, file_key, type)`
+    走 `GET /im/v1/messages/{message_id}/resources/{file_key}?type=...`；拿到 bytes 后由上层
+    上传方舟并挂到 /mnt/session/uploads/。仅收 image/file 两类（sticker/audio/video 不挂载）。
+
+    message_id：附件所属消息的 id——下载资源必须带上它（file_key 只在其所属消息里可取）。
+    触发消息的附件填当前消息 id；**历史消息**里的附件填那条历史消息的 id（关键：文件常是
+    单独一条消息发的，之后才 @bot「说说这个文件」，得按各自的 message_id 去下载）。空表示
+    「用调用方的当前消息 id 兜底」，兼容旧调用。
+    """
+
+    file_key: str
+    file_name: str
+    type: str  # "image" | "file"
+    message_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -31,6 +58,10 @@ class IncomingMessage:
     chat_type: str  # "p2p" | "group"
     thread_id: str
     user_open_id: str
+    # 发言人显示名（SDK 已从群名册/联系人解析好，见 normalize/pipeline.py resolve_names）。
+    # 拿来在转录里把「当前这条触发消息」的发言人显示成真名而非 open_id，与历史行口径一致；
+    # 也让 Agent 回复时能 @ 到人的真名。SDK 没解析出来（私聊/解析失败）时为空，由下游退回 open_id。
+    user_name: str
     tenant_key: str
     text: str
     mentioned_bot: bool
@@ -43,6 +74,9 @@ class IncomingMessage:
     # 它在主时间线、不在 thread 容器里，故读话题历史时读不到；有值时单独把它（及其之前
     # 几条主时间线消息）作为「话题前情」补进上下文（load_thread_context）。非话题为空。
     root_id: str = ""
+    # 这条消息携带的图片/文件附件（多模态）。走「下载→上传方舟→挂载到 /mnt/session/uploads/」
+    # 的挂载文件系统方案；空表示纯文本消息。图片消息本身没有正文，text 会是占位/空。
+    resources: tuple[ResourceRef, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -70,6 +104,9 @@ class HistoryMessage:
     另外记两个本 demo 窗口规则要用的判定：
       - at_bot：这条历史消息 @ 了当前 Bot（用来切窗口边界）。
       - is_from_bot：这条历史消息是 Bot 自己发的（回复），注入上下文时过滤掉。
+    另外带上这条历史消息里的图片/文件附件（resources）：文件常是**单独一条消息**发的，
+    用户之后才在别的消息里 @bot「说说这个文件」。这些附件不在触发消息上，得从落进窗口的
+    历史消息里收集出来，一并挂进 Session 供 Agent 读取（见 shared.collect_round_resources）。
     """
 
     message_id: str
@@ -80,6 +117,7 @@ class HistoryMessage:
     create_time: int
     at_bot: bool = False
     is_from_bot: bool = False
+    resources: tuple[ResourceRef, ...] = ()
 
 
 class GatewayLike(Protocol):
@@ -118,11 +156,100 @@ def normalize_feishu_message(event: dict) -> Optional[IncomingMessage]:
         chat_type=chat_type,
         thread_id=message.get("thread_id") or message.get("root_id") or message.get("parent_id") or "",
         user_open_id=sender_id.get("open_id") or "",
+        # 原始事件体里不含发言人显示名（需另调联系人接口），此路径为兼容旧调用/测试用，留空由下游兜底。
+        user_name="",
         tenant_key=event.get("tenant_key") or "default",
         text=text.strip(),
         mentioned_bot=bool(mentions),
         create_time=create_time,
     )
+
+
+def markdown_render_enabled() -> bool:
+    """出站是否把回复渲染成飞书 post 富文本（默认开）。
+
+    Agent 回复本就是 Markdown；飞书纯文本不渲染，直发会带 `**`/`##` 等符号。默认转 post
+    渲染。设 GROUP_BOT_MARKDOWN=0/false/no/off 关闭，退回老的纯文本直发（排障或对端不支持时用）。
+    """
+    return os.getenv("GROUP_BOT_MARKDOWN", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _build_roster(pairs: "list[tuple[str, str]]") -> dict[str, str]:
+    """把 (显示名, open_id) 列表归一成 `显示名 → open_id` 名册，并对同名做消歧。
+
+    - 翻页/重复项去重：同名同 open_id 只算一个人（按 open_id 去重后计数）；
+    - **同名消歧**：一个显示名映射到 2 个及以上不同 open_id（群里真有两个「张三」）时，
+      整个名字从名册剔除——出站遇到 `@张三` 找不到唯一目标就原样保留，宁可不 @ 也不 @ 错人。
+    纯函数，无 IO；被 chat_roster 在缓存前调用。
+    """
+    ids_by_name: dict[str, set[str]] = {}
+    for name, open_id in pairs:
+        clean = (name or "").strip()
+        if not clean or not open_id:
+            continue
+        ids_by_name.setdefault(clean, set()).add(open_id)
+    return {name: next(iter(ids)) for name, ids in ids_by_name.items() if len(ids) == 1}
+
+
+def _split_markdown_blocks(text: str) -> list[str]:
+    """按空行把 Markdown 切成若干块，且保持围栏代码块（```）完整（不被内部空行切断）。
+
+    出站混合渲染要「逐块」决定用 native 还是 structured：含 `<at>` 的块走 structured（飞书才能把
+    `<at>` 渲成可点击 @），其余块走 native（保留标题/列表/代码块的原生渲染）。围栏代码块整体保留，
+    避免被其中的空行拆坏。纯字符串处理，无 IO。
+    """
+    blocks: list[str] = []
+    buf: list[str] = []
+    in_fence = False
+    for line in (text or "").split("\n"):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            buf.append(line)
+            continue
+        if not line.strip() and not in_fence:
+            if buf:
+                blocks.append("\n".join(buf))
+                buf = []
+            continue
+        buf.append(line)
+    if buf:
+        blocks.append("\n".join(buf))
+    return blocks
+
+
+def _text_to_post_content(text: str, roster: "Optional[dict[str, str]]" = None) -> str:
+    """把一段 Markdown 文本转成飞书 post 消息的 content（已 JSON 序列化的 locale map）。
+
+    复用 SDK 的 `markdown_to_post_ast`：它把 Markdown 归一成飞书 post AST（`{zh_cn:{title,
+    content}}`，正文用 `{tag:"md"}` 节点承载，标题/加粗/列表/代码块等由飞书端渲染）。飞书
+    `im.v1.message.create` 对 `msg_type=post` 要求 content 直接是这个 locale map 的 JSON
+    （不加外层 `{"post":...}`），与 SDK sender 的口径一致。转换纯字符串处理、无 IO。
+
+    可点击 @（roster 非空时）：先用 SDK 的 `resolve_mentions_in_text` 把正文里的 `@显示名`
+    重写成 `<at user_id="ou_...">显示名</at>`（名字要在名册里且唯一，否则原样保留）；重写后
+    若正文里出现了 `<at>`，改走**混合渲染**——含 `<at>` 的块用 structured（飞书才能把 `<at>`
+    渲成可点击提及），其余块仍用 native md。没有 roster / 没匹配到任何 @ 时，行为与之前完全一致。
+    """
+    from lark_channel.channel.outbound.markdown import markdown_to_post_ast
+
+    src = text or ""
+    if roster:
+        from lark_channel.channel.outbound.markdown.resolve_mentions import (
+            resolve_mentions_in_text,
+        )
+
+        src = resolve_mentions_in_text(src, roster.get)
+
+    if roster and "<at" in src:
+        content: list = []
+        for block in _split_markdown_blocks(src):
+            mode = "structured" if "<at" in block else "native"
+            ast = markdown_to_post_ast(block, tag_md_mode=mode)
+            content.extend(ast["zh_cn"]["content"])
+        post = {"zh_cn": {"title": "", "content": content or [[{"tag": "text", "text": ""}]]}}
+    else:
+        post = markdown_to_post_ast(src)
+    return json.dumps(post, ensure_ascii=False)
 
 
 class FeishuSender:
@@ -131,6 +258,11 @@ class FeishuSender:
     SDK 的 `lark_channel.Client` 与 lark-oapi 的 `Client` 接口一一对应（同步阻塞、
     builder 风格、response.success()），因此这里的实现与迁移前几乎一致，只是导入路径
     从 `lark_oapi` 换成 `lark_channel`。同步调用，下游用 run_in_executor 丢线程池。
+
+    出站富文本：Agent 的回复是 Markdown（`## 标题` / `**加粗**` / 列表 / 代码块），飞书
+    **纯文本消息不渲染 Markdown**，直发会带着符号原样显示。故 reply / send_to_chat 默认把
+    正文经 `_text_to_post_content` 转成飞书 **post 富文本**（`msg_type=post`）再发；转换或发送
+    失败则自动降级回纯文本，保证「宁可不渲染也要发出去」。开关见 `markdown_render_enabled`。
     """
 
     def __init__(self, app_id: str, app_secret: str):
@@ -145,6 +277,8 @@ class FeishuSender:
             .build()
         )
         self._bot_open_id: Optional[str] = None
+        # chat_id → (到期时间戳, {显示名: open_id}) 的名册缓存。出站 @名字 重写用；见 chat_roster。
+        self._roster_cache: dict[str, tuple[float, dict[str, str]]] = {}
 
     def bot_open_id(self) -> str:
         """当前 Bot 自己的 open_id（缓存）。窗口规则要用它判断历史里哪条是「@ 到 bot」，
@@ -172,7 +306,89 @@ class FeishuSender:
         self._bot_open_id = str((bot or {}).get("open_id") or "")
         return self._bot_open_id
 
-    def reply(self, message_id: str, text: str) -> None:
+    def list_chat_members(self, chat_id: str) -> list[tuple[str, str]]:
+        """拉取一个群的全部成员，返回 (显示名, open_id) 列表（翻页拉全）。
+
+        走原生 `GET /open-apis/im/v1/chats/:chat_id/members?member_id_type=open_id`
+        （SDK 无对应 typed model，用 BaseRequest 直发，与 bot_open_id 同款）。每页最多 100，
+        `has_more`/`page_token` 翻页。成员 `member_id_type=user` 时 `member_id` 即 open_id；
+        非 open_id 的成员（机器人等）跳过——名册只服务「把回复里 @人名 变成可点击 <at>」。
+        纯 IO，同步调用，下游用 run_in_executor 丢线程池；失败抛异常由上层降级为不 @。
+        """
+        from lark_channel import AccessTokenType, BaseRequest, HttpMethod
+
+        pairs: list[tuple[str, str]] = []
+        page_token: Optional[str] = None
+        for _ in range(50):  # 封顶 50 页（5000 人）防异常分页把请求放大
+            queries: list[tuple[str, str]] = [("member_id_type", "open_id"), ("page_size", "100")]
+            if page_token:
+                queries.append(("page_token", page_token))
+            request = (
+                BaseRequest.builder()
+                .http_method(HttpMethod.GET)
+                .uri("/open-apis/im/v1/chats/:chat_id/members")
+                .paths({"chat_id": chat_id})
+                .queries(queries)
+                .token_types({AccessTokenType.TENANT})
+                .build()
+            )
+            response = self._client.request(request)
+            if not response.success():
+                raise RuntimeError(f"读取群成员失败 {response.code}: {response.msg}")
+            raw = response.raw.content if response.raw else None
+            try:
+                payload = json.loads(raw) if raw else {}
+            except (TypeError, ValueError, json.JSONDecodeError):
+                payload = {}
+            data = payload.get("data") if isinstance(payload, dict) else None
+            data = data if isinstance(data, dict) else {}
+            for item in data.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                open_id = str(item.get("member_id") or "")
+                name = str(item.get("name") or "")
+                if open_id and name:
+                    pairs.append((name, open_id))
+            page_token = str(data.get("page_token") or "")
+            if not data.get("has_more") or not page_token:
+                break
+        return pairs
+
+    def chat_roster(self, chat_id: str) -> dict[str, str]:
+        """群成员名册 `显示名 → open_id`（带 TTL 缓存 + 同名消歧）。
+
+        出站渲染用它把 Agent 回复里的 `@张三` 重写成可点击 `<at user_id="ou_...">张三</at>`。
+        缓存 CHAT_ROSTER_TTL_SECONDS 秒，避免每条回复都拉一次成员列表。**同名消歧**：若群里有
+        两个人重名，该名字整个从名册剔除（lookup 返回 None）——宁可不 @，也不 @ 错人。
+        拉取失败时返回空名册（不缓存），出站退回把 @名字 原样保留。
+        """
+        now = time.monotonic()
+        cached = self._roster_cache.get(chat_id)
+        if cached is not None and cached[0] > now:
+            return cached[1]
+        try:
+            pairs = self.list_chat_members(chat_id)
+        except Exception:  # noqa: BLE001 - 名册拉取失败不该拖垮回复，退回不 @
+            return {}
+        roster = _build_roster(pairs)
+        self._roster_cache[chat_id] = (now + CHAT_ROSTER_TTL_SECONDS, roster)
+        return roster
+
+    def reply(self, message_id: str, text: str, roster: "Optional[dict[str, str]]" = None) -> None:
+        """回复某条消息。默认转 post 富文本渲染 Markdown；转换或发送失败则降级为纯文本再发一次。
+
+        roster（群成员名册 名字→open_id）非空时，正文里的 `@显示名` 会被重写为可点击 `<at>`
+        提及（见 `_text_to_post_content`）；私聊/无名册时不重写。降级纯文本时把重写后的正文原样发，
+        让 `<at>` 至少以文字形式保留发言意图。"""
+        if markdown_render_enabled():
+            try:
+                self._reply_with(message_id, "post", _text_to_post_content(text, roster))
+                return
+            except Exception:  # noqa: BLE001 - post 渲染/发送失败不该让回复彻底丢，降级纯文本重试
+                pass
+        self._reply_with(message_id, "text", json.dumps({"text": text}, ensure_ascii=False))
+
+    def _reply_with(self, message_id: str, msg_type: str, content: str) -> None:
         from lark_channel.api.im.v1.model.reply_message_request import (
             ReplyMessageRequest,
             ReplyMessageRequestBody,
@@ -180,14 +396,46 @@ class FeishuSender:
 
         body = (
             ReplyMessageRequestBody.builder()
-            .content(json.dumps({"text": text}, ensure_ascii=False))
-            .msg_type("text")
+            .content(content)
+            .msg_type(msg_type)
             .build()
         )
         request = ReplyMessageRequest.builder().message_id(message_id).request_body(body).build()
         response = self._client.im.v1.message.reply(request)
         if not response.success():
             raise RuntimeError(f"飞书回复失败 {response.code}: {response.msg}")
+
+    def reply_in_thread(
+        self, message_id: str, text: str, roster: "Optional[dict[str, str]]" = None
+    ) -> None:
+        """在话题内回复；若目标是主时间线消息，则以它为根创建一个新话题。"""
+        if markdown_render_enabled():
+            try:
+                self._reply_in_thread_with(message_id, "post", _text_to_post_content(text, roster))
+                return
+            except Exception:  # noqa: BLE001 - 富文本失败时仍需在同一话题内降级发送
+                pass
+        self._reply_in_thread_with(
+            message_id, "text", json.dumps({"text": text}, ensure_ascii=False)
+        )
+
+    def _reply_in_thread_with(self, message_id: str, msg_type: str, content: str) -> None:
+        from lark_channel.api.im.v1.model.reply_message_request import (
+            ReplyMessageRequest,
+            ReplyMessageRequestBody,
+        )
+
+        body = (
+            ReplyMessageRequestBody.builder()
+            .content(content)
+            .msg_type(msg_type)
+            .reply_in_thread(True)
+            .build()
+        )
+        request = ReplyMessageRequest.builder().message_id(message_id).request_body(body).build()
+        response = self._client.im.v1.message.reply(request)
+        if not response.success():
+            raise RuntimeError(f"飞书话题回复失败 {response.code}: {response.msg}")
 
     def react(self, message_id: str, emoji_type: str) -> Optional[str]:
         """给某条消息加一个表情回应（im.v1.message_reaction.create）。
@@ -233,7 +481,19 @@ class FeishuSender:
         if not response.success():
             raise RuntimeError(f"飞书表情撤回失败 {response.code}: {response.msg}")
 
-    def send_to_chat(self, chat_id: str, text: str) -> None:
+    def send_to_chat(self, chat_id: str, text: str, roster: "Optional[dict[str, str]]" = None) -> None:
+        """往群里主动发一条消息。默认转 post 富文本渲染 Markdown；转换或发送失败则降级纯文本重试。
+
+        roster 非空时把正文里的 `@显示名` 重写为可点击 `<at>` 提及（见 `_text_to_post_content`）。"""
+        if markdown_render_enabled():
+            try:
+                self._create_in_chat(chat_id, "post", _text_to_post_content(text, roster))
+                return
+            except Exception:  # noqa: BLE001 - post 渲染/发送失败降级纯文本，别让消息彻底发不出去
+                pass
+        self._create_in_chat(chat_id, "text", json.dumps({"text": text}, ensure_ascii=False))
+
+    def _create_in_chat(self, chat_id: str, msg_type: str, content: str) -> None:
         from lark_channel.api.im.v1.model.create_message_request import (
             CreateMessageRequest,
             CreateMessageRequestBody,
@@ -242,8 +502,8 @@ class FeishuSender:
         body = (
             CreateMessageRequestBody.builder()
             .receive_id(chat_id)
-            .msg_type("text")
-            .content(json.dumps({"text": text}, ensure_ascii=False))
+            .msg_type(msg_type)
+            .content(content)
             .build()
         )
         request = CreateMessageRequest.builder().receive_id_type("chat_id").request_body(body).build()
@@ -325,6 +585,39 @@ class FeishuSender:
         if not items:
             return None
         return _history_item_to_dict(items[0])
+
+    def download_resource(self, message_id: str, file_key: str, resource_type: str) -> bytes:
+        """下载一条消息里的图片/文件附件，返回原始 bytes（挂载文件系统方案的第一步）。
+
+        走 `GET /im/v1/messages/{message_id}/resources/{file_key}?type=...`
+        （SDK 的 im.v1.message_resource.get）——附件 file_key 属于某条消息，必须带上
+        message_id 才能取到二进制；type 取 image/file，与 ResourceRef.type 一致。
+        拿到的 bytes 由上层交给 ArkClient.upload_file → add_session_file，挂到
+        /mnt/session/uploads/。同步调用，下游用 run_in_executor 丢线程池；读失败抛异常
+        由上层降级为文字占位。
+        """
+        from lark_channel.api.im.v1.model.get_message_resource_request import (
+            GetMessageResourceRequest,
+        )
+
+        request = (
+            GetMessageResourceRequest.builder()
+            .message_id(message_id)
+            .file_key(file_key)
+            .type(resource_type)
+            .build()
+        )
+        response = self._client.im.v1.message_resource.get(request)
+        if not response.success():
+            raise RuntimeError(f"下载附件失败 {response.code}: {response.msg}")
+        file_obj = getattr(response, "file", None)
+        if file_obj is None:
+            raise RuntimeError("下载附件成功，但响应中没有文件内容")
+        if hasattr(file_obj, "read"):
+            return file_obj.read()
+        if isinstance(file_obj, (bytes, bytearray)):
+            return bytes(file_obj)
+        raise RuntimeError("下载附件成功，但文件内容类型无法识别")
 
     def load_quote_chain(self, message: "IncomingMessage") -> list["QuotedMessage"]:
         """把 message 引用的那条、及其上溯的引用链读出来（最多 MAX_QUOTE_DEPTH 层）。
@@ -454,27 +747,58 @@ def _quoted_from_item(item: dict, depth: int) -> Optional["QuotedMessage"]:
     )
 
 
+def _extract_resources(msg: object) -> tuple[ResourceRef, ...]:
+    """从 SDK 的 `InboundMessage.resources` 里挑出可挂载的图片/文件，映射为 ResourceRef。
+
+    SDK 已把各消息类型（image/file/post…）里的媒体归一化成 ResourceDescriptor
+    （type/file_key/file_name），这里只收 image 与 file 两类——sticker/audio/video
+    不走挂载文件系统方案。图片没有原文件名，用 `{file_key}.jpg` 兜一个可读名。
+    message_id 记到每个 ResourceRef 上，供下载时定位所属消息（触发消息=当前 id）。
+    """
+    descriptors = getattr(msg, "resources", None) or []
+    message_id = getattr(msg, "id", "") or ""
+    refs: list[ResourceRef] = []
+    for desc in descriptors:
+        res_type = getattr(desc, "type", "")
+        file_key = getattr(desc, "file_key", "") or ""
+        if not file_key or res_type not in ("image", "file"):
+            continue
+        file_name = getattr(desc, "file_name", None) or (
+            f"{file_key}.jpg" if res_type == "image" else file_key
+        )
+        refs.append(ResourceRef(
+            file_key=file_key, file_name=file_name, type=res_type, message_id=message_id
+        ))
+    return tuple(refs)
+
+
 def _inbound_to_incoming(msg: object) -> Optional[IncomingMessage]:
     """把 Channel SDK 的 `InboundMessage` 映射回本项目的 `IncomingMessage`。
 
-    只处理文本。SDK 的 `content_text` **保留了渲染后的 @名字**（含对 bot 自己的提及，
-    见 lark_channel normalize/pipeline.py：“content_text itself keeps the rendered
-    mention”）——所以当前触发消息里 `@小助手` 仍在，转录中「谁 @ 了谁」可见，与历史行口径一致。
-    （SDK 另有剥掉 bot 提及的 body_text 视图，本项目不用它。）tenant_key SDK 未在
-    归一化结果里透出（它藏在事件 header），这里从 mentions 里兜底取，取不到给 default
-    ——共享会话键里 tenant_key 只是命名空间前缀，同租户内恒定即可。
+    处理文本与带图片/文件附件的消息。SDK 的 `content_text` **保留了渲染后的 @名字**（含对
+    bot 自己的提及，见 lark_channel normalize/pipeline.py：“content_text itself keeps the
+    rendered mention”）——所以当前触发消息里 `@小助手` 仍在，转录中「谁 @ 了谁」可见，与历史行
+    口径一致。（SDK 另有剥掉 bot 提及的 body_text 视图，本项目不用它。）Channel SDK 未把
+    事件 header 的 tenant_key 透出，因此这里固定使用 default。不能从 mentions 猜 tenant_key：
+    带 @ 的消息有 mention、不带 @ 的话题续聊没有，会导致同一话题得到两把不同的会话键。
+    chat_id 本身已能稳定隔离会话。
+
+    多模态：raw_content_type 为 image/file/post 时，从 SDK 的 resources 抽出图片/文件附件
+    （_extract_resources），交由上层「下载→上传方舟→挂载到 /mnt/session/uploads/」。既非文本
+    也无可挂载附件的消息（sticker/audio/video 等）返回 None，维持原「只处理文本」的下游契约。
     """
-    if getattr(msg, "raw_content_type", None) != "text":
+    resources = _extract_resources(msg)
+    if getattr(msg, "raw_content_type", None) != "text" and not resources:
         return None
     conversation = getattr(msg, "conversation", None)
     sender = getattr(msg, "sender", None)
     text = (getattr(msg, "content_text", "") or "").strip()
+    # 图片/文件消息的 content_text 是 SDK 的媒体占位（`![image](key)` / `<file .../>`），
+    # 对转录无意义且会混淆模型——附件已由 resources 单独承载、挂到文件系统，故清掉占位文本。
+    if resources and getattr(msg, "raw_content_type", None) in ("image", "file"):
+        text = ""
     chat_type = "p2p" if getattr(conversation, "chat_type", "") == "p2p" else "group"
-    mentions = getattr(msg, "mentions", None) or []
-    tenant_key = next(
-        (m.tenant_key for m in mentions if getattr(m, "tenant_key", None)),
-        None,
-    ) or "default"
+    tenant_key = "default"
     # SDK 已把「用户显式引用某条消息」归一化到 msg.reply（reply_to_message_id 便捷属性）；
     # 话题根不会进这里（pipeline 只在 parent_id != root_id 时才设 reply）。取到就带上，
     # 供 resolve_quote_chain 沿父链把被引用内容补进上下文。
@@ -492,12 +816,16 @@ def _inbound_to_incoming(msg: object) -> Optional[IncomingMessage]:
         chat_type=chat_type,
         thread_id=getattr(conversation, "thread_id", None) or "",
         user_open_id=getattr(sender, "open_id", "") or "",
+        # SDK 已在归一化时把发言人显示名解析进来（InboundMessage.sender_name = sender.display_name，
+        # 见 lark_channel normalize/pipeline.py）。取来让当前触发行显示真名、并供回复 @ 到人。
+        user_name=str(getattr(msg, "sender_name", "") or getattr(sender, "display_name", "") or ""),
         tenant_key=tenant_key,
         text=text,
         mentioned_bot=bool(getattr(msg, "mentioned_bot", False)),
         create_time=int(getattr(msg, "create_time", 0) or 0),
         reply_to_message_id=reply_to or "",
         root_id=root_id,
+        resources=resources,
     )
 
 
@@ -633,8 +961,11 @@ def normalize_history_item(item: dict, bot_open_id: str) -> Optional["HistoryMes
     mentions = item.get("mentions") or []
     if deleted:
         text = "[该消息已撤回，原内容不应继续作为有效依据]"
+        resources: tuple[ResourceRef, ...] = ()
     else:
-        text = _history_item_text(item.get("msg_type"), (item.get("body") or {}).get("content"), mentions)
+        content = (item.get("body") or {}).get("content")
+        text = _history_item_text(item.get("msg_type"), content, mentions)
+        resources = _extract_history_resources(item.get("msg_type"), content, message_id)
     if not text:
         return None
     sender = item.get("sender") or {}
@@ -651,7 +982,42 @@ def normalize_history_item(item: dict, bot_open_id: str) -> Optional["HistoryMes
         create_time=_to_ms(item.get("create_time")),
         at_bot=at_bot,
         is_from_bot=is_from_bot,
+        resources=resources,
     )
+
+
+def _extract_history_resources(
+    msg_type: Optional[str], content: Optional[str], message_id: str
+) -> tuple[ResourceRef, ...]:
+    """从一条历史消息的 body.content 里抽出图片/文件附件，映射为 ResourceRef（带 message_id）。
+
+    与入站 `_extract_resources` 对应，但历史读到的是 raw content JSON 而非 SDK 归一化对象：
+      - file 消息：`{"file_key": ..., "file_name": ...}` → ResourceRef(type="file")。
+      - image 消息：`{"image_key": ...}` → ResourceRef(type="image")，无原名用 `{key}.jpg` 兜底。
+    其余类型（text/post/audio/video/sticker…）不产附件。message_id 是这条历史消息自己的 id
+    ——下载资源必须按各自所属消息取（file_key 只在其所属消息里有效）。
+    """
+    raw = content or ""
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return ()
+    if not isinstance(value, dict):
+        return ()
+    if msg_type == "file":
+        file_key = str(value.get("file_key") or "")
+        if not file_key:
+            return ()
+        file_name = str(value.get("file_name") or "") or file_key
+        return (ResourceRef(file_key=file_key, file_name=file_name, type="file", message_id=message_id),)
+    if msg_type == "image":
+        image_key = str(value.get("image_key") or "")
+        if not image_key:
+            return ()
+        return (ResourceRef(
+            file_key=image_key, file_name=f"{image_key}.jpg", type="image", message_id=message_id
+        ),)
+    return ()
 
 
 def _history_item_text(msg_type: Optional[str], content: Optional[str], mentions: list) -> str:

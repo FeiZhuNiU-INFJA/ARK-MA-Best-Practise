@@ -145,6 +145,61 @@ async def test_static_bearer_handshake_failure_propagates():
     assert "req-9" in str(excinfo.value)
 
 
+# ---- lark-cli：环境变量凭据 + 装 CLI 的 Environment（Bot 身份） ----
+@respx.mock
+async def test_create_environment_variable_credential_shape():
+    # App Secret 走 environment_variable 凭据，不绑 MCP；Session 挂上 vault 后注入沙箱环境变量。
+    route = respx.post(f"{BASE}/vaults/vlt-1/credentials").mock(
+        return_value=httpx.Response(200, json={"id": "vcrd-lark"})
+    )
+    client = _client()
+    cred = await client.create_environment_variable_credential(
+        "vlt-1", "lark-cli-bot-app-secret", "LARKSUITE_CLI_APP_SECRET", "s3cr3t"
+    )
+    await client.aclose()
+    assert cred == "vcrd-lark"
+    import json
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["auth"]["type"] == "environment_variable"
+    assert sent["auth"]["secret_name"] == "LARKSUITE_CLI_APP_SECRET"
+    assert sent["auth"]["secret_value"] == "s3cr3t"
+
+
+@respx.mock
+async def test_update_environment_credential_only_changes_value():
+    # 轮换 App Secret：只 POST secret_value，凭据 id 不变、secret_name 不重复发。
+    route = respx.post(f"{BASE}/vaults/vlt-1/credentials/vcrd-lark").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    client = _client()
+    await client.update_environment_credential("vlt-1", "vcrd-lark", "new-secret")
+    await client.aclose()
+    import json
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {"auth": {"type": "environment_variable", "secret_value": "new-secret"}}
+
+
+@respx.mock
+async def test_create_environment_embeds_setup_script_and_env():
+    # 装 lark-cli 的 Environment：setup_script 拉二进制、env 写死 App Id（非敏感）。
+    route = respx.post(f"{BASE}/environments").mock(
+        return_value=httpx.Response(200, json={"id": "env-lark", "name": "ark-group-bot-app1"})
+    )
+    client = _client()
+    created = await client.create_environment(
+        "ark-group-bot-app1",
+        env={"LARKSUITE_CLI_APP_ID": "cli_app1"},
+        setup_script="echo install lark-cli",
+    )
+    await client.aclose()
+    assert created["id"] == "env-lark"
+    import json
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["config"]["setup_script"] == "echo install lark-cli"
+    assert sent["config"]["env"] == {"LARKSUITE_CLI_APP_ID": "cli_app1"}
+    assert sent["config"]["type"] == "cloud"
+
+
 # ---- agent update (更新 Agent，不新建) ----
 @respx.mock
 async def test_update_agent_sends_version_and_returns_new_version():
@@ -206,3 +261,69 @@ async def test_run_opens_stream_before_sending_message():
     assert order == ["stream", "events"]
     assert result.terminal == "idle"
     assert result.messages == ["完成"]
+
+
+# ---- files & session resources (多模态：上传文件 + 挂载到 Session 文件系统) ----
+@respx.mock
+async def test_upload_file_posts_multipart_with_purpose_agent():
+    route = respx.post(f"{BASE}/files").mock(return_value=httpx.Response(200, json={"id": "file-1"}))
+    client = _client()
+    file_id = await client.upload_file("report.pdf", "application/pdf", b"%PDF-1.7 ...")
+    await client.aclose()
+
+    assert file_id == "file-1"
+    req = route.calls.last.request
+    # multipart/form-data：purpose=agent + 文件字段一起走 body。
+    assert req.headers["content-type"].startswith("multipart/form-data")
+    raw = req.content
+    assert b'name="purpose"' in raw and b"agent" in raw
+    assert b'filename="report.pdf"' in raw
+    assert b"%PDF-1.7" in raw
+
+
+@respx.mock
+async def test_upload_file_raises_on_missing_id():
+    respx.post(f"{BASE}/files").mock(return_value=httpx.Response(200, json={}))
+    client = _client()
+    with pytest.raises(Exception) as excinfo:
+        await client.upload_file("a.txt", "text/plain", b"hi")
+    await client.aclose()
+    assert "File ID" in str(excinfo.value)
+
+
+@respx.mock
+async def test_upload_file_propagates_http_error():
+    respx.post(f"{BASE}/files").mock(
+        return_value=httpx.Response(413, text="too large", headers={"x-request-id": "req-up"})
+    )
+    client = _client()
+    with pytest.raises(Exception) as excinfo:
+        await client.upload_file("big.bin", "application/octet-stream", b"x" * 10)
+    await client.aclose()
+    err = str(excinfo.value)
+    assert "413" in err and "req-up" in err
+
+
+@respx.mock
+async def test_add_session_file_mounts_to_uploads_path():
+    route = respx.post(f"{BASE}/sessions/sesn-1/resources").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    client = _client()
+    await client.add_session_file("sesn-1", "file-1", "abc123/report.pdf")
+    await client.aclose()
+    import json
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {"type": "file", "file_id": "file-1", "mount_path": "abc123/report.pdf"}
+
+
+@respx.mock
+async def test_add_session_resource_url_encodes_session_id():
+    # session_id 里若含特殊字符，路径应转义（safe='' → 连 / 也编码）。
+    route = respx.post(f"{BASE}/sessions/sesn%2F1/resources").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    client = _client()
+    await client.add_session_resource("sesn/1", {"type": "file", "file_id": "f-1"})
+    await client.aclose()
+    assert route.called

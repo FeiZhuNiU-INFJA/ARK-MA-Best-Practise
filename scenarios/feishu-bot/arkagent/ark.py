@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import AsyncIterator, Awaitable, Callable, Optional
@@ -21,13 +22,37 @@ import httpx
 
 from .timing import Stopwatch, time_block, timing_logger
 
+log = logging.getLogger("arkagent.ark")
+
 REQUEST_TIMEOUT = 30.0
+
+# lark-cli 版本 + 安装脚本（对齐源仓库 src/ark.ts 的 LARK_CLI_SETUP_SCRIPT）。
+# 方舟沙箱是干净的 cloud 环境，agent_toolset 的 shell 里默认没有 lark-cli——建 Environment 时
+# 用 setup_script 把对应架构的二进制拉到 /usr/local/bin，Session 起来后 shell 里就能直接 `lark-cli ...`。
+# SHA256 校验防止镜像被替换；用 npmmirror 国内镜像加速。
+LARK_CLI_VERSION = "1.0.88"
+LARK_CLI_SETUP_SCRIPT = f"""set -e
+case "$(uname -m)" in
+  x86_64) ARCH=amd64; SHA=497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe ;;
+  aarch64|arm64) ARCH=arm64; SHA=96a3cac444947456ce9971c912946323f20d14416434da7e274bd9d77d7ac28b ;;
+  *) echo "unsupported architecture" >&2; exit 1 ;;
+esac
+ARCHIVE=/tmp/lark-cli.tar.gz
+curl --fail --location --silent --show-error --connect-timeout 10 --max-time 120 "https://registry.npmmirror.com/-/binary/lark-cli/v{LARK_CLI_VERSION}/lark-cli-{LARK_CLI_VERSION}-linux-$ARCH.tar.gz" -o "$ARCHIVE"
+echo "$SHA  $ARCHIVE" | sha256sum -c -
+tar -xzf "$ARCHIVE" -C /usr/local/bin lark-cli
+chmod 0755 /usr/local/bin/lark-cli
+rm -f "$ARCHIVE\""""
+
 
 
 @dataclass
 class RunResult:
     terminal: str  # "idle" | "failed"
     messages: list[str] = field(default_factory=list)
+    # terminal=="failed" 时方舟给出的失败摘要（error.type + error.message，已截断）。
+    # 供上层写日志/回执用；成功轮为空字符串。见 event_error。
+    error: str = ""
 
 
 class ArkError(RuntimeError):
@@ -152,10 +177,18 @@ class ArkClient:
             if item.get("id")
         ]
 
-    async def create_environment(self, name: str, env: Optional[dict[str, str]] = None) -> dict:
-        config = {"type": "cloud", "networking": {"type": "unrestricted"}}
+    async def create_environment(
+        self,
+        name: str,
+        env: Optional[dict[str, str]] = None,
+        setup_script: Optional[str] = None,
+    ) -> dict:
+        config: dict = {"type": "cloud", "networking": {"type": "unrestricted"}}
         if env:
             config["env"] = env
+        # setup_script 在 Session 首次拉起沙箱时执行一次，用于装 lark-cli 这类系统级依赖。
+        if setup_script:
+            config["setup_script"] = setup_script
         payload = await self._request("POST", "/environments", {"name": name, "config": config})
         data = _unwrap(payload)
         ident = str(data.get("id") or data.get("environment_id") or "")
@@ -217,6 +250,40 @@ class ArkClient:
         )
         return _response_id(payload, "Credential")
 
+    async def create_environment_variable_credential(
+        self, vault_id: str, display_name: str, secret_name: str, secret_value: str
+    ) -> str:
+        """把一个敏感值作为「环境变量凭据」存进 Vault（对齐源仓库 createEnvironmentVariableCredential）。
+
+        与 static_bearer 不同：这类凭据不绑 MCP，只在 Session 挂上对应 vault 后，把 secret_value
+        注入沙箱环境变量 secret_name。lark-cli 的 Bot 身份就靠这个——secret_name=LARKSUITE_CLI_APP_SECRET，
+        App Secret 只存 Vault、不进 Environment 明文 env，也不落 config.env 给 Agent 看到。
+        """
+        payload = await self._request(
+            "POST",
+            f"/vaults/{quote(vault_id, safe='')}/credentials",
+            {
+                "display_name": display_name,
+                "auth": {
+                    "type": "environment_variable",
+                    "secret_name": secret_name,
+                    "secret_value": secret_value,
+                    "networking": {"type": "unrestricted"},
+                },
+            },
+        )
+        return _response_id(payload, "Credential")
+
+    async def update_environment_credential(
+        self, vault_id: str, credential_id: str, secret_value: str
+    ) -> None:
+        """轮换环境变量凭据的值（如 App Secret 变了）。只改 secret_value，凭据 id 不变。"""
+        await self._request(
+            "POST",
+            f"/vaults/{quote(vault_id, safe='')}/credentials/{quote(credential_id, safe='')}",
+            {"auth": {"type": "environment_variable", "secret_value": secret_value}},
+        )
+
     async def delete_credential(self, vault_id: str, credential_id: str) -> None:
         """硬删除凭据。mcp_server_url 是结构性字段、创建后锁定，换 MCP 地址只能删旧建新
         （官方「轮换凭据」：结构性字段不可改，删除旧凭据再创建新的）。"""
@@ -277,6 +344,61 @@ class ArkClient:
             raise ArkError("创建 Session 成功，但响应中没有 Session ID")
         return ident
 
+    # ---- files & session resources (多模态：上传文件 + 挂载到 Session 文件系统) ----
+    async def upload_file(self, name: str, mime_type: str, data: bytes) -> str:
+        """上传文件到方舟 Files API（purpose=agent），返回 file_id。
+
+        对齐官方「上传并挂载文件」：先把二进制传到 /files 拿 file_id，后续 create_session
+        的 resources 或 add_session_file 用它挂到 Session 沙箱的 /mnt/session/uploads/。
+        purpose=agent 表示该文件供 Agent 读取（见 docs「上传文件」）。走 multipart/form-data，
+        不复用 _request（后者只发 JSON）；鉴权头与超时保持一致。
+        """
+        headers = {"Accept": "application/json", "Authorization": f"Bearer {self.api_key}"}
+        files = {"file": (name, data, mime_type or "application/octet-stream")}
+        with time_block("ark.upload_file", name=name):
+            response = await self._client.post(
+                f"{self.base_url}/files",
+                headers=headers,
+                data={"purpose": "agent"},
+                files=files,
+                timeout=REQUEST_TIMEOUT,
+            )
+        if response.status_code >= 400:
+            request_id = response.headers.get("x-request-id")
+            suffix = f" ({request_id})" if request_id else ""
+            body = response.text[:300]
+            raise ArkError(
+                f"上传文件失败 {response.status_code}{suffix}: {body}",
+                status_code=response.status_code,
+                body=body,
+            )
+        payload = response.json() if response.content else {}
+        data_obj = _unwrap(payload)
+        file_id = str(data_obj.get("id") or "")
+        if not file_id:
+            raise ArkError(f"上传文件 {name} 成功，但响应中没有 File ID")
+        return file_id
+
+    async def add_session_resource(self, session_id: str, resource: dict) -> None:
+        """向运行中的 Session 追加一个文件资源（POST /sessions/{id}/resources）。
+
+        用于「已有 Session」场景下追加挂载——create_session 只在首次建会话时带 resources，
+        本方法覆盖会话已存在、后续消息又带附件的情况。resource 至少含 type 与 file_id
+        （文件挂载还建议带 mount_path）。见 docs「在 Session 运行时管理文件 · 添加文件资源」。
+        """
+        await self._request(
+            "POST",
+            f"/sessions/{quote(session_id, safe='')}/resources",
+            resource,
+        )
+
+    async def add_session_file(self, session_id: str, file_id: str, mount_path: str) -> None:
+        """add_session_resource 的文件便捷封装：把 file_id 挂到 /mnt/session/uploads/{mount_path}。"""
+        await self.add_session_resource(
+            session_id,
+            {"type": "file", "file_id": file_id, "mount_path": mount_path},
+        )
+
     async def send_message(self, session_id: str, text: str, system_message: Optional[str] = None) -> None:
         """发送 user.message；若给了 system_message，追加为数组最后一个元素（卡点 C 动态系统提示词）。"""
         events: list[dict] = [{"type": "user.message", "content": [{"type": "text", "text": text}]}]
@@ -334,7 +456,13 @@ class ArkClient:
                             await on_progress(progress)
                         if event.get("type") in ("session.error", "session.status_failed"):
                             sw.mark("ark.run.to_terminal", session=session_id, terminal="failed")
-                            return RunResult(terminal="failed", messages=messages)
+                            error = event_error(event)
+                            # 把方舟给的失败原因落到日志：否则上层只看到「执行失败」，排查得手动拉 events。
+                            log.warning(
+                                "方舟 Session 执行失败 session=%s：%s",
+                                session_id, error or "（未提供错误详情）",
+                            )
+                            return RunResult(terminal="failed", messages=messages, error=error)
                         if event.get("type") == "session.status_idle":
                             sw.mark("ark.run.to_terminal", session=session_id, terminal="idle")
                             return RunResult(terminal="idle", messages=messages)
@@ -460,13 +588,16 @@ def result_from_events(events: list[dict], started_at: int) -> Optional[RunResul
         return parsed is not None and parsed >= started_at
 
     current = [event for event in events if _after(event)]
-    failed = any(event.get("type") in ("session.error", "session.status_failed") for event in current)
+    failed_events = [event for event in current if event.get("type") in ("session.error", "session.status_failed")]
+    failed = bool(failed_events)
     idle = any(event.get("type") == "session.status_idle" for event in current)
     if not failed and not idle:
         return None
     messages = [event_text(event) for event in current if event.get("type") == "agent.message"]
     messages = [m for m in messages if m]
-    return RunResult(terminal="failed" if failed else "idle", messages=messages)
+    # 与实时路径一致：失败时把方舟给的错误摘要一并带出（取第一条失败事件的 error）。
+    error = event_error(failed_events[0]) if failed_events else ""
+    return RunResult(terminal="failed" if failed else "idle", messages=messages, error=error)
 
 
 def event_text(event: dict) -> str:
@@ -474,6 +605,24 @@ def event_text(event: dict) -> str:
     if not isinstance(content, list):
         return ""
     return "\n".join(str(item.get("text") or "") for item in content if isinstance(item, dict) and item.get("type") == "text")
+
+
+def event_error(event: dict) -> str:
+    """从 session.error / session.status_failed 事件里提取一句可读的失败摘要。
+
+    方舟的失败详情藏在 event["error"] 里（形如 {"type": "model_request_failed_error",
+    "message": "{...InvalidParameter...Timeout while processing file_url...}"}）；不提取的话
+    上层只知道 terminal=failed、看不到为什么。这里把 type + message 拼成一行（截断防日志爆炸），
+    message 若是嵌套 JSON 也原样带上——排查时能直接看到 file_url 超时这类根因。
+    """
+    error = event.get("error")
+    if not isinstance(error, dict):
+        return ""
+    etype = str(error.get("type") or "").strip()
+    message = error.get("message")
+    message = str(message).strip() if message is not None else ""
+    summary = f"{etype}: {message}" if etype and message else (etype or message)
+    return summary[:500]
 
 
 def _parse_iso_ms(value: str) -> Optional[int]:
