@@ -12,7 +12,7 @@
 
 可选环境变量（同 create_group_agent.py）：
   GROUP_BOT_MODEL_ID      默认 doubao-seed-evolving
-  GROUP_BOT_DISPLAY_NAME  默认「群助手」，写进 system prompt 供模型识别「@谁=在叫自己」，
+  GROUP_BOT_DISPLAY_NAME  默认「数字员工阿J」，写进 system prompt 供模型识别「@谁=在叫自己」，
                           应与飞书开放平台配的机器人显示名一致。
 """
 from __future__ import annotations
@@ -38,7 +38,7 @@ async def _main() -> None:
     base_url = (os.environ.get("ARK_BASE_URL") or "https://ark.cn-beijing.volces.com/api/v3").rstrip("/")
     model_id = (os.environ.get("GROUP_BOT_MODEL_ID") or "doubao-seed-evolving").strip()
     # bot 在飞书群里的显示名，写进 system prompt 供模型识别「@谁=在叫自己」；应与开放平台一致。
-    bot_name = (os.environ.get("GROUP_BOT_DISPLAY_NAME") or "群助手").strip()
+    bot_name = (os.environ.get("GROUP_BOT_DISPLAY_NAME") or "数字员工阿J").strip()
 
     ark = ArkClient(api_key, base_url)
     try:
@@ -53,7 +53,7 @@ async def _main() -> None:
     finally:
         await ark.aclose()
 
-    print(f"已更新群聊共享 Agent：{updated['id']}（版本 {version} → {updated.get('version')}）")
+    print(f"已更新飞书数字员工 Agent：{updated['id']}（版本 {version} → {updated.get('version')}）")
     print(f"  模型：{model_id}")
     print(f"  bot 名字（system prompt）：{bot_name}")
     print("  GROUP_BOT_AGENT_ID 不变，运行入口无需改环境变量，重启即可生效。")

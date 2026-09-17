@@ -24,7 +24,7 @@ async def _main() -> None:
     base_url = (os.environ.get("ARK_BASE_URL") or "https://ark.cn-beijing.volces.com/api/v3").rstrip("/")
     model_id = (os.environ.get("GROUP_BOT_MODEL_ID") or "doubao-seed-evolving").strip()
     # bot 在飞书群里的显示名，写进 system prompt 供模型识别「@谁=在叫自己」；应与开放平台一致。
-    bot_name = (os.environ.get("GROUP_BOT_DISPLAY_NAME") or "群助手").strip()
+    bot_name = (os.environ.get("GROUP_BOT_DISPLAY_NAME") or "数字员工阿J").strip()
 
     ark = ArkClient(api_key, base_url)
     try:

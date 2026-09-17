@@ -270,6 +270,8 @@ def test_build_group_system_falls_back_to_default_name_when_blank():
 def test_build_group_agent_config_uses_bot_name_in_system():
     config = shared.build_group_agent_config(bot_name="小方")
     assert "@小方" in config["system"]
+    assert "在单聊中，用户不需要 @ 你" in config["system"]
+    assert "单聊是你与当前用户之间的独立会话" in config["system"]
     assert config["name"] == shared.GROUP_BOT_NAME
 
 

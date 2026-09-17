@@ -317,7 +317,7 @@ python scenarios/feishu-bot/cases/group-bot/topic_session_bot.py --execution-mod
 
 ```bash
 set -a && source ~/.arkagent/config.env && set +a   # 需 ARK_API_KEY + GROUP_BOT_AGENT_ID
-GROUP_BOT_DISPLAY_NAME=群助手 \
+GROUP_BOT_DISPLAY_NAME=数字员工阿J \
   python scenarios/feishu-bot/cases/group-bot/update_group_agent.py
 # 打印「版本 N → N+1」后，重启正在跑的 bot 即可生效
 ```
@@ -331,7 +331,7 @@ GROUP_BOT_DISPLAY_NAME=群助手 \
 可选环境变量：`ARK_BASE_URL`（默认北京）、`SESSION_TIMEOUT_MS`（默认 600000）、
 `AUTHORIZED_OPEN_IDS`（逗号/空格分隔的白名单，留空=不限制）、
 `GROUP_BOT_MODEL_ID`（默认 doubao-seed-evolving）、
-`GROUP_BOT_DISPLAY_NAME`（默认「群助手」，写进 Agent system prompt 供模型识别「转录里
+`GROUP_BOT_DISPLAY_NAME`（默认「数字员工阿J」，写进 Agent system prompt 供模型识别「转录里
 @谁 = 在叫自己」；应与飞书开放平台配置的机器人显示名一致，改名后跑上面的 `update_group_agent.py` 生效）、
 `GROUP_BOT_MULTIMODAL`（默认开启；设 `0`/`false`/`no`/`off` 关闭图片/文件的下载挂载，带附件的消息按纯文本处理）、
 `GROUP_BOT_MARKDOWN`（默认开启；把回复渲染成飞书 post 富文本，设 `0`/`false`/`no`/`off` 退回纯文本直发）、

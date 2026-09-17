@@ -37,7 +37,7 @@ from arkagent.paths import get_arkagent_paths
 
 DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 DEFAULT_MODEL_ID = "doubao-seed-evolving"
-DEFAULT_BOT_DISPLAY_NAME = "群助手"
+DEFAULT_BOT_DISPLAY_NAME = "数字员工阿J"
 
 
 def _load_existing(config_path: str) -> dict[str, str]:
