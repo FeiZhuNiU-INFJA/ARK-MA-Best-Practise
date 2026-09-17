@@ -5,8 +5,12 @@ import respx
 from arkagent.ark import (
     ArkClient,
     drain_event_buffer,
+    event_custom_tool_call,
     event_progress,
+    event_requires_action,
     event_text,
+    event_user_authorization_required,
+    remember_lark_cli_tool_domain,
     result_from_events,
 )
 
@@ -39,6 +43,138 @@ def test_event_progress_hides_raw_commands():
     assert event_progress({"type": "agent.tool_use", "name": "read", "input": {"file_path": "/secret"}}) == "正在调用工具：read"
     assert event_progress({"type": "agent.tool_result", "is_error": True}) == "工具执行未成功，Agent 正在尝试恢复"
     assert event_progress({"type": "agent.thinking"}) is None
+
+
+def test_custom_tool_event_parsing_and_requires_action():
+    call = event_custom_tool_call(
+        {
+            "type": "agent.custom_tool_use",
+            "id": "custom-1",
+            "name": "memory_get",
+            "arguments": '{"category":"facts","key":"owner"}',
+        }
+    )
+    assert call == {
+        "id": "custom-1",
+        "name": "memory_get",
+        "arguments": {"category": "facts", "key": "owner"},
+    }
+    assert event_requires_action(
+        {
+            "type": "session.status_idle",
+            "stop_reason": {"type": "requires_action"},
+        }
+    )
+
+
+def test_detects_structured_lark_user_token_missing_with_domain():
+    domains = {}
+    remember_lark_cli_tool_domain(
+        {
+            "type": "agent.tool_use",
+            "id": "tool-1",
+            "input": {"command": "lark-cli calendar +agenda --as user"},
+        },
+        domains,
+    )
+    request = event_user_authorization_required(
+        {
+            "type": "agent.tool_result",
+            "tool_use_id": "tool-1",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        'exit_code: 3\n--- stderr ---\n'
+                        '{"ok":false,"identity":"user","error":'
+                        '{"type":"authentication","subtype":"token_missing"}}'
+                    ),
+                }
+            ],
+        },
+        domains,
+    )
+    assert request is not None
+    assert request.domain == "calendar"
+
+
+def test_does_not_treat_unstructured_tool_error_as_authorization():
+    request = event_user_authorization_required(
+        {
+            "type": "agent.tool_result",
+            "tool_use_id": "tool-1",
+            "content": [{"type": "text", "text": "token_missing"}],
+        }
+    )
+    assert request is None
+
+
+def test_detects_structured_lark_user_token_invalid():
+    request = event_user_authorization_required(
+        {
+            "type": "agent.tool_result",
+            "tool_use_id": "tool-calendar",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        'exit_code: 3\n--- stderr ---\n'
+                        '{"ok":false,"identity":"user","error":'
+                        '{"type":"authentication","subtype":"token_invalid"}}'
+                    ),
+                }
+            ],
+        },
+        {"tool-calendar": "calendar"},
+    )
+    assert request is not None
+    assert request.subtype == "token_invalid"
+    assert request.domain == "calendar"
+
+
+def test_detects_structured_lark_user_missing_scope():
+    request = event_user_authorization_required(
+        {
+            "type": "agent.tool_result",
+            "tool_use_id": "tool-drive",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        'exit_code: 3\n--- stderr ---\n'
+                        '{"ok":false,"identity":"user","error":'
+                        '{"type":"authorization","subtype":"missing_scope",'
+                        '"code":99991679,"missing_scopes":["search:docs:read"]}}'
+                    ),
+                }
+            ],
+        },
+        {"tool-drive": "drive"},
+    )
+    assert request is not None
+    assert request.error_type == "authorization"
+    assert request.subtype == "missing_scope"
+    assert request.domain == "drive"
+    assert request.missing_scopes == ("search:docs:read",)
+
+
+def test_rejects_missing_scope_without_structured_scope_list():
+    request = event_user_authorization_required(
+        {
+            "type": "agent.tool_result",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        'exit_code: 3\n--- stderr ---\n'
+                        '{"ok":false,"identity":"user","error":'
+                        '{"type":"authorization","subtype":"missing_scope"}}'
+                    ),
+                }
+            ],
+        }
+    )
+    assert request is None
 
 
 def test_result_from_events_only_recovers_current_run():
@@ -190,6 +326,7 @@ async def test_create_environment_embeds_setup_script_and_env():
         "ark-group-bot-app1",
         env={"LARKSUITE_CLI_APP_ID": "cli_app1"},
         setup_script="echo install lark-cli",
+        packages={"pip": ["pypdf==6.19.0"]},
     )
     await client.aclose()
     assert created["id"] == "env-lark"
@@ -197,7 +334,28 @@ async def test_create_environment_embeds_setup_script_and_env():
     sent = json.loads(route.calls.last.request.content)
     assert sent["config"]["setup_script"] == "echo install lark-cli"
     assert sent["config"]["env"] == {"LARKSUITE_CLI_APP_ID": "cli_app1"}
+    assert sent["config"]["packages"] == {"pip": ["pypdf==6.19.0"]}
     assert sent["config"]["type"] == "cloud"
+
+
+@respx.mock
+async def test_update_environment_posts_config():
+    route = respx.post(f"{BASE}/environments/env-1").mock(
+        return_value=httpx.Response(200, json={"id": "env-1", "name": "group-bot"})
+    )
+    client = _client()
+    result = await client.update_environment(
+        "env-1", {"type": "cloud", "packages": {"pip": ["pypdf==6.19.0"]}}
+    )
+    await client.aclose()
+    assert result == {"id": "env-1", "name": "group-bot"}
+    import json
+    assert json.loads(route.calls.last.request.content) == {
+        "config": {
+            "type": "cloud",
+            "packages": {"pip": ["pypdf==6.19.0"]},
+        }
+    }
 
 
 # ---- agent update (更新 Agent，不新建) ----
@@ -233,6 +391,73 @@ async def test_create_memory_store_and_memory():
     assert sent == {"path": "/prefs.md", "content": "喜欢简洁回复"}
 
 
+@respx.mock
+async def test_memory_crud_and_custom_tool_result_shapes():
+    list_route = respx.get(
+        f"{BASE}/memory_stores/store-1/memories",
+        params={"path_prefix": "/facts/item.md", "order_by": "path", "depth": "1"},
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": "memory-1",
+                        "path": "/facts/item.md",
+                        "type": "file",
+                    }
+                ]
+            },
+        )
+    )
+    respx.get(f"{BASE}/memory_stores/store-1/memories/memory-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "memory-1",
+                "path": "/facts/item.md",
+                "content": "旧值",
+            },
+        )
+    )
+    update_route = respx.post(
+        f"{BASE}/memory_stores/store-1/memories/memory-1"
+    ).mock(return_value=httpx.Response(200, json={"id": "memory-1"}))
+    delete_route = respx.delete(
+        f"{BASE}/memory_stores/store-1/memories/memory-1"
+    ).mock(return_value=httpx.Response(204))
+    result_route = respx.post(f"{BASE}/sessions/session-1/events").mock(
+        return_value=httpx.Response(200, json={})
+    )
+
+    client = _client()
+    assert (await client.list_memories("store-1", "/facts/item.md", 1))[0][
+        "id"
+    ] == "memory-1"
+    assert (await client.get_memory("store-1", "memory-1"))["content"] == "旧值"
+    await client.update_memory("store-1", "memory-1", content="新值")
+    await client.delete_memory("store-1", "memory-1")
+    await client.send_custom_tool_result(
+        "session-1", "custom-1", '{"ok":true}', is_error=False
+    )
+    await client.aclose()
+
+    assert list_route.called and delete_route.called
+    import json
+
+    assert json.loads(update_route.calls.last.request.content) == {"content": "新值"}
+    assert json.loads(result_route.calls.last.request.content) == {
+        "events": [
+            {
+                "type": "user.custom_tool_result",
+                "custom_tool_use_id": "custom-1",
+                "is_error": False,
+                "content": [{"type": "text", "text": '{"ok":true}'}],
+            }
+        ]
+    }
+
+
 # ---- run: SSE before send ----
 @respx.mock
 async def test_run_opens_stream_before_sending_message():
@@ -261,6 +486,55 @@ async def test_run_opens_stream_before_sending_message():
     assert order == ["stream", "events"]
     assert result.terminal == "idle"
     assert result.messages == ["完成"]
+
+
+@respx.mock
+async def test_run_executes_custom_tool_and_ignores_requires_action_idle():
+    body = "\n".join(
+        [
+            (
+                'data: {"type":"agent.custom_tool_use","id":"custom-1",'
+                '"name":"memory_get","input":{"category":"facts","key":"owner"}}'
+            ),
+            "",
+            (
+                'data: {"type":"session.status_idle",'
+                '"stop_reason":{"type":"requires_action"}}'
+            ),
+            "",
+            'data: {"type":"agent.message","content":[{"type":"text","text":"记忆是 Alice"}]}',
+            "",
+            'data: {"type":"session.status_idle","stop_reason":{"type":"end_turn"}}',
+            "",
+        ]
+    )
+    respx.get(f"{BASE}/sessions/session-1/events/stream").mock(
+        return_value=httpx.Response(
+            200, text=body, headers={"Content-Type": "text/event-stream"}
+        )
+    )
+    events_route = respx.post(f"{BASE}/sessions/session-1/events").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    calls = []
+
+    async def handle(name, arguments):
+        calls.append((name, arguments))
+        return '{"ok":true,"content":"Alice"}', False
+
+    client = _client()
+    result = await client.run(
+        "session-1", "负责人是谁", 5_000, custom_tool_handler=handle
+    )
+    await client.aclose()
+
+    assert result.messages == ["记忆是 Alice"]
+    assert calls == [("memory_get", {"category": "facts", "key": "owner"})]
+    assert len(events_route.calls) == 2
+    import json
+
+    tool_result = json.loads(events_route.calls[1].request.content)["events"][0]
+    assert tool_result["custom_tool_use_id"] == "custom-1"
 
 
 # ---- files & session resources (多模态：上传文件 + 挂载到 Session 文件系统) ----

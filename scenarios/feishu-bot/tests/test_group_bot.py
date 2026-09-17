@@ -1,6 +1,6 @@
-"""群聊共享 Bot（cases/group-bot）的窗口规则测试。
+"""群聊共享 Bot（cases/digital-employee）的窗口规则测试。
 
-group-bot 目录不是 Python 包（靠 shared.py 里的 sys.path 注入运行），这里在测试内
+digital-employee 目录不是 Python 包（靠 shared.py 里的 sys.path 注入运行），这里在测试内
 把该目录加入 sys.path 后直接 import shared，验证「倒数第二次 @bot → 当前」窗口逻辑。
 """
 import sys
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 
-_GROUP_BOT_DIR = Path(__file__).resolve().parents[1] / "cases" / "group-bot"
+_GROUP_BOT_DIR = Path(__file__).resolve().parents[1] / "cases" / "digital-employee"
 if str(_GROUP_BOT_DIR) not in sys.path:
     sys.path.insert(0, str(_GROUP_BOT_DIR))
 
@@ -270,6 +270,8 @@ def test_build_group_system_falls_back_to_default_name_when_blank():
 def test_build_group_agent_config_uses_bot_name_in_system():
     config = shared.build_group_agent_config(bot_name="小方")
     assert "@小方" in config["system"]
+    assert "在单聊中，用户不需要 @ 你" in config["system"]
+    assert "单聊是你与当前用户之间的独立会话" in config["system"]
     assert config["name"] == shared.GROUP_BOT_NAME
 
 
@@ -345,9 +347,31 @@ def test_sqlite_session_map_matches_inmemory_interface():
         "get", "save", "reset", "claim_event",
         "get_attachment", "save_attachment",
         "is_attachment_mounted", "mark_attachment_mounted",
+        "get_memory_store", "save_memory_store",
+        "get_session_memory_scope", "save_session_memory_scope",
     ):
         assert hasattr(shared.SqliteSessionMap, name)
         assert hasattr(shared.InMemorySessionMap, name)
+
+
+def test_sqlite_memory_scope_bindings_persist_across_reopen(tmp_path):
+    db = str(tmp_path / "sessions.db")
+    first = shared.SqliteSessionMap(db)
+    first.save_memory_store("tenant", "group", "chat", "store-1")
+    first.save_session_memory_scope(
+        "session-1", "tenant", "group", "chat", "store-1"
+    )
+    first.close()
+
+    second = shared.SqliteSessionMap(db)
+    assert second.get_memory_store("tenant", "group", "chat") == "store-1"
+    assert second.get_session_memory_scope("session-1") == {
+        "tenant_key": "tenant",
+        "scope_type": "group",
+        "scope_id": "chat",
+        "store_id": "store-1",
+    }
+    second.close()
 
 
 # ---- 附件去重：文件缓存层（file_key → file_id）+ 挂载记录层（session, file_key）----
@@ -399,6 +423,39 @@ def test_inmemory_session_map_dedup_methods():
     store.mark_attachment_mounted("sesn-1", "fk-1")
     assert store.is_attachment_mounted("sesn-1", "fk-1") is True
     assert store.is_attachment_mounted("sesn-2", "fk-1") is False
+
+
+def test_sqlite_session_map_persists_user_oauth_and_session_vaults(tmp_path):
+    db = str(tmp_path / "sessions.db")
+    first = shared.SqliteSessionMap(db)
+    first.save_user_oauth(
+        "tenant-1",
+        "ou-alice",
+        "vlt-user",
+        "cred-user",
+        "refresh-secret",
+        123456,
+        ("offline_access", "calendar:calendar:read"),
+    )
+    first.save_session_vaults("sesn-1", ["vlt-bot", "vlt-user"])
+    first.save_session_user_token(
+        "sesn-1", "tenant-1", "ou-alice", 123456
+    )
+    first.close()
+
+    second = shared.SqliteSessionMap(db)
+    oauth = second.get_user_oauth("tenant-1", "ou-alice")
+    assert oauth["vault_id"] == "vlt-user"
+    assert oauth["credential_id"] == "cred-user"
+    assert oauth["refresh_token"] == "refresh-secret"
+    assert oauth["scopes"] == ("offline_access", "calendar:calendar:read")
+    assert second.get_session_vaults("sesn-1") == ("vlt-bot", "vlt-user")
+    assert second.get_session_user_token("sesn-1") == (
+        "tenant-1",
+        "ou-alice",
+        123456,
+    )
+    second.close()
 
 
 # ---- 多模态：附件路径/名清洗 + 挂载编排 + 输入拼接 ----------------------------
@@ -719,6 +776,8 @@ def test_build_lark_session_env_group_injects_location_only():
     assert env["FEISHU_THREAD_ID"] == "th-9"
     assert env["FEISHU_TRIGGER_MESSAGE_ID"] == "om-9"
     assert env["FEISHU_TRIGGER_CREATE_TIME"] == "1234"
+    assert env["FEISHU_IDENTITY_MODE"] == "bot_only"
+    assert env["LARKSUITE_CLI_STRICT_MODE"] == "bot"
     # 关掉 CLI 更新/技能提示噪声，避免污染 shell 输出。
     assert env["LARKSUITE_CLI_NO_UPDATE_NOTIFIER"] == "1"
     # 绝不注入任何个人身份 / 用户 token。
@@ -728,7 +787,24 @@ def test_build_lark_session_env_group_injects_location_only():
 def test_build_lark_session_env_p2p_marks_direct_and_omits_thread():
     env = shared.build_lark_session_env(_trigger(chat_type="p2p", thread_id=""))
     assert env["FEISHU_CONVERSATION_TYPE"] == "direct"
+    assert env["FEISHU_IDENTITY_MODE"] == "bot_with_user_oauth"
+    assert env["FEISHU_USER_OPEN_ID"] == "ou-cur"
+    assert env["LARKSUITE_CLI_STRICT_MODE"] == "off"
     assert "FEISHU_THREAD_ID" not in env  # 没有话题就不带这个键
+
+
+def test_authorization_prefers_stable_user_id_and_accepts_legacy_open_id():
+    message = _trigger(user_open_id="ou-new-app", user_id="u-stable")
+
+    assert shared.is_authorized(
+        _lark_config(authorized_user_ids=("u-stable",)), message
+    ) is True
+    assert shared.is_authorized(
+        _lark_config(authorized_open_ids=("ou-new-app",)), message
+    ) is True
+    assert shared.is_authorized(
+        _lark_config(authorized_user_ids=("u-other",)), message
+    ) is False
 
 
 class _FakeArkProvision:
@@ -739,6 +815,7 @@ class _FakeArkProvision:
         self._vaults = list(vaults or [])
         self._credentials = list(credentials or [])
         self.created_environments: list[dict] = []
+        self.updated_environments: list[tuple[str, dict]] = []
         self.created_vaults: list[str] = []
         self.created_credentials: list[tuple] = []
         self.updated_credentials: list[tuple] = []
@@ -747,13 +824,24 @@ class _FakeArkProvision:
     async def list_environments(self) -> list[dict]:
         return self._environments
 
-    async def create_environment(self, name, env=None, setup_script=None) -> dict:
+    async def create_environment(
+        self, name, env=None, setup_script=None, packages=None
+    ) -> dict:
         self.created_environments.append(
-            {"name": name, "env": env, "setup_script": setup_script}
+            {
+                "name": name,
+                "env": env,
+                "setup_script": setup_script,
+                "packages": packages,
+            }
         )
         created = {"id": f"env-{len(self.created_environments)}", "name": name}
         self._environments.append(created)
         return created
+
+    async def update_environment(self, environment_id, config) -> dict:
+        self.updated_environments.append((environment_id, config))
+        return {"id": environment_id}
 
     async def list_vaults(self) -> list[dict]:
         return self._vaults
@@ -787,10 +875,11 @@ async def test_ensure_lark_cli_environment_creates_with_setup_script_and_app_id(
     created = ark.created_environments[0]
     assert created["env"]["LARKSUITE_CLI_APP_ID"] == "cli_app1"  # App Id 明文进 Environment
     assert created["setup_script"] == shared.LARK_CLI_SETUP_SCRIPT  # 装 CLI 的脚本
+    assert created["packages"] == {"pip": ["pypdf==6.19.0"]}
 
 
 async def test_ensure_lark_cli_environment_is_idempotent_by_name():
-    # 同名 Environment 已存在就直接复用，不再新建。
+    # 同名 Environment 已存在就原地同步配置，不再新建。
     name = shared._sanitize_name(
         f"ark-group-bot-tenant-token-v3-cli_app1-lark-cli-{shared.LARK_CLI_VERSION}"
     )[:60]
@@ -798,6 +887,10 @@ async def test_ensure_lark_cli_environment_is_idempotent_by_name():
     env_id = await shared.ensure_lark_cli_environment(ark, "cli_app1")
     assert env_id == "env-existing"
     assert ark.created_environments == []  # 没新建
+    assert ark.updated_environments[0][0] == "env-existing"
+    assert ark.updated_environments[0][1]["packages"] == {
+        "pip": ["pypdf==6.19.0"]
+    }
 
 
 async def test_ensure_lark_cli_vault_creates_tenant_token_credential():

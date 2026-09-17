@@ -10,9 +10,9 @@
 | 案例 | 涉及能力 | 目录 |
 | --- | --- | --- |
 | **客户A 四卡点 ABCD** | 身份鉴权(static_bearer) · OpenID 透传 · 岗位信息注入 · 跨 Session 记忆 | [cases/customer-a-4checkpoints/](cases/customer-a-4checkpoints/) |
-| **话题 Session Bot** | 一个飞书话题一个 Session（对齐 Claude Tag）· 启动参数选择串行或方舟原生队列 | [cases/group-bot/](cases/group-bot/) |
+| **数字员工阿J** | 支持群聊话题协作与单聊个人协作；群话题一个 Session，启动参数可选串行或方舟原生队列 | [cases/digital-employee/](cases/digital-employee/) |
 
-> 客户A 是「文档型 case」：它的运行代码就是本场景共享的 `arkagent/` + `mock_mcp/`；群聊共享 Bot
+> 客户A 是「文档型 case」：它的运行代码就是本场景共享的 `arkagent/` + `mock_mcp/`；数字员工
 > 是独立示例脚本，**复用** `arkagent` 的纯基础设施，不改主包。
 
 ## 通用架构
@@ -91,7 +91,8 @@ arkagent run
 | `GATEWAY_DB_PATH` | SQLite 状态库（会话映射 / 事件去重 / 岗位缓存），默认 `./data/gateway.db` |
 | `SESSION_TIMEOUT_MS` | 单次运行超时，默认 600000 |
 | `ROLE_TTL_MS` | 岗位缓存 TTL，默认 86400000（24h） |
-| `AUTHORIZED_OPEN_IDS` | 允许对话的 open_id 白名单（逗号分隔；**留空 = 不限制**） |
+| `AUTHORIZED_USER_IDS` | 允许对话的租户级 user_id 白名单（逗号分隔；**留空 = 不限制**） |
+| `AUTHORIZED_OPEN_IDS` | 旧 open_id 白名单兼容项；完成 user_id 迁移后移除 |
 | `TEAM_STORE_ENABLED` | 是否为同岗位挂载团队共享 Memory Store（可选） |
 
 配置目录 `0700`、文件 `0600`；不要在 Agent prompt 或日志中打印凭证。
@@ -131,7 +132,7 @@ scenarios/feishu-bot/
   node-helper/         # 唯一保留的 Node 小岛
     register_app.mjs   # registerApp 扫码建飞书应用，把凭证写回 JSON
   tests/               # pytest（asyncio_mode=auto）
-  cases/               # 本场景的案例（customer-a-4checkpoints / group-bot）
+  cases/               # 本场景的案例（customer-a-4checkpoints / digital-employee）
 ```
 
 ### 模块职责速查

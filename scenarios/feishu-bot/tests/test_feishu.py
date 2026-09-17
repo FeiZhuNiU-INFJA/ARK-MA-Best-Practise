@@ -53,7 +53,7 @@ def test_normalize_extracts_text_and_removes_mention_tokens():
     result = normalize_feishu_message({
         "event_id": "evt-1",
         "tenant_key": "tenant-1",
-        "sender": {"sender_id": {"open_id": "ou-user"}},
+        "sender": {"sender_id": {"open_id": "ou-user", "user_id": "u-user"}},
         "message": {
             "message_id": "om-1",
             "chat_id": "oc-1",
@@ -68,6 +68,7 @@ def test_normalize_extracts_text_and_removes_mention_tokens():
     assert result.text == "帮我总结"  # mention 无 name，token 删掉
     assert result.mentioned_bot is True
     assert result.user_open_id == "ou-user"
+    assert result.user_id == "u-user"
     assert result.chat_type == "group"
     assert result.create_time == 1700000001234
 
@@ -245,6 +246,15 @@ def test_inbound_maps_channel_message_to_incoming():
     assert result.mentioned_bot is True
     assert result.tenant_key == "default"  # mention 与否不能改变同一话题的会话键
     assert result.create_time == 1700000009999
+
+
+def test_inbound_preserves_tenant_user_id():
+    result = _inbound_to_incoming(
+        _inbound(sender=SimpleNamespace(open_id="ou-user", user_id="u-user"))
+    )
+
+    assert result is not None
+    assert result.user_id == "u-user"
 
 
 def test_inbound_ignores_non_text():

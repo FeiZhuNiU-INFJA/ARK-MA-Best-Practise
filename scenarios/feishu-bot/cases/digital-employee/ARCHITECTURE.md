@@ -1,4 +1,4 @@
-# 群聊共享 Bot：架构与数据流
+# 数字员工阿J：架构与数据流
 
 这份文档回答三个问题：
 
@@ -6,8 +6,9 @@
 2. 流程里有哪些**关键数据结构**，各自装了什么。
 3. 每个**判断节点依据对象的哪个属性**做决策。
 
-代码入口：`shared.py`（公共底座）、`topic_session_bot.py`（话题级 Session，支持
-`serial` / `native-queue`）、`../../arkagent/feishu.py`（飞书接入 + 归一化）、
+代码入口：`shared.py`（公共底座）、`memory.py`（长期记忆作用域与 Custom Tool）、
+`topic_session_bot.py`（话题级 Session，支持 `serial` / `native-queue`）、
+`../../arkagent/feishu.py`（飞书接入 + 归一化）、
 `../../arkagent/ark.py`（方舟客户端）、`../../arkagent/gateway.py`（`KeyedQueue`）。
 
 > 术语：**触发消息** = 当前这条 @bot 的入站消息；**窗口** = 注入本轮的那段群历史增量。
@@ -18,12 +19,13 @@
 
 | 结构 | 定义位置 | 作用 | 关键字段 |
 |---|---|---|---|
-| `IncomingMessage` | [feishu.py:26](../../arkagent/feishu.py) | **单条入站消息的归一化契约**（接入层→业务的防腐层） | `event_id`（去重）、`chat_id`/`thread_id`/`tenant_key`（分桶）、`chat_type`、`mentioned_bot`（是否处理）、`message_id`（回复/筛历史）、`text`、`create_time`（窗口排序/截断）、`user_open_id`、`user_name`（发言人显示名→转录当前请求行，取不到回退 open_id）、`reply_to_message_id`（显式引用的消息 id→引用链）、`root_id`（话题根消息 id→话题前情）、`resources`（图片/文件附件→多模态挂载） |
+| `IncomingMessage` | [feishu.py:26](../../arkagent/feishu.py) | **单条入站消息的归一化契约**（接入层→业务的防腐层） | `event_id`（去重）、`chat_id`/`thread_id`/`tenant_key`（分桶）、`chat_type`、`mentioned_bot`（是否处理）、`message_id`（回复/筛历史）、`text`、`create_time`（窗口排序/截断）、`user_open_id`（当前应用交互）、`user_id`（员工持久身份）、`user_name`（发言人显示名→转录当前请求行，取不到回退 open_id）、`reply_to_message_id`（显式引用的消息 id→引用链）、`root_id`（话题根消息 id→话题前情）、`resources`（图片/文件附件→多模态挂载） |
 | `HistoryMessage` | [feishu.py:64](../../arkagent/feishu.py) | 一条**群历史**消息归一化后的结果，比入站多两个语义判定位 | `at_bot`（切窗口边界）、`is_from_bot`（过滤 bot 回复）、`create_time`（升序）、`sender_name`（转录显示名，保留 `@名字`）、`text`、`resources`（这条历史消息里的图片/文件附件→收进本轮挂载） |
 | `QuotedMessage` | [feishu.py:48](../../arkagent/feishu.py) | 引用链上一条**被引用消息**的归一化结果（`resolve_quote_chain` 产出） | `depth`（1=直接引用，越大越久远，封顶 `MAX_QUOTE_DEPTH`=5）、`sender_name`、`text`、`message_id`（去重用） |
 | `ResourceRef` | [feishu.py:26](../../arkagent/feishu.py) | 一条消息里一个**可下载附件**（图片/文件）的引用（`_extract_resources` / `_extract_history_resources` 产出） | `file_key`（下载键）、`file_name`（清洗后作挂载名）、`type`（`image`/`file`，其它类型不挂）、`message_id`（附件所属消息 id，下载资源必须按各自所属消息取；空则由调用方用当前消息 id 兜底） |
 | `PreparedAttachment` | [shared.py](shared.py) | 一个已上传、待挂载的附件 | `file_id`（方舟文件 ID）、`mount_path`（相对 `/mnt/session/uploads/`）、`name`（提示/错误用）、`file_key`（去重身份） |
 | `GroupConversationKey` | [shared.py:35](shared.py) | 共享会话键，**刻意不含 user_open_id** | `tenant_key` + `chat_id` + `thread_id` → `as_str()` = `"t:chat:thread"` |
+| `MemoryScope` | [memory.py](memory.py) | 长期记忆权限边界 | 单聊=`tenant_key + user + user_id`；群/话题=`tenant_key + group + chat_id` |
 | `SqliteSessionMap` | [shared.py:343](shared.py) | 群 key → 方舟 session_id 的**持久化映射** + 事件去重 + 附件两层去重，跨重启不丢 | 表 `sessions(key, session_id)`、`seen_events(event_id)`、`attachments(file_key, file_id)`（文件缓存·跨 session）、`attachment_mounts(session_id, file_key)`（挂载记录·按 session） |
 | `RunResult` | [ark.py:27](../../arkagent/ark.py) | 方舟一轮运行的终态结果 | `terminal`（`"idle"`/`"failed"`）、`messages` |
 | `ArkError` | [ark.py:33](../../arkagent/ark.py) | 方舟异常，带**结构化状态码** | `status_code`（404=Session 失效、409=RuntimeBusy）、`body` |
@@ -216,6 +218,20 @@ flowchart TD
 - `seen_events` 表让事件去重跨进程重启仍生效（24h TTL，启动清理一次）。
 - 并发：WS 线程与事件循环线程共用连接（`check_same_thread=False`），进程内一把锁串行化写。
 
+### 7.1 长期记忆作用域
+
+- `memory_scopes` 保存 `(tenant_key, scope_type, scope_id) → store_id`。个人以租户级
+  `user_id` 为 `scope_id`，群以 `chat_id` 为 `scope_id`。首次同时收到 `user_id` 与旧
+  `open_id` 时，会将旧映射原地关联到新键，不复制或删除实际 Memory Store。默认独立存放于
+  `data/group_bot_memory.db`，由 serial/native-queue 共用。
+- `session_memory_scopes` 保存 `session_id → scope + store_id`，是 Custom Tool 的鉴权依据；
+  Agent 的工具参数不包含任何身份或 Store ID。
+- 创建单聊 Session 时挂个人 Store；创建群主时间线或群话题 Session 时挂所属群 Store。
+  `thread_id` 不参与 Store 定位，因此同群所有话题共享群记忆，且不存在话题 Store。
+- `agent.custom_tool_use` 由 Gateway 执行后用 `user.custom_tool_result` 回传。
+  `requires_action` 的 idle 只是等待 Tool 结果，不作为本轮终态。
+- 同一作用域的 CRUD 通过 `ScopedMemoryManager` 的异步锁串行化，避免同群不同话题并发更新。
+
 ---
 
 ## 8. 多模态：图片 / 文件挂载 Session 文件系统
@@ -331,15 +347,22 @@ flowchart LR
 | 放哪 | 内容 | 为什么 | 代码 |
 |---|---|---|---|
 | Environment `setup_script` | 下载对应架构的 lark-cli 二进制到 `/usr/local/bin`（SHA256 校验、npmmirror 加速） | 方舟 cloud 沙箱默认没有 lark-cli，Session 首次拉起时装一次 | `LARK_CLI_SETUP_SCRIPT` [ark.py](../../arkagent/ark.py)、`ensure_lark_cli_environment` [shared.py](shared.py) |
+| Environment `packages.pip` | 固定版本 `pypdf` | PDF 不走内置 `read` 的 `file_url` 预览链路，改由沙箱 Python 稳定分页提取 | `ensure_lark_cli_environment` [shared.py](shared.py) |
 | Environment `env` | `LARKSUITE_CLI_APP_ID` = 飞书 App Id | 非敏感，明文放这里即可 | `ensure_lark_cli_environment` [shared.py](shared.py) |
 | Bot 主机 | 用 App ID/Secret 调飞书接口换短期 tenant token | Vault 环境变量在沙箱内是 opaque placeholder，不能用于 JSON body token 交换 | `fetch_feishu_tenant_access_token` [shared.py](shared.py) |
 | Vault 凭据 | `environment_variable` 凭据：`LARKSUITE_CLI_TENANT_ACCESS_TOKEN` | token 可原样替换进 Authorization header；App Secret 不进入 Vault 或 Agent 沙箱 | `ensure_lark_cli_vault` / `update_lark_cli_vault_token` [shared.py](shared.py) |
-| `create_session` | `vault_ids=[lark_vault_id]` + `env_overrides=build_lark_session_env(message)` | 挂上 Vault让 lark-cli 直接使用 Bot token；`env_overrides` 补「这条消息在哪个群/话题」这类每轮会变的定位信息 | `topic_session_bot.py` 的 `_create_session` |
+| 用户 Vault | 每个单聊发送者一个 `LARKSUITE_CLI_USER_ACCESS_TOKEN` Credential | Session 创建后不能追加 Vault，因此单聊首轮先挂占位 Credential；授权后原地更新 | `user_oauth.py` |
+| 本地 SQLite | 用户 refresh token、过期时间、scope 与 Session-Vault 绑定 | 支持刷新、进程重启恢复，并识别未挂用户 Vault 的旧单聊 Session | `SqliteSessionMap` [shared.py](shared.py) |
+| `create_session` | 群聊挂 Bot Vault；单聊挂 Bot Vault + 当前发送者用户 Vault | `env_overrides` 同时注入位置、身份模式；仅单聊注入可信 `FEISHU_USER_OPEN_ID` | `topic_session_bot.py` 的 `_create_session` |
 
 要点：
-- **Bot-only 身份**：群 Session 永远只注入 Bot 上下文（chat/thread/触发消息），**绝不注入**任何
-  用户身份或用户 token。system prompt 要求业务 API 命令显式使用 `--as bot`，但元命令遵循
-  各自语法；禁止 `--as user` 和申请用户授权。外部托管凭据异常时停止重试并报告 Vault 配置问题。
+- **群聊 Bot-only**：群 Session 永远只注入 Bot 上下文，禁止 `--as user` 和个人授权。
+- **单聊按需用户只读**：默认仍用 Bot。只有读取当前发送者自己的身份、日历和忙闲，或搜索
+  本人可见文档时允许 `--as user`；用户身份禁止写，写操作始终 `--as bot`。
+- **授权闭环**：结构化 `token_missing`、`token_invalid` 或 `missing_scope` 触发 Device OAuth
+  卡片；按业务域白名单单独签发 token，避免 scope 合并后超过 Vault 的 4096 字节限制。授权账号
+  `open_id` 必须等于消息发送者；成功后更新原 Credential 并自动续跑原任务。卡片失效时用户发送
+  “重新授权”会取消旧轮询并生成新卡片。
 - **幂等置备**：`ensure_lark_cli_environment` / `ensure_lark_cli_vault` 都按名字复用已有资源，
   `init_group_bot.py` 重复跑不会堆一堆环境/凭据；每轮发送前按 token 有效期检查，临近过期时
   `update_environment_credential` 原地改值，凭据 id 不变。
@@ -352,6 +375,9 @@ flowchart LR
   旧 Session 不会自动改挂新资源；必须重建对应 Session。Vault ID 不变时原地更新 token 凭据，
   平台会在 Session 生命周期内重新解析，长寿命 Session 无需重建。
 - **权限**：lark-cli 能做什么，取决于飞书开放平台给这个应用勾了哪些权限——除消息类权限外，
+  用户 OAuth 还需 `offline_access`、`auth:user.id:read`、`calendar:calendar:read`、
+  `calendar:calendar.event:read`、`calendar:calendar.free_busy:read`、`search:docs:read`，
+  修改后必须发布应用版本。
   还需按业务域（docx / drive / calendar…）在开放平台补齐并发布版本。
 
 ## 10. 出站渲染：Markdown → 飞书富文本（post）

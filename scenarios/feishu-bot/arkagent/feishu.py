@@ -65,6 +65,9 @@ class IncomingMessage:
     tenant_key: str
     text: str
     mentioned_bot: bool
+    # 租户内跨应用稳定的员工身份。需要飞书自建应用开通“获取用户 user ID”权限；
+    # 缺失时，上层为兼容历史消息临时回退到 user_open_id。
+    user_id: str = ""
     create_time: int = 0  # 消息创建时间戳（毫秒）；窗口排序必需
     # 这条消息「引用/回复」的那条消息 id（飞书 parent_id，且 parent_id != root_id 时才是
     # 用户显式引用——话题根不算，见 Channel SDK normalize/pipeline.py）。为空表示没引用。
@@ -77,6 +80,11 @@ class IncomingMessage:
     # 这条消息携带的图片/文件附件（多模态）。走「下载→上传方舟→挂载到 /mnt/session/uploads/」
     # 的挂载文件系统方案；空表示纯文本消息。图片消息本身没有正文，text 会是占位/空。
     resources: tuple[ResourceRef, ...] = ()
+
+    @property
+    def employee_id(self) -> str:
+        """员工持久身份键：优先租户级 user_id，兼容旧事件时回退应用级 open_id。"""
+        return self.user_id or self.user_open_id
 
 
 @dataclass(frozen=True)
@@ -156,6 +164,7 @@ def normalize_feishu_message(event: dict) -> Optional[IncomingMessage]:
         chat_type=chat_type,
         thread_id=message.get("thread_id") or message.get("root_id") or message.get("parent_id") or "",
         user_open_id=sender_id.get("open_id") or "",
+        user_id=sender_id.get("user_id") or "",
         # 原始事件体里不含发言人显示名（需另调联系人接口），此路径为兼容旧调用/测试用，留空由下游兜底。
         user_name="",
         tenant_key=event.get("tenant_key") or "default",
@@ -497,6 +506,55 @@ class FeishuSender:
                 pass
         self._create_in_chat(chat_id, "text", json.dumps({"text": text}, ensure_ascii=False))
 
+    def send_authorization_card(
+        self, chat_id: str, url: str, domain: str = "calendar"
+    ) -> None:
+        """在单聊中发送按业务域区分的用户只读授权卡片。"""
+        is_drive = domain == "drive"
+        title = "授权搜索你的文档" if is_drive else "授权查看你的日程"
+        detail = (
+            "为了搜索你最近创建或编辑的文档，需要你授权当前飞书账号。"
+            "文档创建、修改或删除仍使用数字员工的 Bot 身份。"
+            if is_drive
+            else "为了读取你的个人日历和忙闲信息，需要你授权当前飞书账号。"
+            "创建或修改日程仍使用数字员工的 Bot 身份。"
+        )
+        button_text = "授权搜索文档" if is_drive else "授权查看日程"
+        card = {
+            "schema": "2.0",
+            "config": {"width_mode": "default"},
+            "header": {
+                "title": {"tag": "plain_text", "content": title},
+                "subtitle": {
+                    "tag": "plain_text",
+                    "content": "仅用于当前数字员工协作",
+                },
+                "template": "blue",
+                "icon": {
+                    "tag": "standard_icon",
+                    "token": "search_outlined" if is_drive else "calendar_outlined",
+                },
+            },
+            "body": {
+                "elements": [
+                    {
+                        "tag": "markdown",
+                        "content": detail,
+                    },
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": button_text},
+                        "type": "primary_filled",
+                        "width": "fill",
+                        "behaviors": [{"type": "open_url", "default_url": url}],
+                    },
+                ]
+            },
+        }
+        self._create_in_chat(
+            chat_id, "interactive", json.dumps(card, ensure_ascii=False)
+        )
+
     def _create_in_chat(self, chat_id: str, msg_type: str, content: str) -> None:
         from lark_channel.api.im.v1.model.create_message_request import (
             CreateMessageRequest,
@@ -820,6 +878,7 @@ def _inbound_to_incoming(msg: object) -> Optional[IncomingMessage]:
         chat_type=chat_type,
         thread_id=getattr(conversation, "thread_id", None) or "",
         user_open_id=getattr(sender, "open_id", "") or "",
+        user_id=getattr(sender, "user_id", "") or "",
         # SDK 已在归一化时把发言人显示名解析进来（InboundMessage.sender_name = sender.display_name，
         # 见 lark_channel normalize/pipeline.py）。取来让当前触发行显示真名、并供回复 @ 到人。
         user_name=str(getattr(msg, "sender_name", "") or getattr(sender, "display_name", "") or ""),

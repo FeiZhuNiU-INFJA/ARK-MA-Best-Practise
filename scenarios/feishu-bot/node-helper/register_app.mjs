@@ -6,7 +6,7 @@
 //   - 二维码与提示打印到 stderr（继承终端，供用户扫码）
 //   - 成功后把 { appId, appSecret, userOpenId? } 写入 output-json-path
 //
-// 本 demo 去掉了用户 OAuth：Bot 只需 tenant 身份发消息 + 订阅消息事件。
+// 群聊只用 tenant 身份；单聊按需申请当前用户的日历只读 OAuth。
 import { writeFileSync } from "node:fs";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import qrcodeTerminal from "qrcode-terminal";
@@ -28,7 +28,7 @@ async function main() {
       desc: "由火山方舟 Managed Agents 驱动的飞书机器人（迁移方案演示）"
     },
     addons: {
-      // 仅 tenant 身份，不申请任何 user scope（无用户 OAuth）：
+      // tenant scope 用于 Bot 消息与群上下文；user scope 仅供单聊按需只读本人日历和搜索文档。
       //   - im:message:send_as_bot   以应用身份发消息 / 回复
       //   - im:message               基础消息读取
       //   - im:message.group_msg     读整段群历史（窗口上下文靠 im.v1.message.list 拉历史，缺此 scope 会 400 / 230027）
@@ -40,9 +40,17 @@ async function main() {
           "im:message",
           "im:message.group_msg",
           "im:chat:readonly",
-          "im:resource"
+          "im:resource",
+          "contact:user.id:readonly"
         ],
-        user: []
+        user: [
+          "offline_access",
+          "auth:user.id:read",
+          "calendar:calendar:read",
+          "calendar:calendar.event:read",
+          "calendar:calendar.free_busy:read",
+          "search:docs:read"
+        ]
       },
       events: { items: { tenant: ["im.message.receive_v1"] } }
     },

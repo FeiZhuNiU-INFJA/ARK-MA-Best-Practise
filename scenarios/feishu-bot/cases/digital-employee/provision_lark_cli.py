@@ -8,7 +8,7 @@ GROUP_BOT_ENVIRONMENT_ID / GROUP_BOT_LARK_VAULT_ID 写回 config.env。两者都
 GROUP_BOT_AGENT_ID 一概不碰（system prompt 的更新走 update_group_agent.py）。
 
 运行（无需先 source，脚本会自己读 config.env；也可用环境变量覆盖）：
-  python scenarios/feishu-bot/cases/group-bot/provision_lark_cli.py
+  python scenarios/feishu-bot/cases/digital-employee/provision_lark_cli.py
 
 前置：config.env 里已有 ARK_API_KEY、FEISHU_APP_ID、FEISHU_APP_SECRET
 （即你已经跑过主包 arkagent init 或本 case 的建应用流程）。
