@@ -40,7 +40,8 @@ async function main() {
           "im:message",
           "im:message.group_msg",
           "im:chat:readonly",
-          "im:resource"
+          "im:resource",
+          "contact:user.id:readonly"
         ],
         user: [
           "offline_access",

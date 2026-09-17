@@ -348,7 +348,8 @@ GROUP_BOT_DISPLAY_NAME=数字员工阿J \
 `GROUP_BOT_ENVIRONMENT_ID`（缺失回退 `ARK_ENVIRONMENT_ID`）。
 
 可选环境变量：`ARK_BASE_URL`（默认北京）、`SESSION_TIMEOUT_MS`（默认 600000）、
-`AUTHORIZED_OPEN_IDS`（逗号/空格分隔的白名单，留空=不限制）、
+`AUTHORIZED_USER_IDS`（逗号/空格分隔的员工白名单，优先使用；留空=不限制）、
+`AUTHORIZED_OPEN_IDS`（旧白名单兼容项；迁移完成后移除）、
 `GROUP_BOT_MODEL_ID`（默认 doubao-seed-evolving）、
 `GROUP_BOT_DISPLAY_NAME`（默认「数字员工阿J」，写进 Agent system prompt 供模型识别「转录里
 @谁 = 在叫自己」；应与飞书开放平台配置的机器人显示名一致，改名后跑上面的 `update_group_agent.py` 生效）、

@@ -19,6 +19,7 @@
 | `im:message.group_msg` | 获取群组中所有消息 | **读整段群历史**（窗口上下文靠它拉），缺则 `230027` | `GET /im/v1/messages`（群聊） |
 | `im:chat:readonly` | 获取群组信息 | 读 thread/chat 容器信息（可选但保险） | 群信息类 API |
 | `im:resource` | 获取与上传图片或文件资源 | 预留：下载群里用户上传的文件/图片（下载实现尚未落地） | `GET /im/v1/messages/:id/resources/:key` |
+| `contact:user.id:readonly` | 获取用户 user ID | 取得租户级员工身份键，保证更换飞书应用后个人记忆仍可关联 | `GET /contact/v3/users/:user_id` / 消息事件 |
 
 订阅事件：`im.message.receive_v1`（接收消息事件，WS 长连接消费）。
 

@@ -91,7 +91,8 @@ arkagent run
 | `GATEWAY_DB_PATH` | SQLite 状态库（会话映射 / 事件去重 / 岗位缓存），默认 `./data/gateway.db` |
 | `SESSION_TIMEOUT_MS` | 单次运行超时，默认 600000 |
 | `ROLE_TTL_MS` | 岗位缓存 TTL，默认 86400000（24h） |
-| `AUTHORIZED_OPEN_IDS` | 允许对话的 open_id 白名单（逗号分隔；**留空 = 不限制**） |
+| `AUTHORIZED_USER_IDS` | 允许对话的租户级 user_id 白名单（逗号分隔；**留空 = 不限制**） |
+| `AUTHORIZED_OPEN_IDS` | 旧 open_id 白名单兼容项；完成 user_id 迁移后移除 |
 | `TEAM_STORE_ENABLED` | 是否为同岗位挂载团队共享 Memory Store（可选） |
 
 配置目录 `0700`、文件 `0600`；不要在 Agent prompt 或日志中打印凭证。

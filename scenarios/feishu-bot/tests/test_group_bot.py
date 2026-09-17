@@ -793,6 +793,20 @@ def test_build_lark_session_env_p2p_marks_direct_and_omits_thread():
     assert "FEISHU_THREAD_ID" not in env  # 没有话题就不带这个键
 
 
+def test_authorization_prefers_stable_user_id_and_accepts_legacy_open_id():
+    message = _trigger(user_open_id="ou-new-app", user_id="u-stable")
+
+    assert shared.is_authorized(
+        _lark_config(authorized_user_ids=("u-stable",)), message
+    ) is True
+    assert shared.is_authorized(
+        _lark_config(authorized_open_ids=("ou-new-app",)), message
+    ) is True
+    assert shared.is_authorized(
+        _lark_config(authorized_user_ids=("u-other",)), message
+    ) is False
+
+
 class _FakeArkProvision:
     """假方舟客户端：只覆盖 lark-cli 置备用到的环境/Vault/凭据接口，记录调用便于断言幂等。"""
 

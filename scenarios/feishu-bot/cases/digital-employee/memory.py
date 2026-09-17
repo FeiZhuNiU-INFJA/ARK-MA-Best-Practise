@@ -48,12 +48,24 @@ class MemoryScope:
     @classmethod
     def from_message(cls, message: IncomingMessage) -> "MemoryScope":
         if message.chat_type == "p2p":
-            if not message.user_open_id:
-                raise ValueError("单聊消息缺少 user_open_id，无法确定个人记忆作用域")
-            return cls(message.tenant_key, "user", message.user_open_id)
+            if not message.employee_id:
+                raise ValueError("单聊消息缺少员工身份，无法确定个人记忆作用域")
+            return cls(message.tenant_key, "user", message.employee_id)
         if not message.chat_id:
             raise ValueError("群消息缺少 chat_id，无法确定群记忆作用域")
         return cls(message.tenant_key, "group", message.chat_id)
+
+    @classmethod
+    def legacy_open_id_scope(cls, message: IncomingMessage) -> Optional["MemoryScope"]:
+        """返回旧版 open_id 个人记忆作用域，供首次拿到 user_id 时就地迁移。"""
+        if (
+            message.chat_type == "p2p"
+            and message.user_id
+            and message.user_open_id
+            and message.user_id != message.user_open_id
+        ):
+            return cls(message.tenant_key, "user", message.user_open_id)
+        return None
 
     def lock_key(self) -> str:
         return f"{self.tenant_key}:{self.scope_type}:{self.scope_id}"
@@ -264,7 +276,9 @@ class ScopedMemoryManager:
         self, message: IncomingMessage
     ) -> tuple[MemoryScope, str, list[dict]]:
         scope = MemoryScope.from_message(message)
-        store_id = await self._ensure_store(scope)
+        store_id = await self._ensure_store(
+            scope, legacy_scope=MemoryScope.legacy_open_id_scope(message)
+        )
         instructions = (
             USER_MEMORY_INSTRUCTIONS
             if scope.scope_type == "user"
@@ -335,7 +349,9 @@ class ScopedMemoryManager:
         result["scope"] = scope.scope_type
         return json.dumps(result, ensure_ascii=False), False
 
-    async def _ensure_store(self, scope: MemoryScope) -> str:
+    async def _ensure_store(
+        self, scope: MemoryScope, *, legacy_scope: Optional[MemoryScope] = None
+    ) -> str:
         lock = self._locks.setdefault(scope.lock_key(), asyncio.Lock())
         async with lock:
             existing = self._store.get_memory_store(
@@ -343,6 +359,20 @@ class ScopedMemoryManager:
             )
             if existing:
                 return existing
+            if legacy_scope is not None:
+                legacy_store = self._store.get_memory_store(
+                    legacy_scope.tenant_key,
+                    legacy_scope.scope_type,
+                    legacy_scope.scope_id,
+                )
+                if legacy_store:
+                    self._store.save_memory_store(
+                        scope.tenant_key,
+                        scope.scope_type,
+                        scope.scope_id,
+                        legacy_store,
+                    )
+                    return legacy_store
             digest = hashlib.sha256(scope.lock_key().encode()).hexdigest()[:16]
             label = "user" if scope.scope_type == "user" else "group"
             store_id = await self._ark.create_memory_store(

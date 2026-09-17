@@ -273,8 +273,8 @@ class TopicSessionBot:
         self, message: IncomingMessage, key: GroupConversationKey
     ) -> None:
         tag = message_log_tag(message)
-        if not is_authorized(self._config, message.user_open_id):
-            await self._reply(message, "当前用户未授权。请联系管理员把你的 open_id 加入白名单。")
+        if not is_authorized(self._config, message):
+            await self._reply(message, "当前用户未授权。请联系管理员把你的 user_id 加入白名单。")
             return
 
         await self._refresh_lark_cli_token()
@@ -353,9 +353,9 @@ class TopicSessionBot:
         self, message: IncomingMessage, key: GroupConversationKey
     ) -> None:
         try:
-            if not is_authorized(self._config, message.user_open_id):
+            if not is_authorized(self._config, message):
                 await self._reply(
-                    message, "当前用户未授权。请联系管理员把你的 open_id 加入白名单。"
+                    message, "当前用户未授权。请联系管理员把你的 user_id 加入白名单。"
                 )
                 return
 

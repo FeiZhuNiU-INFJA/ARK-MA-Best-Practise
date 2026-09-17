@@ -793,6 +793,8 @@ class GroupBotConfig:
     feishu_app_secret: str
     session_timeout_ms: int
     authorized_open_ids: tuple[str, ...]
+    # 新配置使用租户级 user_id；保留 authorized_open_ids 仅用于平滑迁移。
+    authorized_user_ids: tuple[str, ...] = ()
     # lark-cli：挂到 Session 上的 Vault（内含短期 tenant token 环境变量凭据）。
     # 空则不挂——Agent 仍能对话，只是 lark-cli 拿不到 Bot 凭据、跑飞书命令会鉴权失败。
     lark_vault_id: str = ""
@@ -833,6 +835,11 @@ def load_group_bot_config() -> GroupBotConfig:
         for item in (os.environ.get("AUTHORIZED_OPEN_IDS") or "").replace(",", " ").split()
         if item.strip()
     )
+    user_ids = tuple(
+        item.strip()
+        for item in (os.environ.get("AUTHORIZED_USER_IDS") or "").replace(",", " ").split()
+        if item.strip()
+    )
 
     # 群聊 Bot 用**自己**的 Environment（装了 lark-cli 的那个，见 ensure_lark_cli_environment），
     # 与四卡点 case 的 ARK_ENVIRONMENT_ID 分开：优先 GROUP_BOT_ENVIRONMENT_ID，缺失才回退共用。
@@ -855,13 +862,20 @@ def load_group_bot_config() -> GroupBotConfig:
         feishu_app_secret=_need("FEISHU_APP_SECRET"),
         session_timeout_ms=timeout_ms if timeout_ms >= 1000 else 600000,
         authorized_open_ids=open_ids,
+        authorized_user_ids=user_ids,
         # 可选：init_group_bot.py 建好 Vault 后写回 GROUP_BOT_LARK_VAULT_ID；缺失则不启用 lark-cli。
         lark_vault_id=(os.environ.get("GROUP_BOT_LARK_VAULT_ID") or "").strip(),
     )
 
 
-def is_authorized(config: GroupBotConfig, open_id: str) -> bool:
-    return not config.authorized_open_ids or open_id in config.authorized_open_ids
+def is_authorized(config: GroupBotConfig, message: IncomingMessage) -> bool:
+    """优先按租户级 user_id 鉴权；旧 open_id 白名单在迁移期继续生效。"""
+    if not config.authorized_user_ids and not config.authorized_open_ids:
+        return True
+    return bool(
+        (message.user_id and message.user_id in config.authorized_user_ids)
+        or message.user_open_id in config.authorized_open_ids
+    )
 
 
 class InMemorySessionMap:

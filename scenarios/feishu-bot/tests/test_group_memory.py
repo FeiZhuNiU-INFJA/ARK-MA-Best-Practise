@@ -70,6 +70,7 @@ def _message(
     chat_type: str,
     chat_id: str,
     open_id: str,
+    user_id: str = "",
     thread_id: str = "",
 ) -> IncomingMessage:
     return IncomingMessage(
@@ -83,6 +84,7 @@ def _message(
         tenant_key="tenant",
         text="hello",
         mentioned_bot=chat_type != "p2p",
+        user_id=user_id,
         create_time=1,
     )
 
@@ -101,6 +103,54 @@ async def test_direct_users_have_separate_stores():
 
     assert first_store != second_store
     assert len(ark.created_stores) == 2
+
+
+async def test_direct_memory_uses_user_id_across_open_id_changes():
+    ark = FakeMemoryArk()
+    store = shared.InMemorySessionMap()
+    manager = group_memory.ScopedMemoryManager(ark, store)
+
+    first_scope, first_store, _ = await manager.resources_for_message(
+        _message(
+            chat_type="p2p",
+            chat_id="dm-a",
+            open_id="ou-old-app",
+            user_id="u-stable",
+        )
+    )
+    second_scope, second_store, _ = await manager.resources_for_message(
+        _message(
+            chat_type="p2p",
+            chat_id="dm-b",
+            open_id="ou-new-app",
+            user_id="u-stable",
+        )
+    )
+
+    assert first_scope.scope_id == second_scope.scope_id == "u-stable"
+    assert first_store == second_store
+    assert len(ark.created_stores) == 1
+
+
+async def test_direct_memory_migrates_legacy_open_id_scope_to_user_id():
+    ark = FakeMemoryArk()
+    store = shared.InMemorySessionMap()
+    manager = group_memory.ScopedMemoryManager(ark, store)
+    store.save_memory_store("tenant", "user", "ou-legacy", "store-existing")
+
+    scope, store_id, _ = await manager.resources_for_message(
+        _message(
+            chat_type="p2p",
+            chat_id="dm-a",
+            open_id="ou-legacy",
+            user_id="u-stable",
+        )
+    )
+
+    assert scope.scope_id == "u-stable"
+    assert store_id == "store-existing"
+    assert store.get_memory_store("tenant", "user", "u-stable") == "store-existing"
+    assert ark.created_stores == []
 
 
 async def test_group_topics_share_group_store_without_personal_store():

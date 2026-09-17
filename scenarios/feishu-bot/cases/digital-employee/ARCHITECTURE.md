@@ -19,13 +19,13 @@
 
 | 结构 | 定义位置 | 作用 | 关键字段 |
 |---|---|---|---|
-| `IncomingMessage` | [feishu.py:26](../../arkagent/feishu.py) | **单条入站消息的归一化契约**（接入层→业务的防腐层） | `event_id`（去重）、`chat_id`/`thread_id`/`tenant_key`（分桶）、`chat_type`、`mentioned_bot`（是否处理）、`message_id`（回复/筛历史）、`text`、`create_time`（窗口排序/截断）、`user_open_id`、`user_name`（发言人显示名→转录当前请求行，取不到回退 open_id）、`reply_to_message_id`（显式引用的消息 id→引用链）、`root_id`（话题根消息 id→话题前情）、`resources`（图片/文件附件→多模态挂载） |
+| `IncomingMessage` | [feishu.py:26](../../arkagent/feishu.py) | **单条入站消息的归一化契约**（接入层→业务的防腐层） | `event_id`（去重）、`chat_id`/`thread_id`/`tenant_key`（分桶）、`chat_type`、`mentioned_bot`（是否处理）、`message_id`（回复/筛历史）、`text`、`create_time`（窗口排序/截断）、`user_open_id`（当前应用交互）、`user_id`（员工持久身份）、`user_name`（发言人显示名→转录当前请求行，取不到回退 open_id）、`reply_to_message_id`（显式引用的消息 id→引用链）、`root_id`（话题根消息 id→话题前情）、`resources`（图片/文件附件→多模态挂载） |
 | `HistoryMessage` | [feishu.py:64](../../arkagent/feishu.py) | 一条**群历史**消息归一化后的结果，比入站多两个语义判定位 | `at_bot`（切窗口边界）、`is_from_bot`（过滤 bot 回复）、`create_time`（升序）、`sender_name`（转录显示名，保留 `@名字`）、`text`、`resources`（这条历史消息里的图片/文件附件→收进本轮挂载） |
 | `QuotedMessage` | [feishu.py:48](../../arkagent/feishu.py) | 引用链上一条**被引用消息**的归一化结果（`resolve_quote_chain` 产出） | `depth`（1=直接引用，越大越久远，封顶 `MAX_QUOTE_DEPTH`=5）、`sender_name`、`text`、`message_id`（去重用） |
 | `ResourceRef` | [feishu.py:26](../../arkagent/feishu.py) | 一条消息里一个**可下载附件**（图片/文件）的引用（`_extract_resources` / `_extract_history_resources` 产出） | `file_key`（下载键）、`file_name`（清洗后作挂载名）、`type`（`image`/`file`，其它类型不挂）、`message_id`（附件所属消息 id，下载资源必须按各自所属消息取；空则由调用方用当前消息 id 兜底） |
 | `PreparedAttachment` | [shared.py](shared.py) | 一个已上传、待挂载的附件 | `file_id`（方舟文件 ID）、`mount_path`（相对 `/mnt/session/uploads/`）、`name`（提示/错误用）、`file_key`（去重身份） |
 | `GroupConversationKey` | [shared.py:35](shared.py) | 共享会话键，**刻意不含 user_open_id** | `tenant_key` + `chat_id` + `thread_id` → `as_str()` = `"t:chat:thread"` |
-| `MemoryScope` | [memory.py](memory.py) | 长期记忆权限边界 | 单聊=`tenant_key + user + open_id`；群/话题=`tenant_key + group + chat_id` |
+| `MemoryScope` | [memory.py](memory.py) | 长期记忆权限边界 | 单聊=`tenant_key + user + user_id`；群/话题=`tenant_key + group + chat_id` |
 | `SqliteSessionMap` | [shared.py:343](shared.py) | 群 key → 方舟 session_id 的**持久化映射** + 事件去重 + 附件两层去重，跨重启不丢 | 表 `sessions(key, session_id)`、`seen_events(event_id)`、`attachments(file_key, file_id)`（文件缓存·跨 session）、`attachment_mounts(session_id, file_key)`（挂载记录·按 session） |
 | `RunResult` | [ark.py:27](../../arkagent/ark.py) | 方舟一轮运行的终态结果 | `terminal`（`"idle"`/`"failed"`）、`messages` |
 | `ArkError` | [ark.py:33](../../arkagent/ark.py) | 方舟异常，带**结构化状态码** | `status_code`（404=Session 失效、409=RuntimeBusy）、`body` |
@@ -220,8 +220,9 @@ flowchart TD
 
 ### 7.1 长期记忆作用域
 
-- `memory_scopes` 保存 `(tenant_key, scope_type, scope_id) → store_id`。个人以 `open_id`
-  为 `scope_id`，群以 `chat_id` 为 `scope_id`。默认独立存放于
+- `memory_scopes` 保存 `(tenant_key, scope_type, scope_id) → store_id`。个人以租户级
+  `user_id` 为 `scope_id`，群以 `chat_id` 为 `scope_id`。首次同时收到 `user_id` 与旧
+  `open_id` 时，会将旧映射原地关联到新键，不复制或删除实际 Memory Store。默认独立存放于
   `data/group_bot_memory.db`，由 serial/native-queue 共用。
 - `session_memory_scopes` 保存 `session_id → scope + store_id`，是 Custom Tool 的鉴权依据；
   Agent 的工具参数不包含任何身份或 Store ID。
