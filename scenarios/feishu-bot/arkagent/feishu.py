@@ -407,19 +407,22 @@ class FeishuSender:
 
     def reply_in_thread(
         self, message_id: str, text: str, roster: "Optional[dict[str, str]]" = None
-    ) -> None:
-        """在话题内回复；若目标是主时间线消息，则以它为根创建一个新话题。"""
+    ) -> Optional[str]:
+        """在话题内回复并返回 thread_id；若目标在主时间线则由本次回复创建话题。"""
         if markdown_render_enabled():
             try:
-                self._reply_in_thread_with(message_id, "post", _text_to_post_content(text, roster))
-                return
+                return self._reply_in_thread_with(
+                    message_id, "post", _text_to_post_content(text, roster)
+                )
             except Exception:  # noqa: BLE001 - 富文本失败时仍需在同一话题内降级发送
                 pass
-        self._reply_in_thread_with(
+        return self._reply_in_thread_with(
             message_id, "text", json.dumps({"text": text}, ensure_ascii=False)
         )
 
-    def _reply_in_thread_with(self, message_id: str, msg_type: str, content: str) -> None:
+    def _reply_in_thread_with(
+        self, message_id: str, msg_type: str, content: str
+    ) -> Optional[str]:
         from lark_channel.api.im.v1.model.reply_message_request import (
             ReplyMessageRequest,
             ReplyMessageRequestBody,
@@ -436,6 +439,7 @@ class FeishuSender:
         response = self._client.im.v1.message.reply(request)
         if not response.success():
             raise RuntimeError(f"飞书话题回复失败 {response.code}: {response.msg}")
+        return str(getattr(response.data, "thread_id", "") or "") or None
 
     def react(self, message_id: str, emoji_type: str) -> Optional[str]:
         """给某条消息加一个表情回应（im.v1.message_reaction.create）。

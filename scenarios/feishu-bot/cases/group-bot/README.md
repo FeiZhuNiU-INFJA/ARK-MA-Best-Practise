@@ -20,13 +20,17 @@
 - 主时间线只有明确 `@bot` 的消息会被处理；每条这样的消息都成为一个新话题根。
 - Bot 使用飞书 `reply_in_thread=true` 回复首条消息，因此回复和后续讨论都留在该话题。
 - 话题内普通消息不触发 Bot；下一次 `@bot` 时统一作为本轮上下文。
-- Session 键为 `tenant_key + chat_id + topic_root_id`；不同话题永不复用 Session。
-- 每轮只读取当前 thread，并把「上一次 `@bot` 之后到本次 `@bot`」的消息、附件和显式引用
-  拼进 `content`；不读取主群时间线或其他话题。
+- Session 键为 `tenant_key + chat_id + thread_id`；不同话题永不复用 Session。创建话题的
+  首条 `@bot` 到达时尚无 `thread_id`，先以该消息自身 ID 建 Session；Bot 首次回复后从飞书
+  响应取得新生成的 `thread_id`，再绑定到同一个 Session。
+- 每轮会精确读取 `root_id` 对应的话题根消息，并读取当前 thread，把「上一次 `@bot` 之后
+  到本次 `@bot`」的消息、附件和显式引用拼进 `content`。
+- 不扫描主群时间线或其他话题；若话题由“回复一个文件”创建，该根文件会在首轮挂载给 Agent。
 - `@bot /new` 只替换当前话题的 Session，不影响同群其他话题。
 
-这意味着主群里先发文件、再另发一条 `@bot` 的隐式关联不会被猜测。需要把话题外材料带入
-新话题时，应在首条 `@bot` 消息中附带文件，或显式引用目标消息。
+这意味着主群里先发文件、再另发一条无引用关系的 `@bot` 消息时，Bot 不会猜测两者有关。
+需要把材料带入新话题时，可回复该文件创建话题，也可在首条 `@bot` 消息中直接附带文件或
+显式引用目标消息。
 
 ## 与四卡点 demo 的关系（身份策略）
 
@@ -56,7 +60,7 @@
 **最后一行就是当前 @bot 的这条请求**：
 
 ```
-[话题前情 Alice: 上周的周报模板在这]      ← 话题群才有：发起话题的根消息 + 根之前几条主时间线
+[话题前情 Alice: 上周的周报模板在这]      ← 每轮精确补入发起话题的根消息
 Alice: 老板说要出周报
 Bob: 我这边数据有了
 [引用 Carol: 三季度销售汇总]              ← 当前这条若显式引用了别的消息，紧贴当前行之前注入
@@ -65,8 +69,8 @@ David: @群助手 整理成周报发我             ← 最后一行 = 本轮请
 
 - 转录里保留 `@名字`（含 @bot 自己）：让模型看清「谁在叫谁」。bot 自己的名字由 Agent 的
   system prompt 声明（`GROUP_BOT_DISPLAY_NAME`），模型据此判断哪一行是在叫自己。
-- `[话题前情 …]`：话题群里 thread 容器读不到「发起话题的根消息 + 根之前 `THREAD_CONTEXT_BEFORE`
-  条（默认 3）主时间线」，单独补读（`load_thread_context`）拼在最前；非话题群没有这块。
+- `[话题前情 …]`：每轮精确读取 `root_id` 对应的根消息并拼在最前，根消息携带的
+  文件也会一并挂载；不会扫描根消息之前的主时间线。
 - `[引用 …]`：当前消息显式引用别的消息时，沿父链最多回溯 `MAX_QUOTE_DEPTH` 层（默认 5），
   嵌套层标 `[引用·第N层 …]`；已在窗口/前情里出现过的按 message_id 去重，不重复注入。
 - 发言人取显示名（`sender_name`），取不到才回退 open_id。
@@ -95,7 +99,7 @@ David: @群助手 整理成周报发我             ← 最后一行 = 本轮请
 4. **挂载**：`ArkClient.add_session_file` 把 `file_id` 挂到本 Session 的
    `/mnt/session/uploads/{短哈希}/{安全文件名}`；正文里列出这些绝对路径，提示 Agent 去读。
    Session 失效重建（404）时附件会重新挂到新 Session（`file_id` 与 Session 无关，仍有效）。
-5. **降级**：单个附件下载/上传失败、超单文件 20 MB、单轮总量超 40 MB 等，
+5. **降级**：单个附件下载/上传失败、超单文件 40 MB、单轮总量超 40 MB 等，
    都降级成一句可读的 `notice`（拼进正文「另外：…」），不拖垮本轮其余附件与回复。
 
 拼进正文的附件块（追加在当前请求行**之后**）：
@@ -107,7 +111,7 @@ David: @群助手 帮我看看这份报告          ← 当前请求行（纯图
 报告.pdf： /mnt/session/uploads/9f3a…/报告.pdf
 notes.md： /mnt/session/uploads/81ab…/notes.md
 另外：                                     ← 有降级时如实说明
-- 附件「big.bin」未能处理：单个文件超过 20 MB，无法上传
+- 附件「big.bin」未能处理：单个文件超过 40 MB，无法上传
 ```
 
 开关 `GROUP_BOT_MULTIMODAL`（默认开启）：设 `0`/`false`/`no`/`off` 关闭后，带附件的消息按
@@ -194,22 +198,46 @@ Agent 常在回复里点名群成员（「@张三 请跟进」）。若直接发
 除了对话，Agent 还能用运行环境里预装的 `lark-cli` 以**本应用 Bot 身份**读写飞书文档、云空间、
 群消息、日历等团队资源（对齐源项目 `src/init.ts` / `src/ark.ts`）。凭据分三处安放，各司其职：
 
-- **Environment**：`setup_script` 在 Session 首次拉起沙箱时把 lark-cli 二进制装到 `/usr/local/bin`
-  （SHA256 校验 + npmmirror 加速）；`env.LARKSUITE_CLI_APP_ID` 明文写死飞书 App Id（非敏感）。
-- **Vault**：一条 `environment_variable` 凭据 `LARKSUITE_CLI_APP_SECRET`=App Secret。App Secret
-  只存 Vault、不进 Environment 明文、也不落 config.env 给 Agent 看到。
-- **每轮 create_session**：挂上该 Vault（沙箱环境变量里就有 App Secret，lark-cli 据此换 Bot 的
-  tenant access token）+ 注入 `$FEISHU_CHAT_ID` / `$FEISHU_THREAD_ID` / 触发消息 id 等**当前位置**定位变量。
+- **Environment**：`setup_script` 在 Session 首次拉起沙箱时安装原版 lark-cli
+  （SHA256 校验 + npmmirror 加速）；`env.LARKSUITE_CLI_APP_ID` 明文写入飞书 App Id（非敏感）。
+- **Bot 主机**：用 App ID/Secret 换取短期 tenant access token；App Secret 不进入方舟 Vault
+  或 Agent 沙箱。
+- **Vault**：只保存 `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`。Bot 在每轮发送前检查有效期，
+  临近过期时原地刷新凭据，保持 Vault ID 与长寿命 Session 不变。
+- **每轮 create_session**：挂上该 Vault，让 lark-cli 直接使用 token 执行业务命令。同时注入
+  `$FEISHU_CHAT_ID` / `$FEISHU_THREAD_ID` /
+  触发消息 id 等**当前位置**定位变量。
 
 要点：
 - **Bot-only**：群 Session 永远只注入 Bot 上下文，绝不注入任何用户身份 / 用户 token；system prompt
-  里强制 `lark-cli --as bot`、禁止 `--as user` 和申请用户授权。
+  要求 docs / drive / im / calendar 等业务命令显式使用 `--as bot`，但不给 `skills read`
+  等元命令附加不支持的 `--as`；禁止 `--as user` 和申请用户授权。外部托管凭据异常时立即
+  停止重试并报告 Vault 配置问题。
 - **幂等**：`init_group_bot.py` 会自动建（或复用）这套 Environment + Vault，把
   `GROUP_BOT_ENVIRONMENT_ID` / `GROUP_BOT_LARK_VAULT_ID` 写回 config.env，重复跑不会堆资源。
 - **开关**：只有配了 `GROUP_BOT_LARK_VAULT_ID` 才启用 lark-cli（`lark_cli_enabled`）；没配则 Agent
   退回纯对话，不挂 Vault、不注入定位变量。
 - **权限**：lark-cli 能做什么取决于飞书开放平台给应用勾了哪些权限——除消息类外，按业务域
   （docx / drive / calendar…）在开放平台补齐并**发布版本**后才生效。
+
+### 文档读取故障排查与旧凭据迁移
+
+- Bot 读取 Wiki/云文档需要同时满足两层授权：开放平台已发布对应 API 权限
+  （如 `wiki:node:read`、`docx:document:readonly`），且目标文档或知识空间已把应用 Bot
+  加为可阅读协作者。只有其中一层时仍会失败。
+- 如果协作者和 API 权限都正确，但返回 `app secret invalid`、`token_missing` 或无法获取
+  tenant token，应检查 Vault 凭据方案，不要继续重复调整文档 ACL。
+- 不要把 App Secret 作为 `environment_variable` 放进 Vault，再从沙箱内调用 token 接口。
+  该变量在沙箱内是 opaque placeholder，只适合在出站请求中原样替换，不能参与 JSON body
+  的 token 交换。正确链路是 Bot 主机换取 tenant token，再把
+  `LARKSUITE_CLI_TENANT_ACCESS_TOKEN` 写入 Vault。
+- 从旧 App Secret/wrapper 方案升级时，运行 `provision_lark_cli.py` 创建 token-v3
+  Environment/Vault 并更新 `config.env`，然后重启 Bot。已经创建的 Session 仍绑定旧 Vault；
+  可在对应话题发送 `/new`，或在停服后清理当前执行模式数据库的 `sessions` 映射，使下一条消息
+  自动创建挂载新 Vault 的 Session。附件缓存无需清理。
+- 验证时应使用与生产完全相同的 Agent、Environment、Vault 和 Bot 身份创建临时 Session，
+  实际执行 `lark-cli docs +fetch <文档 URL> --as bot`。仅验证本机 CLI 或 token 接口成功，
+  不能证明方舟 Session 内的凭据挂载正确。
 
 详细的三处安放与数据流见 [ARCHITECTURE.md](ARCHITECTURE.md) §9。
 
@@ -230,12 +258,12 @@ Agent 常在回复里点名群成员（「@张三 请跟进」）。若直接发
 ## 运行
 
 前置：方舟 API Key（+ 可选 `ARK_BASE_URL`）。飞书应用、群聊 Agent、装了 lark-cli 的
-Environment、存 App Secret 的 Vault 都由 `init_group_bot.py` 一键置备。
+Environment、存短期 tenant token 的 Vault 都由 `init_group_bot.py` 一键置备。
 
 ### 一键初始化（推荐）
 
 `init_group_bot.py` 会：扫码建飞书应用 → 建 Bot-only 群聊 Agent → 置备 lark-cli 能力
-（装了 lark-cli 的 Environment + 存 App Secret 的 Vault，均幂等） → 把
+（装了 lark-cli 的 Environment + 存短期 tenant token 的 Vault，均幂等） → 把
 `FEISHU_APP_ID/SECRET`、`GROUP_BOT_AGENT_ID`、`GROUP_BOT_ENVIRONMENT_ID`、
 `GROUP_BOT_LARK_VAULT_ID` 都写回 `~/.arkagent/config.env`：
 
@@ -266,7 +294,7 @@ export GROUP_BOT_AGENT_ID=<上一步打印的 agent id>
 #    时回退共用 ARK_ENVIRONMENT_ID，但那个没装 lark-cli、也没挂 Vault，Agent 只能纯对话。
 #    要启用 lark-cli：跑一次 init_group_bot.py（或手动建 Environment + Vault）并 export：
 #      export GROUP_BOT_ENVIRONMENT_ID=<装了 lark-cli 的 environment id>
-#      export GROUP_BOT_LARK_VAULT_ID=<存 App Secret 的 vault id>
+#      export GROUP_BOT_LARK_VAULT_ID=<存短期 tenant token 的 vault id>
 
 # 4) 启动唯一入口；默认 serial
 python scenarios/feishu-bot/cases/group-bot/topic_session_bot.py --execution-mode serial
@@ -300,12 +328,12 @@ GROUP_BOT_DISPLAY_NAME=群助手 \
 
 可选环境变量：`ARK_BASE_URL`（默认北京）、`SESSION_TIMEOUT_MS`（默认 600000）、
 `AUTHORIZED_OPEN_IDS`（逗号/空格分隔的白名单，留空=不限制）、
-`GROUP_BOT_MODEL_ID`（默认 doubao-seed-2-1-pro-260628）、
+`GROUP_BOT_MODEL_ID`（默认 doubao-seed-evolving）、
 `GROUP_BOT_DISPLAY_NAME`（默认「群助手」，写进 Agent system prompt 供模型识别「转录里
 @谁 = 在叫自己」；应与飞书开放平台配置的机器人显示名一致，改名后跑上面的 `update_group_agent.py` 生效）、
 `GROUP_BOT_MULTIMODAL`（默认开启；设 `0`/`false`/`no`/`off` 关闭图片/文件的下载挂载，带附件的消息按纯文本处理）、
 `GROUP_BOT_MARKDOWN`（默认开启；把回复渲染成飞书 post 富文本，设 `0`/`false`/`no`/`off` 退回纯文本直发）、
-`GROUP_BOT_LARK_VAULT_ID`（存 App Secret 的 Vault id；配了才启用 lark-cli，否则 Agent 退回纯对话）、
+`GROUP_BOT_LARK_VAULT_ID`（存短期 tenant token 的 Vault id；配了才启用 lark-cli，否则 Agent 退回纯对话）、
 `TOPIC_BOT_DB_PATH`（SQLite 路径；不指定时 serial 使用 `data/topic_bot_sessions.db`，
 native-queue 使用 `data/topic_bot_native_queue_sessions.db`，避免切换执行语义时复用状态）、
 `FEISHU_SDK_DEBUG`（设 `1`/`true` 打开 Channel SDK 内部的 stale/去重/策略日志，排查

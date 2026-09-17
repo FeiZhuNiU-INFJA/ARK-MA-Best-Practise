@@ -19,3 +19,4 @@ experiments/
 scenarios/ma-replica/ma-cases/
 .DS_Store
 data/
+.dbg/

@@ -2,7 +2,7 @@
 
 与 init_group_bot.py 的区别：init 是「从零一条龙」（扫码建应用 + 建 Agent + 置备 lark-cli），
 本脚本只做其中的**置备 lark-cli** 这一步——复用 config.env 里已有的 FEISHU_APP_ID/SECRET，
-建（或按名字复用）一个装了 lark-cli 的 Environment + 一个存 App Secret 的 Vault，并把
+建（或按名字复用）一个装了 lark-cli 的 Environment + 一个存短期 tenant token 的 Vault，并把
 GROUP_BOT_ENVIRONMENT_ID / GROUP_BOT_LARK_VAULT_ID 写回 config.env。两者都幂等，重复跑不堆资源。
 
 GROUP_BOT_AGENT_ID 一概不碰（system prompt 的更新走 update_group_agent.py）。
@@ -18,7 +18,11 @@ from __future__ import annotations
 import asyncio
 import os
 
-from shared import ensure_lark_cli_environment, ensure_lark_cli_vault
+from shared import (
+    ensure_lark_cli_environment,
+    ensure_lark_cli_vault,
+    fetch_feishu_tenant_access_token,
+)
 
 from arkagent.ark import ArkClient
 from arkagent.config import parse_env_text, update_env_file
@@ -42,8 +46,9 @@ def _pick(key: str, existing: dict[str, str], default: str = "") -> str:
 async def _provision(api_key: str, base_url: str, app_id: str, app_secret: str) -> tuple[str, str]:
     ark = ArkClient(api_key, base_url)
     try:
+        token = await fetch_feishu_tenant_access_token(app_id, app_secret)
         environment_id = await ensure_lark_cli_environment(ark, app_id)
-        vault_id = await ensure_lark_cli_vault(ark, app_id, app_secret)
+        vault_id = await ensure_lark_cli_vault(ark, app_id, token.value)
     finally:
         await ark.aclose()
     return environment_id, vault_id
@@ -65,7 +70,7 @@ def _main() -> None:
         )
     base_url = _pick("ARK_BASE_URL", existing, DEFAULT_BASE_URL).rstrip("/")
 
-    print("正在置备 lark-cli 能力（Environment 装 CLI + Vault 存 App Secret，均按名字幂等）……")
+    print("正在置备 lark-cli 能力（Environment 装 CLI + Vault 存 tenant token，均按名字幂等）……")
     environment_id, vault_id = asyncio.run(_provision(api_key, base_url, app_id, app_secret))
 
     update_env_file(

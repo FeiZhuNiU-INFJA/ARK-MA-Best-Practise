@@ -26,12 +26,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
+import httpx
+
 # 让 `python scenarios/feishu-bot/cases/group-bot/demo_x.py` 能直接 import 到主包 arkagent（无需安装）。
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from arkagent.ark import LARK_CLI_SETUP_SCRIPT  # noqa: E402  (依赖上面的 sys.path 注入)
+from arkagent.ark import LARK_CLI_SETUP_SCRIPT, LARK_CLI_VERSION  # noqa: E402  (依赖上面的 sys.path 注入)
 from arkagent.feishu import (  # noqa: E402  (依赖上面的 sys.path 注入)
     HistoryMessage,
     IncomingMessage,
@@ -190,8 +192,9 @@ THREAD_CONTEXT_BEFORE = 3
 SESSION_UPLOAD_ROOT = "/mnt/session/uploads"
 # 单轮所有附件的总字节上限（下载 + 挂载），超了后续附件降级为 notice。40 MB 与源项目一致。
 MAX_ATTACHMENT_TOTAL_BYTES = 40 * 1024 * 1024
-# 单个可上传文件的字节上限（飞书侧单文件上限也是 20 MB）。
-MAX_SINGLE_FILE_BYTES = 20 * 1024 * 1024
+# 单个可上传文件的字节上限。方舟 Files API 上限更高；这里与单轮总量保持一致，
+# 避免一次把过大的附件完整读入 Bot 内存。
+MAX_SINGLE_FILE_BYTES = 40 * 1024 * 1024
 def multimodal_enabled() -> bool:
     """读 GROUP_BOT_MULTIMODAL 开关（默认开启）。设为 0/false/no/off 关闭。"""
     raw = (os.environ.get("GROUP_BOT_MULTIMODAL") or "").strip().lower()
@@ -227,16 +230,20 @@ def session_visible_path(mount_path: str) -> str:
 
 # ---- lark-cli：会话级环境变量注入 ------------------------------------------
 
-def build_lark_session_env(message: IncomingMessage) -> dict[str, str]:
+def build_lark_session_env(
+    message: IncomingMessage, feishu_app_id: str = ""
+) -> dict[str, str]:
     """建 Session 时注入的 lark-cli 相关环境变量（对齐源仓库 gateway.defaultSessionEnvironment）。
 
     群聊 Bot-only：**只**给 Bot 定位当前飞书位置的上下文（chat/thread/触发消息），
-    绝不注入任何用户身份或用户 token——群 Session 永远以 Bot 身份操作。App Id 已在
-    Environment 的 env 里（建 Environment 时写死），App Secret 在挂载的 Vault 里，这里只补
-    「这条消息发生在哪个群/话题」这类每轮会变的定位信息，供 prompt 里的 `$FEISHU_CHAT_ID` 等引用。
+    绝不注入任何用户身份或用户 token——群 Session 永远以 Bot 身份操作。短期 tenant token
+    在挂载的 Vault 里；App Id 与「这条消息发生在哪个群/话题」等定位信息通过 Session override 注入。
+    同时清空仅供 config init 使用的 FEISHU_APP_ID，避免它与 lark-cli 的直接运行时协议混淆。
     关掉更新/技能提示噪声，避免污染 Agent 的 shell 输出。
     """
     env = {
+        "LARKSUITE_CLI_APP_ID": feishu_app_id,
+        "FEISHU_APP_ID": "",
         "FEISHU_CONVERSATION_TYPE": "group" if message.chat_type != "p2p" else "direct",
         "FEISHU_CHAT_ID": message.chat_id,
         "FEISHU_TRIGGER_MESSAGE_ID": message.message_id,
@@ -322,7 +329,7 @@ async def prepare_attachments(
             if total_bytes > MAX_ATTACHMENT_TOTAL_BYTES:
                 raise ValueError("单轮附件总量超过 40 MB，请分批发送")
             if size > MAX_SINGLE_FILE_BYTES:
-                raise ValueError("单个文件超过 20 MB，无法上传")
+                raise ValueError("单个文件超过 40 MB，无法上传")
             mime_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
             file_id = await upload(name, mime_type, data)
             if save_file_id is not None:
@@ -538,7 +545,8 @@ GROUP_BOT_SYSTEM_TEMPLATE = """你是一个加入了飞书群聊的团队助手�
 
 # 飞书能力（lark-cli，Bot 身份）
 - 运行环境已全局安装 lark-cli，并注入了本应用的 Bot 身份凭据。你可以用它读写飞书文档、云空间、群消息、日历等团队资源。
-- 群聊里**始终且只用 Bot 身份**：任何 lark-cli 命令都显式带 `--as bot`，禁止 `--as user`、禁止申请用户授权（群 Session 不注入任何个人身份）。
+- 群聊里**始终且只用 Bot 身份**：调用 docs / drive / im / calendar 等业务 API 的命令必须显式带 `--as bot`；`skills read`、`--help` 等元命令按自身语法执行，不要附加不支持的 `--as`。禁止 `--as user`、禁止申请用户授权（群 Session 不注入任何个人身份）。
+- 凭据由运行环境外部托管。若命令提示 credentials provided externally，不要执行 `auth login`，也不要扫描环境变量寻找密钥。若返回 `token_missing`、`app secret invalid` 或无法获取 tenant access token，立即停止重试并简洁说明 Bot Vault 凭据配置异常。
 - 决策顺序：先判断意图。寒暄、能力咨询或目标不明确时直接回答或只问一个澄清问题，不要靠执行命令去猜意图；只有任务与业务域都明确、且确需读写飞书数据时才调用 lark-cli。
 - 禁止 `lark-cli --version` / `skills list` 等版本探测、能力枚举、安装检测命令；禁止 `npx @larksuite/cli`、重复安装或联网探测版本。
 - 首次处理某业务域且不确定命令时，先 `lark-cli skills read <skill-name>`（如 lark-im / lark-doc / lark-drive / lark-calendar）读取对应 Skill 再按其工作流执行；同一 Session 已读过则不再重复读。
@@ -557,7 +565,7 @@ def build_group_system(bot_name: str = DEFAULT_BOT_DISPLAY_NAME) -> str:
 
 
 def build_group_agent_config(
-    model_id: str = "doubao-seed-2-1-pro-260628",
+    model_id: str = "doubao-seed-evolving",
     bot_name: str = DEFAULT_BOT_DISPLAY_NAME,
 ) -> dict:
     """群聊 Bot-only Agent 定义：不挂任何 MCP/个人凭据，纯对话协作助手。
@@ -590,7 +598,55 @@ def build_group_agent_config(
 
 # ---- lark-cli 资源置备（Environment + Vault + 凭据）--------------------------
 
-LARK_CLI_CREDENTIAL_NAME = "lark-cli-bot-app-secret"
+FEISHU_TENANT_TOKEN_URL = (
+    "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
+)
+LARK_CLI_CREDENTIAL_NAME = "lark-cli-bot-tenant-access-token"
+LARK_CLI_SECRET_ENV_NAME = "LARKSUITE_CLI_TENANT_ACCESS_TOKEN"
+
+
+@dataclass(frozen=True)
+class FeishuTenantToken:
+    value: str
+    expires_in: int
+
+
+async def fetch_feishu_tenant_access_token(
+    app_id: str,
+    app_secret: str,
+    client: Optional[httpx.AsyncClient] = None,
+) -> FeishuTenantToken:
+    """在 Bot 主机交换短期 tenant token；App Secret 不进入方舟 Vault/沙箱。"""
+    owns_client = client is None
+    http = client or httpx.AsyncClient(timeout=30.0)
+    try:
+        response = await http.post(
+            FEISHU_TENANT_TOKEN_URL,
+            json={"app_id": app_id, "app_secret": app_secret},
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(
+                f"飞书 tenant token 接口 HTTP {response.status_code}"
+            )
+        payload = response.json()
+    except (httpx.HTTPError, ValueError) as error:
+        raise RuntimeError(
+            f"获取飞书 tenant access token 失败：{type(error).__name__}"
+        ) from error
+    finally:
+        if owns_client:
+            await http.aclose()
+
+    code = payload.get("code")
+    token = str(payload.get("tenant_access_token") or "")
+    try:
+        expires_in = int(payload.get("expire") or 0)
+    except (TypeError, ValueError):
+        expires_in = 0
+    if code != 0 or not token or expires_in <= 0:
+        message = str(payload.get("msg") or "unknown error")[:200]
+        raise RuntimeError(f"获取飞书 tenant access token 失败：code={code}, msg={message}")
+    return FeishuTenantToken(token, expires_in)
 
 
 def _sanitize_name(value: str) -> str:
@@ -603,11 +659,13 @@ async def ensure_lark_cli_environment(ark, feishu_app_id: str, name_hint: str = 
     """建（或复用）一个装了 lark-cli 的方舟 Environment，返回其 id。
 
     Environment 层放两样东西（都是「一次写死、随 Session 复用」的）：
-      - env.LARKSUITE_CLI_APP_ID = 飞书 App Id（非敏感，明文放这里即可；App Secret 走 Vault）。
+      - env.LARKSUITE_CLI_APP_ID = 飞书 App Id（非敏感，明文放这里即可）。
       - setup_script = 下载 lark-cli 二进制到 /usr/local/bin，Session 首次拉起沙箱时执行一次。
     以名字幂等：同名 Environment 已存在就直接复用，避免每次 init 都新建一堆环境。
     """
-    environment_name = _sanitize_name(f"ark-{name_hint}-{feishu_app_id}")[:60]
+    environment_name = _sanitize_name(
+        f"ark-{name_hint}-tenant-token-v3-{feishu_app_id}-lark-cli-{LARK_CLI_VERSION}"
+    )[:60]
     for env in await ark.list_environments():
         if env.get("name") == environment_name:
             return env["id"]
@@ -624,14 +682,21 @@ async def ensure_lark_cli_environment(ark, feishu_app_id: str, name_hint: str = 
     return created["id"]
 
 
-async def ensure_lark_cli_vault(ark, feishu_app_id: str, app_secret: str, name_hint: str = "group-bot") -> str:
-    """建（或复用）一个只含 App Secret 环境变量凭据的 Vault，返回 vault_id。
+async def ensure_lark_cli_vault(
+    ark,
+    feishu_app_id: str,
+    tenant_access_token: str,
+    name_hint: str = "group-bot",
+) -> str:
+    """建（或复用）一个只含短期 tenant token 的 Vault，返回 vault_id。
 
-    Session 挂上这个 vault 后，沙箱环境变量里就有 LARKSUITE_CLI_APP_SECRET，lark-cli 以此
-    换 Bot 的 tenant access token。App Secret 只存 Vault、不进 Environment 明文、不给 Agent 看到。
-    幂等：同名 Vault + 同名凭据已存在则更新 secret_value（App Secret 轮换场景），否则新建。
+    Vault 的 environment_variable 只适合把值原样放进请求头，不能在沙箱内拿 opaque
+    placeholder 做 JSON body token 交换。因此 App Secret 留在 Bot 主机，主机换得的短期 token
+    存入 LARKSUITE_CLI_TENANT_ACCESS_TOKEN，并在每轮运行前刷新。
     """
-    vault_name = _sanitize_name(f"ark-{name_hint}-{feishu_app_id}")[:100]
+    vault_name = _sanitize_name(
+        f"ark-{name_hint}-tenant-token-v3-{feishu_app_id}"
+    )[:100]
     vault_id = ""
     for vault in await ark.list_vaults():
         if vault.get("display_name") == vault_name:
@@ -642,12 +707,37 @@ async def ensure_lark_cli_vault(ark, feishu_app_id: str, app_secret: str, name_h
 
     for cred in await ark.list_credentials(vault_id):
         if cred.get("display_name") == LARK_CLI_CREDENTIAL_NAME and cred.get("auth_type") == "environment_variable":
-            await ark.update_environment_credential(vault_id, cred["id"], app_secret)
-            return vault_id
+            if cred.get("secret_name") == LARK_CLI_SECRET_ENV_NAME:
+                await ark.update_environment_credential(
+                    vault_id, cred["id"], tenant_access_token
+                )
+                return vault_id
+            await ark.delete_credential(vault_id, cred["id"])
+            break
     await ark.create_environment_variable_credential(
-        vault_id, LARK_CLI_CREDENTIAL_NAME, "LARKSUITE_CLI_APP_SECRET", app_secret
+        vault_id,
+        LARK_CLI_CREDENTIAL_NAME,
+        LARK_CLI_SECRET_ENV_NAME,
+        tenant_access_token,
     )
     return vault_id
+
+
+async def update_lark_cli_vault_token(
+    ark, vault_id: str, tenant_access_token: str
+) -> None:
+    """原地刷新现有 token 凭据，保持 Vault 和 Credential ID 稳定。"""
+    for cred in await ark.list_credentials(vault_id):
+        if (
+            cred.get("display_name") == LARK_CLI_CREDENTIAL_NAME
+            and cred.get("auth_type") == "environment_variable"
+            and cred.get("secret_name") == LARK_CLI_SECRET_ENV_NAME
+        ):
+            await ark.update_environment_credential(
+                vault_id, cred["id"], tenant_access_token
+            )
+            return
+    raise RuntimeError(f"Vault {vault_id} 缺少 lark-cli tenant token 凭据")
 
 
 
@@ -662,7 +752,7 @@ class GroupBotConfig:
     feishu_app_secret: str
     session_timeout_ms: int
     authorized_open_ids: tuple[str, ...]
-    # lark-cli：挂到 Session 上的 Vault（内含 LARKSUITE_CLI_APP_SECRET 环境变量凭据）。
+    # lark-cli：挂到 Session 上的 Vault（内含短期 tenant token 环境变量凭据）。
     # 空则不挂——Agent 仍能对话，只是 lark-cli 拿不到 Bot 凭据、跑飞书命令会鉴权失败。
     lark_vault_id: str = ""
 
@@ -670,8 +760,8 @@ class GroupBotConfig:
 def lark_cli_enabled(config: GroupBotConfig) -> bool:
     """是否给本轮 Session 注入 lark-cli 能力：配了 Vault 才算就绪。
 
-    App Id 走 Environment（建 Environment 时写死），App Secret 走 Vault 凭据；只要挂上这个
-    vault，沙箱里 lark-cli 就能以 Bot 身份鉴权。没配 vault 就不注入定位环境变量、不挂 vault，
+    App Id 走 Environment，短期 tenant token 走 Vault 凭据；只要挂上这个 vault，沙箱里
+    lark-cli 就能以 Bot 身份鉴权。没配 vault 就不注入定位环境变量、不挂 vault，
     Agent 退回纯对话（避免 prompt 里承诺了 lark-cli 却没凭据用）。
     """
     return bool(config.lark_vault_id)

@@ -6,6 +6,8 @@ group-bot 目录不是 Python 包（靠 shared.py 里的 sys.path 注入运行�
 import sys
 from pathlib import Path
 
+import httpx
+
 _GROUP_BOT_DIR = Path(__file__).resolve().parents[1] / "cases" / "group-bot"
 if str(_GROUP_BOT_DIR) not in sys.path:
     sys.path.insert(0, str(_GROUP_BOT_DIR))
@@ -487,7 +489,7 @@ async def test_prepare_attachments_rejects_oversized_single_file():
 
     prepared, notices = await shared.prepare_attachments(msg, _download, _upload)
     assert prepared == []
-    assert len(notices) == 1 and "20 MB" in notices[0]
+    assert len(notices) == 1 and "40 MB" in notices[0]
 
 
 async def test_prepare_attachments_non_utf8_text_is_uploaded_without_decoding():
@@ -707,8 +709,11 @@ def test_lark_cli_enabled_requires_vault():
 def test_build_lark_session_env_group_injects_location_only():
     # 群聊：只补「这条消息在哪个群/话题/触发消息」的 Bot 定位上下文，绝不注入任何用户身份。
     env = shared.build_lark_session_env(
-        _trigger(chat_id="oc-9", thread_id="th-9", message_id="om-9", create_time=1234)
+        _trigger(chat_id="oc-9", thread_id="th-9", message_id="om-9", create_time=1234),
+        "cli-app",
     )
+    assert env["LARKSUITE_CLI_APP_ID"] == "cli-app"
+    assert env["FEISHU_APP_ID"] == ""
     assert env["FEISHU_CONVERSATION_TYPE"] == "group"
     assert env["FEISHU_CHAT_ID"] == "oc-9"
     assert env["FEISHU_THREAD_ID"] == "th-9"
@@ -737,6 +742,7 @@ class _FakeArkProvision:
         self.created_vaults: list[str] = []
         self.created_credentials: list[tuple] = []
         self.updated_credentials: list[tuple] = []
+        self.deleted_credentials: list[tuple] = []
 
     async def list_environments(self) -> list[dict]:
         return self._environments
@@ -770,6 +776,9 @@ class _FakeArkProvision:
     async def update_environment_credential(self, vault_id, credential_id, secret_value) -> None:
         self.updated_credentials.append((vault_id, credential_id, secret_value))
 
+    async def delete_credential(self, vault_id, credential_id) -> None:
+        self.deleted_credentials.append((vault_id, credential_id))
+
 
 async def test_ensure_lark_cli_environment_creates_with_setup_script_and_app_id():
     ark = _FakeArkProvision()
@@ -782,26 +791,33 @@ async def test_ensure_lark_cli_environment_creates_with_setup_script_and_app_id(
 
 async def test_ensure_lark_cli_environment_is_idempotent_by_name():
     # 同名 Environment 已存在就直接复用，不再新建。
-    name = shared._sanitize_name("ark-group-bot-cli_app1")[:60]
+    name = shared._sanitize_name(
+        f"ark-group-bot-tenant-token-v3-cli_app1-lark-cli-{shared.LARK_CLI_VERSION}"
+    )[:60]
     ark = _FakeArkProvision(environments=[{"id": "env-existing", "name": name}])
     env_id = await shared.ensure_lark_cli_environment(ark, "cli_app1")
     assert env_id == "env-existing"
     assert ark.created_environments == []  # 没新建
 
 
-async def test_ensure_lark_cli_vault_creates_vault_and_secret_credential():
+async def test_ensure_lark_cli_vault_creates_tenant_token_credential():
     ark = _FakeArkProvision()
-    vault_id = await shared.ensure_lark_cli_vault(ark, "cli_app1", "s3cr3t")
+    vault_id = await shared.ensure_lark_cli_vault(ark, "cli_app1", "tenant-token")
     assert vault_id == "vlt-1"
-    # App Secret 存进环境变量凭据 LARKSUITE_CLI_APP_SECRET，不进 Environment 明文。
+    # Vault 仅保存短期 token；App Secret 留在 Bot 主机。
     assert ark.created_credentials == [
-        ("vlt-1", shared.LARK_CLI_CREDENTIAL_NAME, "LARKSUITE_CLI_APP_SECRET", "s3cr3t")
+        (
+            "vlt-1",
+            shared.LARK_CLI_CREDENTIAL_NAME,
+            "LARKSUITE_CLI_TENANT_ACCESS_TOKEN",
+            "tenant-token",
+        )
     ]
 
 
-async def test_ensure_lark_cli_vault_rotates_existing_secret():
-    # 同名 Vault + 同名凭据已存在：更新 secret_value（App Secret 轮换），不新建。
-    vault_name = shared._sanitize_name("ark-group-bot-cli_app1")[:100]
+async def test_ensure_lark_cli_vault_rotates_existing_token():
+    # 同名 Vault + 同名凭据已存在：原地更新短期 token，不新建。
+    vault_name = shared._sanitize_name("ark-group-bot-tenant-token-v3-cli_app1")[:100]
     ark = _FakeArkProvision(
         vaults=[{"id": "vlt-existing", "display_name": vault_name}],
         credentials=[{
@@ -809,12 +825,71 @@ async def test_ensure_lark_cli_vault_rotates_existing_secret():
             "id": "cred-old",
             "display_name": shared.LARK_CLI_CREDENTIAL_NAME,
             "auth_type": "environment_variable",
+            "secret_name": "LARKSUITE_CLI_TENANT_ACCESS_TOKEN",
         }],
     )
-    vault_id = await shared.ensure_lark_cli_vault(ark, "cli_app1", "new-secret")
+    vault_id = await shared.ensure_lark_cli_vault(ark, "cli_app1", "new-token")
     assert vault_id == "vlt-existing"
     assert ark.created_vaults == [] and ark.created_credentials == []  # 都复用
-    assert ark.updated_credentials == [("vlt-existing", "cred-old", "new-secret")]
+    assert ark.updated_credentials == [("vlt-existing", "cred-old", "new-token")]
+
+
+async def test_ensure_lark_cli_vault_migrates_legacy_secret_name():
+    vault_name = shared._sanitize_name("ark-group-bot-tenant-token-v3-cli_app1")[:100]
+    ark = _FakeArkProvision(
+        vaults=[{"id": "vlt-existing", "display_name": vault_name}],
+        credentials=[{
+            "vault_id": "vlt-existing",
+            "id": "cred-old",
+            "display_name": shared.LARK_CLI_CREDENTIAL_NAME,
+            "auth_type": "environment_variable",
+            "secret_name": "FEISHU_APP_SECRET",
+        }],
+    )
+
+    vault_id = await shared.ensure_lark_cli_vault(ark, "cli_app1", "new-token")
+
+    assert vault_id == "vlt-existing"
+    assert ark.deleted_credentials == [("vlt-existing", "cred-old")]
+    assert ark.created_credentials == [
+        (
+            "vlt-existing",
+            shared.LARK_CLI_CREDENTIAL_NAME,
+            "LARKSUITE_CLI_TENANT_ACCESS_TOKEN",
+            "new-token",
+        )
+    ]
+
+
+async def test_fetch_feishu_tenant_access_token_parses_value_and_expiry():
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(
+            200,
+            json={"code": 0, "tenant_access_token": "t-token", "expire": 7200},
+        )
+    )
+    async with httpx.AsyncClient(transport=transport) as client:
+        token = await shared.fetch_feishu_tenant_access_token(
+            "cli-app", "app-secret", client
+        )
+
+    assert token == shared.FeishuTenantToken("t-token", 7200)
+
+
+async def test_update_lark_cli_vault_token_updates_matching_credential():
+    ark = _FakeArkProvision(
+        credentials=[{
+            "vault_id": "vlt-1",
+            "id": "cred-1",
+            "display_name": shared.LARK_CLI_CREDENTIAL_NAME,
+            "auth_type": "environment_variable",
+            "secret_name": shared.LARK_CLI_SECRET_ENV_NAME,
+        }]
+    )
+
+    await shared.update_lark_cli_vault_token(ark, "vlt-1", "fresh-token")
+
+    assert ark.updated_credentials == [("vlt-1", "cred-1", "fresh-token")]
 
 
 # ---- is_reset_command：/new 指令识别（剥掉开头的 @提及前缀再比对）------------

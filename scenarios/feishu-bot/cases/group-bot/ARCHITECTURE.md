@@ -51,11 +51,13 @@ flowchart TD
 `FeishuSender.list_messages`，但容器严格限定为当前 thread，再截取
 「上一次 `@bot` 之后到当前」；边界消息已在 Session 中，不会重复注入。普通消息因此进入
 下一轮上下文，却不会单独触发 Bot。
-它不调用 `load_thread_context`，也不读取主群时间线或其他话题。
+每轮会按 `root_id` 精确读取话题根消息，确保“回复文件创建话题”时根文件能进入
+挂载流程；除此之外不读取主群时间线或其他话题。
 
-话题键优先使用 `root_id`，其次 `thread_id`；首条主时间线消息尚无这两个字段时使用自身
-`message_id`。飞书后续话题消息的 `root_id` 会回指该根消息，因此进程重启后仍可从 SQLite
-恢复同一 Session。`@bot /new` 会立即为当前话题创建替代 Session，不删除话题归属。
+已有话题使用 `thread_id` 作为键。创建话题的首条 `@bot` 到达时飞书尚未生成 `thread_id`，
+因此先使用该消息自身唯一的 `message_id`，绝不使用可能被多个新话题共享的被引用消息
+`root_id`。Bot 首次 `reply_in_thread` 后从响应取得新生成的 `thread_id`，并将其绑定到同一
+Session。`@bot /new` 只替换当前话题，不影响其它话题。
 
 ---
 
@@ -105,7 +107,7 @@ flowchart TD
     K --> L[list_messages 读话题/群历史]
     L --> M[select_window 切窗口]
     M --> Q[_quote_chain 沿 parent_id 回溯引用链\nreply_to_message_id 有值时，最多 5 层]
-    Q --> T[_thread_context 读话题前情\nroot_id 有值时：根消息 + 根之前 N 条主时间线]
+    Q --> T[_topic_root_context\n每轮按 root_id 精确读取根消息]
     T --> N[build_windowed_input\n话题前情 → 窗口 → 引用块 → 当前请求 → 附件块，统一去重]
     N --> O[发往方舟]
 ```
@@ -117,16 +119,16 @@ flowchart TD
 | 1 | 是否可处理消息 | `_inbound_to_incoming` [feishu.py:290](../../arkagent/feishu.py) | `raw_content_type == "text"` **或** `_extract_resources` 抽到了图片/文件 | 都没有则返回 None、丢弃；image/file 消息清空占位 `text`、把附件挂到 `resources` |
 | 2 | 是否处理这条 | `should_handle` [shared.py:59](shared.py) | （`text` 非空 **或** `resources` 非空）**且**（`chat_type=="p2p"` **或** `mentioned_bot`） | 群里没 @bot、或既无正文又无附件直接丢 |
 | 3 | 事件去重 | `claim_event` [shared.py:410](shared.py) | `event_id`（SQLite 主键唯一约束原子占位） | 重投则丢，跨重启仍生效 |
-| 4 | 会话分桶 | `to_group_key` [shared.py:51](shared.py) | `tenant_key` + `chat_id` + `thread_id` | 决定共享哪个 Session；**话题独立成桶** |
+| 4 | 会话分桶 | `to_topic_key` | `tenant_key` + `chat_id` + `thread_id`；主时间线首轮临时用 `message_id` | 决定共享哪个 Session；一次性交接后每个真实 thread 独立成桶 |
 | 5 | 指令分流 | `_process`/`_handle` | `is_reset_command(text)`（剥掉开头 @提及前缀后 == `/new`；群里 @bot 正文带 `@群助手 ` 前缀，直接严格相等永不命中） | 重置本群会话 |
 | 6 | 是否已有 Session | `SqliteSessionMap.get` [shared.py:391](shared.py) | `key.as_str()` | 无则 `create_session` |
-| 7 | 附件上传 | `prepare_attachments` [shared.py](shared.py) | 所有文件类型统一上传；超 20 MB / 单轮 40 MB / 下载失败降级为 notice | 填 `file_id` 待挂载 |
+| 7 | 附件上传 | `prepare_attachments` [shared.py](shared.py) | 所有文件类型统一上传；超 40 MB / 单轮 40 MB / 下载失败降级为 notice | 填 `file_id` 待挂载 |
 | 8 | 历史容器选择 | `list_messages` [feishu.py:240](../../arkagent/feishu.py) | `thread_id` 非空 → `thread` 容器；否则 → `chat` 容器（且用 `end_time` 截到当前） | 决定拉哪条时间线的历史 |
 | 9 | 历史项筛选 | `_is_eligible_history` [feishu.py:424](../../arkagent/feishu.py) | `message_id != trigger.message_id` **且** `0 < create_time <= trigger.create_time` | 排除触发消息本身、排除并发到达的"未来"消息 |
 | 10 | at_bot / is_from_bot | `normalize_history_item` [feishu.py:436](../../arkagent/feishu.py) | `mentions[].id == bot_open_id` / `sender_type=="app"` 或 `sender_open_id==bot_open_id` | 给历史项打上切窗/过滤标记 |
 | 11 | 窗口边界 | `select_window` [shared.py:145](shared.py) | 历史项的 `is_from_bot`（先滤掉）、`at_bot`（取最近一条作为窗口起点） | 无 at_bot 时回退最近 `FALLBACK_WINDOW_MESSAGES`(10) 条 |
 | 12 | 是否解析引用链 | `_quote_chain` → `resolve_quote_chain` [feishu.py:399](../../arkagent/feishu.py) | `reply_to_message_id` 非空（SDK 仅在 `parent_id != root_id` 即用户显式引用时填） | 沿 `parent_id` 逐层 `get_message`，最多 `MAX_QUOTE_DEPTH`(5) 层，`seen` 防环 |
-| 13 | 是否补话题前情 | `_thread_context` → `load_thread_context` [feishu.py:337](../../arkagent/feishu.py) | `root_id` 非空（话题群才有） | 读根消息 + 根之前 `THREAD_CONTEXT_BEFORE`(3) 条主时间线，thread 容器读不到故单独补 |
+| 13 | 是否补话题根 | `_topic_root_context` | `root_id` 非空、不同于当前消息 | 精确读取根消息并收集其附件；不扫描根消息之前的主时间线 |
 | 14 | 转录去重 | `build_windowed_input` [shared.py:196](shared.py) | `message_id` 是否已在 `seen_ids`（话题前情/窗口/引用共用一个集合） | 已出现过的不再重复注入 |
 
 窗口规则的语义：「倒数第一次 @bot」= 当前触发消息（不在历史里）；「倒数第二次 @bot」
@@ -138,7 +140,7 @@ flowchart TD
 
 ```
 【最新对话】
-[话题前情 Alice: 上周的周报模板在这]   ← 话题群才有：根消息 + 根之前 N 条主时间线（load_thread_context）
+[话题前情 Alice: 上周的周报模板在这]   ← 每轮按 root_id 精确补入根消息
 Alice: 老板说要出周报              ← 窗口历史（select_window）
 Bob: 我这边数据有了
 [引用 Carol: 三季度销售汇总]        ← 当前这条显式引用别的消息时注入，嵌套层标 [引用·第N层]
@@ -227,7 +229,7 @@ flowchart TD
     R[IncomingMessage.resources\nResourceRef 图片/文件引用] --> DL[download_resource\nGET /im/v1/messages/{id}/resources/{key}]
     DL --> SPLIT{prepare_attachments}
     SPLIT -- 所有文件类型 --> UP[ArkClient.upload_file\nPOST /files purpose=agent → file_id]
-    SPLIT -- 下载失败/超 20MB/单轮超 40MB --> DEG[降级为 notice\n拼进正文「另外：…」]
+    SPLIT -- 下载失败/超 40MB/单轮超 40MB --> DEG[降级为 notice\n拼进正文「另外：…」]
     UP --> MNT[ArkClient.add_session_file\nPOST /sessions/id/resources\n→ /mnt/session/uploads/短哈希/名]
     MNT --> BUILD
     DEG --> BUILD
@@ -238,7 +240,7 @@ flowchart TD
 | 抽取可挂载附件 | `_extract_resources` [feishu.py](../../arkagent/feishu.py) | `ResourceDescriptor.type ∈ {image, file}` 且 `file_key` 非空 | 映射为 `ResourceRef`；sticker/audio/video 跳过 |
 | 开关 | `multimodal_enabled` [shared.py](shared.py) | `GROUP_BOT_MULTIMODAL` != `0/false/no/off` | 关闭时不下载不上传，正文留「[附件已忽略]」 |
 | 上传 | `prepare_attachments` [shared.py](shared.py) | 图片、PDF、Markdown、纯文本等全部文件类型 | 上传拿 `file_id` |
-| 额度/降级 | `prepare_attachments` [shared.py](shared.py) | `MAX_SINGLE_FILE_BYTES`(20MB) / `MAX_ATTACHMENT_TOTAL_BYTES`(40MB) / 下载·上传异常 | 逐个附件套 try，失败记一条 notice 跳过，不拖垮本轮 |
+| 额度/降级 | `prepare_attachments` [shared.py](shared.py) | `MAX_SINGLE_FILE_BYTES`(40MB) / `MAX_ATTACHMENT_TOTAL_BYTES`(40MB) / 下载·上传异常 | 逐个附件套 try，失败记一条 notice 跳过，不拖垮本轮 |
 | 挂载路径 | `_mount_path` [shared.py](shared.py) | `sha256(file_key)[:16]` + 安全文件名 | `/mnt/session/uploads/{短哈希}/{名}`，同一 `file_key` 恒定映射到同一路径（去重基础），不同文件不覆盖 |
 | 挂到 Session | `_mount_attachments` | `PreparedAttachment.file_id` 非空 | `add_session_file` 挂载；单个失败记 warning 不抛 |
 | 正文注入 | `_attachment_blocks` [shared.py](shared.py) | 已挂载附件列表 | 只列沙箱路径，不展开文件原文；notice 逐条如实 |
@@ -280,13 +282,13 @@ PDF」。此时触发消息本身**没有** `resources`，只有正文——若�
 就被漏掉：Agent 只看到历史转录里的 `[文件：xxx.pdf]` 占位却读不到内容（即「读文件有 bug」）。
 
 修法：把**这一轮上下文里出现过的**附件都收齐，范围与注入正文的历史范围**一致**（`select_window`
-的窗口 + 话题前情），再统一挂进 Session：
+的窗口 + 话题根），再统一挂进 Session：
 
 | 步骤 | 位置 | 说明 |
 |---|---|---|
 | 历史项带附件 | `_extract_history_resources` → `HistoryMessage.resources` [feishu.py](../../arkagent/feishu.py) | 归一化历史时，从 `body.content` 的 raw JSON 抽出 file/image 附件（file→`file_key`/`file_name`，image→`image_key`），每个 `ResourceRef` 记上**这条历史消息自己的** `message_id` |
 | 附件带所属消息 id | `ResourceRef.message_id` [feishu.py](../../arkagent/feishu.py) | 触发消息的附件填当前消息 id；历史消息的附件填那条历史消息 id——下载资源必须按各自所属消息取（`file_key` 只在其所属消息里有效） |
-| 收齐本轮附件 | `collect_round_resources` [shared.py](shared.py) | 合并「触发消息 + `select_window` 窗口历史 + 话题前情」里的附件，按 `file_key` 去重（触发消息优先、排最前），返回给 `prepare_attachments` 处理 |
+| 收齐本轮附件 | `collect_round_resources` [shared.py](shared.py) | 合并「触发消息 + `select_window` 窗口历史 + 话题根」里的附件，按 `file_key` 去重（触发消息优先、排最前），返回给 `prepare_attachments` 处理 |
 | 下载按 id 定位 | `_prepare_attachments` | `download_resource(ref.message_id or message.message_id, ref.file_key, ref.type)`——历史附件走它自己的 `message_id`，触发消息附件兜底用当前 id |
 
 要点：
@@ -304,7 +306,7 @@ PDF」。此时触发消息本身**没有** `resources`，只有正文——若�
 
 Agent 光能对话还不够——要让它真去读写飞书文档、云空间、群消息、日历，需要在方舟沙箱里能跑
 `lark-cli`，且带上本应用的 **Bot 身份凭据**。对齐源项目 `src/init.ts` / `src/ark.ts` 的做法，
-分三处安放，各司其职（App Id 非敏感、App Secret 敏感、定位信息每轮变）：
+分三处安放，各司其职（App Id 非敏感、App Secret 仅留 Bot 主机、定位信息每轮变）：
 
 ```mermaid
 flowchart LR
@@ -312,14 +314,16 @@ flowchart LR
         E1[setup_script\n拉 lark-cli 二进制到 /usr/local/bin]
         E2[env.LARKSUITE_CLI_APP_ID\n飞书 App Id（非敏感）]
     end
+    HOST[Bot 主机\nApp ID/Secret 换短期 tenant token]
     subgraph VAULT[Vault（凭据·敏感）]
-        V1[environment_variable 凭据\nLARKSUITE_CLI_APP_SECRET = App Secret]
+        V1[environment_variable 凭据\nLARKSUITE_CLI_TENANT_ACCESS_TOKEN]
     end
     subgraph SESS[create_session 每轮注入]
-        S1[vault_ids=[lark_vault_id]\n把 App Secret 注入沙箱环境变量]
+        S1[vault_ids=[lark_vault_id]\n把短期 token 注入请求鉴权]
         S2[env_overrides=build_lark_session_env\n$FEISHU_CHAT_ID/$FEISHU_THREAD_ID/触发消息]
     end
     ENV --> SESS
+    HOST -->|每轮检查，过期前刷新| VAULT
     VAULT --> SESS
     SESS --> BOX[方舟沙箱\nagent_toolset 的 shell 里 lark-cli --as bot 可用]
 ```
@@ -328,20 +332,25 @@ flowchart LR
 |---|---|---|---|
 | Environment `setup_script` | 下载对应架构的 lark-cli 二进制到 `/usr/local/bin`（SHA256 校验、npmmirror 加速） | 方舟 cloud 沙箱默认没有 lark-cli，Session 首次拉起时装一次 | `LARK_CLI_SETUP_SCRIPT` [ark.py](../../arkagent/ark.py)、`ensure_lark_cli_environment` [shared.py](shared.py) |
 | Environment `env` | `LARKSUITE_CLI_APP_ID` = 飞书 App Id | 非敏感，明文放这里即可 | `ensure_lark_cli_environment` [shared.py](shared.py) |
-| Vault 凭据 | `environment_variable` 凭据：`LARKSUITE_CLI_APP_SECRET` = App Secret | App Secret 敏感，只存 Vault、不进 Environment 明文、不给 Agent 看到 | `ensure_lark_cli_vault` [shared.py](shared.py)、`create_environment_variable_credential` [ark.py](../../arkagent/ark.py) |
-| `create_session` | `vault_ids=[lark_vault_id]` + `env_overrides=build_lark_session_env(message)` | 挂上 Vault → 沙箱环境变量里就有 App Secret，lark-cli 据此换 Bot 的 tenant access token；`env_overrides` 补「这条消息在哪个群/话题」这类每轮会变的定位信息 | `topic_session_bot.py` 的 `_create_session` |
+| Bot 主机 | 用 App ID/Secret 调飞书接口换短期 tenant token | Vault 环境变量在沙箱内是 opaque placeholder，不能用于 JSON body token 交换 | `fetch_feishu_tenant_access_token` [shared.py](shared.py) |
+| Vault 凭据 | `environment_variable` 凭据：`LARKSUITE_CLI_TENANT_ACCESS_TOKEN` | token 可原样替换进 Authorization header；App Secret 不进入 Vault 或 Agent 沙箱 | `ensure_lark_cli_vault` / `update_lark_cli_vault_token` [shared.py](shared.py) |
+| `create_session` | `vault_ids=[lark_vault_id]` + `env_overrides=build_lark_session_env(message)` | 挂上 Vault让 lark-cli 直接使用 Bot token；`env_overrides` 补「这条消息在哪个群/话题」这类每轮会变的定位信息 | `topic_session_bot.py` 的 `_create_session` |
 
 要点：
 - **Bot-only 身份**：群 Session 永远只注入 Bot 上下文（chat/thread/触发消息），**绝不注入**任何
-  用户身份或用户 token。system prompt 里也强制 `lark-cli --as bot`、禁止 `--as user` 和申请用户授权。
+  用户身份或用户 token。system prompt 要求业务 API 命令显式使用 `--as bot`，但元命令遵循
+  各自语法；禁止 `--as user` 和申请用户授权。外部托管凭据异常时停止重试并报告 Vault 配置问题。
 - **幂等置备**：`ensure_lark_cli_environment` / `ensure_lark_cli_vault` 都按名字复用已有资源，
-  `init_group_bot.py` 重复跑不会堆一堆环境/凭据；App Secret 轮换时 `update_environment_credential`
-  只改值、凭据 id 不变。
+  `init_group_bot.py` 重复跑不会堆一堆环境/凭据；每轮发送前按 token 有效期检查，临近过期时
+  `update_environment_credential` 原地改值，凭据 id 不变。
 - **开关**：`lark_cli_enabled(config)` 依据 `config.lark_vault_id` 是否非空——配了 Vault 才挂、
   才注入定位变量；没配则 Agent 退回纯对话（避免 prompt 承诺了 lark-cli 却没凭据可用）。
 - **环境隔离**：群聊 Bot 用自己的 `GROUP_BOT_ENVIRONMENT_ID`（装了 lark-cli 的那个），与四卡点
   case 的 `ARK_ENVIRONMENT_ID` 分开；`init_group_bot.py` 把 `GROUP_BOT_ENVIRONMENT_ID` /
   `GROUP_BOT_LARK_VAULT_ID` 写回 config.env，统一入口直接 source。
+- **资源迁移**：Environment/Vault 只在创建 Session 时绑定。切换凭据方案或 Vault ID 后，
+  旧 Session 不会自动改挂新资源；必须重建对应 Session。Vault ID 不变时原地更新 token 凭据，
+  平台会在 Session 生命周期内重新解析，长寿命 Session 无需重建。
 - **权限**：lark-cli 能做什么，取决于飞书开放平台给这个应用勾了哪些权限——除消息类权限外，
   还需按业务域（docx / drive / calendar…）在开放平台补齐并发布版本。
 

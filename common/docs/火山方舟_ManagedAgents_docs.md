@@ -3157,7 +3157,7 @@ Session 创建后，你可以查询状态、列出历史、更新标题和标签
 通过 `GET /sessions/{session_id}` 拿到 Session 的最新状态、用量统计、配置快照：
 
 <Tabs>
-<Tab zoneid="sayPQiwmMI" title="Curl">
+<Tab zoneid="uyZboXxwKY" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3189,7 +3189,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 `GET /sessions` 支持按 `agent_id` 过滤、按创建时间倒序分页，响应以 `data` 数组形式返回 Session 列表：
 
 <Tabs>
-<Tab zoneid="myFG8Poi6D" title="Curl">
+<Tab zoneid="OLNVDJodr5" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3228,7 +3228,7 @@ Session 的可修改范围由两个接口分别承载：
 <div data-tips="true" data-tips-type="warning"><strong>不可逆。</strong> 删除会永久移除 Session 记录、所有事件和关联沙箱。删除接口只接受 <code>idle</code> 或 <code>terminated</code> 状态；其他状态会返回 <code>InvalidAction</code>。如果 Session 正在 <code>running</code>，先发送 <a href="https://ark.volcengine.com/region:cn-beijing/docs/82379/2553725?lang=zh">中断事件</a>，等待状态回到 <code>idle</code> 后再删除。</div>
 
 <Tabs>
-<Tab zoneid="lTXfdl9sEG" title="Curl">
+<Tab zoneid="NrKr4PyTo3" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3271,11 +3271,11 @@ Session 进入 `idle` 时，平台会保存一份沙箱状态快照，其中包�
 
 - <div data-tips="true" data-tips-type="tip">Session 历史：除非显式删除，<strong>永久保留</strong>。</div>
 
-- <div data-tips="true" data-tips-type="tip">沙箱状态快照：从最后活动时间起保留 <strong>30 天</strong>。</div>
+- <div data-tips="true" data-tips-type="tip">沙箱状态快照：Session 连续处于 <code>idle</code> 状态时，从最后活动时间起保留 <strong>14 天</strong>。</div>
 
 - <div data-tips="true" data-tips-type="tip">自有 TOS 产物：不跟随沙箱状态快照过期。你需要在 TOS 中配置和管理 Bucket 生命周期。</div>
 
-如果工作流需要保留沙箱状态超过 30 天，可在快照过期前周期性发送 `user.message`以重置非活动计时。
+如果需要保留沙箱状态快照超过 14 天，请在快照过期前发送一条包含有效 `content` 的 `user.message`。Session 完成本轮任务并再次进入 `idle` 后，平台会重新计算 14 天保留期。省略 `content` 或传入空数组不会刷新保留期。
 
 <a id="doc-2553725"></a>
 
@@ -3307,7 +3307,7 @@ Session 进入 `idle` 时，平台会保存一份沙箱状态快照，其中包�
 
 事件类型字符串遵循 `{domain}.{action}` 命名约定：
 
-- `user.*`：客户端发给 Agent 的用户侧事件，包括用户消息、动态系统提示词、中断、回传工具确认、定义结果。
+- `user.*`：客户端发给 Agent 的用户侧事件，包括用户消息、中断、工具确认、工具结果和定义结果。
 
 - `agent.*`：Agent 发给客户端的事件，包括消息、思考进度、工具调用、多 Agent 消息。
 
@@ -3328,7 +3328,7 @@ Session 进入 `idle` 时，平台会保存一份沙箱状态快照，其中包�
 按事件域分组列出本章节涉及的事件类型（完整事件类型与字段以 API 参考为准）：
 
 <Tabs>
-<Tab zoneid="feJTNPFyHa" title="User 域">
+<Tab zoneid="Zbil7Zrjwr" title="User 域">
 <TabTitle>User 域</TabTitle>
 
 - `user.message`：客户端发送给 Agent 的用户消息，`content` 块数组可混合纯文本、图片、文档，送入 Session 历史并触发 Agent 处理。
@@ -3339,15 +3339,19 @@ Session 进入 `idle` 时，平台会保存一份沙箱状态快照，其中包�
 
 - `user.tool_confirmation`：客户端对受权限策略保护的工具调用回传 `allow` 或 `deny` 决策，通过 `tool_use_id` 关联待确认事件；`deny` 时可选传 `deny_message` 把拒绝原因回传给 Agent。
 
+- `user.tool_result`：自托管 Environment 中的 Worker 完成内置工具调用后，回传执行结果；通过 `tool_use_id` 关联对应的 `agent.tool_use` 事件。
+
+- `user.custom_tool_result`：客户端执行完 Custom Tool 后，回传执行结果；通过 `custom_tool_use_id` 关联对应的 `agent.custom_tool_use` 事件。
+
 - `user.define_outcome`：客户端为本次任务定义产出标准与评分量规，触发后续的结果评估循环。详情请参见 [定义结果](https://ark.volcengine.com/region:cn-beijing/docs/82379/2553731?lang=zh)。
 
 </Tab>
-<Tab zoneid="NRPfbiWW02" title="Agent 域">
+<Tab zoneid="UJQrzN892u" title="Agent 域">
 <TabTitle>Agent 域</TabTitle>
 
 - `agent.message`：Agent 推送给客户端的文本回复，用于展示对话内容。
 
-- `agent.thinking`：Agent 处于深度思考阶段时发出的进度信号，**不携带实际思考内容**，仅用于客户端展示「思考中」状态。
+- `agent.thinking`：Agent 生成思考内容时发出的事件，`content` 为文本块数组，可用于展示思考过程。
 
 - `agent.tool_use`：Agent 发起的内置工具调用事件，内置工具范围：`bash`、`edit`、`read`、`write`、`glob`、`grep`、`web_fetch`、`web_search`。
 
@@ -3355,7 +3359,9 @@ Session 进入 `idle` 时，平台会保存一份沙箱状态快照，其中包�
 
 - `agent.mcp_tool_use`：Agent 发起的 MCP 工具调用事件，具体工具集由 Agent 配置的 MCP 服务器决定。
 
-- `agent.mcp_tool_result`：框架发给客户端的 MCP 工具执行结果回执，通过 `tool_use_id` 字段关联到对应的 `agent.mcp_tool_use` 事件。
+- `agent.mcp_tool_result`：框架发给客户端的 MCP 工具执行结果回执，通过 `mcp_tool_use_id` 字段关联到对应的 `agent.mcp_tool_use` 事件。
+
+- `agent.custom_tool_use`：Agent 请求客户端执行 Custom Tool。客户端执行工具后，通过 `user.custom_tool_result` 回传结果，并使用 `custom_tool_use_id` 关联本次调用。
 
 - `agent.thread_message_sent`：多 Agent 协作场景下，主线程向子线程发送的消息事件。
 
@@ -3364,7 +3370,7 @@ Session 进入 `idle` 时，平台会保存一份沙箱状态快照，其中包�
 - `agent.thread_context_compacted`：上下文长度超出阈值时，系统自动触发的上下文压缩或摘要事件。
 
 </Tab>
-<Tab zoneid="uebvARJQzU" title="Session 域">
+<Tab zoneid="EEY9FFWWT2" title="Session 域">
 <TabTitle>Session 域</TabTitle>
 
 - `session.status_running`：Session 状态切换到 `running`，表示 Agent 正在主动执行。
@@ -3379,8 +3385,6 @@ Session 进入 `idle` 时，平台会保存一份沙箱状态快照，其中包�
 
 - `session.deleted`：Session 被显式删除，事件流终止，所有后续事件不再下发。
 
-- `session.updated`：Session 的名称在运行时被修改。
-
 - `session.thread_created`：多 Agent 协作场景下，新的子线程被创建。
 
 - `session.thread_status_running`：子线程状态切换到 `running`，开始执行。
@@ -3392,7 +3396,7 @@ Session 进入 `idle` 时，平台会保存一份沙箱状态快照，其中包�
 - `session.thread_status_terminated`：子线程终止，不再接受新输入。
 
 </Tab>
-<Tab zoneid="RMqvyqPCv4" title="Span 域">
+<Tab zoneid="rQcYltZSJa" title="Span 域">
 <TabTitle>Span 域</TabTitle>
 
 - `span.model_request_start`：模型请求开始，标记本次 LLM 调用的起点。
@@ -3403,7 +3407,7 @@ Session 进入 `idle` 时，平台会保存一份沙箱状态快照，其中包�
 
 - `span.outcome_evaluation_ongoing`：结果评估进行中的心跳事件，客户端用于展示「评估中」状态。
 
-- `span.outcome_evaluation_end`：结果评估周期结束，事件携带 `status` 字段，可能值：`satisfied`（满意）、`needs_revision`（需修订，后续会触发新一轮 `_start`）、`max_iterations_reached`（达到迭代上限，框架还会再跑一次 Agent）、`failed`（失败）、`interrupted`（被中断）。
+- `span.outcome_evaluation_end`：结果评估周期结束，事件携带 `result` 字段，可能值：`satisfied`（满意）、`needs_revision`（需修订，后续会触发新一轮 `_start`）、`max_iterations_reached`（达到迭代上限，框架还会再跑一次 Agent）、`failed`（失败）、`interrupted`（被中断）。
 
 </Tab>
 </Tabs>
@@ -3431,7 +3435,7 @@ Session 进入 `idle` 时，平台会保存一份沙箱状态快照，其中包�
 #### 常见内容组合示例
 
 <Tabs>
-<Tab zoneid="gMDjqIYcPv" title="纯文本">
+<Tab zoneid="GKWJrz47zb" title="纯文本">
 <TabTitle>纯文本</TabTitle>
 
 ```Bash
@@ -3447,7 +3451,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="IRhEom6vdF" title="文本 + 图片（URL）">
+<Tab zoneid="LXbAtKSHgg" title="文本 + 图片（URL）">
 <TabTitle>文本 + 图片（URL）</TabTitle>
 
 ```Bash
@@ -3466,7 +3470,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="a4JVNlsH7k" title="文本 + 图片（base64）">
+<Tab zoneid="yb9snTK8E9" title="文本 + 图片（base64）">
 <TabTitle>文本 + 图片（base64）</TabTitle>
 
 ```Bash
@@ -3485,7 +3489,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="jiQCkMOEw9" title="文本 + 图片（file_id）">
+<Tab zoneid="AVvay6Rf2N" title="文本 + 图片（file_id）">
 <TabTitle>文本 + 图片（file_id）</TabTitle>
 
 ```Bash
@@ -3504,7 +3508,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="rzAqCU3sNG" title="文本 + 文档（file_id）">
+<Tab zoneid="oOFgiktJ3Z" title="文本 + 文档（file_id）">
 <TabTitle>文本 + 文档（file_id）</TabTitle>
 
 ```Bash
@@ -3523,7 +3527,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="n5BvDBpgWX" title="文本 + 文档（内联纯文本）">
+<Tab zoneid="bt7R77ZMLd" title="文本 + 文档（内联纯文本）">
 <TabTitle>文本 + 文档（内联纯文本）</TabTitle>
 
 ```Bash
@@ -3542,7 +3546,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="JTIcm2YYzx" title="文本 + 文档（base64 PDF）">
+<Tab zoneid="RJkPEbRWka" title="文本 + 文档（base64 PDF）">
 <TabTitle>文本 + 文档（base64 PDF）</TabTitle>
 
 ```Bash
@@ -3561,7 +3565,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="nUtfMP1kr3" title="文本 + 文档（URL）">
+<Tab zoneid="wUtoAqehoZ" title="文本 + 文档（URL）">
 <TabTitle>文本 + 文档（URL）</TabTitle>
 
 ```Bash
@@ -3580,7 +3584,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="t3BgQlUdwg" title="文本 + 多附件混合">
+<Tab zoneid="mq4Hbwg1EW" title="文本 + 多附件混合">
 <TabTitle>文本 + 多附件混合</TabTitle>
 
 ```Bash
@@ -3649,7 +3653,7 @@ Session 处于 `running` 状态时，你仍可以继续发送 `user.message`。�
 - 违反位置约束会返回 HTTP 400。
 
 <Tabs>
-<Tab zoneid="jVTawAXnor" title="Curl">
+<Tab zoneid="dcX2Imolvs" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3689,7 +3693,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 如果你只是补充当前任务的信息，直接继续发送 `user.message` 即可，消息会按队列顺序处理；如果你要放弃当前执行并切换到新任务，先发送 `user.interrupt`，等 Session 回到 `idle` 后再发送新的 `user.message`（两次独立请求）：
 
 <Tabs>
-<Tab zoneid="v0MNBLAckX" title="Curl">
+<Tab zoneid="erI3l6EOdm" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3725,7 +3729,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 <div data-tips="true" data-tips-type="warning"><strong>必须先打开 SSE 流，再发送用户事件。</strong> SSE 流只会推送其打开<strong>之后</strong>产生的事件，顺序颠倒会导致事件丢失。</div>
 
 <Tabs>
-<Tab zoneid="aHqcyJvTvy" title="Curl">
+<Tab zoneid="s7LeMVQG1s" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3795,11 +3799,11 @@ wait $STREAM_PID
 
 ### 恢复空闲 Session
 
-Session 在交互之间持续存在。当 Session 进入 `idle` 时，平台会保存一份沙箱状态快照，其中包括文件系统、已安装软件包和产物文件。快照从最后活动时间起保留 30 天，详情请参见 [沙箱状态保留期](https://ark.volcengine.com/region:cn-beijing/docs/82379/2553724?lang=zh#checkpoint-retention)。
+Session 在交互之间持续存在。当 Session 进入 `idle` 时，平台会保存一份沙箱状态快照，其中包括文件系统、已安装软件包和产物文件。Session 连续处于 `idle` 状态时，快照从最后活动时间起保留 14 天。详情请参见 [沙箱状态保留期](https://ark.volcengine.com/region:cn-beijing/docs/82379/2553724?lang=zh#checkpoint-retention)。
 
 该期限只适用于沙箱状态快照。将产物写入自己的 TOS Bucket 后，你需要在 TOS 中管理对象生命周期。
 
-恢复 Session 不需要特殊接口，按 [发送信息](https://ark.volcengine.com/region:cn-beijing/docs/82379/2553725?lang=zh#send-message) 流程发 `user.message` 即可，Session 状态会从 `idle` 切回 `running` 并继续后续工作。
+恢复 Session 不需要特殊接口。在普通空闲状态下，按 [发送信息](https://ark.volcengine.com/region:cn-beijing/docs/82379/2553725?lang=zh#send-message) 流程发送一条包含有效 `content` 的 `user.message`。Session 会从 `idle` 变为 `running`；本轮任务结束并再次进入 `idle` 后，平台会重新计算 14 天保留期。
 
 <span id=".6Lef6Liq55So6YeP"></span>
 
@@ -3866,9 +3870,13 @@ Session 在交互之间持续存在。当 Session 进入 `idle` 时，平台会�
 
 > 来源：[https://docs.volcengine.com/docs/82379/2553726?lang=zh](https://docs.volcengine.com/docs/82379/2553726?lang=zh)
 
-Vaults（凭据保管库）与凭据（Credential） 是托管 Agent 的认证原语：让你一次性注册每个终端用户的第三方凭据，创建 Session 时按 Vault ID 引用，免去自建密钥存储、无需每次调用都传 token、清晰区分 Agent 代表哪个终端用户操作。
+当你使用 Managed Agents 构建需要访问第三方服务的应用时，可以通过 Vaults（凭据保管库）保存并隔离每个应用用户的凭据。你的服务端只需为每个用户创建 Vault、写入 Credential，并保存用户与 `vault_id` 的映射，无需自行维护密钥存储，也无需在每次调用中重复传递 token。
 
-Vaults 在 **Session 级** 引用，你可以在 Agent 资源粒度上管理产品，在 Session 资源粒度上管理用户。
+创建 Session 时，通过 `vault_ids` 传入当前用户的 Vault ID；Agent 调用 MCP 服务时会自动使用对应的 Credential 完成鉴权。这样，同一个 Agent 可以安全地服务多个用户，并分别访问各自有权限的第三方资源。
+
+<div data-tips="true" data-tips-type="tip" data-tips-is-title="true">示例</div>
+
+<div data-tips="true" data-tips-type="tip">你使用 Managed Agents 构建了一个 GitHub 代码助手。Alice 发起任务时，服务端创建 Session 并绑定 Alice 的 Vault，Agent 使用 Alice 的 GitHub 权限；Bob 发起任务时，服务端绑定 Bob 的 Vault，Agent 使用 Bob 的 GitHub 权限。</div>
 
 <span id=".5YeG5aSH5bel5L2c"></span>
 
@@ -3895,7 +3903,7 @@ Vaults 在 **Session 级** 引用，你可以在 Agent 资源粒度上管理产�
 Vaults 是绑定到某个终端用户的凭据集合。给它一个 `display_name`，可选用 `metadata` 标记以便映射回你自己的用户记录：
 
 <Tabs>
-<Tab zoneid="WtBCPSP6pu" title="Curl">
+<Tab zoneid="O3uLYC6axc" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3953,7 +3961,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults \
 - `client_secret_post`：把 `client_secret` 放在 POST 请求体里。
 
 <Tabs>
-<Tab zoneid="Lx1uQ2d8OQ" title="Curl">
+<Tab zoneid="FDrsD0m48O" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3991,7 +3999,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 当 MCP 服务器接受固定 Bearer token（API Key、个人访问令牌） 时，用 `static_bearer`。无需刷新流程：
 
 <Tabs>
-<Tab zoneid="fy3fYzu6WV" title="Curl">
+<Tab zoneid="tK8C1ckBCf" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -4024,7 +4032,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 - `"type": "unrestricted"`（仅当调用方访问的域名无法提前枚举时使用）。
 
 <Tabs>
-<Tab zoneid="G90AHCokyp" title="Curl">
+<Tab zoneid="TS59pJFiUE" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -4086,7 +4094,7 @@ MCP 类型凭据（`mcp_oauth`、`static_bearer`）在创建时会立即连接�
 创建 Session 时传 `vault_ids` 数组，把一个或多个 Vaults 挂到 Session：
 
 <Tabs>
-<Tab zoneid="dw09CX5zZC" title="Curl">
+<Tab zoneid="H8QThJ32vM" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -4119,7 +4127,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 密钥值和 `display_name` 可以更新。结构性字段（`mcp_server_url`、`secret_name`、`token_endpoint`、`client_id`） 在创建后即被锁定。要修改结构性字段，删除旧凭据再创建新的：
 
 <Tabs>
-<Tab zoneid="mDXPZPKl6r" title="Curl">
+<Tab zoneid="rVTrYfJ6Tr" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash

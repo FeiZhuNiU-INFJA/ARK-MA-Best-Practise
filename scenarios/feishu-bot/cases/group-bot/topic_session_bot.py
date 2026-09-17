@@ -19,9 +19,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import threading
+import urllib.request
 from dataclasses import replace
 from pathlib import Path
 from typing import Literal, Optional
@@ -34,6 +36,7 @@ from shared import (
     build_lark_session_env,
     build_windowed_input,
     collect_round_resources,
+    fetch_feishu_tenant_access_token,
     is_authorized,
     is_reset_command,
     lark_cli_enabled,
@@ -42,6 +45,7 @@ from shared import (
     multimodal_enabled,
     prepare_attachments,
     setup_logging,
+    update_lark_cli_vault_token,
 )
 
 from arkagent.ark import ArkClient, ArkError, RunResult, event_error, event_text
@@ -71,6 +75,45 @@ BACKOFF_BASE_S = 2.0
 BACKOFF_CAP_S = 15.0
 
 
+# #region debug-point A-D:report-runtime-evidence
+def _debug_report(hypothesis_id: str, location: str, msg: str, data: dict) -> None:
+    def _send() -> None:
+        try:
+            env_path = Path(".dbg/native-queue-missed-replies.env")
+            settings = dict(
+                line.split("=", 1)
+                for line in env_path.read_text().splitlines()
+                if "=" in line
+            )
+            payload = json.dumps(
+                {
+                    "sessionId": settings.get(
+                        "DEBUG_SESSION_ID", "native-queue-missed-replies"
+                    ),
+                    "runId": "post-fix",
+                    "hypothesisId": hypothesis_id,
+                    "location": location,
+                    "msg": f"[DEBUG] {msg}",
+                    "data": data,
+                }
+            ).encode()
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    settings.get(
+                        "DEBUG_SERVER_URL", "http://127.0.0.1:7777/event"
+                    ),
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                ),
+                timeout=1,
+            ).read()
+        except Exception:
+            pass
+
+    threading.Thread(target=_send, daemon=True).start()
+# #endregion
+
+
 def _is_runtime_busy(error: Exception) -> bool:
     if isinstance(error, ArkError) and error.status_code == 409:
         return True
@@ -79,10 +122,10 @@ def _is_runtime_busy(error: Exception) -> bool:
 
 
 def to_topic_key(message: IncomingMessage) -> GroupConversationKey:
-    """返回稳定话题键；首条主时间线消息自身就是新话题的根。"""
+    """返回稳定话题键；话题创建前用当前消息 ID，创建后用 thread_id。"""
     topic_id = ""
     if message.chat_type == "group":
-        topic_id = message.root_id or message.thread_id or message.message_id
+        topic_id = message.thread_id or message.message_id
     return GroupConversationKey(message.tenant_key, message.chat_id, topic_id)
 
 
@@ -127,10 +170,14 @@ class TopicSessionBot:
         self._sessions = sessions if sessions is not None else SqliteSessionMap(db_path)
         self._queue = KeyedQueue()
         self._create_locks: dict[str, asyncio.Lock] = {}
+        self._lark_token_lock = asyncio.Lock()
+        self._lark_token_refresh_at = 0.0
         self._consumers: dict[str, asyncio.Task] = {}
         self._pending_reactions: dict[
             str, list[tuple[IncomingMessage, Optional[str]]]
         ] = {}
+        # 首轮消息到达时飞书尚未生成 thread_id；首条回复后把新 thread 映射回原运行 key。
+        self._thread_aliases: dict[str, GroupConversationKey] = {}
 
     def accept(self, message: IncomingMessage) -> bool:
         """WS 同步入口：群聊只有 @bot 才触发运行和回复。"""
@@ -139,7 +186,8 @@ class TopicSessionBot:
             log.info("%s 丢弃：空消息且无附件", tag)
             return False
 
-        key = to_topic_key(message)
+        public_key = to_topic_key(message)
+        key = self._thread_aliases.get(public_key.as_str(), public_key)
         if message.chat_type == "group" and not message.mentioned_bot:
             log.info("%s 丢弃：群消息未 @bot（保留在话题历史，等下次 @bot 时读取）", tag)
             return False
@@ -178,6 +226,8 @@ class TopicSessionBot:
             await self._reply(message, "当前用户未授权。请联系管理员把你的 open_id 加入白名单。")
             return
 
+        await self._refresh_lark_cli_token()
+
         if is_reset_command(message.text):
             self._sessions.reset(key)
             session_id = await self._create_session(key, message)
@@ -188,12 +238,13 @@ class TopicSessionBot:
         reaction_id = await self._ack(message)
         try:
             session_id = self._sessions.get(key)
+            is_first_turn = session_id is None
             if not session_id:
                 session_id = await self._create_session(key, message)
                 log.info("%s 新话题已建 Session=%s", tag, session_id)
 
             message, roster, actor_input, prepared = await self._prepare_turn(
-                message
+                message, include_topic_history=not is_first_turn
             )
             await self._mount_attachments(session_id, prepared)
             log.info("%s 发往 Session=%s，input 长度=%d", tag, session_id, len(actor_input))
@@ -211,7 +262,8 @@ class TopicSessionBot:
                     session_id, actor_input, self._config.session_timeout_ms
                 )
 
-            await self._reply(message, _result_to_text(result), roster)
+            thread_id = await self._reply(message, _result_to_text(result), roster)
+            self._bind_thread_session(key, message, session_id, thread_id)
         finally:
             await self._unack(message, reaction_id)
 
@@ -225,11 +277,13 @@ class TopicSessionBot:
                 )
                 return
 
+            await self._refresh_lark_cli_token()
+
             if is_reset_command(message.text):
                 self._sessions.reset(key)
                 await self._stop_consumer(key)
                 await self._clear_native_reactions(key)
-                session_id = await self._ensure_native_session(key, message)
+                session_id, _ = await self._ensure_native_session(key, message)
                 log.info(
                     "%s 当前话题已切换到新 Session=%s",
                     message_log_tag(message),
@@ -244,9 +298,9 @@ class TopicSessionBot:
             self._pending_reactions.setdefault(key.as_str(), []).append(
                 (message, reaction_id)
             )
-            session_id = await self._ensure_native_session(key, message)
+            session_id, is_first_turn = await self._ensure_native_session(key, message)
             message, _roster, actor_input, prepared = await self._prepare_turn(
-                message
+                message, include_topic_history=not is_first_turn
             )
             await self._mount_attachments(session_id, prepared)
             await self._send_native(
@@ -258,17 +312,22 @@ class TopicSessionBot:
             await self._clear_native_reactions(key)
 
     async def _prepare_turn(
-        self, message: IncomingMessage
+        self,
+        message: IncomingMessage,
+        *,
+        include_topic_history: bool = True,
     ) -> tuple[IncomingMessage, dict, str, list[PreparedAttachment]]:
-        """读取并构造两个执行模式完全一致的话题增量与文件挂载信息。"""
+        """构造本轮输入；新 Session 首轮包含当前消息、话题根与显式引用。"""
         roster = await self._chat_roster(message)
         message = _with_roster_name(message, roster)
-        history = await self._topic_history(message)
+        history = await self._topic_history(message) if include_topic_history else []
         history = _with_roster_history_names(history, roster)
+        root_context = await self._topic_root_context(message)
+        root_context = _with_roster_history_names(root_context, roster)
         topic_delta = select_topic_delta(history)
         quote_chain, quoted_resource = await self._explicit_quote(message)
         resources = collect_round_resources(
-            message, history, [], selected_history=topic_delta
+            message, history, root_context, selected_history=topic_delta
         )
         if quoted_resource is not None:
             resources.extend(quoted_resource.resources)
@@ -279,7 +338,7 @@ class TopicSessionBot:
             message,
             history=history,
             quote_chain=quote_chain,
-            thread_context=[],
+            thread_context=root_context,
             prepared=prepared,
             notices=notices,
             selected_history=topic_delta,
@@ -288,10 +347,11 @@ class TopicSessionBot:
 
     async def _ensure_native_session(
         self, key: GroupConversationKey, message: IncomingMessage
-    ) -> str:
+    ) -> tuple[str, bool]:
         lock = self._create_locks.setdefault(key.as_str(), asyncio.Lock())
         async with lock:
             session_id = self._sessions.get(key)
+            is_first_turn = session_id is None
             if not session_id:
                 session_id = await self._create_session(key, message)
                 log.info(
@@ -300,7 +360,7 @@ class TopicSessionBot:
                     session_id,
                 )
             self._ensure_consumer(key, session_id, message)
-            return session_id
+            return session_id, is_first_turn
 
     def _ensure_consumer(
         self,
@@ -310,6 +370,19 @@ class TopicSessionBot:
     ) -> None:
         key_str = key.as_str()
         current = self._consumers.get(key_str)
+        # #region debug-point A-B:consumer-state
+        _debug_report(
+            "A,B",
+            "topic_session_bot.py:_ensure_consumer",
+            "ensure consumer",
+            {
+                "key": key_str,
+                "session_id": session_id,
+                "has_consumer": current is not None,
+                "consumer_done": current.done() if current is not None else None,
+            },
+        )
+        # #endregion
         if current is not None and not current.done():
             return
         self._consumers[key_str] = self._loop.create_task(
@@ -339,7 +412,7 @@ class TopicSessionBot:
                 if error.status_code == 404:
                     self._sessions.reset(key)
                     await self._stop_consumer(key)
-                    session_id = await self._ensure_native_session(key, message)
+                    session_id, _ = await self._ensure_native_session(key, message)
                     await self._mount_attachments(session_id, prepared)
                     continue
                 if not _is_runtime_busy(error) or attempt == MAX_409_RETRIES:
@@ -354,9 +427,20 @@ class TopicSessionBot:
         fallback_message: IncomingMessage,
     ) -> None:
         seen: set[str] = set()
-        pending: list[str] = []
+        delivered_count = 0
         while self._sessions.get(key) == session_id:
             try:
+                # #region debug-point B:stream-open
+                _debug_report(
+                    "B",
+                    "topic_session_bot.py:_consume",
+                    "opening event stream",
+                    {
+                        "session_id": session_id,
+                        "delivered_count": delivered_count,
+                    },
+                )
+                # #endregion
                 async with self._ark._open_event_stream(session_id) as stream:  # noqa: SLF001
                     async for event in stream:
                         event_id = event.get("id")
@@ -365,15 +449,34 @@ class TopicSessionBot:
                         if event_id:
                             seen.add(event_id)
                         event_type = event.get("type")
+                        # #region debug-point A-D:event-received
+                        _debug_report(
+                            "A,B,C,D",
+                            "topic_session_bot.py:_consume:event",
+                            "event received",
+                            {
+                                "session_id": session_id,
+                                "event_id": event_id,
+                                "event_type": event_type,
+                                "delivered_count": delivered_count,
+                                "trigger_count": len(
+                                    self._pending_reactions.get(key.as_str(), [])
+                                ),
+                            },
+                        )
+                        # #endregion
                         if event_type == "agent.message":
                             text = event_text(event)
                             if text:
-                                pending.append(text)
-                        elif event_type == "session.status_idle" and pending:
-                            trigger = self._last_native_trigger(key) or fallback_message
-                            roster = await self._chat_roster(trigger)
-                            await self._reply(trigger, pending[-1], roster)
-                            pending.clear()
+                                await self._deliver_native_message(
+                                    key,
+                                    fallback_message,
+                                    text,
+                                    session_id,
+                                    delivered_count,
+                                )
+                                delivered_count += 1
+                        elif event_type == "session.status_idle":
                             await self._clear_native_reactions(key)
                         elif event_type in (
                             "session.error",
@@ -386,15 +489,74 @@ class TopicSessionBot:
                                 trigger,
                                 "当前话题执行出错，请稍后重试或 @bot /new 重置。",
                             )
-                            pending.clear()
                             await self._clear_native_reactions(key)
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 - 长连接中断后恢复
+            except Exception as error:  # noqa: BLE001 - 长连接中断后恢复
+                # #region debug-point B-C:stream-error
+                _debug_report(
+                    "B,C",
+                    "topic_session_bot.py:_consume:except",
+                    "consumer stream failed",
+                    {
+                        "session_id": session_id,
+                        "error_type": type(error).__name__,
+                        "error": str(error)[:500],
+                        "delivered_count": delivered_count,
+                    },
+                )
+                # #endregion
                 if self._sessions.get(key) != session_id:
                     break
                 log.info("事件流中断，1s 后重连 session=%s", session_id)
                 await asyncio.sleep(1.0)
+
+    async def _deliver_native_message(
+        self,
+        key: GroupConversationKey,
+        fallback_message: IncomingMessage,
+        text: str,
+        session_id: str,
+        delivered_count: int,
+    ) -> None:
+        key_str = key.as_str()
+        pending = self._pending_reactions.get(key_str, [])
+        trigger, reaction_id = (
+            pending[0] if pending else (fallback_message, None)
+        )
+        roster = await self._chat_roster(trigger)
+        # #region debug-point C:before-reply
+        _debug_report(
+            "C",
+            "topic_session_bot.py:_deliver_native_message",
+            "replying agent message",
+            {
+                "session_id": session_id,
+                "trigger_message_id": trigger.message_id,
+                "delivered_count": delivered_count,
+                "text_length": len(text),
+            },
+        )
+        # #endregion
+        thread_id = await self._reply(trigger, text, roster)
+        self._bind_thread_session(key, trigger, session_id, thread_id)
+        if pending and pending[0] == (trigger, reaction_id):
+            pending.pop(0)
+            if not pending:
+                self._pending_reactions.pop(key_str, None)
+            await self._unack(trigger, reaction_id)
+        # #region debug-point C:after-reply
+        _debug_report(
+            "C",
+            "topic_session_bot.py:_deliver_native_message",
+            "reply completed",
+            {
+                "session_id": session_id,
+                "trigger_message_id": trigger.message_id,
+                "delivered_count": delivered_count + 1,
+            },
+        )
+        # #endregion
 
     def _last_native_trigger(
         self, key: GroupConversationKey
@@ -422,22 +584,77 @@ class TopicSessionBot:
             self._config.ark_agent_id,
             self._config.ark_environment_id,
             vault_ids=[self._config.lark_vault_id] if lark_cli_enabled(self._config) else None,
-            env_overrides=build_lark_session_env(message) if lark_cli_enabled(self._config) else None,
+            env_overrides=(
+                build_lark_session_env(message, self._config.feishu_app_id)
+                if lark_cli_enabled(self._config)
+                else None
+            ),
         )
         self._sessions.save(key, session_id)
+        public_key = to_topic_key(message)
+        if public_key != key:
+            self._sessions.save(public_key, session_id)
         return session_id
+
+    def _bind_thread_session(
+        self,
+        source_key: GroupConversationKey,
+        message: IncomingMessage,
+        session_id: str,
+        thread_id: Optional[str],
+    ) -> None:
+        if message.chat_type != "group" or not thread_id:
+            return
+        thread_key = GroupConversationKey(
+            message.tenant_key, message.chat_id, thread_id
+        )
+        self._sessions.save(thread_key, session_id)
+        if self._execution_mode == "native-queue" and thread_key != source_key:
+            self._thread_aliases[thread_key.as_str()] = source_key
+        log.info(
+            "%s 已绑定 thread_id=%s 到 Session=%s",
+            message_log_tag(message),
+            thread_id,
+            session_id,
+        )
+
+    async def _refresh_lark_cli_token(self) -> None:
+        """在 token 临近过期前由 Bot 主机刷新 Vault，避免长寿命 Session 失去鉴权。"""
+        if not lark_cli_enabled(self._config):
+            return
+        now = self._loop.time()
+        if now < self._lark_token_refresh_at:
+            return
+        async with self._lark_token_lock:
+            now = self._loop.time()
+            if now < self._lark_token_refresh_at:
+                return
+            token = await fetch_feishu_tenant_access_token(
+                self._config.feishu_app_id,
+                self._config.feishu_app_secret,
+            )
+            await update_lark_cli_vault_token(
+                self._ark,
+                self._config.lark_vault_id,
+                token.value,
+            )
+            self._lark_token_refresh_at = now + max(30, token.expires_in - 300)
+            log.info(
+                "已刷新 lark-cli Bot tenant token，有效期=%ss",
+                token.expires_in,
+            )
 
     async def _reply(
         self, message: IncomingMessage, text: str, roster: Optional[dict] = None
-    ) -> None:
+    ) -> Optional[str]:
         if message.chat_type == "group" and message.message_id:
-            await self._loop.run_in_executor(
+            return await self._loop.run_in_executor(
                 None, self._sender.reply_in_thread, message.message_id, text, roster
             )
-        else:
-            await self._loop.run_in_executor(
-                None, self._sender.send_to_chat, message.chat_id, text, roster
-            )
+        await self._loop.run_in_executor(
+            None, self._sender.send_to_chat, message.chat_id, text, roster
+        )
+        return None
 
     async def _ack(self, message: IncomingMessage) -> Optional[str]:
         if message.chat_type == "group" and message.message_id:
@@ -481,6 +698,27 @@ class TopicSessionBot:
             )
         except Exception as error:  # noqa: BLE001 - 历史读取失败降级为仅当前请求
             log.warning("读取当前话题历史失败，本轮只发送当前消息：%s", error)
+            return []
+
+    async def _topic_root_context(
+        self, message: IncomingMessage
+    ) -> list[HistoryMessage]:
+        """精确补入话题根；根消息可能就是用户引用的文件。"""
+        if not message.root_id or message.root_id == message.message_id:
+            return []
+        try:
+            raw = await self._loop.run_in_executor(
+                None, self._sender.get_message, message.root_id
+            )
+            if not raw:
+                return []
+            bot_open_id = await self._loop.run_in_executor(
+                None, self._sender.bot_open_id
+            )
+            normalized = normalize_history_item(raw, bot_open_id)
+            return [normalized] if normalized is not None else []
+        except Exception as error:  # noqa: BLE001 - 根消息读取失败不影响当前请求
+            log.warning("读取话题根消息失败，本轮只发送当前消息：%s", error)
             return []
 
     async def _explicit_quote(
