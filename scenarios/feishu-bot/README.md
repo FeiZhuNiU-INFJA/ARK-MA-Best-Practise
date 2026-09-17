@@ -10,7 +10,7 @@
 | 案例 | 涉及能力 | 目录 |
 | --- | --- | --- |
 | **客户A 四卡点 ABCD** | 身份鉴权(static_bearer) · OpenID 透传 · 岗位信息注入 · 跨 Session 记忆 | [cases/customer-a-4checkpoints/](cases/customer-a-4checkpoints/) |
-| **群聊共享 Bot** | 群内多人共享同一 Session（对齐 Claude Tag）· 串行 vs 方舟原生队列 | [cases/group-bot/](cases/group-bot/) |
+| **话题 Session Bot** | 一个飞书话题一个 Session（对齐 Claude Tag）· 启动参数选择串行或方舟原生队列 | [cases/group-bot/](cases/group-bot/) |
 
 > 客户A 是「文档型 case」：它的运行代码就是本场景共享的 `arkagent/` + `mock_mcp/`；群聊共享 Bot
 > 是独立示例脚本，**复用** `arkagent` 的纯基础设施，不改主包。

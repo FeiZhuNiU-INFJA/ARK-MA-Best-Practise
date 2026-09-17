@@ -837,9 +837,9 @@ def start_feishu_gateway(app_id: str, app_secret: str, gateway: GatewayLike) -> 
       - transport=ws：与原实现一致，无需公网回调（另一个可选值是 webhook）。
       - policy.require_mention=False + group_policy=open：**不让 SDK 层拦**，是否处理仍由
         下游 gateway 的 should_handle 判定（群里只在 @bot 时处理），保持与迁移前行为一致。
-      - safety.chat_queue.enabled=False：关掉 SDK 侧的排队/合并——本项目的 client_serial_bot 用自己的
-        KeyedQueue 串行、ma_native_queue_bot 靠方舟原生队列，SDK 若再合并会破坏「每条消息独立成窗」的
-        窗口规则。关掉后 SDK 逐条直投，dedup 仍然生效。
+      - safety.chat_queue.enabled=False：关掉 SDK 侧的排队/合并——topic_session_bot 的 serial
+        模式用自己的 KeyedQueue，native-queue 模式靠方舟原生队列；SDK 若再合并会破坏
+        「每条消息独立成窗」的规则。关掉后 SDK 逐条直投，dedup 仍然生效。
 
     调试 SDK 内部 stale/dedup/policy：设环境变量 `FEISHU_SDK_DEBUG=1`。它做两件事——
       1. 把 SDK 那个独立的 `Lark` logger（core/log.py 里硬编码成 WARNING、自带 handler）

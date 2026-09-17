@@ -2,6 +2,7 @@
 import asyncio
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -11,15 +12,18 @@ if str(_GROUP_BOT_DIR) not in sys.path:
     sys.path.insert(0, str(_GROUP_BOT_DIR))
 
 import shared  # noqa: E402
+import topic_session_bot as topic_bot  # noqa: E402
 from topic_session_bot import (  # noqa: E402
     TopicSessionBot,
+    _is_runtime_busy,
     _with_roster_history_names,
     _with_roster_name,
+    build_parser,
     select_topic_delta,
     to_topic_key,
 )
 
-from arkagent.ark import RunResult  # noqa: E402
+from arkagent.ark import ArkError, RunResult  # noqa: E402
 from arkagent.feishu import HistoryMessage, IncomingMessage  # noqa: E402
 
 
@@ -306,3 +310,283 @@ def test_new_replaces_only_current_topic_session(loop):
     assert sessions.get(to_topic_key(root_a)) == "sesn-3"
     assert sessions.get(to_topic_key(root_b)) == old_b
     assert len(ark.run_calls) == 2
+
+
+class _FakeStream:
+    def __init__(self, events):
+        self._events = events
+
+    async def __aenter__(self):
+        return self._iterate()
+
+    async def __aexit__(self, *_exc):
+        return False
+
+    async def _iterate(self):
+        for event in self._events:
+            yield event
+        await asyncio.Event().wait()
+
+
+class NativeFakeArk(FakeArk):
+    def __init__(self):
+        super().__init__()
+        self.send_calls: list[tuple[str, str]] = []
+        self.send_hook = None
+        self.stream_events: dict[str, list[dict]] = {}
+        self.stream_opens: list[str] = []
+
+    async def send_message(self, session_id: str, actor_input: str) -> None:
+        index = len(self.send_calls)
+        self.send_calls.append((session_id, actor_input))
+        if self.send_hook is not None:
+            self.send_hook(session_id, actor_input, index)
+
+    def _open_event_stream(self, session_id: str):
+        self.stream_opens.append(session_id)
+        return _FakeStream(self.stream_events.get(session_id, []))
+
+
+def _text_event(event_id: str, text: str) -> dict:
+    return {
+        "id": event_id,
+        "type": "agent.message",
+        "content": [{"type": "text", "text": text}],
+    }
+
+
+def _make_native_bot(loop, *, ark=None, sender=None, sessions=None):
+    ark = ark or NativeFakeArk()
+    sender = sender or FakeSender()
+    sessions = sessions or shared.InMemorySessionMap()
+    bot = TopicSessionBot(
+        _config(),
+        ark,
+        sender,
+        loop,
+        sessions,
+        execution_mode="native-queue",
+    )
+    return bot, ark, sender, sessions
+
+
+def _wait_until(loop, predicate, tries: int = 80) -> None:
+    for _ in range(tries):
+        if predicate():
+            return
+        asyncio.run_coroutine_threadsafe(asyncio.sleep(0), loop).result(timeout=2)
+        time.sleep(0.005)
+    assert predicate()
+
+
+def _shutdown_native(bot, loop) -> None:
+    async def _stop_all():
+        for key_str in list(bot._consumers):  # noqa: SLF001 - 测试清理
+            task = bot._consumers.pop(key_str)  # noqa: SLF001
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    asyncio.run_coroutine_threadsafe(_stop_all(), loop).result(timeout=2)
+
+
+def test_execution_mode_parser_defaults_to_serial_and_accepts_native_queue():
+    parser = build_parser()
+
+    assert parser.parse_args([]).execution_mode == "serial"
+    assert (
+        parser.parse_args(["--execution-mode", "native-queue"]).execution_mode
+        == "native-queue"
+    )
+
+
+def test_native_queue_same_topic_shares_session_and_different_topics_do_not(loop):
+    bot, ark, _sender, _sessions = _make_native_bot(loop)
+    try:
+        first = _msg(
+            "@群助手 一",
+            mid="om-a1",
+            eid="ev-a1",
+            root_id="om-root-a",
+            thread_id="omt-a",
+            mentioned_bot=True,
+        )
+        second = _msg(
+            "@群助手 二",
+            mid="om-a2",
+            eid="ev-a2",
+            root_id="om-root-a",
+            thread_id="omt-a",
+            mentioned_bot=True,
+        )
+        other = _msg(
+            "@群助手 三",
+            mid="om-b1",
+            eid="ev-b1",
+            root_id="om-root-b",
+            thread_id="omt-b",
+            mentioned_bot=True,
+        )
+        bot.accept(first)
+        bot.accept(second)
+        bot.accept(other)
+        _wait_until(loop, lambda: len(ark.send_calls) == 3)
+
+        assert ark.created == 2
+        assert ark.send_calls[0][0] == ark.send_calls[1][0]
+        assert ark.send_calls[2][0] != ark.send_calls[0][0]
+        assert len(bot._consumers) == 2  # noqa: SLF001
+    finally:
+        _shutdown_native(bot, loop)
+
+
+def test_native_consumer_replies_with_last_message_in_topic(loop):
+    ark = NativeFakeArk()
+    ark.stream_events["sesn-1"] = [
+        _text_event("e1", "处理中"),
+        _text_event("e2", "最终答复"),
+        {"id": "e3", "type": "session.status_idle"},
+    ]
+    bot, _ark, sender, _sessions = _make_native_bot(loop, ark=ark)
+    try:
+        bot.accept(
+            _msg(
+                "@群助手 给方案",
+                mid="om-root",
+                eid="ev-1",
+                mentioned_bot=True,
+            )
+        )
+        _wait_until(loop, lambda: sender.thread_replies == [("om-root", "最终答复")])
+
+        assert all(text != "处理中" for _, text in sender.thread_replies)
+        assert sender.deleted_reactions == [("om-root", "rx-1")]
+    finally:
+        _shutdown_native(bot, loop)
+
+
+def test_native_queue_retries_409_without_rebuilding(loop, monkeypatch):
+    monkeypatch.setattr(topic_bot, "BACKOFF_BASE_S", 0.001)
+    monkeypatch.setattr(topic_bot, "BACKOFF_CAP_S", 0.002)
+    ark = NativeFakeArk()
+
+    def send_hook(_session_id, _text, index):
+        if index < 2:
+            raise ArkError("RuntimeBusy", status_code=409)
+
+    ark.send_hook = send_hook
+    bot, _ark, _sender, _sessions = _make_native_bot(loop, ark=ark)
+    try:
+        bot.accept(
+            _msg("@群助手 忙吗", mid="om-root", eid="ev-1", mentioned_bot=True)
+        )
+        _wait_until(loop, lambda: len(ark.send_calls) == 3)
+
+        assert ark.created == 1
+        assert {session_id for session_id, _ in ark.send_calls} == {"sesn-1"}
+    finally:
+        _shutdown_native(bot, loop)
+
+
+def test_native_queue_rebuilds_404_and_starts_new_consumer(loop):
+    ark = NativeFakeArk()
+    sessions = shared.InMemorySessionMap()
+    message = _msg(
+        "@群助手 继续",
+        mid="om-current",
+        eid="ev-1",
+        root_id="om-root",
+        thread_id="omt-a",
+        mentioned_bot=True,
+    )
+    key = to_topic_key(message)
+    sessions.save(key, "sesn-stale")
+
+    def send_hook(session_id, _text, _index):
+        if session_id == "sesn-stale":
+            raise ArkError("not found", status_code=404)
+
+    ark.send_hook = send_hook
+    bot, _ark, _sender, _sessions = _make_native_bot(
+        loop, ark=ark, sessions=sessions
+    )
+    try:
+        bot.accept(message)
+        _wait_until(loop, lambda: len(ark.send_calls) == 2)
+
+        assert ark.send_calls[0][0] == "sesn-stale"
+        assert ark.send_calls[1][0] == "sesn-1"
+        assert sessions.get(key) == "sesn-1"
+        assert "sesn-stale" in ark.stream_opens
+        assert "sesn-1" in ark.stream_opens
+    finally:
+        _shutdown_native(bot, loop)
+
+
+def test_native_persisted_session_recovers_consumer(loop):
+    ark = NativeFakeArk()
+    sessions = shared.InMemorySessionMap()
+    message = _msg(
+        "@群助手 继续",
+        mid="om-current",
+        eid="ev-1",
+        root_id="om-root",
+        thread_id="omt-a",
+        mentioned_bot=True,
+    )
+    sessions.save(to_topic_key(message), "sesn-persisted")
+    bot, _ark, _sender, _sessions = _make_native_bot(
+        loop, ark=ark, sessions=sessions
+    )
+    try:
+        bot.accept(message)
+        _wait_until(loop, lambda: len(ark.send_calls) == 1)
+
+        assert ark.created == 0
+        assert ark.send_calls[0][0] == "sesn-persisted"
+        assert ark.stream_opens == ["sesn-persisted"]
+        assert len(bot._consumers) == 1  # noqa: SLF001
+    finally:
+        _shutdown_native(bot, loop)
+
+
+def test_native_new_replaces_only_current_topic_and_stops_old_consumer(loop):
+    bot, ark, sender, sessions = _make_native_bot(loop)
+    first = _msg(
+        "@群助手 开始",
+        mid="om-a1",
+        eid="ev-a1",
+        root_id="om-root-a",
+        thread_id="omt-a",
+        mentioned_bot=True,
+    )
+    try:
+        bot.accept(first)
+        _wait_until(loop, lambda: len(ark.send_calls) == 1)
+        old_session = sessions.get(to_topic_key(first))
+
+        reset = _msg(
+            "@群助手 /new",
+            mid="om-a2",
+            eid="ev-a2",
+            root_id="om-root-a",
+            thread_id="omt-a",
+            mentioned_bot=True,
+        )
+        bot.accept(reset)
+        _wait_until(loop, lambda: len(sender.thread_replies) == 1)
+
+        assert sessions.get(to_topic_key(first)) != old_session
+        assert ark.created == 2
+        assert len(bot._consumers) == 1  # noqa: SLF001
+        assert "已重置当前话题" in sender.thread_replies[0][1]
+    finally:
+        _shutdown_native(bot, loop)
+
+
+def test_is_runtime_busy_detection():
+    assert _is_runtime_busy(ArkError("busy", status_code=409))
+    assert _is_runtime_busy(RuntimeError("RuntimeBusy"))
+    assert not _is_runtime_busy(ArkError("missing", status_code=404))

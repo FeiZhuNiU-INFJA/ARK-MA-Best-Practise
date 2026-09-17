@@ -6,9 +6,9 @@
 2. 流程里有哪些**关键数据结构**，各自装了什么。
 3. 每个**判断节点依据对象的哪个属性**做决策。
 
-代码入口：`shared.py`（公共底座）、`topic_session_bot.py`（话题级 Session，推荐）、
-`client_serial_bot.py`（客户端串行）、`ma_native_queue_bot.py`（方舟原生队列）、`../../arkagent/feishu.py`（飞书接入 +
-归一化）、`../../arkagent/ark.py`（方舟客户端）、`../../arkagent/gateway.py`（`KeyedQueue`）。
+代码入口：`shared.py`（公共底座）、`topic_session_bot.py`（话题级 Session，支持
+`serial` / `native-queue`）、`../../arkagent/feishu.py`（飞书接入 + 归一化）、
+`../../arkagent/ark.py`（方舟客户端）、`../../arkagent/gateway.py`（`KeyedQueue`）。
 
 > 术语：**触发消息** = 当前这条 @bot 的入站消息；**窗口** = 注入本轮的那段群历史增量。
 
@@ -39,8 +39,11 @@ flowchart TD
     S --> R[reply_in_thread=true\n首条回复创建飞书话题]
     R --> F[话题内普通消息\n不触发回复]
     F --> A2[下一次 @bot]
-    A2 --> Q[按话题 KeyedQueue 串行]
-    Q --> P[读取当前 thread\n上次 @bot 之后至今]
+    A2 --> Q{execution-mode}
+    Q -- serial --> QS[按话题 KeyedQueue 串行]
+    Q -- native-queue --> QN[send_message 直发\n事件流消费回复]
+    QS --> P[读取当前 thread\n上次 @bot 之后至今]
+    QN --> P
     P --> S
 ```
 
@@ -56,14 +59,14 @@ flowchart TD
 
 ---
 
-## 3. 旧方案总体架构
+## 3. 总体架构
 
 ```mermaid
 flowchart LR
     FS[飞书开放平台] -- WS 长连接 --> SDK[lark-channel-sdk\nFeishuChannel]
     SDK -- InboundMessage --> NORM[_inbound_to_incoming\n归一化]
     NORM -- IncomingMessage --> GW{{Gateway\naccept 同步入口}}
-    GW -- 调度到事件循环 --> BOT[SerialGroupBot / ConcurrentGroupBot]
+    GW -- 调度到事件循环 --> BOT[TopicSessionBot\nserial / native-queue]
     BOT <--> MAP[(SqliteSessionMap\n~/.arkagent/*.db)]
     BOT -- 读群历史 --> HIST[FeishuSender.list_messages\n→ HistoryMessage]
     BOT -- 窗口拼接 --> WIN[shared.build_windowed_input]
@@ -78,7 +81,7 @@ flowchart LR
 
 ---
 
-## 4. 旧方案入站数据流与判断节点
+## 4. 入站数据流与判断节点
 
 ```mermaid
 flowchart TD
@@ -149,17 +152,17 @@ David: @群助手 整理成周报发我        ← 当前 @bot 的请求（无�
 
 ---
 
-## 5. 两个旧方案的分叉（发送策略 + 回复路径）
+## 5. 两种执行模式的分叉（发送策略 + 回复路径）
 
 ```mermaid
 flowchart TD
-    subgraph A[客户端串行]
-        A1[accept → KeyedQueue.enqueue key] --> A2[同一群 key 串行\n上一轮 idle 才发下一条]
+    subgraph A[serial]
+        A1[accept → KeyedQueue.enqueue key] --> A2[同一话题 key 串行\n上一轮 idle 才发下一条]
         A2 --> A3[ark.run 阻塞到终态]
         A3 --> A4[reply 到原 message_id]
     end
-    subgraph C[方舟原生队列]
-        C1[accept → 直投 _handle 协程] --> C2[ensure_session\n首建时起常驻消费协程]
+    subgraph C[native-queue]
+        C1[accept → 直投 _run_native 协程] --> C2[ensure_native_session\n恢复或新建常驻消费协程]
         C2 --> C3[send_message 直发\nrunning 中也发]
         C3 --> C4[_consume 读事件流\nidle 时把合并回复交 _deliver_reply]
     end
@@ -170,14 +173,11 @@ flowchart TD
 | 排序者 | 客户端 `KeyedQueue`（[gateway.py:28](../../arkagent/gateway.py)，按 key 串行） | 方舟服务端"运行中待处理队列" |
 | 是否合并 | 不会，每条独立成轮 | 会，同一可调度边界前堆积的多条被打包进一次模型请求 |
 | 每人单独回复 | 是 | 不保证 |
-| 回复路径 | `reply(message_id)`——**留在话题/原消息处** | `_deliver_reply`：话题群 `reply` 到本回合最后一条触发消息（**回复落回话题**），普通群 `send_to_chat` 直发群会话 |
+| 回复路径 | `reply_in_thread(message_id)`，始终留在当前话题 | 事件流在 `idle` 时取最后一条 `agent.message`，`reply_in_thread` 到本回合最后一条触发消息 |
 | 409 `RuntimeBusy` | 不触发 | 会，指数退避（`_is_runtime_busy` 依据 `ArkError.status_code==409`） |
 
-> 判断节点（客户端串行）：`_reply` 依据 `chat_type=="group"` **且** `message_id` 决定
-> reply 原消息还是发群会话。
-> 判断节点（方舟原生队列）：`_deliver_reply` [ma_native_queue_bot.py:152](ma_native_queue_bot.py)
-> 依据 `key.thread_id` 是否非空——话题群 reply 到 `_last_trigger_message_id`（落回话题，失败降级发群），
-> 非话题群直发群会话。合并回复的场景下用**本回合最后一条**触发消息作为 reply 锚点。
+> 两种模式统一由 `_reply` 依据 `chat_type=="group"` 且存在 `message_id` 决定使用
+> `reply_in_thread` 或 `send_to_chat`。原生队列合并回复使用本回合最后一条触发消息作为话题锚点。
 
 ---
 
@@ -197,9 +197,9 @@ flowchart TD
 
 | 判断节点 | 位置 | 依据属性 | 动作 |
 |---|---|---|---|
-| Session 失效 | 客户端串行 `_process` / 方舟原生队列 `_post_message` | `ArkError.status_code == 404` | 重置映射 → 重建 Session → 重跑/重发 |
-| 队列忙 | 方舟原生队列 `_post_message` | `ArkError.status_code == 409`（`_is_runtime_busy`） | 指数退避重试（上限 `MAX_409_RETRIES`） |
-| 运行终态 | `_result_to_text` [client_serial_bot.py](client_serial_bot.py) | `RunResult.terminal` / `messages` | `failed` 报错、`idle` 取最后一条 |
+| Session 失效 | `_process_serial` / `_send_native` | `ArkError.status_code == 404` | 重置映射 → 重建 Session → 重跑/重发；原生模式同时重启 consumer |
+| 队列忙 | `_send_native` | `ArkError.status_code == 409`（`_is_runtime_busy`） | 指数退避重试（上限 `MAX_409_RETRIES`） |
+| 运行终态 | `_result_to_text` [topic_session_bot.py](topic_session_bot.py) | `RunResult.terminal` / `messages` | `failed` 报错、`idle` 取最后一条 |
 
 `ArkError.status_code` / `body` 由 `ArkClient._request` 与事件流在 4xx 时填充
 （[ark.py:86](../../arkagent/ark.py)），调用方据此精准分流，不再靠字符串匹配。
@@ -208,7 +208,8 @@ flowchart TD
 
 ## 7. 持久化落点
 
-- `SqliteSessionMap` 默认落 `~/.arkagent/group_bot_sessions.db`（WAL 模式）。
+- `SqliteSessionMap` 默认使用仓库 `data/` 下独立数据库：serial 为
+  `topic_bot_sessions.db`，native-queue 为 `topic_bot_native_queue_sessions.db`（WAL 模式）。
 - `sessions` 表让 gateway 重启后仍复用同一个群/话题的方舟 Session（对话记忆存在方舟侧）。
 - `seen_events` 表让事件去重跨进程重启仍生效（24h TTL，启动清理一次）。
 - 并发：WS 线程与事件循环线程共用连接（`check_same_thread=False`），进程内一把锁串行化写。
@@ -239,7 +240,7 @@ flowchart TD
 | 上传 | `prepare_attachments` [shared.py](shared.py) | 图片、PDF、Markdown、纯文本等全部文件类型 | 上传拿 `file_id` |
 | 额度/降级 | `prepare_attachments` [shared.py](shared.py) | `MAX_SINGLE_FILE_BYTES`(20MB) / `MAX_ATTACHMENT_TOTAL_BYTES`(40MB) / 下载·上传异常 | 逐个附件套 try，失败记一条 notice 跳过，不拖垮本轮 |
 | 挂载路径 | `_mount_path` [shared.py](shared.py) | `sha256(file_key)[:16]` + 安全文件名 | `/mnt/session/uploads/{短哈希}/{名}`，同一 `file_key` 恒定映射到同一路径（去重基础），不同文件不覆盖 |
-| 挂到 Session | `_mount_attachments`（两个 bot） | `PreparedAttachment.file_id` 非空 | `add_session_file` 挂载；单个失败记 warning 不抛 |
+| 挂到 Session | `_mount_attachments` | `PreparedAttachment.file_id` 非空 | `add_session_file` 挂载；单个失败记 warning 不抛 |
 | 正文注入 | `_attachment_blocks` [shared.py](shared.py) | 已挂载附件列表 | 只列沙箱路径，不展开文件原文；notice 逐条如实 |
 
 要点：
@@ -266,11 +267,11 @@ flowchart TD
   哪个 Session，都落到**同一挂载路径**——这是「文件缓存复用 `file_id` + 复用路径」的基础。
 - 注入点：`prepare_attachments` 收 `lookup_file_id` / `save_file_id` 两个回调（文件缓存层）；
   `_mount_attachments` 用 `is_attachment_mounted` / `mark_attachment_mounted`（挂载记录层）。
-  两个 bot 把 store 的对应方法用 `getattr` 探测后注入——**store 没实现这些方法时自动退回**
+  统一入口把 store 的对应方法用 `getattr` 探测后注入——**store 没实现这些方法时自动退回**
   每轮都下载/上传/挂载的老行为（鸭子类型，测试替身无需实现全部方法）。
 - 效果：同 Session 内第二次引用同一文件 → 0 下载、0 上传、0 挂载；跨 Session（不同群）第二次
   引用 → 0 下载、0 上传，但各 Session 各挂一次（复用同一 `file_id`）。测试见
-  `tests/test_client_serial_bot.py`（同 session 复用）、`tests/test_ma_native_queue_bot.py`（跨 session 复用）。
+  `tests/test_topic_session_bot.py`。
 
 ### 8.2 历史消息里的附件（文件单独发、之后另一条消息才 @bot）
 
@@ -286,16 +287,16 @@ PDF」。此时触发消息本身**没有** `resources`，只有正文——若�
 | 历史项带附件 | `_extract_history_resources` → `HistoryMessage.resources` [feishu.py](../../arkagent/feishu.py) | 归一化历史时，从 `body.content` 的 raw JSON 抽出 file/image 附件（file→`file_key`/`file_name`，image→`image_key`），每个 `ResourceRef` 记上**这条历史消息自己的** `message_id` |
 | 附件带所属消息 id | `ResourceRef.message_id` [feishu.py](../../arkagent/feishu.py) | 触发消息的附件填当前消息 id；历史消息的附件填那条历史消息 id——下载资源必须按各自所属消息取（`file_key` 只在其所属消息里有效） |
 | 收齐本轮附件 | `collect_round_resources` [shared.py](shared.py) | 合并「触发消息 + `select_window` 窗口历史 + 话题前情」里的附件，按 `file_key` 去重（触发消息优先、排最前），返回给 `prepare_attachments` 处理 |
-| 下载按 id 定位 | 两个 bot 的 `_prepare_attachments` | `download_resource(ref.message_id or message.message_id, ref.file_key, ref.type)`——历史附件走它自己的 `message_id`，触发消息附件兜底用当前 id |
+| 下载按 id 定位 | `_prepare_attachments` | `download_resource(ref.message_id or message.message_id, ref.file_key, ref.type)`——历史附件走它自己的 `message_id`，触发消息附件兜底用当前 id |
 
 要点：
-- **先读上下文、再收附件**：两个 bot 都先 `_read_context`（群历史窗口 + 引用链 + 话题前情），
-  把三段同时喂给 `build_windowed_input`（拼正文）和 `collect_round_resources`（收附件），
+- **先读上下文、再收附件**：两种模式共用 `_prepare_turn` 读取当前话题增量与引用链，
+  同时喂给 `build_windowed_input`（拼正文）和 `collect_round_resources`（收附件），
   保证「进正文的转录范围」与「挂进 Session 的附件范围」严格一致。
 - 撤回消息只留占位文本、**不带附件**（`file_key` 已失效）。
 - 与去重（§8.1）叠加：历史里收出来的文件同样先查文件缓存，命中则跳过下载/上传。
-  测试见 `tests/test_group_bot.py`（`collect_round_resources`）、两个 bot 测试的
-  `test_attachment_from_history_message_is_mounted`。
+  测试见 `tests/test_group_bot.py`（`collect_round_resources`）与
+  `tests/test_topic_session_bot.py`。
 
 ---
 
@@ -328,7 +329,7 @@ flowchart LR
 | Environment `setup_script` | 下载对应架构的 lark-cli 二进制到 `/usr/local/bin`（SHA256 校验、npmmirror 加速） | 方舟 cloud 沙箱默认没有 lark-cli，Session 首次拉起时装一次 | `LARK_CLI_SETUP_SCRIPT` [ark.py](../../arkagent/ark.py)、`ensure_lark_cli_environment` [shared.py](shared.py) |
 | Environment `env` | `LARKSUITE_CLI_APP_ID` = 飞书 App Id | 非敏感，明文放这里即可 | `ensure_lark_cli_environment` [shared.py](shared.py) |
 | Vault 凭据 | `environment_variable` 凭据：`LARKSUITE_CLI_APP_SECRET` = App Secret | App Secret 敏感，只存 Vault、不进 Environment 明文、不给 Agent 看到 | `ensure_lark_cli_vault` [shared.py](shared.py)、`create_environment_variable_credential` [ark.py](../../arkagent/ark.py) |
-| `create_session` | `vault_ids=[lark_vault_id]` + `env_overrides=build_lark_session_env(message)` | 挂上 Vault → 沙箱环境变量里就有 App Secret，lark-cli 据此换 Bot 的 tenant access token；`env_overrides` 补「这条消息在哪个群/话题」这类每轮会变的定位信息 | 两个 bot 的 `_create_session` / `_ensure_session` |
+| `create_session` | `vault_ids=[lark_vault_id]` + `env_overrides=build_lark_session_env(message)` | 挂上 Vault → 沙箱环境变量里就有 App Secret，lark-cli 据此换 Bot 的 tenant access token；`env_overrides` 补「这条消息在哪个群/话题」这类每轮会变的定位信息 | `topic_session_bot.py` 的 `_create_session` |
 
 要点：
 - **Bot-only 身份**：群 Session 永远只注入 Bot 上下文（chat/thread/触发消息），**绝不注入**任何
@@ -340,7 +341,7 @@ flowchart LR
   才注入定位变量；没配则 Agent 退回纯对话（避免 prompt 承诺了 lark-cli 却没凭据可用）。
 - **环境隔离**：群聊 Bot 用自己的 `GROUP_BOT_ENVIRONMENT_ID`（装了 lark-cli 的那个），与四卡点
   case 的 `ARK_ENVIRONMENT_ID` 分开；`init_group_bot.py` 把 `GROUP_BOT_ENVIRONMENT_ID` /
-  `GROUP_BOT_LARK_VAULT_ID` 写回 config.env，两个 demo 直接 source。
+  `GROUP_BOT_LARK_VAULT_ID` 写回 config.env，统一入口直接 source。
 - **权限**：lark-cli 能做什么，取决于飞书开放平台给这个应用勾了哪些权限——除消息类权限外，
   还需按业务域（docx / drive / calendar…）在开放平台补齐并发布版本。
 
@@ -366,8 +367,7 @@ flowchart TD
 | 发送 | `reply` / `send_to_chat` 先发 post；`_reply_with` / `_create_in_chat` 是底层单一 msg_type 发送 | `FeishuSender` [feishu.py](../../arkagent/feishu.py) |
 | 降级 | post 转换或发送抛异常 → 用同一段文字按 text 再发一次（宁可不渲染也要发出去，不吞回复） | `reply` / `send_to_chat` 的 try/except |
 
-- **旧方案不改交互形态**：`reply` 仍在原消息下引用回复；两个旧方案的回复路径（§5）不变，只是载体从
-  text 换成 post。
+- **交互形态不变**：`reply_in_thread` 始终把回复留在当前话题，只是载体从 text 换成 post。
 - **回执 / 报错短句**同样走 post——纯文本在 post 里渲染一致，无需按内容分流，实现简单统一。
 - 测试见 `tests/test_feishu.py`（转换的 locale map 结构、开关、post→text 降级分支）。
 
@@ -397,9 +397,10 @@ flowchart TD
 | 同名消歧 | 一个名字对应多个不同 open_id → 整体剔除（找不到唯一目标就原样保留字面，不 @ 错人） | `_build_roster` [feishu.py](../../arkagent/feishu.py) |
 | 重写 | SDK `resolve_mentions_in_text` 把命中名册的 `@名字` 换 `<at>`；不在名册/歧义的原样留字面 | `_text_to_post_content` [feishu.py](../../arkagent/feishu.py) |
 | 混合渲染 | 按空行切块（保围栏代码块完整），含 `<at>` 的块 structured、其余 native | `_split_markdown_blocks` / `_text_to_post_content` |
-| 接线 | 群回复前取名册传给 `reply` / `send_to_chat`；私聊/失败退回空名册 | `_chat_roster`（两个 bot）/ `_deliver_reply`（方舟原生队列） |
+| 接线 | 群回复前取名册传给 `reply_in_thread` / `send_to_chat`；私聊/失败退回空名册 | `TopicSessionBot._chat_roster` / `_reply` |
 
 - **绝不拖垮回复**：名册拉取抛错退回空名册（不 @，正文照发）；私聊没有 @ 别人的语义，不拉名册。
 - **发问人显示名**：转录里「当前请求行」也优先用发言人显示名（`IncomingMessage.user_name`，见 §1），
   取不到才回退 open_id，和历史行同一口径（`build_windowed_input`）。
-- 测试见 `tests/test_feishu.py`（名册归一/消歧、分块、重写与混合渲染）与两个 bot 的测试（名册接线）。
+- 测试见 `tests/test_feishu.py`（名册归一/消歧、分块、重写与混合渲染）与
+  `tests/test_topic_session_bot.py`（名册接线）。

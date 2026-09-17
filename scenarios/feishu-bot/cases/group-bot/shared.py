@@ -1,4 +1,4 @@
-"""群聊 Bot（对齐 Claude Tag）——三个示例脚本的公共底座。
+"""群聊 Bot（对齐 Claude Tag）——话题 Session 入口的公共底座。
 
 与主包 arkagent/ 的四卡点 demo（按 open_id 做身份/岗位/记忆隔离）完全解耦：
 本模块只做「一个群共享一个方舟 Session、发言人靠正文标注」这一件事，不注入
@@ -9,10 +9,8 @@
   - arkagent.feishu          —— 飞书消息归一化 / 发送
   - arkagent.gateway.KeyedQueue —— 按 key 串行化协程（客户端串行方案用）
 
-三个脚本各自实现「会话粒度 / 发送策略」的差异：
-  - topic_session_bot.py   一个飞书话题一个 Session；仅 @bot 回复，并带当前话题增量。
-  - client_serial_bot.py    客户端 KeyedQueue 串行：上一轮到 idle 才发下一条，每人各得干净回复。
-  - ma_native_queue_bot.py  方舟原生队列：running 中直发，靠可调度边界吸收/合并，处理 409 RuntimeBusy。
+`topic_session_bot.py` 始终以一个飞书话题对应一个 Session，并通过
+`--execution-mode serial|native-queue` 选择客户端串行或方舟原生队列。
 """
 from __future__ import annotations
 
@@ -95,7 +93,7 @@ def is_reset_command(text: str) -> bool:
 def message_log_tag(message: IncomingMessage) -> str:
     """统一日志前缀：event_id + 群 + 类型 + 是否 @bot。
 
-    两个 demo 的埋点都带上它，便于按 `event=xxx` grep 出「一条消息从收到到回复」的全过程。
+    两种执行模式的埋点都带上它，便于按 `event=xxx` grep 一条消息的全过程。
     """
     return (
         f"[event={message.event_id} chat={message.chat_id} "
@@ -103,7 +101,7 @@ def message_log_tag(message: IncomingMessage) -> str:
     )
 
 
-# ---- 带颜色的日志（两个 demo 共用）-----------------------------------------
+# ---- 带颜色的日志 ----------------------------------------------------------
 
 # 按级别上色的 ANSI 颜色（前景色）。DEBUG 灰、INFO 青、WARNING 黄、ERROR/CRITICAL 红。
 _LEVEL_COLORS = {
@@ -797,7 +795,7 @@ class SqliteSessionMap:
     """会话映射的持久化版：群 key → 方舟 session_id，落 SQLite。
 
     与 InMemorySessionMap 接口完全一致（get/save/reset/claim_event + 附件去重四方法），
-    两个 demo 可直接替换。解决 InMemorySessionMap 的进程重启即丢失问题——gateway 重启后仍
+    两种执行模式可直接替换。解决 InMemorySessionMap 的进程重启即丢失问题——gateway 重启后仍
     复用同一个群的方舟 Session，群里的对话记忆（存在方舟 Session 侧）不会因为本地进程重启而断掉。
 
     四张表：

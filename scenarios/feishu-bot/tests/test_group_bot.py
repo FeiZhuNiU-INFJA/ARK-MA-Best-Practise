@@ -338,7 +338,7 @@ def test_sqlite_session_map_claim_event_dedups_across_reopen(tmp_path):
 
 
 def test_sqlite_session_map_matches_inmemory_interface():
-    # 两个 demo 靠鸭子类型互换，接口方法名/签名须一致（含附件去重四方法）。
+    # 两种执行模式共用同一 store，接口方法名/签名须一致（含附件去重四方法）。
     for name in (
         "get", "save", "reset", "claim_event",
         "get_attachment", "save_attachment",
