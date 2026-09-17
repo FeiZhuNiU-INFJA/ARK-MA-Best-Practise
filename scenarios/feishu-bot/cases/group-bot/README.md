@@ -199,7 +199,9 @@ Agent 常在回复里点名群成员（「@张三 请跟进」）。若直接发
 群消息、日历等团队资源（对齐源项目 `src/init.ts` / `src/ark.ts`）。凭据分三处安放，各司其职：
 
 - **Environment**：`setup_script` 在 Session 首次拉起沙箱时安装原版 lark-cli
-  （SHA256 校验 + npmmirror 加速）；`env.LARKSUITE_CLI_APP_ID` 明文写入飞书 App Id（非敏感）。
+  （SHA256 校验 + npmmirror 加速），`packages.pip` 预装固定版本 `pypdf`；
+  `env.LARKSUITE_CLI_APP_ID` 明文写入飞书 App Id（非敏感）。重复置备会原地同步配置，
+  保持 Environment ID 不变。
 - **Bot 主机**：用 App ID/Secret 换取短期 tenant access token；App Secret 不进入方舟 Vault
   或 Agent 沙箱。
 - **Vault**：只保存 `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`。Bot 在每轮发送前检查有效期，

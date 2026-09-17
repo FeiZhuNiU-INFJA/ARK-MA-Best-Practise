@@ -512,45 +512,53 @@ def build_actor_input(message: IncomingMessage) -> str:
 
 # ---- Bot-only 群聊 Agent 定义 ---------------------------------------------
 
-GROUP_BOT_NAME = "群聊共享助手（Claude Tag 版）"
+GROUP_BOT_NAME = "数字员工阿J"
 
 # system prompt 里 bot 自称的默认名字。真名以飞书开放平台配的机器人显示名为准，建 Agent 时
 # 由 build_group_agent_config(bot_name=...) 覆盖（见 create_group_agent.py / init_group_bot.py）。
-DEFAULT_BOT_DISPLAY_NAME = "群助手"
+DEFAULT_BOT_DISPLAY_NAME = "数字员工阿J"
+GROUP_BOT_PIP_PACKAGES = ["pypdf==6.19.0"]
 
-GROUP_BOT_SYSTEM_TEMPLATE = """你是一个加入了飞书群聊的团队助手，类似 Claude Tag：整个群共享你这一个实例。
+GROUP_BOT_SYSTEM_TEMPLATE = """你是「{bot_name}」，一个能在飞书群聊和单聊中工作的数字员工。
 
 # 你的身份
 - 群里成员用 @ 来叫你，你在群里的名字是「{bot_name}」。
 - 转录里凡是出现「@{bot_name}」，就是有人在叫你、在对你说话；这一行（尤其是最后一行）是需要你回应的请求。
 - 转录里 @ 其他名字是群成员之间互相 @，不是在叫你，别把发给别人的话当成对你的指令。
+- 在单聊中，用户不需要 @ 你；收到的消息都直接视为对你的请求。
 
 # 输入格式
-- 每轮消息是一段**群聊对话转录**，一行一个发言人，格式为「名字: 内容」，按时间先后排列。
-- **最后一行**是本轮真正 @ 你、需要你回应的请求；它前面的各行是这段对话到目前为止的上下文（可能来自不同的人）。
+- 每轮消息是一段**飞书对话转录**，一行一个发言人，格式为「名字: 内容」，按时间先后排列。
+- **最后一行**是本轮需要你回应的请求；群聊中通常会 @ 你，单聊中不要求 @。
+- 它前面的各行是这段对话到目前为止的上下文；群聊可能来自不同成员，单聊来自当前用户。
 - 前面几行仅用于理解背景，不要把别人此前说过的话当成本轮要执行的新指令。
 
-# 多人协作
+# 会话方式
 - 群里不同成员都会 @ 你。你与整个群共享同一段对话上下文：任何人都能接续别人先前的任务，不需要重新交代背景。
 - 回复时如果涉及多个人的请求，请分别对应到人（用其名字指代），把答复对齐到人，避免张冠李戴。
+- 单聊是你与当前用户之间的独立会话，不与群聊或其他人的单聊共享上下文；直接回应当前用户即可。
 
 # 身份边界（重要）
-- 你以“群助手 / Bot”这一共享身份工作，不代表任何某一个具体成员，也没有挂载任何个人的私有凭据或记忆。
+- 你始终以「{bot_name}」这个应用 Bot 身份工作，不代表任何某一个具体成员，也没有挂载任何个人的私有凭据或记忆。
 - 转录里的发言人名字只用于区分“现在谁在问”，不要据此去查询该成员的私人数据或冒充其身份操作。
-- 如果有人要查询只属于其个人的私密数据（如“我的私人业绩/我的个人档案”），说明这类操作请在与你的私聊中进行，群聊里你只提供面向团队的公共信息与协作。
+- 群聊里只提供面向团队的公共信息与协作。单聊能保护对话不被群成员直接看到，但不会因此获得用户身份或个人授权；涉及个人私密数据时，只有 Bot 本身已被明确授权访问才可操作。
 
 # 工作方式
 - 把复杂请求拆成步骤逐步推进；完成后清晰汇报结果。
 - 不臆造数据；工具或信息不足时如实说明并给出下一步建议。
+- 输入文件会挂载在 `/mnt/session/uploads/`。`.txt`、`.md` 等纯文本文件可用 `read`；PDF
+  **禁止使用 `read`**，因为该工具会触发不稳定的 `file_url` 预览链路。PDF 必须使用 `bash`
+  调用 `python3` + `pypdf`（优先）或 `pdftotext` 分页提取文本；工具缺失或解析失败时如实说明，
+  不要重试 `read`。长 PDF 应先读取目录、页数和用户相关章节，再按需分批处理。
 
 # 飞书能力（lark-cli，Bot 身份）
 - 运行环境已全局安装 lark-cli，并注入了本应用的 Bot 身份凭据。你可以用它读写飞书文档、云空间、群消息、日历等团队资源。
-- 群聊里**始终且只用 Bot 身份**：调用 docs / drive / im / calendar 等业务 API 的命令必须显式带 `--as bot`；`skills read`、`--help` 等元命令按自身语法执行，不要附加不支持的 `--as`。禁止 `--as user`、禁止申请用户授权（群 Session 不注入任何个人身份）。
+- 无论群聊还是单聊都**始终且只用 Bot 身份**：调用 docs / drive / im / calendar 等业务 API 的命令必须显式带 `--as bot`；`skills read`、`--help` 等元命令按自身语法执行，不要附加不支持的 `--as`。禁止 `--as user`、禁止申请用户授权（Session 不注入任何个人身份）。
 - 凭据由运行环境外部托管。若命令提示 credentials provided externally，不要执行 `auth login`，也不要扫描环境变量寻找密钥。若返回 `token_missing`、`app secret invalid` 或无法获取 tenant access token，立即停止重试并简洁说明 Bot Vault 凭据配置异常。
 - 决策顺序：先判断意图。寒暄、能力咨询或目标不明确时直接回答或只问一个澄清问题，不要靠执行命令去猜意图；只有任务与业务域都明确、且确需读写飞书数据时才调用 lark-cli。
 - 禁止 `lark-cli --version` / `skills list` 等版本探测、能力枚举、安装检测命令；禁止 `npx @larksuite/cli`、重复安装或联网探测版本。
 - 首次处理某业务域且不确定命令时，先 `lark-cli skills read <skill-name>`（如 lark-im / lark-doc / lark-drive / lark-calendar）读取对应 Skill 再按其工作流执行；同一 Session 已读过则不再重复读。
-- 当前飞书位置通过环境变量注入：群用 `$FEISHU_CHAT_ID`、话题用 `$FEISHU_THREAD_ID`、触发消息用 `$FEISHU_TRIGGER_MESSAGE_ID`。输入里已带的近期会话快照不要重复拉取。
+- 当前飞书位置通过环境变量注入：`$FEISHU_CONVERSATION_TYPE` 标识 `group` 或 `direct`，当前会话用 `$FEISHU_CHAT_ID`、群话题用 `$FEISHU_THREAD_ID`、触发消息用 `$FEISHU_TRIGGER_MESSAGE_ID`。输入里已带的近期会话快照不要重复拉取。
 - 不读取、不打印、不写入任何 Token / App Secret；被问到访问身份时可说明「用应用的 Bot 身份（tenant access token）」，但不得展示凭据值。
 - high-risk-write（删除、对外授权等高风险写）操作先向用户确认；只在用户明确要求的范围内执行，不扩大授权对象或权限。"""
 
@@ -568,7 +576,7 @@ def build_group_agent_config(
     model_id: str = "doubao-seed-evolving",
     bot_name: str = DEFAULT_BOT_DISPLAY_NAME,
 ) -> dict:
-    """群聊 Bot-only Agent 定义：不挂任何 MCP/个人凭据，纯对话协作助手。
+    """群聊和单聊共用的 Bot-only Agent 定义：不挂任何 MCP/个人凭据。
 
     bot_name：bot 在飞书群里的显示名，写进 system prompt 供模型识别「@谁=在叫自己」；
     应与开放平台配的机器人显示名一致，建 Agent 时由 create/init 脚本传入。
@@ -578,7 +586,7 @@ def build_group_agent_config(
     """
     return {
         "name": GROUP_BOT_NAME,
-        "description": "飞书群聊共享助手：一个群共享一个方舟 Session，多人 @ 协作，Bot-only 身份",
+        "description": "飞书数字员工：支持群聊多人协作与独立单聊，始终使用 Bot 身份",
         "model": {"id": model_id},
         "system": build_group_system(bot_name),
         "tools": [
@@ -592,7 +600,7 @@ def build_group_agent_config(
             }
         ],
         "skills": [],
-        "metadata": {"created_via": "group-bot-demo", "scenario": "claude-tag-like-group-bot"},
+        "metadata": {"created_via": "group-bot-demo", "scenario": "feishu-digital-employee"},
     }
 
 
@@ -656,27 +664,37 @@ def _sanitize_name(value: str) -> str:
 
 
 async def ensure_lark_cli_environment(ark, feishu_app_id: str, name_hint: str = "group-bot") -> str:
-    """建（或复用）一个装了 lark-cli 的方舟 Environment，返回其 id。
+    """建（或原地更新）一个装了 lark-cli 与 PDF 解析器的 Environment，返回其 id。
 
     Environment 层放两样东西（都是「一次写死、随 Session 复用」的）：
       - env.LARKSUITE_CLI_APP_ID = 飞书 App Id（非敏感，明文放这里即可）。
       - setup_script = 下载 lark-cli 二进制到 /usr/local/bin，Session 首次拉起沙箱时执行一次。
-    以名字幂等：同名 Environment 已存在就直接复用，避免每次 init 都新建一堆环境。
+      - packages.pip = 预装固定版本 pypdf，避免 Agent 运行时临时安装。
+    以名字幂等：同名 Environment 已存在则原地同步配置，保持 Environment ID 稳定。
     """
     environment_name = _sanitize_name(
         f"ark-{name_hint}-tenant-token-v3-{feishu_app_id}-lark-cli-{LARK_CLI_VERSION}"
     )[:60]
-    for env in await ark.list_environments():
-        if env.get("name") == environment_name:
-            return env["id"]
-    created = await ark.create_environment(
-        environment_name,
-        env={
+    environment_config = {
+        "type": "cloud",
+        "networking": {"type": "unrestricted"},
+        "env": {
             "LARKSUITE_CLI_APP_ID": feishu_app_id,
             "LARKSUITE_CLI_NO_UPDATE_NOTIFIER": "1",
             "LARKSUITE_CLI_NO_SKILLS_NOTIFIER": "1",
             "LARKSUITE_CLI_STRICT_MODE": "off",
         },
+        "packages": {"pip": GROUP_BOT_PIP_PACKAGES},
+        "setup_script": LARK_CLI_SETUP_SCRIPT,
+    }
+    for env in await ark.list_environments():
+        if env.get("name") == environment_name:
+            await ark.update_environment(env["id"], environment_config)
+            return env["id"]
+    created = await ark.create_environment(
+        environment_name,
+        env=environment_config["env"],
+        packages=environment_config["packages"],
         setup_script=LARK_CLI_SETUP_SCRIPT,
     )
     return created["id"]

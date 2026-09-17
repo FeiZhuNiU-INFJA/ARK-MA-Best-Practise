@@ -739,6 +739,7 @@ class _FakeArkProvision:
         self._vaults = list(vaults or [])
         self._credentials = list(credentials or [])
         self.created_environments: list[dict] = []
+        self.updated_environments: list[tuple[str, dict]] = []
         self.created_vaults: list[str] = []
         self.created_credentials: list[tuple] = []
         self.updated_credentials: list[tuple] = []
@@ -747,13 +748,24 @@ class _FakeArkProvision:
     async def list_environments(self) -> list[dict]:
         return self._environments
 
-    async def create_environment(self, name, env=None, setup_script=None) -> dict:
+    async def create_environment(
+        self, name, env=None, setup_script=None, packages=None
+    ) -> dict:
         self.created_environments.append(
-            {"name": name, "env": env, "setup_script": setup_script}
+            {
+                "name": name,
+                "env": env,
+                "setup_script": setup_script,
+                "packages": packages,
+            }
         )
         created = {"id": f"env-{len(self.created_environments)}", "name": name}
         self._environments.append(created)
         return created
+
+    async def update_environment(self, environment_id, config) -> dict:
+        self.updated_environments.append((environment_id, config))
+        return {"id": environment_id}
 
     async def list_vaults(self) -> list[dict]:
         return self._vaults
@@ -787,10 +799,11 @@ async def test_ensure_lark_cli_environment_creates_with_setup_script_and_app_id(
     created = ark.created_environments[0]
     assert created["env"]["LARKSUITE_CLI_APP_ID"] == "cli_app1"  # App Id 明文进 Environment
     assert created["setup_script"] == shared.LARK_CLI_SETUP_SCRIPT  # 装 CLI 的脚本
+    assert created["packages"] == {"pip": ["pypdf==6.19.0"]}
 
 
 async def test_ensure_lark_cli_environment_is_idempotent_by_name():
-    # 同名 Environment 已存在就直接复用，不再新建。
+    # 同名 Environment 已存在就原地同步配置，不再新建。
     name = shared._sanitize_name(
         f"ark-group-bot-tenant-token-v3-cli_app1-lark-cli-{shared.LARK_CLI_VERSION}"
     )[:60]
@@ -798,6 +811,10 @@ async def test_ensure_lark_cli_environment_is_idempotent_by_name():
     env_id = await shared.ensure_lark_cli_environment(ark, "cli_app1")
     assert env_id == "env-existing"
     assert ark.created_environments == []  # 没新建
+    assert ark.updated_environments[0][0] == "env-existing"
+    assert ark.updated_environments[0][1]["packages"] == {
+        "pip": ["pypdf==6.19.0"]
+    }
 
 
 async def test_ensure_lark_cli_vault_creates_tenant_token_credential():

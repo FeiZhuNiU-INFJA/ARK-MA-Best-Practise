@@ -331,6 +331,7 @@ flowchart LR
 | 放哪 | 内容 | 为什么 | 代码 |
 |---|---|---|---|
 | Environment `setup_script` | 下载对应架构的 lark-cli 二进制到 `/usr/local/bin`（SHA256 校验、npmmirror 加速） | 方舟 cloud 沙箱默认没有 lark-cli，Session 首次拉起时装一次 | `LARK_CLI_SETUP_SCRIPT` [ark.py](../../arkagent/ark.py)、`ensure_lark_cli_environment` [shared.py](shared.py) |
+| Environment `packages.pip` | 固定版本 `pypdf` | PDF 不走内置 `read` 的 `file_url` 预览链路，改由沙箱 Python 稳定分页提取 | `ensure_lark_cli_environment` [shared.py](shared.py) |
 | Environment `env` | `LARKSUITE_CLI_APP_ID` = 飞书 App Id | 非敏感，明文放这里即可 | `ensure_lark_cli_environment` [shared.py](shared.py) |
 | Bot 主机 | 用 App ID/Secret 调飞书接口换短期 tenant token | Vault 环境变量在沙箱内是 opaque placeholder，不能用于 JSON body token 交换 | `fetch_feishu_tenant_access_token` [shared.py](shared.py) |
 | Vault 凭据 | `environment_variable` 凭据：`LARKSUITE_CLI_TENANT_ACCESS_TOKEN` | token 可原样替换进 Authorization header；App Secret 不进入 Vault 或 Agent 沙箱 | `ensure_lark_cli_vault` / `update_lark_cli_vault_token` [shared.py](shared.py) |

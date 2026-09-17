@@ -183,10 +183,13 @@ class ArkClient:
         name: str,
         env: Optional[dict[str, str]] = None,
         setup_script: Optional[str] = None,
+        packages: Optional[dict[str, list[str]]] = None,
     ) -> dict:
         config: dict = {"type": "cloud", "networking": {"type": "unrestricted"}}
         if env:
             config["env"] = env
+        if packages:
+            config["packages"] = packages
         # setup_script 在 Session 首次拉起沙箱时执行一次，用于装 lark-cli 这类系统级依赖。
         if setup_script:
             config["setup_script"] = setup_script
@@ -196,6 +199,22 @@ class ArkClient:
         if not ident:
             raise ArkError("创建 Environment 成功，但响应中没有 Environment ID")
         return {"id": ident, "name": str(data.get("name") or name)}
+
+    async def update_environment(
+        self, environment_id: str, config: dict
+    ) -> dict:
+        """原地更新 Environment；新配置只对之后创建的 Session 生效。"""
+        payload = await self._request(
+            "POST",
+            f"/environments/{quote(environment_id, safe='')}",
+            {"config": config},
+        )
+        data = _unwrap(payload)
+        self._environment_configs.pop(environment_id, None)
+        return {
+            "id": str(data.get("id") or environment_id),
+            "name": str(data.get("name") or ""),
+        }
 
     async def get_environment_config(self, environment_id: str) -> dict:
         cached = self._environment_configs.get(environment_id)

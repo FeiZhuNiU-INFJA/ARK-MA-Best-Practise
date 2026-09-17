@@ -190,6 +190,7 @@ async def test_create_environment_embeds_setup_script_and_env():
         "ark-group-bot-app1",
         env={"LARKSUITE_CLI_APP_ID": "cli_app1"},
         setup_script="echo install lark-cli",
+        packages={"pip": ["pypdf==6.19.0"]},
     )
     await client.aclose()
     assert created["id"] == "env-lark"
@@ -197,7 +198,28 @@ async def test_create_environment_embeds_setup_script_and_env():
     sent = json.loads(route.calls.last.request.content)
     assert sent["config"]["setup_script"] == "echo install lark-cli"
     assert sent["config"]["env"] == {"LARKSUITE_CLI_APP_ID": "cli_app1"}
+    assert sent["config"]["packages"] == {"pip": ["pypdf==6.19.0"]}
     assert sent["config"]["type"] == "cloud"
+
+
+@respx.mock
+async def test_update_environment_posts_config():
+    route = respx.post(f"{BASE}/environments/env-1").mock(
+        return_value=httpx.Response(200, json={"id": "env-1", "name": "group-bot"})
+    )
+    client = _client()
+    result = await client.update_environment(
+        "env-1", {"type": "cloud", "packages": {"pip": ["pypdf==6.19.0"]}}
+    )
+    await client.aclose()
+    assert result == {"id": "env-1", "name": "group-bot"}
+    import json
+    assert json.loads(route.calls.last.request.content) == {
+        "config": {
+            "type": "cloud",
+            "packages": {"pip": ["pypdf==6.19.0"]},
+        }
+    }
 
 
 # ---- agent update (更新 Agent，不新建) ----
