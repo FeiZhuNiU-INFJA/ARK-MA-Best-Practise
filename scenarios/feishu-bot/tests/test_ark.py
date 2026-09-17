@@ -7,6 +7,8 @@ from arkagent.ark import (
     drain_event_buffer,
     event_progress,
     event_text,
+    event_user_authorization_required,
+    remember_lark_cli_tool_domain,
     result_from_events,
 )
 
@@ -39,6 +41,116 @@ def test_event_progress_hides_raw_commands():
     assert event_progress({"type": "agent.tool_use", "name": "read", "input": {"file_path": "/secret"}}) == "正在调用工具：read"
     assert event_progress({"type": "agent.tool_result", "is_error": True}) == "工具执行未成功，Agent 正在尝试恢复"
     assert event_progress({"type": "agent.thinking"}) is None
+
+
+def test_detects_structured_lark_user_token_missing_with_domain():
+    domains = {}
+    remember_lark_cli_tool_domain(
+        {
+            "type": "agent.tool_use",
+            "id": "tool-1",
+            "input": {"command": "lark-cli calendar +agenda --as user"},
+        },
+        domains,
+    )
+    request = event_user_authorization_required(
+        {
+            "type": "agent.tool_result",
+            "tool_use_id": "tool-1",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        'exit_code: 3\n--- stderr ---\n'
+                        '{"ok":false,"identity":"user","error":'
+                        '{"type":"authentication","subtype":"token_missing"}}'
+                    ),
+                }
+            ],
+        },
+        domains,
+    )
+    assert request is not None
+    assert request.domain == "calendar"
+
+
+def test_does_not_treat_unstructured_tool_error_as_authorization():
+    request = event_user_authorization_required(
+        {
+            "type": "agent.tool_result",
+            "tool_use_id": "tool-1",
+            "content": [{"type": "text", "text": "token_missing"}],
+        }
+    )
+    assert request is None
+
+
+def test_detects_structured_lark_user_token_invalid():
+    request = event_user_authorization_required(
+        {
+            "type": "agent.tool_result",
+            "tool_use_id": "tool-calendar",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        'exit_code: 3\n--- stderr ---\n'
+                        '{"ok":false,"identity":"user","error":'
+                        '{"type":"authentication","subtype":"token_invalid"}}'
+                    ),
+                }
+            ],
+        },
+        {"tool-calendar": "calendar"},
+    )
+    assert request is not None
+    assert request.subtype == "token_invalid"
+    assert request.domain == "calendar"
+
+
+def test_detects_structured_lark_user_missing_scope():
+    request = event_user_authorization_required(
+        {
+            "type": "agent.tool_result",
+            "tool_use_id": "tool-drive",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        'exit_code: 3\n--- stderr ---\n'
+                        '{"ok":false,"identity":"user","error":'
+                        '{"type":"authorization","subtype":"missing_scope",'
+                        '"code":99991679,"missing_scopes":["search:docs:read"]}}'
+                    ),
+                }
+            ],
+        },
+        {"tool-drive": "drive"},
+    )
+    assert request is not None
+    assert request.error_type == "authorization"
+    assert request.subtype == "missing_scope"
+    assert request.domain == "drive"
+    assert request.missing_scopes == ("search:docs:read",)
+
+
+def test_rejects_missing_scope_without_structured_scope_list():
+    request = event_user_authorization_required(
+        {
+            "type": "agent.tool_result",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        'exit_code: 3\n--- stderr ---\n'
+                        '{"ok":false,"identity":"user","error":'
+                        '{"type":"authorization","subtype":"missing_scope"}}'
+                    ),
+                }
+            ],
+        }
+    )
+    assert request is None
 
 
 def test_result_from_events_only_recovers_current_run():

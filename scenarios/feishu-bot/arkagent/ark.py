@@ -48,12 +48,22 @@ rm -f "$ARCHIVE\""""
 
 
 @dataclass
+class UserAuthorizationRequired:
+    identity: str = "user"
+    error_type: str = "authentication"
+    subtype: str = "token_missing"
+    domain: str = ""
+    missing_scopes: tuple[str, ...] = ()
+
+
+@dataclass
 class RunResult:
     terminal: str  # "idle" | "failed"
     messages: list[str] = field(default_factory=list)
     # terminal=="failed" 时方舟给出的失败摘要（error.type + error.message，已截断）。
     # 供上层写日志/回执用；成功轮为空字符串。见 event_error。
     error: str = ""
+    authorization_required: Optional[UserAuthorizationRequired] = None
 
 
 class ArkError(RuntimeError):
@@ -442,9 +452,12 @@ class ArkClient:
         started_at = _now_ms()
         messages: list[str] = []
         seen: set[str] = set()
+        tool_domains: dict[str, str] = {}
+        authorization_required: Optional[UserAuthorizationRequired] = None
         try:
             # 先建流再发消息，避免秒回 Agent 在 SSE 订阅建立前就 message+idle。
             async def _drive() -> RunResult:
+                nonlocal authorization_required
                 first_event_logged = False
                 first_message_logged = False
                 async with self._open_event_stream(session_id) as stream:
@@ -463,6 +476,11 @@ class ArkClient:
                             continue
                         if eid:
                             seen.add(eid)
+                        remember_lark_cli_tool_domain(event, tool_domains)
+                        authorization_required = (
+                            authorization_required
+                            or event_user_authorization_required(event, tool_domains)
+                        )
                         if event.get("type") == "agent.message":
                             body = event_text(event)
                             if body:
@@ -483,10 +501,19 @@ class ArkClient:
                                 "方舟 Session 执行失败 session=%s：%s",
                                 session_id, error or "（未提供错误详情）",
                             )
-                            return RunResult(terminal="failed", messages=messages, error=error)
+                            return RunResult(
+                                terminal="failed",
+                                messages=messages,
+                                error=error,
+                                authorization_required=authorization_required,
+                            )
                         if event.get("type") == "session.status_idle":
                             sw.mark("ark.run.to_terminal", session=session_id, terminal="idle")
-                            return RunResult(terminal="idle", messages=messages)
+                            return RunResult(
+                                terminal="idle",
+                                messages=messages,
+                                authorization_required=authorization_required,
+                            )
                 raise ArkError("事件流结束，但未观察到 Session 终态")
 
             return await asyncio.wait_for(_drive(), timeout=timeout_ms / 1000)
@@ -616,9 +643,94 @@ def result_from_events(events: list[dict], started_at: int) -> Optional[RunResul
         return None
     messages = [event_text(event) for event in current if event.get("type") == "agent.message"]
     messages = [m for m in messages if m]
+    tool_domains: dict[str, str] = {}
+    authorization_required = None
+    for event in current:
+        remember_lark_cli_tool_domain(event, tool_domains)
+        authorization_required = (
+            authorization_required
+            or event_user_authorization_required(event, tool_domains)
+        )
     # 与实时路径一致：失败时把方舟给的错误摘要一并带出（取第一条失败事件的 error）。
     error = event_error(failed_events[0]) if failed_events else ""
-    return RunResult(terminal="failed" if failed else "idle", messages=messages, error=error)
+    return RunResult(
+        terminal="failed" if failed else "idle",
+        messages=messages,
+        error=error,
+        authorization_required=authorization_required,
+    )
+
+
+def remember_lark_cli_tool_domain(event: dict, tool_domains: dict[str, str]) -> None:
+    """记录 tool_use id 对应的 lark-cli 业务域，供后续 tool_result 判定授权范围。"""
+    if event.get("type") != "agent.tool_use" or not isinstance(event.get("id"), str):
+        return
+    payload = event.get("input") if isinstance(event.get("input"), dict) else {}
+    command = payload.get("command")
+    if not isinstance(command, str):
+        return
+    import re
+
+    match = re.search(r"(?:^|[;&|]\s*|\s)lark-cli\s+([a-z][\w-]*)\b", command, re.I)
+    if match:
+        tool_domains[event["id"]] = match.group(1).lower()
+
+
+def event_user_authorization_required(
+    event: dict, tool_domains: Optional[dict[str, str]] = None
+) -> Optional[UserAuthorizationRequired]:
+    """只识别 lark-cli 的结构化用户鉴权错误，不靠自然语言猜测。"""
+    if event.get("type") != "agent.tool_result":
+        return None
+    text = event_text(event).strip()
+    import re
+
+    if not re.search(r"^exit_code:\s*3\b", text, re.M):
+        return None
+    marker = re.search(
+        r"--- (?:stderr|output \(stdout \+ stderr\)) ---\s*\n([\s\S]+)$", text
+    )
+    if not marker:
+        return None
+    normalized = "\n".join(
+        re.sub(r"^\s*\d+\t", "", line) for line in marker.group(1).splitlines()
+    ).strip()
+    start, end = normalized.find("{"), normalized.rfind("}")
+    if start < 0 or end < start:
+        return None
+    try:
+        payload = json.loads(normalized[start : end + 1])
+    except (TypeError, ValueError):
+        return None
+    error = payload.get("error") if isinstance(payload.get("error"), dict) else {}
+    error_type = error.get("type")
+    subtype = error.get("subtype")
+    is_token_error = (
+        error_type == "authentication"
+        and subtype in ("token_missing", "token_invalid")
+    )
+    is_scope_error = error_type == "authorization" and subtype == "missing_scope"
+    if not (
+        payload.get("ok") is False
+        and payload.get("identity") == "user"
+        and (is_token_error or is_scope_error)
+    ):
+        return None
+    raw_scopes = error.get("missing_scopes")
+    if is_scope_error and not (
+        isinstance(raw_scopes, list)
+        and raw_scopes
+        and all(isinstance(scope, str) and scope.strip() for scope in raw_scopes)
+    ):
+        return None
+    tool_use_id = event.get("tool_use_id")
+    domain = (tool_domains or {}).get(tool_use_id, "")
+    return UserAuthorizationRequired(
+        error_type=str(error_type),
+        subtype=str(subtype),
+        domain=domain,
+        missing_scopes=tuple(scope.strip() for scope in (raw_scopes or [])),
+    )
 
 
 def event_text(event: dict) -> str:

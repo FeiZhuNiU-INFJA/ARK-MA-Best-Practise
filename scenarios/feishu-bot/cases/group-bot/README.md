@@ -38,10 +38,14 @@
 挂个人 Memory Store）。而群聊共享会话下这套会「串号」——共享 Session 是第一个 @
 的人创建的，Environment 里的 open_id 那一刻就写死了，无法随发言人切换。
 
-因此本组示例采用 **Bot-only 身份**（与 Claude Tag 一致）：
-- 创建 Session 时**不注入**任何个人 open_id，**不挂**个人 Vault / Memory Store。
+因此本组示例采用 **群聊 Bot-only、单聊按需用户只读授权**：
+- 群聊 Session **不注入**任何个人 open_id，**不挂**个人 Vault / Memory Store。
 - 「现在是谁在说」只靠每轮正文转录里的发言人名字（`名字: 内容`）传递，最后一行即当前发言人。
-- 个人私密数据操作请走**私聊**（沿用四卡点 demo 那套即可）。
+- 单聊 Session 挂当前发送者的独立用户 Vault，并注入可信 `FEISHU_USER_OPEN_ID`。默认仍用 Bot；
+  只有读取本人的身份、日历、忙闲或搜索本人可见文档时才用用户身份，所有写操作仍用 Bot。
+- 首次执行用户读取命令时，Bot 会发送飞书 Device OAuth 授权卡片；校验授权账号与消息发送者一致后，
+  原地更新用户 Credential，并自动续跑原请求。用户 token 按业务域单独签发，避免多个业务域的
+  scope 使 token 超过 Vault 限制；卡片失效时发送“重新授权”会生成一张带新链接的卡片。
 
 ## 话题增量窗口
 
@@ -193,10 +197,11 @@ Agent 常在回复里点名群成员（「@张三 请跟进」）。若直接发
   取不到才回退 open_id，和历史行同一口径。测试见 `tests/test_feishu.py` /
   `tests/test_topic_session_bot.py`。
 
-## Agent 的飞书操作能力（lark-cli，Bot 身份）
+## Agent 的飞书操作能力（lark-cli，群 Bot / 单聊双身份）
 
-除了对话，Agent 还能用运行环境里预装的 `lark-cli` 以**本应用 Bot 身份**读写飞书文档、云空间、
-群消息、日历等团队资源（对齐源项目 `src/init.ts` / `src/ark.ts`）。凭据分三处安放，各司其职：
+除了对话，Agent 还能用运行环境里预装的 `lark-cli` 访问飞书资源。群聊始终使用本应用 Bot
+身份；单聊默认使用 Bot，仅在读取当前用户自己的身份、日历或忙闲时按需使用用户身份。
+凭据分三处安放，各司其职：
 
 - **Environment**：`setup_script` 在 Session 首次拉起沙箱时安装原版 lark-cli
   （SHA256 校验 + npmmirror 加速），`packages.pip` 预装固定版本 `pypdf`；
@@ -206,21 +211,29 @@ Agent 常在回复里点名群成员（「@张三 请跟进」）。若直接发
   或 Agent 沙箱。
 - **Vault**：只保存 `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`。Bot 在每轮发送前检查有效期，
   临近过期时原地刷新凭据，保持 Vault ID 与长寿命 Session 不变。
-- **每轮 create_session**：挂上该 Vault，让 lark-cli 直接使用 token 执行业务命令。同时注入
+- **用户 Vault**：每个单聊用户独立保存 `LARKSUITE_CLI_USER_ACCESS_TOKEN`。refresh token
+  仅保存在本地 SQLite；访问令牌临近过期时由 Bot 主机刷新并原地更新 Credential。
+- **每轮 create_session**：群聊只挂 Bot Vault；单聊同时挂 Bot Vault 与发送者的用户 Vault。
+  同时注入
   `$FEISHU_CHAT_ID` / `$FEISHU_THREAD_ID` /
   触发消息 id 等**当前位置**定位变量。
 
 要点：
-- **Bot-only**：群 Session 永远只注入 Bot 上下文，绝不注入任何用户身份 / 用户 token；system prompt
-  要求 docs / drive / im / calendar 等业务命令显式使用 `--as bot`，但不给 `skills read`
-  等元命令附加不支持的 `--as`；禁止 `--as user` 和申请用户授权。外部托管凭据异常时立即
-  停止重试并报告 Vault 配置问题。
+- **身份边界**：群 Session 永远只注入 Bot 上下文，禁止 `--as user`。单聊只有日历只读类
+  请求可 `--as user`；创建、修改、删除等写操作始终 `--as bot`。授权账号的 `open_id`
+  必须与当前消息发送者一致。
+- **按需授权**：用户命令返回结构化 `token_missing` 后发送授权卡片，成功后自动续跑原任务；
+  每条消息最多自动授权重试一次。
 - **幂等**：`init_group_bot.py` 会自动建（或复用）这套 Environment + Vault，把
   `GROUP_BOT_ENVIRONMENT_ID` / `GROUP_BOT_LARK_VAULT_ID` 写回 config.env，重复跑不会堆资源。
 - **开关**：只有配了 `GROUP_BOT_LARK_VAULT_ID` 才启用 lark-cli（`lark_cli_enabled`）；没配则 Agent
   退回纯对话，不挂 Vault、不注入定位变量。
 - **权限**：lark-cli 能做什么取决于飞书开放平台给应用勾了哪些权限——除消息类外，按业务域
   （docx / drive / calendar…）在开放平台补齐并**发布版本**后才生效。
+- **用户权限**：当前实现需要
+  `offline_access`、`auth:user.id:read`、`calendar:calendar:read`、
+  `calendar:calendar.event:read`、`calendar:calendar.free_busy:read`。已有应用也必须在开放平台
+  增加这些用户身份权限并发布新版本；只改代码不会让权限自动生效。
 
 ### 文档读取故障排查与旧凭据迁移
 
@@ -264,7 +277,7 @@ Environment、存短期 tenant token 的 Vault 都由 `init_group_bot.py` 一键
 
 ### 一键初始化（推荐）
 
-`init_group_bot.py` 会：扫码建飞书应用 → 建 Bot-only 群聊 Agent → 置备 lark-cli 能力
+`init_group_bot.py` 会：扫码建飞书应用 → 建双身份边界 Agent → 置备 lark-cli 能力
 （装了 lark-cli 的 Environment + 存短期 tenant token 的 Vault，均幂等） → 把
 `FEISHU_APP_ID/SECRET`、`GROUP_BOT_AGENT_ID`、`GROUP_BOT_ENVIRONMENT_ID`、
 `GROUP_BOT_LARK_VAULT_ID` 都写回 `~/.arkagent/config.env`：
@@ -288,7 +301,7 @@ python scenarios/feishu-bot/cases/group-bot/topic_session_bot.py --execution-mod
 # 1) 载入方舟 / 飞书配置（或自行 export 上述变量）
 set -a && source ~/.arkagent/config.env && set +a
 
-# 2) 创建一个 Bot-only 的群聊 Agent（与四卡点 Agent 相互独立），拿到 agent id
+# 2) 创建群聊 Bot-only、单聊按需用户只读 OAuth 的 Agent，拿到 agent id
 python scenarios/feishu-bot/cases/group-bot/create_group_agent.py
 export GROUP_BOT_AGENT_ID=<上一步打印的 agent id>
 
@@ -343,9 +356,11 @@ native-queue 使用 `data/topic_bot_native_queue_sessions.db`，避免切换执�
 
 ## 文件
 
-- `shared.py` —— 公共底座：共享会话键、群历史窗口（`select_window` / `build_windowed_input`）、纯转录正文拼装（含话题前情 / 引用块 / 去重）、多模态附件挂载编排（`prepare_attachments` / `_attachment_blocks`）+ 附件两层去重（`SqliteSessionMap` 的 `attachments` / `attachment_mounts`）、lark-cli 置备与会话注入（`ensure_lark_cli_environment` / `ensure_lark_cli_vault` / `build_lark_session_env` / `lark_cli_enabled`）、Bot-only Agent 定义、配置读取。
+- `shared.py` —— 公共底座：共享会话键、群历史窗口、附件挂载与去重、lark-cli
+  Environment/Bot Vault、双身份会话环境、OAuth/Session Vault 持久化、Agent 定义与配置读取。
+- `user_oauth.py` —— 单聊 Device OAuth、每用户 Vault/Credential、token 刷新、账号一致性校验与续跑编排。
 - `init_group_bot.py` —— 一键初始化：扫码建飞书应用 + 建群聊 Agent + 置备 lark-cli（Environment + Vault，幂等）+ 把各 ID 写回 config.env。
-- `create_group_agent.py` —— 只创建群聊 Bot-only Agent（不含 lark-cli 置备；配套手动分步用）。
+- `create_group_agent.py` —— 只创建数字员工 Agent（不含 lark-cli 置备；配套手动分步用）。
 - `update_group_agent.py` —— 原地更新现有 Agent 的 system prompt / 模型 / bot 名字（Agent ID 不变，不重扫码）。
 - `topic_session_bot.py` —— 唯一入口；一个话题一个 Session，仅 `@bot` 回复，并通过
   `--execution-mode serial|native-queue` 选择客户端串行或方舟原生队列。

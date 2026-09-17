@@ -403,6 +403,39 @@ def test_inmemory_session_map_dedup_methods():
     assert store.is_attachment_mounted("sesn-2", "fk-1") is False
 
 
+def test_sqlite_session_map_persists_user_oauth_and_session_vaults(tmp_path):
+    db = str(tmp_path / "sessions.db")
+    first = shared.SqliteSessionMap(db)
+    first.save_user_oauth(
+        "tenant-1",
+        "ou-alice",
+        "vlt-user",
+        "cred-user",
+        "refresh-secret",
+        123456,
+        ("offline_access", "calendar:calendar:read"),
+    )
+    first.save_session_vaults("sesn-1", ["vlt-bot", "vlt-user"])
+    first.save_session_user_token(
+        "sesn-1", "tenant-1", "ou-alice", 123456
+    )
+    first.close()
+
+    second = shared.SqliteSessionMap(db)
+    oauth = second.get_user_oauth("tenant-1", "ou-alice")
+    assert oauth["vault_id"] == "vlt-user"
+    assert oauth["credential_id"] == "cred-user"
+    assert oauth["refresh_token"] == "refresh-secret"
+    assert oauth["scopes"] == ("offline_access", "calendar:calendar:read")
+    assert second.get_session_vaults("sesn-1") == ("vlt-bot", "vlt-user")
+    assert second.get_session_user_token("sesn-1") == (
+        "tenant-1",
+        "ou-alice",
+        123456,
+    )
+    second.close()
+
+
 # ---- 多模态：附件路径/名清洗 + 挂载编排 + 输入拼接 ----------------------------
 
 def _ref(file_key: str, file_name: str, res_type: str = "file") -> ResourceRef:
@@ -721,6 +754,8 @@ def test_build_lark_session_env_group_injects_location_only():
     assert env["FEISHU_THREAD_ID"] == "th-9"
     assert env["FEISHU_TRIGGER_MESSAGE_ID"] == "om-9"
     assert env["FEISHU_TRIGGER_CREATE_TIME"] == "1234"
+    assert env["FEISHU_IDENTITY_MODE"] == "bot_only"
+    assert env["LARKSUITE_CLI_STRICT_MODE"] == "bot"
     # 关掉 CLI 更新/技能提示噪声，避免污染 shell 输出。
     assert env["LARKSUITE_CLI_NO_UPDATE_NOTIFIER"] == "1"
     # 绝不注入任何个人身份 / 用户 token。
@@ -730,6 +765,9 @@ def test_build_lark_session_env_group_injects_location_only():
 def test_build_lark_session_env_p2p_marks_direct_and_omits_thread():
     env = shared.build_lark_session_env(_trigger(chat_type="p2p", thread_id=""))
     assert env["FEISHU_CONVERSATION_TYPE"] == "direct"
+    assert env["FEISHU_IDENTITY_MODE"] == "bot_with_user_oauth"
+    assert env["FEISHU_USER_OPEN_ID"] == "ou-cur"
+    assert env["LARKSUITE_CLI_STRICT_MODE"] == "off"
     assert "FEISHU_THREAD_ID" not in env  # 没有话题就不带这个键
 
 

@@ -1,4 +1,4 @@
-"""创建群聊共享 Bot 的方舟 Agent（Bot-only，对齐 Claude Tag）。
+"""创建飞书数字员工 Agent（群聊 Bot-only、单聊按需用户只读 OAuth）。
 
 跑一次，拿到 agent id，填到 GROUP_BOT_AGENT_ID 环境变量，供话题 Bot 使用。
 与主包 arkagent init 建的「客户A销售助手」是两个独立 Agent，互不影响。

@@ -47,8 +47,18 @@ from shared import (
     setup_logging,
     update_lark_cli_vault_token,
 )
+from user_oauth import FeishuOAuth, UserAuthorizationManager
 
-from arkagent.ark import ArkClient, ArkError, RunResult, event_error, event_text
+from arkagent.ark import (
+    ArkClient,
+    ArkError,
+    RunResult,
+    UserAuthorizationRequired,
+    event_error,
+    event_text,
+    event_user_authorization_required,
+    remember_lark_cli_tool_domain,
+)
 from arkagent.feishu import (
     FeishuSender,
     HistoryMessage,
@@ -153,6 +163,7 @@ class TopicSessionBot:
         loop: asyncio.AbstractEventLoop,
         sessions: Optional[object] = None,
         execution_mode: ExecutionMode = "serial",
+        user_auth: Optional[UserAuthorizationManager] = None,
     ) -> None:
         if execution_mode not in ("serial", "native-queue"):
             raise ValueError(f"不支持的执行模式：{execution_mode}")
@@ -178,6 +189,21 @@ class TopicSessionBot:
         ] = {}
         # 首轮消息到达时飞书尚未生成 thread_id；首条回复后把新 thread 映射回原运行 key。
         self._thread_aliases: dict[str, GroupConversationKey] = {}
+        self._authorization_retries: set[str] = set()
+        self._native_tool_domains: dict[str, dict[str, str]] = {}
+        self._native_authorizing: set[str] = set()
+        self._native_blocked_until_idle: set[str] = set()
+        self._native_inputs: dict[tuple[str, str], str] = {}
+        self._native_prepared: dict[
+            tuple[str, str], list[PreparedAttachment]
+        ] = {}
+        self._user_auth = user_auth or UserAuthorizationManager(
+            self._sessions,
+            self._ark,
+            FeishuOAuth(config.feishu_app_id, config.feishu_app_secret),
+            self._send_authorization_card,
+            self._notify_authorization_failure,
+        )
 
     def accept(self, message: IncomingMessage) -> bool:
         """WS 同步入口：群聊只有 @bot 才触发运行和回复。"""
@@ -239,6 +265,12 @@ class TopicSessionBot:
         try:
             session_id = self._sessions.get(key)
             is_first_turn = session_id is None
+            if session_id and not await self._session_has_required_vaults(
+                session_id, message
+            ):
+                self._sessions.reset(key)
+                session_id = None
+                is_first_turn = True
             if not session_id:
                 session_id = await self._create_session(key, message)
                 log.info("%s 新话题已建 Session=%s", tag, session_id)
@@ -262,6 +294,21 @@ class TopicSessionBot:
                     session_id, actor_input, self._config.session_timeout_ms
                 )
 
+            if result.authorization_required:
+                if message.chat_type != "p2p":
+                    await self._reply(
+                        message,
+                        "群聊仅使用 Bot 身份，不能读取成员个人数据；请私聊我后再发起该请求。",
+                    )
+                    return
+                await self._request_user_authorization(
+                    message,
+                    result.authorization_required,
+                    lambda: self._resume_serial(
+                        message, key, actor_input, prepared, roster
+                    ),
+                )
+                return
             thread_id = await self._reply(message, _result_to_text(result), roster)
             self._bind_thread_session(key, message, session_id, thread_id)
         finally:
@@ -274,6 +321,18 @@ class TopicSessionBot:
             if not is_authorized(self._config, message.user_open_id):
                 await self._reply(
                     message, "当前用户未授权。请联系管理员把你的 open_id 加入白名单。"
+                )
+                return
+
+            key_str = key.as_str()
+            if key_str in self._native_authorizing:
+                retry = getattr(self._user_auth, "retry", None)
+                if _is_authorization_retry_request(message.text) and retry:
+                    if await retry(message):
+                        return
+                await self._reply(
+                    message,
+                    "当前正在等待用户授权。若卡片链接已失效，请发送“重新授权”，我会生成一张新卡片。",
                 )
                 return
 
@@ -303,6 +362,8 @@ class TopicSessionBot:
                 message, include_topic_history=not is_first_turn
             )
             await self._mount_attachments(session_id, prepared)
+            self._native_inputs[(key.as_str(), message.message_id)] = actor_input
+            self._native_prepared[(key.as_str(), message.message_id)] = prepared
             await self._send_native(
                 key, message, session_id, actor_input, prepared
             )
@@ -352,6 +413,13 @@ class TopicSessionBot:
         async with lock:
             session_id = self._sessions.get(key)
             is_first_turn = session_id is None
+            if session_id and not await self._session_has_required_vaults(
+                session_id, message
+            ):
+                self._sessions.reset(key)
+                await self._stop_consumer(key)
+                session_id = None
+                is_first_turn = True
             if not session_id:
                 session_id = await self._create_session(key, message)
                 log.info(
@@ -449,6 +517,11 @@ class TopicSessionBot:
                         if event_id:
                             seen.add(event_id)
                         event_type = event.get("type")
+                        domains = self._native_tool_domains.setdefault(session_id, {})
+                        remember_lark_cli_tool_domain(event, domains)
+                        authorization = event_user_authorization_required(
+                            event, domains
+                        )
                         # #region debug-point A-D:event-received
                         _debug_report(
                             "A,B,C,D",
@@ -465,9 +538,20 @@ class TopicSessionBot:
                             },
                         )
                         # #endregion
-                        if event_type == "agent.message":
+                        if authorization:
+                            await self._handle_native_authorization(
+                                key,
+                                session_id,
+                                fallback_message,
+                                authorization,
+                            )
+                        elif event_type == "agent.message":
                             text = event_text(event)
-                            if text:
+                            if (
+                                text
+                                and key.as_str() not in self._native_authorizing
+                                and key.as_str() not in self._native_blocked_until_idle
+                            ):
                                 await self._deliver_native_message(
                                     key,
                                     fallback_message,
@@ -477,11 +561,17 @@ class TopicSessionBot:
                                 )
                                 delivered_count += 1
                         elif event_type == "session.status_idle":
-                            await self._clear_native_reactions(key)
+                            self._native_blocked_until_idle.discard(key.as_str())
+                            if key.as_str() not in self._native_authorizing:
+                                await self._clear_native_reactions(key)
                         elif event_type in (
                             "session.error",
                             "session.status_failed",
                         ):
+                            if key.as_str() in self._native_blocked_until_idle:
+                                self._native_blocked_until_idle.discard(key.as_str())
+                                await self._clear_native_reactions(key)
+                                continue
                             detail = event_error(event) or "未提供错误详情"
                             log.warning("[session=%s] 会话出错：%s", session_id, detail)
                             trigger = self._last_native_trigger(key) or fallback_message
@@ -542,6 +632,8 @@ class TopicSessionBot:
         self._bind_thread_session(key, trigger, session_id, thread_id)
         if pending and pending[0] == (trigger, reaction_id):
             pending.pop(0)
+            self._native_inputs.pop((key_str, trigger.message_id), None)
+            self._native_prepared.pop((key_str, trigger.message_id), None)
             if not pending:
                 self._pending_reactions.pop(key_str, None)
             await self._unack(trigger, reaction_id)
@@ -567,6 +659,8 @@ class TopicSessionBot:
     async def _clear_native_reactions(self, key: GroupConversationKey) -> None:
         pending = self._pending_reactions.pop(key.as_str(), [])
         for message, reaction_id in pending:
+            self._native_inputs.pop((key.as_str(), message.message_id), None)
+            self._native_prepared.pop((key.as_str(), message.message_id), None)
             await self._unack(message, reaction_id)
 
     async def _stop_consumer(self, key: GroupConversationKey) -> None:
@@ -580,21 +674,189 @@ class TopicSessionBot:
     async def _create_session(
         self, key: GroupConversationKey, message: IncomingMessage
     ) -> str:
+        vault_ids = (
+            [self._config.lark_vault_id] if lark_cli_enabled(self._config) else []
+        )
+        if message.chat_type == "p2p":
+            vault_ids.append(await self._user_auth.vault_id(message))
+        vault_ids = list(dict.fromkeys(filter(None, vault_ids)))
         session_id = await self._ark.create_session(
             self._config.ark_agent_id,
             self._config.ark_environment_id,
-            vault_ids=[self._config.lark_vault_id] if lark_cli_enabled(self._config) else None,
+            vault_ids=vault_ids or None,
             env_overrides=(
                 build_lark_session_env(message, self._config.feishu_app_id)
-                if lark_cli_enabled(self._config)
+                if lark_cli_enabled(self._config) or message.chat_type == "p2p"
                 else None
             ),
         )
         self._sessions.save(key, session_id)
+        save_session_vaults = getattr(self._sessions, "save_session_vaults", None)
+        if save_session_vaults:
+            save_session_vaults(session_id, vault_ids)
+        if message.chat_type == "p2p":
+            oauth = self._sessions.get_user_oauth(
+                message.tenant_key, message.user_open_id
+            )
+            save_session_user_token = getattr(
+                self._sessions, "save_session_user_token", None
+            )
+            if oauth and save_session_user_token:
+                save_session_user_token(
+                    session_id,
+                    message.tenant_key,
+                    message.user_open_id,
+                    int(oauth["expires_at"]),
+                )
         public_key = to_topic_key(message)
         if public_key != key:
             self._sessions.save(public_key, session_id)
         return session_id
+
+    async def _session_has_required_vaults(
+        self, session_id: str, message: IncomingMessage
+    ) -> bool:
+        if message.chat_type != "p2p":
+            return True
+        user_vault_id = await self._user_auth.vault_id(message)
+        get_session_vaults = getattr(self._sessions, "get_session_vaults", None)
+        vault_matches = bool(
+            get_session_vaults
+            and user_vault_id in get_session_vaults(session_id)
+        )
+        if not vault_matches:
+            return False
+        oauth = self._sessions.get_user_oauth(
+            message.tenant_key, message.user_open_id
+        )
+        get_session_user_token = getattr(
+            self._sessions, "get_session_user_token", None
+        )
+        bound = (
+            get_session_user_token(session_id)
+            if get_session_user_token
+            else None
+        )
+        return bool(
+            oauth
+            and bound
+            == (
+                message.tenant_key,
+                message.user_open_id,
+                int(oauth["expires_at"]),
+            )
+        )
+
+    async def _request_user_authorization(
+        self,
+        message: IncomingMessage,
+        authorization: UserAuthorizationRequired,
+        resume,
+    ) -> None:
+        retry_key = f"{message.tenant_key}:{message.message_id}"
+        if message.chat_type != "p2p":
+            raise RuntimeError(
+                "群聊仅使用 Bot 身份，不能申请个人凭据；请私聊数字员工处理个人数据"
+            )
+        if retry_key in self._authorization_retries:
+            raise RuntimeError("授权后仍未获得用户凭据，请重新授权或联系管理员")
+        self._authorization_retries.add(retry_key)
+        await self._user_auth.request(
+            message,
+            authorization.domain,
+            authorization.missing_scopes,
+            resume,
+        )
+
+    async def _resume_serial(
+        self,
+        message: IncomingMessage,
+        key: GroupConversationKey,
+        actor_input: str,
+        prepared: list[PreparedAttachment],
+        roster: dict,
+    ) -> None:
+        # Vault Credential 的值在 Session 创建时解析；原地更新 token 后旧 Session
+        # 仍会继续使用占位/过期值，必须用同一 Vault 新建 Session。
+        self._sessions.reset(key)
+        replacement = await self._create_session(key, message)
+        await self._mount_attachments(replacement, prepared)
+        result = await self._ark.run(
+            replacement, actor_input, self._config.session_timeout_ms
+        )
+        if result.authorization_required:
+            raise RuntimeError("授权后新 Session 仍未获得用户凭据，请联系管理员")
+        thread_id = await self._reply(message, _result_to_text(result), roster)
+        self._bind_thread_session(key, message, replacement, thread_id)
+
+    async def _handle_native_authorization(
+        self,
+        key: GroupConversationKey,
+        session_id: str,
+        fallback_message: IncomingMessage,
+        authorization: UserAuthorizationRequired,
+    ) -> None:
+        key_str = key.as_str()
+        if key_str in self._native_authorizing:
+            return
+        pending = self._pending_reactions.get(key_str, [])
+        trigger = pending[0][0] if pending else fallback_message
+        if trigger.chat_type != "p2p":
+            self._native_blocked_until_idle.add(key_str)
+            await self._reply(
+                trigger,
+                "群聊仅使用 Bot 身份，不能读取成员个人数据；请私聊我后再发起该请求。",
+            )
+            await self._clear_native_reactions(key)
+            return
+        actor_input = self._native_inputs.get((key_str, trigger.message_id))
+        if not actor_input:
+            raise RuntimeError("缺少待续跑的原始请求")
+        prepared = self._native_prepared.get((key_str, trigger.message_id), [])
+        self._native_authorizing.add(key_str)
+
+        async def _resume() -> None:
+            current_session = self._sessions.get(key)
+            if current_session != session_id:
+                raise RuntimeError("授权期间 Session 已变化，请重新发送请求")
+            # 方舟 Session 不热加载更新后的 Vault Credential，授权后重建 Session。
+            await self._stop_consumer(key)
+            self._sessions.reset(key)
+            replacement = await self._create_session(key, trigger)
+            await self._mount_attachments(replacement, prepared)
+            self._ensure_consumer(key, replacement, trigger)
+            self._native_authorizing.discard(key_str)
+            await self._ark.send_message(replacement, actor_input)
+
+        try:
+            await self._request_user_authorization(trigger, authorization, _resume)
+        except Exception as error:  # noqa: BLE001 - 授权入口失败需形成用户可见终态
+            self._native_authorizing.discard(key_str)
+            self._native_blocked_until_idle.add(key_str)
+            await self._reply(trigger, f"无法发起用户授权：{str(error)[:180]}")
+            await self._clear_native_reactions(key)
+
+    async def _send_authorization_card(
+        self, message: IncomingMessage, url: str, domain: str
+    ) -> None:
+        await self._loop.run_in_executor(
+            None,
+            self._sender.send_authorization_card,
+            message.chat_id,
+            url,
+            domain,
+        )
+
+    async def _notify_authorization_failure(
+        self, message: IncomingMessage, text: str
+    ) -> None:
+        key = self._thread_aliases.get(
+            to_topic_key(message).as_str(), to_topic_key(message)
+        )
+        self._native_authorizing.discard(key.as_str())
+        if self._execution_mode == "native-queue":
+            await self._clear_native_reactions(key)
+        await self._reply(message, text)
 
     def _bind_thread_session(
         self,
@@ -657,7 +919,7 @@ class TopicSessionBot:
         return None
 
     async def _ack(self, message: IncomingMessage) -> Optional[str]:
-        if message.chat_type == "group" and message.message_id:
+        if message.message_id:
             try:
                 return await self._loop.run_in_executor(
                     None, self._sender.react, message.message_id, "OneSecond"
@@ -797,6 +1059,21 @@ def _dedupe_resources(resources: list[ResourceRef]) -> list[ResourceRef]:
             seen.add(ref.file_key)
             result.append(ref)
     return result
+
+
+def _is_authorization_retry_request(text: str) -> bool:
+    normalized = "".join((text or "").lower().split())
+    return any(
+        marker in normalized
+        for marker in (
+            "重新授权",
+            "重新生成",
+            "链接失效",
+            "链接过期",
+            "卡片失效",
+            "卡片过期",
+        )
+    )
 
 
 def _with_roster_name(

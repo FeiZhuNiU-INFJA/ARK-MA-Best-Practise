@@ -2,7 +2,7 @@
 
 与主包 arkagent/ 的四卡点 demo（按 open_id 做身份/岗位/记忆隔离）完全解耦：
 本模块只做「一个群共享一个方舟 Session、发言人靠正文标注」这一件事，不注入
-任何个人 open_id 到 Environment、不挂个人 Vault/Memory Store（Bot-only 身份）。
+群聊不注入个人身份；单聊可由入口按发送者挂独立用户 Vault（用户只读、按需 OAuth）。
 
 复用主包里纯基础设施的部分（不含卡点逻辑）：
   - arkagent.ark.ArkClient   —— 方舟 HTTP/SSE 客户端
@@ -245,12 +245,16 @@ def build_lark_session_env(
         "LARKSUITE_CLI_APP_ID": feishu_app_id,
         "FEISHU_APP_ID": "",
         "FEISHU_CONVERSATION_TYPE": "group" if message.chat_type != "p2p" else "direct",
+        "FEISHU_IDENTITY_MODE": "bot_only" if message.chat_type != "p2p" else "bot_with_user_oauth",
         "FEISHU_CHAT_ID": message.chat_id,
         "FEISHU_TRIGGER_MESSAGE_ID": message.message_id,
         "FEISHU_TRIGGER_CREATE_TIME": str(message.create_time),
         "LARKSUITE_CLI_NO_UPDATE_NOTIFIER": "1",
         "LARKSUITE_CLI_NO_SKILLS_NOTIFIER": "1",
+        "LARKSUITE_CLI_STRICT_MODE": "bot" if message.chat_type != "p2p" else "off",
     }
+    if message.chat_type == "p2p":
+        env["FEISHU_USER_OPEN_ID"] = message.user_open_id
     if message.thread_id:
         env["FEISHU_THREAD_ID"] = message.thread_id
     return env
@@ -510,7 +514,7 @@ def build_actor_input(message: IncomingMessage) -> str:
     return build_windowed_input(message, [])
 
 
-# ---- Bot-only 群聊 Agent 定义 ---------------------------------------------
+# ---- 群 Bot / 单聊按需用户授权 Agent 定义 ----------------------------------
 
 GROUP_BOT_NAME = "数字员工阿J"
 
@@ -539,9 +543,10 @@ GROUP_BOT_SYSTEM_TEMPLATE = """你是「{bot_name}」，一个能在飞书群聊
 - 单聊是你与当前用户之间的独立会话，不与群聊或其他人的单聊共享上下文；直接回应当前用户即可。
 
 # 身份边界（重要）
-- 你始终以「{bot_name}」这个应用 Bot 身份工作，不代表任何某一个具体成员，也没有挂载任何个人的私有凭据或记忆。
-- 转录里的发言人名字只用于区分“现在谁在问”，不要据此去查询该成员的私人数据或冒充其身份操作。
-- 群聊里只提供面向团队的公共信息与协作。单聊能保护对话不被群成员直接看到，但不会因此获得用户身份或个人授权；涉及个人私密数据时，只有 Bot 本身已被明确授权访问才可操作。
+- 群聊始终只用「{bot_name}」的 Bot 身份，禁止申请或使用任何群成员的个人凭据。
+- 单聊默认也使用 Bot 身份。只有在读取当前消息发送者自己的身份、日历、忙闲信息，或搜索其本人可见的文档时，才可使用 `--as user`；首次使用或缺少对应只读权限时会由外部网关发起 OAuth。
+- 用户身份只允许读，禁止以用户身份创建、修改或删除任何数据。写操作始终使用 `--as bot`，并按正常高风险操作规则确认。
+- 不得查询其他人的私人数据；OAuth 账号必须与当前消息发送者一致。
 
 # 工作方式
 - 把复杂请求拆成步骤逐步推进；完成后清晰汇报结果。
@@ -551,10 +556,14 @@ GROUP_BOT_SYSTEM_TEMPLATE = """你是「{bot_name}」，一个能在飞书群聊
   调用 `python3` + `pypdf`（优先）或 `pdftotext` 分页提取文本；工具缺失或解析失败时如实说明，
   不要重试 `read`。长 PDF 应先读取目录、页数和用户相关章节，再按需分批处理。
 
-# 飞书能力（lark-cli，Bot 身份）
+# 飞书能力（lark-cli，双身份边界）
 - 运行环境已全局安装 lark-cli，并注入了本应用的 Bot 身份凭据。你可以用它读写飞书文档、云空间、群消息、日历等团队资源。
-- 无论群聊还是单聊都**始终且只用 Bot 身份**：调用 docs / drive / im / calendar 等业务 API 的命令必须显式带 `--as bot`；`skills read`、`--help` 等元命令按自身语法执行，不要附加不支持的 `--as`。禁止 `--as user`、禁止申请用户授权（Session 不注入任何个人身份）。
-- 凭据由运行环境外部托管。若命令提示 credentials provided externally，不要执行 `auth login`，也不要扫描环境变量寻找密钥。若返回 `token_missing`、`app secret invalid` 或无法获取 tenant access token，立即停止重试并简洁说明 Bot Vault 凭据配置异常。
+- `$FEISHU_IDENTITY_MODE=bot_only` 时所有业务命令必须显式 `--as bot`，禁止 `--as user`。
+- `$FEISHU_IDENTITY_MODE=bot_with_user_oauth` 时默认 `--as bot`；仅“读取当前用户自己的身份、日历、日程或忙闲”，以及通过 `lark-cli drive +search` 搜索当前用户本人可见的文档时可显式 `--as user`。文档正文读取仍按工具自身权限执行；所有创建、修改、删除操作始终 `--as bot`。
+- `skills read`、`--help` 等元命令按自身语法执行，不要附加不支持的 `--as`。
+- 用户身份命令返回 `token_missing`、`token_invalid` 或 `missing_scope` 时不要自行登录、不要重试，也不要改用 Bot 身份冒充个人读取；直接结束本轮，外部网关会发送对应业务域的授权卡片并在授权后续跑原任务。
+- Bot 身份返回 `token_missing`、`app secret invalid` 或无法获取 tenant access token 时立即停止重试，并简洁说明 Bot Vault 凭据配置异常。
+- 凭据由运行环境外部托管。不要执行 `auth login`，不要扫描环境变量寻找密钥。
 - 决策顺序：先判断意图。寒暄、能力咨询或目标不明确时直接回答或只问一个澄清问题，不要靠执行命令去猜意图；只有任务与业务域都明确、且确需读写飞书数据时才调用 lark-cli。
 - 禁止 `lark-cli --version` / `skills list` 等版本探测、能力枚举、安装检测命令；禁止 `npx @larksuite/cli`、重复安装或联网探测版本。
 - 首次处理某业务域且不确定命令时，先 `lark-cli skills read <skill-name>`（如 lark-im / lark-doc / lark-drive / lark-calendar）读取对应 Skill 再按其工作流执行；同一 Session 已读过则不再重复读。
@@ -576,7 +585,7 @@ def build_group_agent_config(
     model_id: str = "doubao-seed-evolving",
     bot_name: str = DEFAULT_BOT_DISPLAY_NAME,
 ) -> dict:
-    """群聊和单聊共用的 Bot-only Agent 定义：不挂任何 MCP/个人凭据。
+    """群聊 Bot-only、单聊按需用户只读 OAuth 的共享 Agent 定义。
 
     bot_name：bot 在飞书群里的显示名，写进 system prompt 供模型识别「@谁=在叫自己」；
     应与开放平台配的机器人显示名一致，建 Agent 时由 create/init 脚本传入。
@@ -586,7 +595,7 @@ def build_group_agent_config(
     """
     return {
         "name": GROUP_BOT_NAME,
-        "description": "飞书数字员工：支持群聊多人协作与独立单聊，始终使用 Bot 身份",
+        "description": "飞书数字员工：群聊使用 Bot 身份，单聊按需使用当前用户只读授权",
         "model": {"id": model_id},
         "system": build_group_system(bot_name),
         "tools": [
@@ -857,6 +866,9 @@ class InMemorySessionMap:
         self._seen_events: set[str] = set()
         self._attachments: dict[str, str] = {}          # file_key -> file_id
         self._attachment_mounts: set[tuple[str, str]] = set()  # (session_id, file_key)
+        self._user_oauth: dict[tuple[str, str], dict] = {}
+        self._session_vaults: dict[str, tuple[str, ...]] = {}
+        self._session_user_tokens: dict[str, tuple[str, str, int]] = {}
 
     def get(self, key: GroupConversationKey) -> Optional[str]:
         return self._sessions.get(key.as_str())
@@ -891,6 +903,50 @@ class InMemorySessionMap:
     def mark_attachment_mounted(self, session_id: str, file_key: str) -> None:
         """记下 (session_id, file_key) 已挂载。"""
         self._attachment_mounts.add((session_id, file_key))
+
+    def get_user_oauth(self, tenant_key: str, open_id: str) -> Optional[dict]:
+        value = self._user_oauth.get((tenant_key, open_id))
+        return dict(value) if value else None
+
+    def save_user_oauth(
+        self,
+        tenant_key: str,
+        open_id: str,
+        vault_id: str,
+        credential_id: str,
+        refresh_token: str,
+        expires_at: int,
+        scopes: tuple[str, ...],
+    ) -> None:
+        self._user_oauth[(tenant_key, open_id)] = {
+            "tenant_key": tenant_key,
+            "open_id": open_id,
+            "vault_id": vault_id,
+            "credential_id": credential_id,
+            "refresh_token": refresh_token,
+            "expires_at": expires_at,
+            "scopes": tuple(scopes),
+        }
+
+    def save_session_vaults(self, session_id: str, vault_ids: list[str]) -> None:
+        self._session_vaults[session_id] = tuple(vault_ids)
+
+    def get_session_vaults(self, session_id: str) -> tuple[str, ...]:
+        return self._session_vaults.get(session_id, ())
+
+    def save_session_user_token(
+        self, session_id: str, tenant_key: str, open_id: str, expires_at: int
+    ) -> None:
+        self._session_user_tokens[session_id] = (
+            tenant_key,
+            open_id,
+            expires_at,
+        )
+
+    def get_session_user_token(
+        self, session_id: str
+    ) -> Optional[tuple[str, str, int]]:
+        return self._session_user_tokens.get(session_id)
 
 
 # SqliteSessionMap 落库位置：默认放主包配置同目录（~/.arkagent），随 config.env 一起管理。
@@ -966,11 +1022,56 @@ class SqliteSessionMap:
             )
             """
         )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_oauth (
+                tenant_key    TEXT NOT NULL,
+                open_id       TEXT NOT NULL,
+                vault_id      TEXT NOT NULL,
+                credential_id TEXT NOT NULL,
+                refresh_token TEXT NOT NULL,
+                expires_at    INTEGER NOT NULL,
+                scopes        TEXT NOT NULL,
+                updated_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                PRIMARY KEY (tenant_key, open_id)
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_vaults (
+                session_id TEXT NOT NULL,
+                vault_id   TEXT NOT NULL,
+                PRIMARY KEY (session_id, vault_id)
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_user_tokens (
+                session_id TEXT PRIMARY KEY,
+                tenant_key TEXT NOT NULL,
+                open_id TEXT NOT NULL,
+                expires_at INTEGER NOT NULL
+            )
+            """
+        )
         # 启动时清一次过期去重记录（TTL 之外的）。
         self._conn.execute(
             "DELETE FROM seen_events WHERE created_at < strftime('%s', 'now') - ?",
             (_SEEN_EVENT_TTL_SECONDS,),
         )
+        self._protect_db_files()
+
+    def _protect_db_files(self) -> None:
+        """OAuth refresh token 会落库，数据库及 SQLite 辅助文件仅允许当前用户读写。"""
+        for path in (
+            self._db_path,
+            Path(f"{self._db_path}-wal"),
+            Path(f"{self._db_path}-shm"),
+        ):
+            if path.exists():
+                path.chmod(0o600)
 
     def get(self, key: GroupConversationKey) -> Optional[str]:
         with self._lock:
@@ -1042,6 +1143,107 @@ class SqliteSessionMap:
                 "INSERT OR IGNORE INTO attachment_mounts (session_id, file_key) VALUES (?, ?)",
                 (session_id, file_key),
             )
+
+    def get_user_oauth(self, tenant_key: str, open_id: str) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT vault_id, credential_id, refresh_token, expires_at, scopes
+                FROM user_oauth WHERE tenant_key = ? AND open_id = ?
+                """,
+                (tenant_key, open_id),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "tenant_key": tenant_key,
+            "open_id": open_id,
+            "vault_id": row[0],
+            "credential_id": row[1],
+            "refresh_token": row[2],
+            "expires_at": int(row[3]),
+            "scopes": tuple(filter(None, str(row[4]).split(" "))),
+        }
+
+    def save_user_oauth(
+        self,
+        tenant_key: str,
+        open_id: str,
+        vault_id: str,
+        credential_id: str,
+        refresh_token: str,
+        expires_at: int,
+        scopes: tuple[str, ...],
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO user_oauth (
+                    tenant_key, open_id, vault_id, credential_id,
+                    refresh_token, expires_at, scopes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_key, open_id) DO UPDATE SET
+                    vault_id=excluded.vault_id,
+                    credential_id=excluded.credential_id,
+                    refresh_token=excluded.refresh_token,
+                    expires_at=excluded.expires_at,
+                    scopes=excluded.scopes,
+                    updated_at=strftime('%s', 'now')
+                """,
+                (
+                    tenant_key,
+                    open_id,
+                    vault_id,
+                    credential_id,
+                    refresh_token,
+                    expires_at,
+                    " ".join(scopes),
+                ),
+            )
+
+    def save_session_vaults(self, session_id: str, vault_ids: list[str]) -> None:
+        with self._lock:
+            self._conn.execute(
+                "DELETE FROM session_vaults WHERE session_id = ?", (session_id,)
+            )
+            self._conn.executemany(
+                "INSERT INTO session_vaults (session_id, vault_id) VALUES (?, ?)",
+                [(session_id, vault_id) for vault_id in vault_ids],
+            )
+
+    def get_session_vaults(self, session_id: str) -> tuple[str, ...]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT vault_id FROM session_vaults WHERE session_id = ? ORDER BY vault_id",
+                (session_id,),
+            ).fetchall()
+        return tuple(row[0] for row in rows)
+
+    def save_session_user_token(
+        self, session_id: str, tenant_key: str, open_id: str, expires_at: int
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                REPLACE INTO session_user_tokens (
+                    session_id, tenant_key, open_id, expires_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (session_id, tenant_key, open_id, expires_at),
+            )
+
+    def get_session_user_token(
+        self, session_id: str
+    ) -> Optional[tuple[str, str, int]]:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT tenant_key, open_id, expires_at
+                FROM session_user_tokens WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+        return (row[0], row[1], int(row[2])) if row else None
 
     def close(self) -> None:
         with self._lock:

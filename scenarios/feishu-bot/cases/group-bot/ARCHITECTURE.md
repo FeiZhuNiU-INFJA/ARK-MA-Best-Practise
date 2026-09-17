@@ -335,12 +335,18 @@ flowchart LR
 | Environment `env` | `LARKSUITE_CLI_APP_ID` = 飞书 App Id | 非敏感，明文放这里即可 | `ensure_lark_cli_environment` [shared.py](shared.py) |
 | Bot 主机 | 用 App ID/Secret 调飞书接口换短期 tenant token | Vault 环境变量在沙箱内是 opaque placeholder，不能用于 JSON body token 交换 | `fetch_feishu_tenant_access_token` [shared.py](shared.py) |
 | Vault 凭据 | `environment_variable` 凭据：`LARKSUITE_CLI_TENANT_ACCESS_TOKEN` | token 可原样替换进 Authorization header；App Secret 不进入 Vault 或 Agent 沙箱 | `ensure_lark_cli_vault` / `update_lark_cli_vault_token` [shared.py](shared.py) |
-| `create_session` | `vault_ids=[lark_vault_id]` + `env_overrides=build_lark_session_env(message)` | 挂上 Vault让 lark-cli 直接使用 Bot token；`env_overrides` 补「这条消息在哪个群/话题」这类每轮会变的定位信息 | `topic_session_bot.py` 的 `_create_session` |
+| 用户 Vault | 每个单聊发送者一个 `LARKSUITE_CLI_USER_ACCESS_TOKEN` Credential | Session 创建后不能追加 Vault，因此单聊首轮先挂占位 Credential；授权后原地更新 | `user_oauth.py` |
+| 本地 SQLite | 用户 refresh token、过期时间、scope 与 Session-Vault 绑定 | 支持刷新、进程重启恢复，并识别未挂用户 Vault 的旧单聊 Session | `SqliteSessionMap` [shared.py](shared.py) |
+| `create_session` | 群聊挂 Bot Vault；单聊挂 Bot Vault + 当前发送者用户 Vault | `env_overrides` 同时注入位置、身份模式；仅单聊注入可信 `FEISHU_USER_OPEN_ID` | `topic_session_bot.py` 的 `_create_session` |
 
 要点：
-- **Bot-only 身份**：群 Session 永远只注入 Bot 上下文（chat/thread/触发消息），**绝不注入**任何
-  用户身份或用户 token。system prompt 要求业务 API 命令显式使用 `--as bot`，但元命令遵循
-  各自语法；禁止 `--as user` 和申请用户授权。外部托管凭据异常时停止重试并报告 Vault 配置问题。
+- **群聊 Bot-only**：群 Session 永远只注入 Bot 上下文，禁止 `--as user` 和个人授权。
+- **单聊按需用户只读**：默认仍用 Bot。只有读取当前发送者自己的身份、日历和忙闲，或搜索
+  本人可见文档时允许 `--as user`；用户身份禁止写，写操作始终 `--as bot`。
+- **授权闭环**：结构化 `token_missing`、`token_invalid` 或 `missing_scope` 触发 Device OAuth
+  卡片；按业务域白名单单独签发 token，避免 scope 合并后超过 Vault 的 4096 字节限制。授权账号
+  `open_id` 必须等于消息发送者；成功后更新原 Credential 并自动续跑原任务。卡片失效时用户发送
+  “重新授权”会取消旧轮询并生成新卡片。
 - **幂等置备**：`ensure_lark_cli_environment` / `ensure_lark_cli_vault` 都按名字复用已有资源，
   `init_group_bot.py` 重复跑不会堆一堆环境/凭据；每轮发送前按 token 有效期检查，临近过期时
   `update_environment_credential` 原地改值，凭据 id 不变。
@@ -353,6 +359,9 @@ flowchart LR
   旧 Session 不会自动改挂新资源；必须重建对应 Session。Vault ID 不变时原地更新 token 凭据，
   平台会在 Session 生命周期内重新解析，长寿命 Session 无需重建。
 - **权限**：lark-cli 能做什么，取决于飞书开放平台给这个应用勾了哪些权限——除消息类权限外，
+  用户 OAuth 还需 `offline_access`、`auth:user.id:read`、`calendar:calendar:read`、
+  `calendar:calendar.event:read`、`calendar:calendar.free_busy:read`、`search:docs:read`，
+  修改后必须发布应用版本。
   还需按业务域（docx / drive / calendar…）在开放平台补齐并发布版本。
 
 ## 10. 出站渲染：Markdown → 飞书富文本（post）

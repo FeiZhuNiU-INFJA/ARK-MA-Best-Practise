@@ -497,6 +497,55 @@ class FeishuSender:
                 pass
         self._create_in_chat(chat_id, "text", json.dumps({"text": text}, ensure_ascii=False))
 
+    def send_authorization_card(
+        self, chat_id: str, url: str, domain: str = "calendar"
+    ) -> None:
+        """在单聊中发送按业务域区分的用户只读授权卡片。"""
+        is_drive = domain == "drive"
+        title = "授权搜索你的文档" if is_drive else "授权查看你的日程"
+        detail = (
+            "为了搜索你最近创建或编辑的文档，需要你授权当前飞书账号。"
+            "文档创建、修改或删除仍使用数字员工的 Bot 身份。"
+            if is_drive
+            else "为了读取你的个人日历和忙闲信息，需要你授权当前飞书账号。"
+            "创建或修改日程仍使用数字员工的 Bot 身份。"
+        )
+        button_text = "授权搜索文档" if is_drive else "授权查看日程"
+        card = {
+            "schema": "2.0",
+            "config": {"width_mode": "default"},
+            "header": {
+                "title": {"tag": "plain_text", "content": title},
+                "subtitle": {
+                    "tag": "plain_text",
+                    "content": "仅用于当前数字员工协作",
+                },
+                "template": "blue",
+                "icon": {
+                    "tag": "standard_icon",
+                    "token": "search_outlined" if is_drive else "calendar_outlined",
+                },
+            },
+            "body": {
+                "elements": [
+                    {
+                        "tag": "markdown",
+                        "content": detail,
+                    },
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": button_text},
+                        "type": "primary_filled",
+                        "width": "fill",
+                        "behaviors": [{"type": "open_url", "default_url": url}],
+                    },
+                ]
+            },
+        }
+        self._create_in_chat(
+            chat_id, "interactive", json.dumps(card, ensure_ascii=False)
+        )
+
     def _create_in_chat(self, chat_id: str, msg_type: str, content: str) -> None:
         from lark_channel.api.im.v1.model.create_message_request import (
             CreateMessageRequest,

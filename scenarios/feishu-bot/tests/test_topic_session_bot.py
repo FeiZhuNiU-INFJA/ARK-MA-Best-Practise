@@ -24,7 +24,7 @@ from topic_session_bot import (  # noqa: E402
     to_topic_key,
 )
 
-from arkagent.ark import ArkError, RunResult  # noqa: E402
+from arkagent.ark import ArkError, RunResult, UserAuthorizationRequired  # noqa: E402
 from arkagent.feishu import HistoryMessage, IncomingMessage  # noqa: E402
 
 
@@ -34,9 +34,11 @@ class FakeArk:
         self.run_calls: list[tuple[str, str]] = []
         self.upload_calls: list[tuple[str, str, bytes]] = []
         self.mount_calls: list[tuple[str, str, str]] = []
+        self.create_calls: list[dict] = []
 
     async def create_session(self, _agent_id: str, _environment_id: str, **_kwargs) -> str:
         self.created += 1
+        self.create_calls.append(_kwargs)
         return f"sesn-{self.created}"
 
     async def run(self, session_id: str, actor_input: str, _timeout_ms: int) -> RunResult:
@@ -122,12 +124,14 @@ def _msg(
     thread_id: str = "",
     mentioned_bot: bool = False,
     user_name: str = "Alice",
+    chat_type: str = "group",
+    chat_id: str = "oc-team",
 ) -> IncomingMessage:
     return IncomingMessage(
         event_id=eid,
         message_id=mid,
-        chat_id="oc-team",
-        chat_type="group",
+        chat_id=chat_id,
+        chat_type=chat_type,
         thread_id=thread_id,
         user_open_id="ou-alice",
         user_name=user_name,
@@ -160,6 +164,9 @@ def _make_bot(loop, *, sender=None):
 def _drain(loop, predicate, tries: int = 30) -> None:
     for _ in range(tries):
         if predicate():
+            # 假 sender 会先记录发送、再返回给协程写 thread/session 绑定；多推进一个 tick，
+            # 避免断言落在这两个连续动作之间。
+            asyncio.run_coroutine_threadsafe(asyncio.sleep(0), loop).result(timeout=2)
             return
         asyncio.run_coroutine_threadsafe(asyncio.sleep(0), loop).result(timeout=2)
     assert predicate()
@@ -177,6 +184,178 @@ def test_main_timeline_mention_creates_topic_session_and_thread_reply(loop):
     assert sender.thread_replies == [("om-root-a", "ok-1")]
     assert ark.run_calls[0][1] == "【最新对话】\nAlice: @群助手 帮我整理"
     assert sender.list_messages_calls == 0
+
+
+class FakeUserAuth:
+    def __init__(self):
+        self.requests: list[
+            tuple[IncomingMessage, str, tuple[str, ...]]
+        ] = []
+        self.retries: list[IncomingMessage] = []
+
+    async def vault_id(self, _message: IncomingMessage) -> str:
+        return "vlt-user"
+
+    async def request(
+        self,
+        message: IncomingMessage,
+        domain: str,
+        missing_scopes: tuple[str, ...],
+        resume,
+    ) -> None:
+        self.requests.append((message, domain, missing_scopes))
+        await resume()
+
+    async def retry(self, message: IncomingMessage) -> bool:
+        self.retries.append(message)
+        return True
+
+
+def test_direct_session_mounts_bot_and_sender_user_vault(loop):
+    ark = FakeArk()
+    sender = FakeSender()
+    sessions = shared.InMemorySessionMap()
+    config = shared.GroupBotConfig(**{**_config().__dict__, "lark_vault_id": "vlt-bot"})
+    bot = TopicSessionBot(
+        config, ark, sender, loop, sessions, user_auth=FakeUserAuth()
+    )
+
+    async def no_refresh():
+        return None
+
+    bot._refresh_lark_cli_token = no_refresh  # noqa: SLF001
+    message = _msg(
+        "查看我的日程",
+        mid="om-direct",
+        eid="ev-direct",
+        chat_type="p2p",
+        chat_id="oc-direct",
+    )
+    assert bot.accept(message) is True
+    _drain(loop, lambda: len(sender.chat_sends) == 1)
+
+    assert ark.create_calls[0]["vault_ids"] == ["vlt-bot", "vlt-user"]
+    env = ark.create_calls[0]["env_overrides"]
+    assert env["FEISHU_IDENTITY_MODE"] == "bot_with_user_oauth"
+    assert env["FEISHU_USER_OPEN_ID"] == "ou-alice"
+    assert sessions.get_session_vaults("sesn-1") == ("vlt-bot", "vlt-user")
+    assert sender.reactions == [("om-direct", "OneSecond")]
+    assert sender.deleted_reactions == [("om-direct", "rx-1")]
+
+
+def test_native_expired_authorization_request_generates_new_card(loop):
+    ark = NativeFakeArk()
+    sender = FakeSender()
+    sessions = shared.InMemorySessionMap()
+    user_auth = FakeUserAuth()
+    bot = TopicSessionBot(
+        _config(),
+        ark,
+        sender,
+        loop,
+        sessions,
+        execution_mode="native-queue",
+        user_auth=user_auth,
+    )
+    message = _msg(
+        "链接失效了，请重新授权",
+        mid="om-retry-auth",
+        eid="ev-retry-auth",
+        chat_type="p2p",
+        chat_id="oc-direct",
+    )
+    key = to_topic_key(message)
+    bot._native_authorizing.add(key.as_str())  # noqa: SLF001
+
+    asyncio.run_coroutine_threadsafe(
+        bot._run_native(message, key), loop  # noqa: SLF001
+    ).result(timeout=2)
+
+    assert user_auth.retries == [message]
+    assert sender.chat_sends == []
+
+
+def test_serial_user_authorization_resumes_original_request(loop):
+    class AuthArk(FakeArk):
+        async def run(self, session_id, actor_input, _timeout_ms):
+            self.run_calls.append((session_id, actor_input))
+            if len(self.run_calls) == 1:
+                return RunResult(
+                    "idle",
+                    ["不应发送"],
+                    authorization_required=UserAuthorizationRequired(domain="calendar"),
+                )
+            return RunResult("idle", ["授权后结果"])
+
+    ark = AuthArk()
+    sender = FakeSender()
+    sessions = shared.InMemorySessionMap()
+    user_auth = FakeUserAuth()
+    bot = TopicSessionBot(
+        _config(), ark, sender, loop, sessions, user_auth=user_auth
+    )
+    message = _msg(
+        "查看我的日程",
+        mid="om-auth",
+        eid="ev-auth",
+        chat_type="p2p",
+        chat_id="oc-direct",
+    )
+    assert bot.accept(message) is True
+    _drain(loop, lambda: len(sender.chat_sends) == 1)
+
+    assert len(ark.run_calls) == 2
+    assert ark.run_calls[0][0] == "sesn-1"
+    assert ark.run_calls[1][0] == "sesn-2"
+    assert ark.run_calls[0][1] == ark.run_calls[1][1]
+    assert sessions.get(to_topic_key(message)) == "sesn-2"
+    assert sender.chat_sends == [("oc-direct", "授权后结果")]
+    assert user_auth.requests[0][1] == "calendar"
+
+
+def test_direct_session_rebuilds_when_user_token_version_changes(loop):
+    sessions = shared.InMemorySessionMap()
+    sessions.save_user_oauth(
+        "tenant-1",
+        "ou-alice",
+        "vlt-user",
+        "cred-user",
+        "refresh-token",
+        200,
+        ("calendar:calendar:read",),
+    )
+    sessions.save_session_vaults("sesn-old", ["vlt-user"])
+    sessions.save_session_user_token(
+        "sesn-old", "tenant-1", "ou-alice", 100
+    )
+    message = _msg(
+        "查看我的日程",
+        mid="om-token-version",
+        eid="ev-token-version",
+        chat_type="p2p",
+        chat_id="oc-direct",
+    )
+    bot = TopicSessionBot(
+        _config(),
+        FakeArk(),
+        FakeSender(),
+        loop,
+        sessions,
+        user_auth=FakeUserAuth(),
+    )
+
+    stale = asyncio.run_coroutine_threadsafe(
+        bot._session_has_required_vaults("sesn-old", message), loop  # noqa: SLF001
+    ).result(timeout=2)
+    sessions.save_session_user_token(
+        "sesn-old", "tenant-1", "ou-alice", 200
+    )
+    current = asyncio.run_coroutine_threadsafe(
+        bot._session_has_required_vaults("sesn-old", message), loop  # noqa: SLF001
+    ).result(timeout=2)
+
+    assert stale is False
+    assert current is True
 
 
 def test_first_turn_in_existing_topic_does_not_import_topic_history(loop):
