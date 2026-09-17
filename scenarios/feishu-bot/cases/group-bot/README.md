@@ -1,10 +1,8 @@
 # 群聊 Bot 示例（对齐 Claude Tag）
 
-这里提供三个彼此独立的入口。推荐先验证 `topic_session_bot.py`：用户在主时间线
-`@bot` 后，Bot 的首次回复会创建一个飞书话题；**一个话题对应一个方舟 Session**，
-后续仍只有 `@bot` 才触发回复，但中间普通消息会作为上下文带入；不同话题严格隔离。
-
-旧的两个入口仍保留用于对照：它们按群或既有话题共享 Session，并通过窗口转录补群历史。
+这里只有一个运行入口 `topic_session_bot.py`。用户在主时间线 `@bot` 后，Bot 的首次回复
+会创建一个飞书话题；**一个话题对应一个方舟 Session**。后续仍只有 `@bot` 才触发回复，
+但中间普通消息会作为上下文带入；不同话题严格隔离。启动参数可选择客户端串行或方舟原生队列。
 
 > **架构 / 数据流 / 判断节点** 见 [ARCHITECTURE.md](ARCHITECTURE.md)：含入站归一化→判断链→
 > 窗口→方舟→回复的完整数据流图、关键数据结构表，以及「每个判断节点依据对象哪个属性」的对照表。
@@ -41,7 +39,7 @@
 - 「现在是谁在说」只靠每轮正文转录里的发言人名字（`名字: 内容`）传递，最后一行即当前发言人。
 - 个人私密数据操作请走**私聊**（沿用四卡点 demo 那套即可）。
 
-## 旧方案的群历史窗口
+## 话题增量窗口
 
 共享 Session 是持久的，但**两次 @bot 之间大家的闲聊（没 @bot）从没进过 Session**。
 所以每次有人 @bot 触发时，先用飞书 `im.message.list` 拉本群/本话题的近期历史，按
@@ -133,7 +131,7 @@ notes.md： /mnt/session/uploads/81ab…/notes.md
 `_mount_path` 由 `file_key` 哈希决定（不掺 message_id），保证同一资源恒定落到同一挂载路径。
 效果：同 Session 内第二次引用 → 0 下载 / 0 上传 / 0 挂载；跨 Session 第二次引用 → 0 下载 / 0 上传，
 各 Session 各挂一次（复用同一 `file_id`）。详见 [ARCHITECTURE.md](ARCHITECTURE.md) §8.1，测试见
-`tests/test_client_serial_bot.py`（同 session）、`tests/test_ma_native_queue_bot.py`（跨 session）。
+`tests/test_topic_session_bot.py`。
 
 ### 历史消息里的附件：文件单独发、之后另一条消息才 @bot
 
@@ -144,8 +142,8 @@ PDF」。此时触发消息本身**没有**附件、只有正文——若只看�
 修法是把「本轮上下文里出现过的」附件都收齐、范围与注入正文的历史范围一致：
 
 1. 归一化历史时，`_extract_history_resources` 从每条历史消息抽出图片/文件附件，挂到
-   `HistoryMessage.resources`，并给每个 `ResourceRef` 记上**它自己所属消息**的 `message_id`。
-2. 两个 bot 都先 `_read_context`（群历史窗口 + 引用链 + 话题前情），再用
+  `HistoryMessage.resources`，并给每个 `ResourceRef` 记上**它自己所属消息**的 `message_id`。
+2. 两种执行模式都先读取当前话题增量和引用链，再用
    `collect_round_resources` 把「触发消息 + `select_window` 窗口历史 + 话题前情」里的附件按
    `file_key` 去重收齐（触发消息优先）。
 3. 下载时按 `ref.message_id` 定位所属消息（`file_key` 只在其所属消息里有效），历史附件走它
@@ -153,7 +151,7 @@ PDF」。此时触发消息本身**没有**附件、只有正文——若只看�
 
 这样「进正文的转录范围」与「挂进 Session 的附件范围」严格一致；撤回消息只留占位文本、不带
 附件。详见 [ARCHITECTURE.md](ARCHITECTURE.md) §8.2，测试见 `tests/test_group_bot.py`
-（`collect_round_resources`）与两个 bot 测试的 `test_attachment_from_history_message_is_mounted`。
+（`collect_round_resources`）与 `tests/test_topic_session_bot.py`。
 
 ## 回复渲染：Markdown → 飞书富文本（post）
 
@@ -188,7 +186,8 @@ Agent 常在回复里点名群成员（「@张三 请跟进」）。若直接发
   渲成可点击提及），其余段仍走 native md（保留标题/列表/代码块）。见 `_text_to_post_content`。
 - **绝不拖垮回复**：名册拉取失败退回空名册（不 @，正文照发）；私聊没有 @ 别人的语义，不拉名册。
 - **发问人显示名**：转录里「当前请求行」也优先用发言人显示名（`IncomingMessage.user_name`），
-  取不到才回退 open_id，和历史行同一口径。测试见 `tests/test_feishu.py` / 两个 bot 的测试。
+  取不到才回退 open_id，和历史行同一口径。测试见 `tests/test_feishu.py` /
+  `tests/test_topic_session_bot.py`。
 
 ## Agent 的飞书操作能力（lark-cli，Bot 身份）
 
@@ -214,16 +213,16 @@ Agent 常在回复里点名群成员（「@张三 请跟进」）。若直接发
 
 详细的三处安放与数据流见 [ARCHITECTURE.md](ARCHITECTURE.md) §9。
 
-## 三个方案
+## 两种执行模式
 
-| | 话题 Session（推荐） | 客户端串行（旧） | 方舟原生队列（旧） |
-|---|---|---|---|
-| 文件 | `topic_session_bot.py` | `client_serial_bot.py` | `ma_native_queue_bot.py` |
-| Session 粒度 | **每个话题一个** | 每个群/既有话题一个 | 每个群/既有话题一个 |
-| 上下文输入 | 当前话题内上次 `@bot` 之后至今 | 群历史窗口转录 | 群历史窗口转录 |
-| 发送策略 | 每话题客户端串行 | 上一轮到 `idle` 才发下一条 | Session 运行中也直发 |
-| 回复位置 | **始终在话题内** | 回复原消息 | 话题内回复或群内直发 |
-| 适合 | 多任务并行且要求上下文严格隔离 | 同一群共享一段上下文 | 同一件事多人异步补充 |
+| | `serial`（默认） | `native-queue` |
+|---|---|---|
+| 入口 | `topic_session_bot.py --execution-mode serial` | `topic_session_bot.py --execution-mode native-queue` |
+| Session 粒度 | **每个话题一个** | **每个话题一个** |
+| 上下文输入 | 当前话题内上次 `@bot` 之后至今 | 相同 |
+| 发送策略 | 每话题 `KeyedQueue` 串行，调用 `run` | `send_message` 直发，运行中由方舟吸收/合并 |
+| 回复位置 | 始终在话题内 | 始终在话题内，回合结束取最后一条回复 |
+| 适合 | 每次触发需要独立、稳定回复 | 同话题多人接力，允许服务端合并 |
 
 依据：`common/docs/火山方舟_ManagedAgents_docs.md` 的「运行中继续发送消息」（L3183+）、
 事件 `processed_at`（L2893）、合并语义（L3193）、`RuntimeBusy`（L3195）。
@@ -246,9 +245,8 @@ python scenarios/feishu-bot/cases/group-bot/init_group_bot.py
 
 # 按提示去飞书开放平台确认权限 + 事件订阅 + 发布版本后启动：
 set -a && source ~/.arkagent/config.env && set +a
-python scenarios/feishu-bot/cases/group-bot/topic_session_bot.py       # 推荐：一个话题一个 Session
-python scenarios/feishu-bot/cases/group-bot/client_serial_bot.py       # 客户端串行
-python scenarios/feishu-bot/cases/group-bot/ma_native_queue_bot.py     # 方舟原生队列
+python scenarios/feishu-bot/cases/group-bot/topic_session_bot.py --execution-mode serial
+# 或：--execution-mode native-queue
 ```
 
 ### 手动分步（已有飞书应用时）
@@ -270,25 +268,21 @@ export GROUP_BOT_AGENT_ID=<上一步打印的 agent id>
 #      export GROUP_BOT_ENVIRONMENT_ID=<装了 lark-cli 的 environment id>
 #      export GROUP_BOT_LARK_VAULT_ID=<存 App Secret 的 vault id>
 
-# 4) 启动一个入口
-python scenarios/feishu-bot/cases/group-bot/topic_session_bot.py       # 推荐
-python scenarios/feishu-bot/cases/group-bot/client_serial_bot.py       # 客户端串行
-python scenarios/feishu-bot/cases/group-bot/ma_native_queue_bot.py     # 方舟原生队列
+# 4) 启动唯一入口；默认 serial
+python scenarios/feishu-bot/cases/group-bot/topic_session_bot.py --execution-mode serial
+# 需要服务端吸收/合并时改为：--execution-mode native-queue
 ```
 
-把 bot 拉进一个群，多人 @ 它：
-- 话题 Session：主时间线 `@bot` 创建话题；话题内普通消息不回复，下次 `@bot` 时进入上下文。
-- 客户端串行：先后 @，观察逐条独立回复；后到的会收到「正在处理，请稍候」。
-- 方舟原生队列：让几个人几乎同时 @，观察消息被吸收/合并的效果。
+把 bot 拉进一个群：主时间线 `@bot` 创建话题；话题内普通消息不回复，下次 `@bot`
+时进入上下文。`serial` 会逐条独立回复；`native-queue` 允许同话题并发消息被方舟吸收/合并。
 
-聊天指令：话题方案在当前话题发 `@bot /new`，只重置该话题；两个旧方案同样需要在群里
-`@bot /new`。私聊直接发 `/new`。
+聊天指令：在当前话题发 `@bot /new`，只重置该话题。私聊直接发 `/new`。
 
 ### 更新已有 Agent（改名 / 改 system prompt / 换模型）
 
 改了 `GROUP_BOT_DISPLAY_NAME`、`shared.GROUP_BOT_SYSTEM_TEMPLATE` 或 `GROUP_BOT_MODEL_ID`
 后，方舟里的 Agent 不会自动跟着变（system prompt 是建 Agent 时静态写死的）。用
-`update_group_agent.py` **原地更新**即可，`GROUP_BOT_AGENT_ID` 不变、不重扫码、三个入口
+`update_group_agent.py` **原地更新**即可，`GROUP_BOT_AGENT_ID` 不变、不重扫码、运行入口
 无需改任何环境变量：
 
 ```bash
@@ -312,7 +306,8 @@ GROUP_BOT_DISPLAY_NAME=群助手 \
 `GROUP_BOT_MULTIMODAL`（默认开启；设 `0`/`false`/`no`/`off` 关闭图片/文件的下载挂载，带附件的消息按纯文本处理）、
 `GROUP_BOT_MARKDOWN`（默认开启；把回复渲染成飞书 post 富文本，设 `0`/`false`/`no`/`off` 退回纯文本直发）、
 `GROUP_BOT_LARK_VAULT_ID`（存 App Secret 的 Vault id；配了才启用 lark-cli，否则 Agent 退回纯对话）、
-`TOPIC_BOT_DB_PATH`（话题方案的 SQLite 路径；默认仓库 `data/topic_bot_sessions.db`）、
+`TOPIC_BOT_DB_PATH`（SQLite 路径；不指定时 serial 使用 `data/topic_bot_sessions.db`，
+native-queue 使用 `data/topic_bot_native_queue_sessions.db`，避免切换执行语义时复用状态）、
 `FEISHU_SDK_DEBUG`（设 `1`/`true` 打开 Channel SDK 内部的 stale/去重/策略日志，排查
 「消息没进来 / 被去重 / 被策略过滤」时用）。
 
@@ -322,9 +317,8 @@ GROUP_BOT_DISPLAY_NAME=群助手 \
 - `init_group_bot.py` —— 一键初始化：扫码建飞书应用 + 建群聊 Agent + 置备 lark-cli（Environment + Vault，幂等）+ 把各 ID 写回 config.env。
 - `create_group_agent.py` —— 只创建群聊 Bot-only Agent（不含 lark-cli 置备；配套手动分步用）。
 - `update_group_agent.py` —— 原地更新现有 Agent 的 system prompt / 模型 / bot 名字（Agent ID 不变，不重扫码）。
-- `topic_session_bot.py` —— 推荐方案；一个话题一个 Session，仅 `@bot` 回复，并读取当前话题上次 `@bot` 之后的增量。
-- `client_serial_bot.py` —— 客户端串行；每轮先读群历史取窗口，再串行发送。
-- `ma_native_queue_bot.py` —— 方舟原生队列 + 常驻事件流消费 + 409 退避；每条消息同样带窗口上下文。
+- `topic_session_bot.py` —— 唯一入口；一个话题一个 Session，仅 `@bot` 回复，并通过
+  `--execution-mode serial|native-queue` 选择客户端串行或方舟原生队列。
 
 > 群历史读取（`FeishuSender.list_messages`）、`IncomingMessage.create_time`、
 > `HistoryMessage` 归一化在主包 `arkagent/feishu.py`，移植自源项目 `src/lark-channel.ts`。

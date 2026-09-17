@@ -6,19 +6,25 @@
   - 其他主时间线消息、未登记话题里的普通消息：忽略。
   - 每轮只读取当前话题中「上一次 @bot 之后到当前」的窗口，不读取主群或其他话题。
 
+执行模式：
+  - serial：客户端按话题串行，上一轮结束后再发送下一轮。
+  - native-queue：消息直发方舟，由运行中队列吸收/合并，事件流负责回复。
+
 运行：
   set -a && source ~/.arkagent/config.env && set +a
-  python scenarios/feishu-bot/cases/group-bot/topic_session_bot.py
+  python scenarios/feishu-bot/cases/group-bot/topic_session_bot.py --execution-mode serial
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
+import contextlib
 import logging
 import os
 import threading
 from dataclasses import replace
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from shared import (
     GroupBotConfig,
@@ -38,7 +44,7 @@ from shared import (
     setup_logging,
 )
 
-from arkagent.ark import ArkClient, ArkError, RunResult
+from arkagent.ark import ArkClient, ArkError, RunResult, event_error, event_text
 from arkagent.feishu import (
     FeishuSender,
     HistoryMessage,
@@ -55,6 +61,21 @@ log = logging.getLogger("group_bot.topic_session")
 DEFAULT_TOPIC_DB_PATH = str(
     Path(__file__).resolve().parents[4] / "data" / "topic_bot_sessions.db"
 )
+DEFAULT_NATIVE_TOPIC_DB_PATH = str(
+    Path(__file__).resolve().parents[4] / "data" / "topic_bot_native_queue_sessions.db"
+)
+ExecutionMode = Literal["serial", "native-queue"]
+
+MAX_409_RETRIES = 5
+BACKOFF_BASE_S = 2.0
+BACKOFF_CAP_S = 15.0
+
+
+def _is_runtime_busy(error: Exception) -> bool:
+    if isinstance(error, ArkError) and error.status_code == 409:
+        return True
+    text = str(error)
+    return " 409" in text or "RuntimeBusy" in text
 
 
 def to_topic_key(message: IncomingMessage) -> GroupConversationKey:
@@ -79,7 +100,7 @@ def select_topic_delta(history: list[HistoryMessage]) -> list[HistoryMessage]:
 
 
 class TopicSessionBot:
-    """严格按飞书话题隔离的串行 Bot。"""
+    """严格按飞书话题隔离，可选择客户端串行或方舟原生队列。"""
 
     def __init__(
         self,
@@ -88,14 +109,28 @@ class TopicSessionBot:
         sender: FeishuSender,
         loop: asyncio.AbstractEventLoop,
         sessions: Optional[object] = None,
+        execution_mode: ExecutionMode = "serial",
     ) -> None:
+        if execution_mode not in ("serial", "native-queue"):
+            raise ValueError(f"不支持的执行模式：{execution_mode}")
         self._config = config
         self._ark = ark
         self._sender = sender
         self._loop = loop
-        db_path = os.environ.get("TOPIC_BOT_DB_PATH", DEFAULT_TOPIC_DB_PATH)
+        self._execution_mode = execution_mode
+        default_db_path = (
+            DEFAULT_TOPIC_DB_PATH
+            if execution_mode == "serial"
+            else DEFAULT_NATIVE_TOPIC_DB_PATH
+        )
+        db_path = os.environ.get("TOPIC_BOT_DB_PATH", default_db_path)
         self._sessions = sessions if sessions is not None else SqliteSessionMap(db_path)
         self._queue = KeyedQueue()
+        self._create_locks: dict[str, asyncio.Lock] = {}
+        self._consumers: dict[str, asyncio.Task] = {}
+        self._pending_reactions: dict[
+            str, list[tuple[IncomingMessage, Optional[str]]]
+        ] = {}
 
     def accept(self, message: IncomingMessage) -> bool:
         """WS 同步入口：群聊只有 @bot 才触发运行和回复。"""
@@ -113,21 +148,31 @@ class TopicSessionBot:
             log.info("%s 丢弃：event 已处理过", tag)
             return False
 
-        def _enqueue() -> None:
-            log.info("%s 入队，topic_key=%s", tag, key.as_str())
-            self._queue.enqueue(key.as_str(), lambda: self._run(message, key))
+        def _submit() -> None:
+            if self._execution_mode == "serial":
+                log.info("%s 串行入队，topic_key=%s", tag, key.as_str())
+                self._queue.enqueue(
+                    key.as_str(), lambda: self._run_serial(message, key)
+                )
+            else:
+                log.info("%s 直投方舟原生队列，topic_key=%s", tag, key.as_str())
+                self._loop.create_task(self._run_native(message, key))
 
-        self._loop.call_soon_threadsafe(_enqueue)
+        self._loop.call_soon_threadsafe(_submit)
         return True
 
-    async def _run(self, message: IncomingMessage, key: GroupConversationKey) -> None:
+    async def _run_serial(
+        self, message: IncomingMessage, key: GroupConversationKey
+    ) -> None:
         try:
-            await self._process(message, key)
+            await self._process_serial(message, key)
         except Exception:  # noqa: BLE001 - 单轮失败不能拖垮同话题队列
             log.exception("处理话题消息失败")
             await self._reply(message, "执行失败，请稍后重试；若持续失败，请在当前话题发送 /new。")
 
-    async def _process(self, message: IncomingMessage, key: GroupConversationKey) -> None:
+    async def _process_serial(
+        self, message: IncomingMessage, key: GroupConversationKey
+    ) -> None:
         tag = message_log_tag(message)
         if not is_authorized(self._config, message.user_open_id):
             await self._reply(message, "当前用户未授权。请联系管理员把你的 open_id 加入白名单。")
@@ -147,32 +192,10 @@ class TopicSessionBot:
                 session_id = await self._create_session(key, message)
                 log.info("%s 新话题已建 Session=%s", tag, session_id)
 
-            roster = await self._chat_roster(message)
-            message = _with_roster_name(message, roster)
-            history = await self._topic_history(message)
-            history = _with_roster_history_names(history, roster)
-            topic_delta = select_topic_delta(history)
-            quote_chain, quoted_resource = await self._explicit_quote(message)
-            resources = collect_round_resources(
-                message, history, [], selected_history=topic_delta
+            message, roster, actor_input, prepared = await self._prepare_turn(
+                message
             )
-            if quoted_resource is not None:
-                resources.extend(quoted_resource.resources)
-            resources = _dedupe_resources(resources)
-
-            prepared, notices = await self._prepare_attachments(message, resources)
             await self._mount_attachments(session_id, prepared)
-
-            # 只读当前 thread，并排除已进入 Session 的上一次 @bot；绝不读取其他话题。
-            actor_input = build_windowed_input(
-                message,
-                history=history,
-                quote_chain=quote_chain,
-                thread_context=[],
-                prepared=prepared,
-                notices=notices,
-                selected_history=topic_delta,
-            )
             log.info("%s 发往 Session=%s，input 长度=%d", tag, session_id, len(actor_input))
             log.debug("%s 完整 input：\n%s", tag, actor_input)
             try:
@@ -191,6 +214,206 @@ class TopicSessionBot:
             await self._reply(message, _result_to_text(result), roster)
         finally:
             await self._unack(message, reaction_id)
+
+    async def _run_native(
+        self, message: IncomingMessage, key: GroupConversationKey
+    ) -> None:
+        try:
+            if not is_authorized(self._config, message.user_open_id):
+                await self._reply(
+                    message, "当前用户未授权。请联系管理员把你的 open_id 加入白名单。"
+                )
+                return
+
+            if is_reset_command(message.text):
+                self._sessions.reset(key)
+                await self._stop_consumer(key)
+                await self._clear_native_reactions(key)
+                session_id = await self._ensure_native_session(key, message)
+                log.info(
+                    "%s 当前话题已切换到新 Session=%s",
+                    message_log_tag(message),
+                    session_id,
+                )
+                await self._reply(
+                    message, "已重置当前话题的 Session；后续消息仍留在本话题。"
+                )
+                return
+
+            reaction_id = await self._ack(message)
+            self._pending_reactions.setdefault(key.as_str(), []).append(
+                (message, reaction_id)
+            )
+            session_id = await self._ensure_native_session(key, message)
+            message, _roster, actor_input, prepared = await self._prepare_turn(
+                message
+            )
+            await self._mount_attachments(session_id, prepared)
+            await self._send_native(
+                key, message, session_id, actor_input, prepared
+            )
+        except Exception as error:  # noqa: BLE001 - 单条失败不能影响后续触发
+            log.exception("原生队列处理话题消息失败")
+            await self._reply(message, f"执行失败：{str(error)[:240]}")
+            await self._clear_native_reactions(key)
+
+    async def _prepare_turn(
+        self, message: IncomingMessage
+    ) -> tuple[IncomingMessage, dict, str, list[PreparedAttachment]]:
+        """读取并构造两个执行模式完全一致的话题增量与文件挂载信息。"""
+        roster = await self._chat_roster(message)
+        message = _with_roster_name(message, roster)
+        history = await self._topic_history(message)
+        history = _with_roster_history_names(history, roster)
+        topic_delta = select_topic_delta(history)
+        quote_chain, quoted_resource = await self._explicit_quote(message)
+        resources = collect_round_resources(
+            message, history, [], selected_history=topic_delta
+        )
+        if quoted_resource is not None:
+            resources.extend(quoted_resource.resources)
+        prepared, notices = await self._prepare_attachments(
+            message, _dedupe_resources(resources)
+        )
+        actor_input = build_windowed_input(
+            message,
+            history=history,
+            quote_chain=quote_chain,
+            thread_context=[],
+            prepared=prepared,
+            notices=notices,
+            selected_history=topic_delta,
+        )
+        return message, roster, actor_input, prepared
+
+    async def _ensure_native_session(
+        self, key: GroupConversationKey, message: IncomingMessage
+    ) -> str:
+        lock = self._create_locks.setdefault(key.as_str(), asyncio.Lock())
+        async with lock:
+            session_id = self._sessions.get(key)
+            if not session_id:
+                session_id = await self._create_session(key, message)
+                log.info(
+                    "%s 新话题已建 Session=%s",
+                    message_log_tag(message),
+                    session_id,
+                )
+            self._ensure_consumer(key, session_id, message)
+            return session_id
+
+    def _ensure_consumer(
+        self,
+        key: GroupConversationKey,
+        session_id: str,
+        message: IncomingMessage,
+    ) -> None:
+        key_str = key.as_str()
+        current = self._consumers.get(key_str)
+        if current is not None and not current.done():
+            return
+        self._consumers[key_str] = self._loop.create_task(
+            self._consume(session_id, key, message)
+        )
+
+    async def _send_native(
+        self,
+        key: GroupConversationKey,
+        message: IncomingMessage,
+        session_id: str,
+        actor_input: str,
+        prepared: list[PreparedAttachment],
+    ) -> None:
+        delay = BACKOFF_BASE_S
+        for attempt in range(MAX_409_RETRIES + 1):
+            try:
+                await self._ark.send_message(session_id, actor_input)
+                log.info(
+                    "%s 已直发 Session=%s，input 长度=%d",
+                    message_log_tag(message),
+                    session_id,
+                    len(actor_input),
+                )
+                return
+            except ArkError as error:
+                if error.status_code == 404:
+                    self._sessions.reset(key)
+                    await self._stop_consumer(key)
+                    session_id = await self._ensure_native_session(key, message)
+                    await self._mount_attachments(session_id, prepared)
+                    continue
+                if not _is_runtime_busy(error) or attempt == MAX_409_RETRIES:
+                    raise
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, BACKOFF_CAP_S)
+
+    async def _consume(
+        self,
+        session_id: str,
+        key: GroupConversationKey,
+        fallback_message: IncomingMessage,
+    ) -> None:
+        seen: set[str] = set()
+        pending: list[str] = []
+        while self._sessions.get(key) == session_id:
+            try:
+                async with self._ark._open_event_stream(session_id) as stream:  # noqa: SLF001
+                    async for event in stream:
+                        event_id = event.get("id")
+                        if event_id and event_id in seen:
+                            continue
+                        if event_id:
+                            seen.add(event_id)
+                        event_type = event.get("type")
+                        if event_type == "agent.message":
+                            text = event_text(event)
+                            if text:
+                                pending.append(text)
+                        elif event_type == "session.status_idle" and pending:
+                            trigger = self._last_native_trigger(key) or fallback_message
+                            roster = await self._chat_roster(trigger)
+                            await self._reply(trigger, pending[-1], roster)
+                            pending.clear()
+                            await self._clear_native_reactions(key)
+                        elif event_type in (
+                            "session.error",
+                            "session.status_failed",
+                        ):
+                            detail = event_error(event) or "未提供错误详情"
+                            log.warning("[session=%s] 会话出错：%s", session_id, detail)
+                            trigger = self._last_native_trigger(key) or fallback_message
+                            await self._reply(
+                                trigger,
+                                "当前话题执行出错，请稍后重试或 @bot /new 重置。",
+                            )
+                            pending.clear()
+                            await self._clear_native_reactions(key)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - 长连接中断后恢复
+                if self._sessions.get(key) != session_id:
+                    break
+                log.info("事件流中断，1s 后重连 session=%s", session_id)
+                await asyncio.sleep(1.0)
+
+    def _last_native_trigger(
+        self, key: GroupConversationKey
+    ) -> Optional[IncomingMessage]:
+        pending = self._pending_reactions.get(key.as_str(), [])
+        return pending[-1][0] if pending else None
+
+    async def _clear_native_reactions(self, key: GroupConversationKey) -> None:
+        pending = self._pending_reactions.pop(key.as_str(), [])
+        for message, reaction_id in pending:
+            await self._unack(message, reaction_id)
+
+    async def _stop_consumer(self, key: GroupConversationKey) -> None:
+        task = self._consumers.pop(key.as_str(), None)
+        if task is None:
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
     async def _create_session(
         self, key: GroupConversationKey, message: IncomingMessage
@@ -376,19 +599,34 @@ def _result_to_text(result: RunResult) -> str:
     return result.messages[-1]
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="按飞书话题隔离的群聊 Agent")
+    parser.add_argument(
+        "--execution-mode",
+        choices=("serial", "native-queue"),
+        default="serial",
+        help="serial=客户端串行；native-queue=方舟运行中队列（默认：serial）",
+    )
+    return parser
+
+
 def main() -> None:
+    args = build_parser().parse_args()
     setup_logging(level="INFO")
     config = load_group_bot_config()
     ark = ArkClient(config.ark_api_key, config.ark_base_url)
     sender = FeishuSender(config.feishu_app_id, config.feishu_app_secret)
 
     loop = asyncio.new_event_loop()
-    bot = TopicSessionBot(config, ark, sender, loop)
+    bot = TopicSessionBot(
+        config, ark, sender, loop, execution_mode=args.execution_mode
+    )
     threading.Thread(target=loop.run_forever, name="topic-bot-loop", daemon=True).start()
 
     print("话题 Session Bot 已启动：")
     print(f"- 飞书 App ID：{config.feishu_app_id}")
     print(f"- Agent ID：{config.ark_agent_id}")
+    print(f"- 执行模式：{args.execution_mode}")
     print("- 策略：主时间线 @bot 创建话题；之后仅 @bot 时回复，并带上当前话题增量。")
     print("- 指令：在当前话题发送 @bot /new，只重置该话题的 Session。")
     start_feishu_gateway(config.feishu_app_id, config.feishu_app_secret, bot)
