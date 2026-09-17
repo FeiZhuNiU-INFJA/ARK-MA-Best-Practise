@@ -30,11 +30,11 @@ REQUEST_TIMEOUT = 30.0
 # 方舟沙箱是干净的 cloud 环境，agent_toolset 的 shell 里默认没有 lark-cli——建 Environment 时
 # 用 setup_script 把对应架构的二进制拉到 /usr/local/bin，Session 起来后 shell 里就能直接 `lark-cli ...`。
 # SHA256 校验防止镜像被替换；用 npmmirror 国内镜像加速。
-LARK_CLI_VERSION = "1.0.88"
+LARK_CLI_VERSION = "1.0.94"
 LARK_CLI_SETUP_SCRIPT = f"""set -e
 case "$(uname -m)" in
-  x86_64) ARCH=amd64; SHA=497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe ;;
-  aarch64|arm64) ARCH=arm64; SHA=96a3cac444947456ce9971c912946323f20d14416434da7e274bd9d77d7ac28b ;;
+  x86_64) ARCH=amd64; SHA=60f505be65b43b5e58b01ec671199723483c5f630a03dfdd32d89f7f40f47d53 ;;
+  aarch64|arm64) ARCH=arm64; SHA=87ddcba89557936958d8dcba4269d02837a32bb605dc0ac9c1aea8d653cbb7a3 ;;
   *) echo "unsupported architecture" >&2; exit 1 ;;
 esac
 ARCHIVE=/tmp/lark-cli.tar.gz
@@ -43,6 +43,7 @@ echo "$SHA  $ARCHIVE" | sha256sum -c -
 tar -xzf "$ARCHIVE" -C /usr/local/bin lark-cli
 chmod 0755 /usr/local/bin/lark-cli
 rm -f "$ARCHIVE\""""
+
 
 
 
@@ -233,6 +234,7 @@ class ArkClient:
                     "id": str(item.get("id")),
                     "display_name": str(item.get("display_name") or ""),
                     "auth_type": str(auth.get("type") or ""),
+                    "secret_name": str(auth.get("secret_name") or ""),
                     "mcp_server_url": auth.get("mcp_server_url"),
                 }
             )
@@ -256,8 +258,8 @@ class ArkClient:
         """把一个敏感值作为「环境变量凭据」存进 Vault（对齐源仓库 createEnvironmentVariableCredential）。
 
         与 static_bearer 不同：这类凭据不绑 MCP，只在 Session 挂上对应 vault 后，把 secret_value
-        注入沙箱环境变量 secret_name。lark-cli 的 Bot 身份就靠这个——secret_name=LARKSUITE_CLI_APP_SECRET，
-        App Secret 只存 Vault、不进 Environment 明文 env，也不落 config.env 给 Agent 看到。
+        注入沙箱环境变量 secret_name。lark-cli 的 Bot 身份使用
+        LARKSUITE_CLI_TENANT_ACCESS_TOKEN；App Secret 留在 Bot 主机，不进入 Vault 或 Agent 沙箱。
         """
         payload = await self._request(
             "POST",
@@ -277,7 +279,7 @@ class ArkClient:
     async def update_environment_credential(
         self, vault_id: str, credential_id: str, secret_value: str
     ) -> None:
-        """轮换环境变量凭据的值（如 App Secret 变了）。只改 secret_value，凭据 id 不变。"""
+        """轮换环境变量凭据的值（如短期 token 刷新）。只改 secret_value，凭据 id 不变。"""
         await self._request(
             "POST",
             f"/vaults/{quote(vault_id, safe='')}/credentials/{quote(credential_id, safe='')}",

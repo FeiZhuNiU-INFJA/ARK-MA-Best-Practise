@@ -1,5 +1,6 @@
 """话题 Session Bot 的隔离与路由测试。"""
 import asyncio
+import json
 import sys
 import threading
 import time
@@ -31,6 +32,8 @@ class FakeArk:
     def __init__(self):
         self.created = 0
         self.run_calls: list[tuple[str, str]] = []
+        self.upload_calls: list[tuple[str, str, bytes]] = []
+        self.mount_calls: list[tuple[str, str, str]] = []
 
     async def create_session(self, _agent_id: str, _environment_id: str, **_kwargs) -> str:
         self.created += 1
@@ -41,10 +44,11 @@ class FakeArk:
         return RunResult("idle", [f"ok-{len(self.run_calls)}"])
 
     async def upload_file(self, _name: str, _mime: str, _data: bytes) -> str:
+        self.upload_calls.append((_name, _mime, _data))
         return "file-1"
 
     async def add_session_file(self, _session_id: str, _file_id: str, _path: str) -> None:
-        return None
+        self.mount_calls.append((_session_id, _file_id, _path))
 
 
 class FakeSender:
@@ -56,9 +60,15 @@ class FakeSender:
         self.list_messages_calls = 0
         self._history_provider = history_provider
         self.rosters: dict[str, dict[str, str]] = {}
+        self.messages: dict[str, dict] = {}
+        self.download_calls: list[tuple[str, str, str]] = []
+        self.reply_thread_ids: dict[str, str] = {}
 
-    def reply_in_thread(self, message_id: str, text: str, _roster=None) -> None:
+    def reply_in_thread(
+        self, message_id: str, text: str, _roster=None
+    ) -> str | None:
         self.thread_replies.append((message_id, text))
+        return self.reply_thread_ids.get(message_id)
 
     def send_to_chat(self, chat_id: str, text: str, _roster=None) -> None:
         self.chat_sends.append((chat_id, text))
@@ -76,6 +86,18 @@ class FakeSender:
     def list_messages(self, _message) -> list:
         self.list_messages_calls += 1
         return self._history_provider(_message) if self._history_provider else []
+
+    def get_message(self, message_id: str):
+        return self.messages.get(message_id)
+
+    def bot_open_id(self) -> str:
+        return "ou-bot"
+
+    def download_resource(
+        self, message_id: str, file_key: str, resource_type: str
+    ) -> bytes:
+        self.download_calls.append((message_id, file_key, resource_type))
+        return b"pdf-content"
 
 
 def _config() -> shared.GroupBotConfig:
@@ -157,6 +179,82 @@ def test_main_timeline_mention_creates_topic_session_and_thread_reply(loop):
     assert sender.list_messages_calls == 0
 
 
+def test_first_turn_in_existing_topic_does_not_import_topic_history(loop):
+    def history(_message):
+        return [
+            HistoryMessage(
+                "om-old", "ou-alice", "Alice", "user", "已有话题内容", 1000
+            )
+        ]
+
+    sender = FakeSender(history_provider=history)
+    bot, ark, sender, _sessions = _make_bot(loop, sender=sender)
+    message = _msg(
+        "@群助手 从这里开始",
+        mid="om-trigger",
+        eid="ev-1",
+        root_id="om-root",
+        thread_id="omt-existing",
+        mentioned_bot=True,
+    )
+
+    assert bot.accept(message) is True
+    _drain(loop, lambda: len(sender.thread_replies) == 1)
+
+    assert ark.run_calls[0][1] == "【最新对话】\nAlice: @群助手 从这里开始"
+    assert sender.list_messages_calls == 0
+
+
+def test_existing_topic_session_mounts_pdf_from_topic_root(loop):
+    sender = FakeSender()
+    sender.messages["om-pdf-root"] = {
+        "message_id": "om-pdf-root",
+        "msg_type": "file",
+        "create_time": "900",
+        "deleted": False,
+        "sender": {
+            "id": "ou-wang",
+            "sender_type": "user",
+            "sender_name": "汪江文",
+        },
+        "body": {
+            "content": json.dumps(
+                {
+                    "file_key": "file-key-pdf",
+                    "file_name": "dlbook_cn_v0.5-beta.pdf",
+                }
+            )
+        },
+        "mentions": [],
+    }
+    bot, ark, sender, sessions = _make_bot(loop, sender=sender)
+    message = _msg(
+        "@群助手 总结一下这个文档",
+        mid="om-trigger",
+        eid="ev-pdf",
+        root_id="om-pdf-root",
+        thread_id="omt-pdf",
+        mentioned_bot=True,
+    )
+    sessions.save(to_topic_key(message), "sesn-existing")
+
+    assert bot.accept(message) is True
+    _drain(loop, lambda: len(sender.thread_replies) == 1)
+
+    actor_input = ark.run_calls[0][1]
+    assert "[话题前情 汪江文: [文件：dlbook_cn_v0.5-beta.pdf]]" in actor_input
+    assert "【文件挂载】" in actor_input
+    assert "dlbook_cn_v0.5-beta.pdf： /mnt/session/uploads/" in actor_input
+    assert sender.download_calls == [
+        ("om-pdf-root", "file-key-pdf", "file")
+    ]
+    assert ark.upload_calls == [
+        ("dlbook_cn_v0.5-beta.pdf", "application/pdf", b"pdf-content")
+    ]
+    assert ark.mount_calls[0][:2] == ("sesn-existing", "file-1")
+    assert sender.list_messages_calls == 1
+
+
 def test_unmentioned_followup_waits_for_next_mention_and_enters_window(loop):
     def history(_message):
         return [
@@ -169,6 +267,7 @@ def test_unmentioned_followup_waits_for_next_mention_and_enters_window(loop):
         ]
 
     sender = FakeSender(history_provider=history)
+    sender.reply_thread_ids["om-root"] = "omt-thread"
     bot, ark, sender, _sessions = _make_bot(loop, sender=sender)
     root = _msg("@群助手 开始", mid="om-root", eid="ev-1", mentioned_bot=True)
     bot.accept(root)
@@ -269,6 +368,40 @@ def test_different_root_messages_use_different_sessions(loop):
     assert {session_id for session_id, _ in ark.run_calls} == {"sesn-1", "sesn-2"}
 
 
+def test_two_mentions_replying_to_same_file_use_different_sessions(loop):
+    sender = FakeSender()
+    sender.reply_thread_ids.update({"om-a": "omt-a", "om-b": "omt-b"})
+    bot, ark, sender, sessions = _make_bot(loop, sender=sender)
+    first = _msg(
+        "@群助手 总结文档",
+        mid="om-a",
+        eid="ev-a",
+        root_id="om-shared-file",
+        mentioned_bot=True,
+    )
+    second = _msg(
+        "@群助手 重新总结",
+        mid="om-b",
+        eid="ev-b",
+        root_id="om-shared-file",
+        mentioned_bot=True,
+    )
+
+    bot.accept(first)
+    bot.accept(second)
+    _drain(loop, lambda: len(sender.thread_replies) == 2)
+
+    assert to_topic_key(first) != to_topic_key(second)
+    assert ark.created == 2
+    assert {session_id for session_id, _ in ark.run_calls} == {"sesn-1", "sesn-2"}
+    assert sessions.get(
+        shared.GroupConversationKey("tenant-1", "oc-team", "omt-a")
+    ) == "sesn-1"
+    assert sessions.get(
+        shared.GroupConversationKey("tenant-1", "oc-team", "omt-b")
+    ) == "sesn-2"
+
+
 def test_unrelated_main_message_and_unknown_thread_are_ignored(loop):
     bot, ark, sender, _sessions = _make_bot(loop)
 
@@ -288,13 +421,18 @@ def test_unrelated_main_message_and_unknown_thread_are_ignored(loop):
 
 
 def test_new_replaces_only_current_topic_session(loop):
-    bot, ark, sender, sessions = _make_bot(loop)
+    sender = FakeSender()
+    sender.reply_thread_ids.update({"om-a": "omt-a", "om-b": "omt-b"})
+    bot, ark, sender, sessions = _make_bot(loop, sender=sender)
     root_a = _msg("@群助手 A", mid="om-a", eid="ev-a", mentioned_bot=True)
     root_b = _msg("@群助手 B", mid="om-b", eid="ev-b", mentioned_bot=True)
     bot.accept(root_a)
     bot.accept(root_b)
     _drain(loop, lambda: len(sender.thread_replies) == 2)
+    thread_a_key = shared.GroupConversationKey("tenant-1", "oc-team", "omt-a")
+    _drain(loop, lambda: sessions.get(thread_a_key) is not None)
 
+    old_a = sessions.get(to_topic_key(root_a))
     old_b = sessions.get(to_topic_key(root_b))
     reset_a = _msg(
         "@群助手 /new",
@@ -307,7 +445,8 @@ def test_new_replaces_only_current_topic_session(loop):
     assert bot.accept(reset_a) is True
     _drain(loop, lambda: len(sender.thread_replies) == 3)
 
-    assert sessions.get(to_topic_key(root_a)) == "sesn-3"
+    assert sessions.get(to_topic_key(root_a)) == old_a
+    assert sessions.get(to_topic_key(reset_a)) == "sesn-3"
     assert sessions.get(to_topic_key(root_b)) == old_b
     assert len(ark.run_calls) == 2
 
@@ -402,6 +541,48 @@ def test_execution_mode_parser_defaults_to_serial_and_accepts_native_queue():
     )
 
 
+def test_lark_token_refresh_updates_vault_once_until_refresh_deadline(
+    loop, monkeypatch
+):
+    calls: list[tuple] = []
+
+    async def fake_fetch(app_id, app_secret):
+        calls.append(("fetch", app_id, app_secret))
+        return shared.FeishuTenantToken("fresh-token", 7200)
+
+    async def fake_update(ark, vault_id, token):
+        calls.append(("update", ark, vault_id, token))
+
+    monkeypatch.setattr(topic_bot, "fetch_feishu_tenant_access_token", fake_fetch)
+    monkeypatch.setattr(topic_bot, "update_lark_cli_vault_token", fake_update)
+    config = shared.GroupBotConfig(
+        **{
+            **_config().__dict__,
+            "lark_vault_id": "vlt-token",
+        }
+    )
+    ark = FakeArk()
+    bot = TopicSessionBot(
+        config,
+        ark,
+        FakeSender(),
+        loop,
+        shared.InMemorySessionMap(),
+    )
+
+    asyncio.run_coroutine_threadsafe(
+        bot._refresh_lark_cli_token(), loop  # noqa: SLF001
+    ).result(timeout=2)
+    asyncio.run_coroutine_threadsafe(
+        bot._refresh_lark_cli_token(), loop  # noqa: SLF001
+    ).result(timeout=2)
+
+    assert calls == [
+        ("fetch", "app-1", "secret"),
+        ("update", ark, "vlt-token", "fresh-token"),
+    ]
+
+
 def test_native_queue_same_topic_shares_session_and_different_topics_do_not(loop):
     bot, ark, _sender, _sessions = _make_native_bot(loop)
     try:
@@ -435,14 +616,50 @@ def test_native_queue_same_topic_shares_session_and_different_topics_do_not(loop
         _wait_until(loop, lambda: len(ark.send_calls) == 3)
 
         assert ark.created == 2
-        assert ark.send_calls[0][0] == ark.send_calls[1][0]
-        assert ark.send_calls[2][0] != ark.send_calls[0][0]
+        sessions_by_request = {
+            actor_input.rsplit(" ", 1)[-1]: session_id
+            for session_id, actor_input in ark.send_calls
+        }
+        assert sessions_by_request["一"] == sessions_by_request["二"]
+        assert sessions_by_request["三"] != sessions_by_request["一"]
         assert len(bot._consumers) == 2  # noqa: SLF001
     finally:
         _shutdown_native(bot, loop)
 
 
-def test_native_consumer_replies_with_last_message_in_topic(loop):
+def test_native_queue_two_new_topics_sharing_root_use_different_sessions(loop):
+    bot, ark, _sender, _sessions = _make_native_bot(loop)
+    try:
+        bot.accept(
+            _msg(
+                "@群助手 第一次总结",
+                mid="om-first-topic",
+                eid="ev-first-topic",
+                root_id="om-shared-pdf",
+                mentioned_bot=True,
+            )
+        )
+        bot.accept(
+            _msg(
+                "@群助手 第二次总结",
+                mid="om-second-topic",
+                eid="ev-second-topic",
+                root_id="om-shared-pdf",
+                mentioned_bot=True,
+            )
+        )
+        _wait_until(loop, lambda: len(ark.send_calls) == 2)
+
+        assert ark.created == 2
+        assert {session_id for session_id, _ in ark.send_calls} == {
+            "sesn-1",
+            "sesn-2",
+        }
+    finally:
+        _shutdown_native(bot, loop)
+
+
+def test_native_consumer_replies_with_every_agent_message_in_topic(loop):
     ark = NativeFakeArk()
     ark.stream_events["sesn-1"] = [
         _text_event("e1", "处理中"),
@@ -459,10 +676,59 @@ def test_native_consumer_replies_with_last_message_in_topic(loop):
                 mentioned_bot=True,
             )
         )
-        _wait_until(loop, lambda: sender.thread_replies == [("om-root", "最终答复")])
+        _wait_until(loop, lambda: len(sender.thread_replies) == 2)
 
-        assert all(text != "处理中" for _, text in sender.thread_replies)
+        assert sender.thread_replies == [
+            ("om-root", "处理中"),
+            ("om-root", "最终答复"),
+        ]
         assert sender.deleted_reactions == [("om-root", "rx-1")]
+    finally:
+        _shutdown_native(bot, loop)
+
+
+def test_native_agent_messages_follow_trigger_order(loop):
+    bot, _ark, sender, _sessions = _make_native_bot(loop)
+    first = _msg(
+        "@群助手 问题一",
+        mid="om-first",
+        eid="ev-first",
+        root_id="om-root",
+        mentioned_bot=True,
+    )
+    second = _msg(
+        "@群助手 问题二",
+        mid="om-second",
+        eid="ev-second",
+        root_id="om-root",
+        mentioned_bot=True,
+    )
+    key = to_topic_key(first)
+    bot._pending_reactions[key.as_str()] = [  # noqa: SLF001
+        (first, "rx-1"),
+        (second, "rx-2"),
+    ]
+
+    async def _deliver():
+        await bot._deliver_native_message(  # noqa: SLF001
+            key, first, "答复一", "sesn-1", 0
+        )
+        await bot._deliver_native_message(  # noqa: SLF001
+            key, first, "答复二", "sesn-1", 1
+        )
+
+    try:
+        asyncio.run_coroutine_threadsafe(_deliver(), loop).result(timeout=2)
+
+        assert sender.thread_replies == [
+            ("om-first", "答复一"),
+            ("om-second", "答复二"),
+        ]
+        assert sender.deleted_reactions == [
+            ("om-first", "rx-1"),
+            ("om-second", "rx-2"),
+        ]
+        assert key.as_str() not in bot._pending_reactions  # noqa: SLF001
     finally:
         _shutdown_native(bot, loop)
 

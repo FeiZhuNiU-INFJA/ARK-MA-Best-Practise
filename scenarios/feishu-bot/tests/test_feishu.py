@@ -549,11 +549,14 @@ def test_reply_in_thread_uses_dedicated_thread_sender(monkeypatch):
     sender = _bare_sender()
     calls = []
     sender._reply_in_thread_with = (
-        lambda message_id, msg_type, content: calls.append((message_id, msg_type, content))
+        lambda message_id, msg_type, content: (
+            calls.append((message_id, msg_type, content)) or "omt-created"
+        )
     )
 
-    sender.reply_in_thread("om-root", "## 话题回复")
+    thread_id = sender.reply_in_thread("om-root", "## 话题回复")
 
+    assert thread_id == "omt-created"
     assert len(calls) == 1
     assert calls[0][0:2] == ("om-root", "post")
     assert "zh_cn" in json.loads(calls[0][2])
@@ -568,10 +571,12 @@ def test_reply_in_thread_falls_back_to_thread_text(monkeypatch):
         if msg_type == "post":
             raise RuntimeError("post rejected")
         calls.append((message_id, msg_type, content))
+        return "omt-fallback"
 
     sender._reply_in_thread_with = _send
-    sender.reply_in_thread("om-root", "**fallback**")
+    thread_id = sender.reply_in_thread("om-root", "**fallback**")
 
+    assert thread_id == "omt-fallback"
     assert calls == [
         ("om-root", "text", json.dumps({"text": "**fallback**"}, ensure_ascii=False))
     ]

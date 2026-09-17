@@ -7,7 +7,7 @@
   2. 把新 FEISHU_APP_ID/SECRET 就地写回 ~/.arkagent/config.env（保留其余键、权限 0600）。
   3. 用现有 ARK_API_KEY 建一个群聊 Bot-only Agent，并把 GROUP_BOT_AGENT_ID 也写回 config.env。
   4. 置备 lark-cli 能力（Bot 身份）：建一个装了 lark-cli 的方舟 Environment（setup_script 拉二进制、
-     env 写死 App Id）+ 一个存 App Secret 的 Vault 凭据，把 GROUP_BOT_ENVIRONMENT_ID /
+     env 写死 App Id）+ 一个存短期 tenant token 的 Vault 凭据，把 GROUP_BOT_ENVIRONMENT_ID /
      GROUP_BOT_LARK_VAULT_ID 写回 config.env。两者都幂等（按名字复用），重复跑不会堆资源。
 
 ARK_API_KEY / ARK_BASE_URL 直接沿用 config.env 里已有的，不重建；四卡点 case 的
@@ -27,6 +27,7 @@ from shared import (  # 同目录；导入时会把仓库根加进 sys.path
     build_group_agent_config,
     ensure_lark_cli_environment,
     ensure_lark_cli_vault,
+    fetch_feishu_tenant_access_token,
 )
 
 from arkagent.ark import ArkClient
@@ -35,7 +36,7 @@ from arkagent.node_helper import register_feishu_app
 from arkagent.paths import get_arkagent_paths
 
 DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
-DEFAULT_MODEL_ID = "doubao-seed-2-1-pro-260628"
+DEFAULT_MODEL_ID = "doubao-seed-evolving"
 DEFAULT_BOT_DISPLAY_NAME = "群助手"
 
 
@@ -76,14 +77,19 @@ async def _create_group_agent(api_key: str, base_url: str, model_id: str, bot_na
 async def _provision_lark_cli(
     api_key: str, base_url: str, feishu_app_id: str, feishu_app_secret: str
 ) -> tuple[str, str]:
-    """置备 lark-cli 能力：装了 lark-cli 的 Environment + 存 App Secret 的 Vault。
+    """置备 lark-cli 能力：装了 lark-cli 的 Environment + 存短期 tenant token 的 Vault。
 
     返回 (environment_id, vault_id)。两者按名字幂等，重复跑复用同一套资源。
     """
     ark = ArkClient(api_key, base_url)
     try:
+        token = await fetch_feishu_tenant_access_token(
+            feishu_app_id, feishu_app_secret
+        )
         environment_id = await ensure_lark_cli_environment(ark, feishu_app_id)
-        vault_id = await ensure_lark_cli_vault(ark, feishu_app_id, feishu_app_secret)
+        vault_id = await ensure_lark_cli_vault(
+            ark, feishu_app_id, token.value
+        )
     finally:
         await ark.aclose()
     return environment_id, vault_id
@@ -123,8 +129,8 @@ def _main() -> None:
     print(f"      已创建群聊共享 Agent：{agent_id}")
     update_env_file(config_path, {"GROUP_BOT_AGENT_ID": agent_id})
 
-    # ---- 阶段 4b：置备 lark-cli 能力（Environment 装 CLI + Vault 存 App Secret）----
-    print("【3/4】正在置备 lark-cli 能力（Environment 装 CLI + Vault 存 App Secret，均幂等）……")
+    # ---- 阶段 4b：置备 lark-cli 能力（Environment 装 CLI + Vault 存短期 token）----
+    print("【3/4】正在置备 lark-cli 能力（Environment 装 CLI + Vault 存 tenant token，均幂等）……")
     environment_id, vault_id = asyncio.run(
         _provision_lark_cli(api_key, base_url, creds.app_id, creds.app_secret)
     )
