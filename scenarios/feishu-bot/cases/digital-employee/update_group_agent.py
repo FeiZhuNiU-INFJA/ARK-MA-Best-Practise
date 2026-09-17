@@ -1,4 +1,4 @@
-"""原地更新群聊共享 Bot 的方舟 Agent（改 system prompt / 模型 / bot 名字，Agent ID 不变）。
+"""原地更新数字员工的方舟 Agent（改 system prompt / 模型 / bot 名字，Agent ID 不变）。
 
 方舟的 system prompt 是建 Agent 时静态写死的，改了 shared.GROUP_BOT_SYSTEM_TEMPLATE 或
 想换 bot 名字（GROUP_BOT_DISPLAY_NAME）后，跑这个脚本把最新配置推上去即可——**不重扫码、
@@ -8,7 +8,7 @@
 
 运行：
   set -a && source ~/.arkagent/config.env && set +a   # 需要 ARK_API_KEY[/ARK_BASE_URL] + GROUP_BOT_AGENT_ID
-  python scenarios/feishu-bot/cases/group-bot/update_group_agent.py
+  python scenarios/feishu-bot/cases/digital-employee/update_group_agent.py
 
 可选环境变量（同 create_group_agent.py）：
   GROUP_BOT_MODEL_ID      默认 doubao-seed-evolving

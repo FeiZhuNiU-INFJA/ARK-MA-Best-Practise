@@ -28,7 +28,7 @@ from typing import Awaitable, Callable, Optional
 
 import httpx
 
-# 让 `python scenarios/feishu-bot/cases/group-bot/demo_x.py` 能直接 import 到主包 arkagent（无需安装）。
+# 让 `python scenarios/feishu-bot/cases/digital-employee/demo_x.py` 能直接 import 到主包 arkagent（无需安装）。
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
@@ -556,6 +556,18 @@ GROUP_BOT_SYSTEM_TEMPLATE = """你是「{bot_name}」，一个能在飞书群聊
   调用 `python3` + `pypdf`（优先）或 `pdftotext` 分页提取文本；工具缺失或解析失败时如实说明，
   不要重试 `read`。长 PDF 应先读取目录、页数和用户相关章节，再按需分批处理。
 
+# 长期记忆
+- 你可使用 `memory_list`、`memory_get`、`memory_upsert`、`memory_forget` 管理长期记忆。
+- 记忆作用域由外部网关强制决定，工具不接受用户、群或 Store ID：单聊只能访问当前用户的个人记忆；
+  群聊和群话题只能访问当前群的共享记忆，所有话题共用所属群的记忆。
+- 个人记忆绝不能在群聊中读取、引用或写入。群记忆只保存群级事实、约定、决策和可复用背景，
+  不保存群成员私人信息、凭据、临时闲聊或未经确认的推断。
+- 当用户明确表达长期偏好、要求“记住”，或群里形成未来仍适用的明确约定/决策时，可自主调用
+  `memory_upsert`。已有信息被纠正时更新同一个稳定 key，不要重复创建近义条目。
+- `memory_forget` 只能在用户明确要求删除或遗忘指定信息时调用，不得主动推断删除。
+- Memory Store 也会只读挂载到 `/mnt/memory/`，可按需读取；需要获取刚写入的确定结果时，以
+  Custom Tool 返回值为准。不要读取、展示或要求用户提供底层 store_id / memory_id。
+
 # 飞书能力（lark-cli，双身份边界）
 - 运行环境已全局安装 lark-cli，并注入了本应用的 Bot 身份凭据。你可以用它读写飞书文档、云空间、群消息、日历等团队资源。
 - `$FEISHU_IDENTITY_MODE=bot_only` 时所有业务命令必须显式 `--as bot`，禁止 `--as user`。
@@ -593,6 +605,8 @@ def build_group_agent_config(
     如需连业务 MCP，可自行往 mcp_servers / tools 里加 mcp_toolset——但注意
     群聊场景下工具应是“团队级/公共”的，不要接需要个人身份鉴权的接口。
     """
+    from memory import build_memory_custom_tools  # type: ignore[import-not-found]
+
     return {
         "name": GROUP_BOT_NAME,
         "description": "飞书数字员工：群聊使用 Bot 身份，单聊按需使用当前用户只读授权",
@@ -607,7 +621,7 @@ def build_group_agent_config(
                     {"name": "web_fetch", "enabled": False},
                 ],
             }
-        ],
+        ] + build_memory_custom_tools(),
         "skills": [],
         "metadata": {"created_via": "group-bot-demo", "scenario": "feishu-digital-employee"},
     }
@@ -869,6 +883,8 @@ class InMemorySessionMap:
         self._user_oauth: dict[tuple[str, str], dict] = {}
         self._session_vaults: dict[str, tuple[str, ...]] = {}
         self._session_user_tokens: dict[str, tuple[str, str, int]] = {}
+        self._memory_stores: dict[tuple[str, str, str], str] = {}
+        self._session_memory_scopes: dict[str, dict[str, str]] = {}
 
     def get(self, key: GroupConversationKey) -> Optional[str]:
         return self._sessions.get(key.as_str())
@@ -947,6 +963,35 @@ class InMemorySessionMap:
         self, session_id: str
     ) -> Optional[tuple[str, str, int]]:
         return self._session_user_tokens.get(session_id)
+
+    def get_memory_store(
+        self, tenant_key: str, scope_type: str, scope_id: str
+    ) -> Optional[str]:
+        return self._memory_stores.get((tenant_key, scope_type, scope_id))
+
+    def save_memory_store(
+        self, tenant_key: str, scope_type: str, scope_id: str, store_id: str
+    ) -> None:
+        self._memory_stores[(tenant_key, scope_type, scope_id)] = store_id
+
+    def save_session_memory_scope(
+        self,
+        session_id: str,
+        tenant_key: str,
+        scope_type: str,
+        scope_id: str,
+        store_id: str,
+    ) -> None:
+        self._session_memory_scopes[session_id] = {
+            "tenant_key": tenant_key,
+            "scope_type": scope_type,
+            "scope_id": scope_id,
+            "store_id": store_id,
+        }
+
+    def get_session_memory_scope(self, session_id: str) -> Optional[dict[str, str]]:
+        value = self._session_memory_scopes.get(session_id)
+        return dict(value) if value else None
 
 
 # SqliteSessionMap 落库位置：默认放主包配置同目录（~/.arkagent），随 config.env 一起管理。
@@ -1053,6 +1098,30 @@ class SqliteSessionMap:
                 tenant_key TEXT NOT NULL,
                 open_id TEXT NOT NULL,
                 expires_at INTEGER NOT NULL
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS memory_scopes (
+                tenant_key TEXT NOT NULL,
+                scope_type TEXT NOT NULL,
+                scope_id TEXT NOT NULL,
+                store_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                PRIMARY KEY (tenant_key, scope_type, scope_id)
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_memory_scopes (
+                session_id TEXT PRIMARY KEY,
+                tenant_key TEXT NOT NULL,
+                scope_type TEXT NOT NULL,
+                scope_id TEXT NOT NULL,
+                store_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
             )
             """
         )
@@ -1244,6 +1313,70 @@ class SqliteSessionMap:
                 (session_id,),
             ).fetchone()
         return (row[0], row[1], int(row[2])) if row else None
+
+    def get_memory_store(
+        self, tenant_key: str, scope_type: str, scope_id: str
+    ) -> Optional[str]:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT store_id FROM memory_scopes
+                WHERE tenant_key = ? AND scope_type = ? AND scope_id = ?
+                """,
+                (tenant_key, scope_type, scope_id),
+            ).fetchone()
+        return row[0] if row else None
+
+    def save_memory_store(
+        self, tenant_key: str, scope_type: str, scope_id: str, store_id: str
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO memory_scopes (
+                    tenant_key, scope_type, scope_id, store_id
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(tenant_key, scope_type, scope_id) DO UPDATE SET
+                    store_id=excluded.store_id
+                """,
+                (tenant_key, scope_type, scope_id, store_id),
+            )
+
+    def save_session_memory_scope(
+        self,
+        session_id: str,
+        tenant_key: str,
+        scope_type: str,
+        scope_id: str,
+        store_id: str,
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                REPLACE INTO session_memory_scopes (
+                    session_id, tenant_key, scope_type, scope_id, store_id
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (session_id, tenant_key, scope_type, scope_id, store_id),
+            )
+
+    def get_session_memory_scope(self, session_id: str) -> Optional[dict[str, str]]:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT tenant_key, scope_type, scope_id, store_id
+                FROM session_memory_scopes WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "tenant_key": row[0],
+            "scope_type": row[1],
+            "scope_id": row[2],
+            "store_id": row[3],
+        }
 
     def close(self) -> None:
         with self._lock:

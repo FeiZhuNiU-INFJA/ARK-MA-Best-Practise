@@ -5,16 +5,16 @@
 
   1. 扫码创建一个新的飞书应用（复用主包 node-helper/register_app.mjs）。
   2. 把新 FEISHU_APP_ID/SECRET 就地写回 ~/.arkagent/config.env（保留其余键、权限 0600）。
-  3. 用现有 ARK_API_KEY 建一个群聊 Bot-only、单聊按需用户只读 OAuth 的 Agent。
+  3. 用现有 ARK_API_KEY 建一个支持群聊与单聊的数字员工 Agent。
   4. 置备 lark-cli 能力（Bot 身份）：建一个装了 lark-cli 的方舟 Environment（setup_script 拉二进制、
      env 写死 App Id）+ 一个存短期 tenant token 的 Vault 凭据，把 GROUP_BOT_ENVIRONMENT_ID /
      GROUP_BOT_LARK_VAULT_ID 写回 config.env。两者都幂等（按名字复用），重复跑不会堆资源。
 
 ARK_API_KEY / ARK_BASE_URL 直接沿用 config.env 里已有的，不重建；四卡点 case 的
-ARK_ENVIRONMENT_ID / MCP / Vault 一概不碰——群聊 Bot 用自己的 Environment 和 Vault。
+ARK_ENVIRONMENT_ID / MCP / Vault 一概不碰——数字员工用自己的 Environment 和 Vault。
 
 运行（无需先 source，脚本会自己读 config.env）：
-  python scenarios/feishu-bot/cases/group-bot/init_group_bot.py
+  python scenarios/feishu-bot/cases/digital-employee/init_group_bot.py
 
 可选：ARK_API_KEY / ARK_BASE_URL / GROUP_BOT_MODEL_ID 用环境变量覆盖 config.env 里的值。
 """
@@ -155,11 +155,11 @@ def _main() -> None:
     print("      im:chat.members:read（读群成员，im:chat:readonly 也满足）——回复里 @人名 渲成可点击 @ 用，")
     print("      缺它 chat_roster 会 400、自动降级为不 @（不影响其余回复）；")
     print("    事件订阅（长连接 + im.message.receive_v1）、开启机器人能力，然后【发布版本】。")
-    print("  · 启动推荐的话题 Session Bot：")
+    print("  · 启动数字员工阿J：")
     print("      set -a && source ~/.arkagent/config.env && set +a")
-    print("      python scenarios/feishu-bot/cases/group-bot/topic_session_bot.py --execution-mode serial")
+    print("      python scenarios/feishu-bot/cases/digital-employee/topic_session_bot.py --execution-mode serial")
     print("    或使用方舟原生队列：")
-    print("      python scenarios/feishu-bot/cases/group-bot/topic_session_bot.py --execution-mode native-queue")
+    print("      python scenarios/feishu-bot/cases/digital-employee/topic_session_bot.py --execution-mode native-queue")
     print("=" * 60)
 
 

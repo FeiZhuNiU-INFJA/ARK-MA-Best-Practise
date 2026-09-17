@@ -1,6 +1,6 @@
 # 飞书 Bot 权限说明（本项目用到的 scope + API + 错误码）
 
-> 面向 group-bot（群聊共享 Bot）与 customer-a demo，梳理机器人**实际调用的每个飞书
+> 面向 digital-employee（数字员工，支持群聊与单聊）与 customer-a demo，梳理机器人**实际调用的每个飞书
 > OpenAPI 所需权限**、对应的注册脚本配置、以及权限相关错误码的排查方法。
 >
 > 权威出处为飞书开放平台（`open.feishu.cn`），各 API 页链接见文末「来源」。SDK

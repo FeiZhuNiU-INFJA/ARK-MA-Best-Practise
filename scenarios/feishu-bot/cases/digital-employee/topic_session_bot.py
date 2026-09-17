@@ -1,4 +1,4 @@
-"""话题 Session Bot：一次 @bot 发起一个飞书话题，一个话题对应一个方舟 Session。
+"""数字员工阿J：群聊话题协作与单聊个人协作的统一入口。
 
 交互规则：
   - 主时间线里 @bot：以该消息为根创建新话题，并创建独立 Session。
@@ -12,7 +12,7 @@
 
 运行：
   set -a && source ~/.arkagent/config.env && set +a
-  python scenarios/feishu-bot/cases/group-bot/topic_session_bot.py --execution-mode serial
+  python scenarios/feishu-bot/cases/digital-employee/topic_session_bot.py --execution-mode serial
 """
 from __future__ import annotations
 
@@ -48,13 +48,20 @@ from shared import (
     update_lark_cli_vault_token,
 )
 from user_oauth import FeishuOAuth, UserAuthorizationManager
+from memory import (  # type: ignore[import-not-found]
+    DEFAULT_MEMORY_DB_PATH,
+    ScopedMemoryManager,
+    SqliteMemoryState,
+)
 
 from arkagent.ark import (
     ArkClient,
     ArkError,
     RunResult,
     UserAuthorizationRequired,
+    event_custom_tool_call,
     event_error,
+    event_requires_action,
     event_text,
     event_user_authorization_required,
     remember_lark_cli_tool_domain,
@@ -164,6 +171,8 @@ class TopicSessionBot:
         sessions: Optional[object] = None,
         execution_mode: ExecutionMode = "serial",
         user_auth: Optional[UserAuthorizationManager] = None,
+        memory_manager: Optional[ScopedMemoryManager] = None,
+        memory_state: Optional[object] = None,
     ) -> None:
         if execution_mode not in ("serial", "native-queue"):
             raise ValueError(f"不支持的执行模式：{execution_mode}")
@@ -178,7 +187,8 @@ class TopicSessionBot:
             else DEFAULT_NATIVE_TOPIC_DB_PATH
         )
         db_path = os.environ.get("TOPIC_BOT_DB_PATH", default_db_path)
-        self._sessions = sessions if sessions is not None else SqliteSessionMap(db_path)
+        sessions_were_injected = sessions is not None
+        self._sessions = sessions if sessions_were_injected else SqliteSessionMap(db_path)
         self._queue = KeyedQueue()
         self._create_locks: dict[str, asyncio.Lock] = {}
         self._lark_token_lock = asyncio.Lock()
@@ -204,6 +214,21 @@ class TopicSessionBot:
             self._send_authorization_card,
             self._notify_authorization_failure,
         )
+        if memory_manager is not None:
+            self._memory = memory_manager
+        else:
+            state = memory_state
+            if state is None:
+                state = (
+                    self._sessions
+                    if sessions_were_injected
+                    else SqliteMemoryState(
+                        os.environ.get(
+                            "GROUP_BOT_MEMORY_DB_PATH", DEFAULT_MEMORY_DB_PATH
+                        )
+                    )
+                )
+            self._memory = ScopedMemoryManager(self._ark, state)
 
     def accept(self, message: IncomingMessage) -> bool:
         """WS 同步入口：群聊只有 @bot 才触发运行和回复。"""
@@ -283,7 +308,12 @@ class TopicSessionBot:
             log.debug("%s 完整 input：\n%s", tag, actor_input)
             try:
                 result = await self._ark.run(
-                    session_id, actor_input, self._config.session_timeout_ms
+                    session_id,
+                    actor_input,
+                    self._config.session_timeout_ms,
+                    custom_tool_handler=lambda name, arguments: self._memory.handle_tool(
+                        session_id, name, arguments
+                    ),
                 )
             except ArkError as error:
                 if error.status_code != 404:
@@ -291,7 +321,12 @@ class TopicSessionBot:
                 session_id = await self._create_session(key, message)
                 await self._mount_attachments(session_id, prepared)
                 result = await self._ark.run(
-                    session_id, actor_input, self._config.session_timeout_ms
+                    session_id,
+                    actor_input,
+                    self._config.session_timeout_ms,
+                    custom_tool_handler=lambda name, arguments: self._memory.handle_tool(
+                        session_id, name, arguments
+                    ),
                 )
 
             if result.authorization_required:
@@ -522,6 +557,7 @@ class TopicSessionBot:
                         authorization = event_user_authorization_required(
                             event, domains
                         )
+                        custom_call = event_custom_tool_call(event)
                         # #region debug-point A-D:event-received
                         _debug_report(
                             "A,B,C,D",
@@ -545,6 +581,18 @@ class TopicSessionBot:
                                 fallback_message,
                                 authorization,
                             )
+                        elif custom_call:
+                            output, is_error = await self._memory.handle_tool(
+                                session_id,
+                                custom_call["name"],
+                                custom_call["arguments"],
+                            )
+                            await self._ark.send_custom_tool_result(
+                                session_id,
+                                custom_call["id"],
+                                output,
+                                is_error=is_error,
+                            )
                         elif event_type == "agent.message":
                             text = event_text(event)
                             if (
@@ -561,6 +609,8 @@ class TopicSessionBot:
                                 )
                                 delivered_count += 1
                         elif event_type == "session.status_idle":
+                            if event_requires_action(event):
+                                continue
                             self._native_blocked_until_idle.discard(key.as_str())
                             if key.as_str() not in self._native_authorizing:
                                 await self._clear_native_reactions(key)
@@ -680,6 +730,9 @@ class TopicSessionBot:
         if message.chat_type == "p2p":
             vault_ids.append(await self._user_auth.vault_id(message))
         vault_ids = list(dict.fromkeys(filter(None, vault_ids)))
+        memory_scope, memory_store_id, memory_resources = (
+            await self._memory.resources_for_message(message)
+        )
         session_id = await self._ark.create_session(
             self._config.ark_agent_id,
             self._config.ark_environment_id,
@@ -689,7 +742,9 @@ class TopicSessionBot:
                 if lark_cli_enabled(self._config) or message.chat_type == "p2p"
                 else None
             ),
+            resources=memory_resources,
         )
+        self._memory.bind_session(session_id, memory_scope, memory_store_id)
         self._sessions.save(key, session_id)
         save_session_vaults = getattr(self._sessions, "save_session_vaults", None)
         if save_session_vaults:
@@ -716,6 +771,8 @@ class TopicSessionBot:
     async def _session_has_required_vaults(
         self, session_id: str, message: IncomingMessage
     ) -> bool:
+        if not self._memory.session_matches_message(session_id, message):
+            return False
         if message.chat_type != "p2p":
             return True
         user_vault_id = await self._user_auth.vault_id(message)
@@ -782,7 +839,12 @@ class TopicSessionBot:
         replacement = await self._create_session(key, message)
         await self._mount_attachments(replacement, prepared)
         result = await self._ark.run(
-            replacement, actor_input, self._config.session_timeout_ms
+            replacement,
+            actor_input,
+            self._config.session_timeout_ms,
+            custom_tool_handler=lambda name, arguments: self._memory.handle_tool(
+                replacement, name, arguments
+            ),
         )
         if result.authorization_required:
             raise RuntimeError("授权后新 Session 仍未获得用户凭据，请联系管理员")
@@ -940,14 +1002,14 @@ class TopicSessionBot:
             log.warning("撤回「稍等」表情失败：%s", error)
 
     async def _chat_roster(self, message: IncomingMessage) -> dict:
-        if message.chat_type != "group" or not message.chat_id:
+        if not message.chat_id:
             return {}
         try:
             return await self._loop.run_in_executor(
                 None, self._sender.chat_roster, message.chat_id
             )
-        except Exception as error:  # noqa: BLE001 - 名册失败只降级为不可点击 @
-            log.warning("获取群成员名册失败：%s", error)
+        except Exception as error:  # noqa: BLE001 - 名册失败只降级为 open_id / 不可点击 @
+            log.warning("获取会话成员名册失败：%s", error)
             return {}
 
     async def _topic_history(self, message: IncomingMessage) -> list[HistoryMessage]:
@@ -1138,7 +1200,7 @@ def main() -> None:
     )
     threading.Thread(target=loop.run_forever, name="topic-bot-loop", daemon=True).start()
 
-    print("话题 Session Bot 已启动：")
+    print("数字员工阿J已启动：")
     print(f"- 飞书 App ID：{config.feishu_app_id}")
     print(f"- Agent ID：{config.ark_agent_id}")
     print(f"- 执行模式：{args.execution_mode}")

@@ -6,7 +6,7 @@ import sys
 import time
 from pathlib import Path
 
-_GROUP_BOT_DIR = Path(__file__).resolve().parents[1] / "cases" / "group-bot"
+_GROUP_BOT_DIR = Path(__file__).resolve().parents[1] / "cases" / "digital-employee"
 if str(_GROUP_BOT_DIR) not in sys.path:
     sys.path.insert(0, str(_GROUP_BOT_DIR))
 

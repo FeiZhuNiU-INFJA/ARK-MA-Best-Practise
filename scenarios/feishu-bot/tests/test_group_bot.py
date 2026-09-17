@@ -1,6 +1,6 @@
-"""群聊共享 Bot（cases/group-bot）的窗口规则测试。
+"""群聊共享 Bot（cases/digital-employee）的窗口规则测试。
 
-group-bot 目录不是 Python 包（靠 shared.py 里的 sys.path 注入运行），这里在测试内
+digital-employee 目录不是 Python 包（靠 shared.py 里的 sys.path 注入运行），这里在测试内
 把该目录加入 sys.path 后直接 import shared，验证「倒数第二次 @bot → 当前」窗口逻辑。
 """
 import sys
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 
-_GROUP_BOT_DIR = Path(__file__).resolve().parents[1] / "cases" / "group-bot"
+_GROUP_BOT_DIR = Path(__file__).resolve().parents[1] / "cases" / "digital-employee"
 if str(_GROUP_BOT_DIR) not in sys.path:
     sys.path.insert(0, str(_GROUP_BOT_DIR))
 
@@ -347,9 +347,31 @@ def test_sqlite_session_map_matches_inmemory_interface():
         "get", "save", "reset", "claim_event",
         "get_attachment", "save_attachment",
         "is_attachment_mounted", "mark_attachment_mounted",
+        "get_memory_store", "save_memory_store",
+        "get_session_memory_scope", "save_session_memory_scope",
     ):
         assert hasattr(shared.SqliteSessionMap, name)
         assert hasattr(shared.InMemorySessionMap, name)
+
+
+def test_sqlite_memory_scope_bindings_persist_across_reopen(tmp_path):
+    db = str(tmp_path / "sessions.db")
+    first = shared.SqliteSessionMap(db)
+    first.save_memory_store("tenant", "group", "chat", "store-1")
+    first.save_session_memory_scope(
+        "session-1", "tenant", "group", "chat", "store-1"
+    )
+    first.close()
+
+    second = shared.SqliteSessionMap(db)
+    assert second.get_memory_store("tenant", "group", "chat") == "store-1"
+    assert second.get_session_memory_scope("session-1") == {
+        "tenant_key": "tenant",
+        "scope_type": "group",
+        "scope_id": "chat",
+        "store_id": "store-1",
+    }
+    second.close()
 
 
 # ---- 附件去重：文件缓存层（file_key → file_id）+ 挂载记录层（session, file_key）----

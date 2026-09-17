@@ -1,11 +1,11 @@
-"""创建飞书数字员工 Agent（群聊 Bot-only、单聊按需用户只读 OAuth）。
+"""创建飞书数字员工 Agent（支持群聊协作与单聊个人服务）。
 
 跑一次，拿到 agent id，填到 GROUP_BOT_AGENT_ID 环境变量，供话题 Bot 使用。
 与主包 arkagent init 建的「客户A销售助手」是两个独立 Agent，互不影响。
 
 运行：
   set -a && source ~/.arkagent/config.env && set +a   # 需要 ARK_API_KEY[/ARK_BASE_URL]
-  python scenarios/feishu-bot/cases/group-bot/create_group_agent.py
+  python scenarios/feishu-bot/cases/digital-employee/create_group_agent.py
 """
 from __future__ import annotations
 

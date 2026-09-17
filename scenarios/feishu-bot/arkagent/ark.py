@@ -4,7 +4,8 @@
   - create_session 支持 resources（挂载 Memory Store，卡点 D）
   - send_message 支持追加 system.message（动态系统提示词，卡点 C）
   - create_static_bearer_credential（卡点 A：静态 Bearer 鉴权 MCP）
-  - create_memory_store / create_memory（卡点 D：每用户专属记忆）
+  - Memory Store / Memory CRUD（长期记忆）
+  - Custom Tool 结果回传与 requires_action 续跑
 
 SSE 解析、超时回查逻辑与原实现保持等价。
 """
@@ -16,7 +17,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import AsyncIterator, Awaitable, Callable, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -328,11 +329,95 @@ class ArkClient:
         payload = await self._request("POST", "/memory_stores", {"name": name, "description": description})
         return _response_id(payload, "Memory Store")
 
-    async def create_memory(self, store_id: str, path: str, content: str) -> None:
-        await self._request(
+    async def list_memories(
+        self, store_id: str, path_prefix: str = "/", depth: int = 2
+    ) -> list[dict]:
+        query = urlencode(
+            {"path_prefix": path_prefix, "order_by": "path", "depth": depth}
+        )
+        payload = await self._request(
+            "GET",
+            f"/memory_stores/{quote(store_id, safe='')}/memories?{query}",
+        )
+        return [
+            {
+                "id": str(item.get("id") or ""),
+                "path": str(item.get("path") or ""),
+                "type": str(item.get("type") or ""),
+                "content_sha256": str(item.get("content_sha256") or ""),
+            }
+            for item in _items(payload)
+            if item.get("id") and item.get("path")
+        ]
+
+    async def get_memory(self, store_id: str, memory_id: str) -> dict:
+        payload = await self._request(
+            "GET",
+            (
+                f"/memory_stores/{quote(store_id, safe='')}/memories/"
+                f"{quote(memory_id, safe='')}"
+            ),
+        )
+        data = _unwrap(payload)
+        return {
+            "id": str(data.get("id") or memory_id),
+            "path": str(data.get("path") or ""),
+            "content": str(data.get("content") or ""),
+            "content_sha256": str(data.get("content_sha256") or ""),
+        }
+
+    async def create_memory(self, store_id: str, path: str, content: str) -> dict:
+        payload = await self._request(
             "POST",
             f"/memory_stores/{quote(store_id, safe='')}/memories",
             {"path": path, "content": content},
+        )
+        data = _unwrap(payload)
+        return {
+            "id": str(data.get("id") or ""),
+            "path": str(data.get("path") or path),
+            "content": str(data.get("content") or content),
+            "content_sha256": str(data.get("content_sha256") or ""),
+        }
+
+    async def update_memory(
+        self,
+        store_id: str,
+        memory_id: str,
+        *,
+        path: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> dict:
+        body = {}
+        if path is not None:
+            body["path"] = path
+        if content is not None:
+            body["content"] = content
+        if not body:
+            raise ValueError("更新 Memory 时 path/content 至少提供一个")
+        payload = await self._request(
+            "POST",
+            (
+                f"/memory_stores/{quote(store_id, safe='')}/memories/"
+                f"{quote(memory_id, safe='')}"
+            ),
+            body,
+        )
+        data = _unwrap(payload)
+        return {
+            "id": str(data.get("id") or memory_id),
+            "path": str(data.get("path") or path or ""),
+            "content": str(data.get("content") or content or ""),
+            "content_sha256": str(data.get("content_sha256") or ""),
+        }
+
+    async def delete_memory(self, store_id: str, memory_id: str) -> None:
+        await self._request(
+            "DELETE",
+            (
+                f"/memory_stores/{quote(store_id, safe='')}/memories/"
+                f"{quote(memory_id, safe='')}"
+            ),
         )
 
     # ---- sessions ----
@@ -441,6 +526,30 @@ class ArkClient:
             {"events": events},
         )
 
+    async def send_custom_tool_result(
+        self,
+        session_id: str,
+        custom_tool_use_id: str,
+        output: str,
+        *,
+        is_error: bool = False,
+    ) -> None:
+        """回传客户端执行的 Custom Tool 结果，继续对应 Session 的 Agent 运行。"""
+        await self._request(
+            "POST",
+            f"/sessions/{quote(session_id, safe='')}/events",
+            {
+                "events": [
+                    {
+                        "type": "user.custom_tool_result",
+                        "custom_tool_use_id": custom_tool_use_id,
+                        "is_error": is_error,
+                        "content": [{"type": "text", "text": output}],
+                    }
+                ]
+            },
+        )
+
     async def run(
         self,
         session_id: str,
@@ -448,6 +557,9 @@ class ArkClient:
         timeout_ms: int,
         on_progress: Optional[Callable[[str], Awaitable[None]]] = None,
         system_message: Optional[str] = None,
+        custom_tool_handler: Optional[
+            Callable[[str, dict], Awaitable[tuple[str, bool]]]
+        ] = None,
     ) -> RunResult:
         started_at = _now_ms()
         messages: list[str] = []
@@ -481,7 +593,18 @@ class ArkClient:
                             authorization_required
                             or event_user_authorization_required(event, tool_domains)
                         )
-                        if event.get("type") == "agent.message":
+                        custom_call = event_custom_tool_call(event)
+                        if custom_call and custom_tool_handler:
+                            output, is_error = await custom_tool_handler(
+                                custom_call["name"], custom_call["arguments"]
+                            )
+                            await self.send_custom_tool_result(
+                                session_id,
+                                custom_call["id"],
+                                output,
+                                is_error=is_error,
+                            )
+                        elif event.get("type") == "agent.message":
                             body = event_text(event)
                             if body:
                                 if not first_message_logged:
@@ -507,7 +630,10 @@ class ArkClient:
                                 error=error,
                                 authorization_required=authorization_required,
                             )
-                        if event.get("type") == "session.status_idle":
+                        if (
+                            event.get("type") == "session.status_idle"
+                            and not event_requires_action(event)
+                        ):
                             sw.mark("ark.run.to_terminal", session=session_id, terminal="idle")
                             return RunResult(
                                 terminal="idle",
@@ -627,6 +753,40 @@ def event_progress(event: dict) -> Optional[str]:
     return f"正在调用工具：{str(name)[:80]}"
 
 
+def event_custom_tool_call(event: dict) -> Optional[dict]:
+    """归一化 Custom Tool 调用事件；兼容 arguments/input/params 三种参数字段。"""
+    if event.get("type") != "agent.custom_tool_use":
+        return None
+    ident = event.get("custom_tool_use_id") or event.get("tool_use_id") or event.get("id")
+    name = event.get("name") or event.get("tool_name")
+    if not isinstance(ident, str) or not ident or not isinstance(name, str) or not name:
+        return None
+    arguments: dict = {}
+    for key in ("arguments", "input", "params"):
+        value = event.get(key)
+        if isinstance(value, dict):
+            arguments = value
+            break
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                arguments = parsed
+                break
+    return {"id": ident, "name": name, "arguments": arguments}
+
+
+def event_requires_action(event: dict) -> bool:
+    if event.get("type") != "session.status_idle":
+        return False
+    reason = event.get("stop_reason")
+    if isinstance(reason, dict):
+        reason = reason.get("type")
+    return reason == "requires_action"
+
+
 def result_from_events(events: list[dict], started_at: int) -> Optional[RunResult]:
     def _after(event: dict) -> bool:
         stamp = event.get("processed_at")
@@ -638,7 +798,11 @@ def result_from_events(events: list[dict], started_at: int) -> Optional[RunResul
     current = [event for event in events if _after(event)]
     failed_events = [event for event in current if event.get("type") in ("session.error", "session.status_failed")]
     failed = bool(failed_events)
-    idle = any(event.get("type") == "session.status_idle" for event in current)
+    idle = any(
+        event.get("type") == "session.status_idle"
+        and not event_requires_action(event)
+        for event in current
+    )
     if not failed and not idle:
         return None
     messages = [event_text(event) for event in current if event.get("type") == "agent.message"]

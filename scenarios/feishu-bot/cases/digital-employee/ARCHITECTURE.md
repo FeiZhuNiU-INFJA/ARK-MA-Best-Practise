@@ -1,4 +1,4 @@
-# 群聊共享 Bot：架构与数据流
+# 数字员工阿J：架构与数据流
 
 这份文档回答三个问题：
 
@@ -6,8 +6,9 @@
 2. 流程里有哪些**关键数据结构**，各自装了什么。
 3. 每个**判断节点依据对象的哪个属性**做决策。
 
-代码入口：`shared.py`（公共底座）、`topic_session_bot.py`（话题级 Session，支持
-`serial` / `native-queue`）、`../../arkagent/feishu.py`（飞书接入 + 归一化）、
+代码入口：`shared.py`（公共底座）、`memory.py`（长期记忆作用域与 Custom Tool）、
+`topic_session_bot.py`（话题级 Session，支持 `serial` / `native-queue`）、
+`../../arkagent/feishu.py`（飞书接入 + 归一化）、
 `../../arkagent/ark.py`（方舟客户端）、`../../arkagent/gateway.py`（`KeyedQueue`）。
 
 > 术语：**触发消息** = 当前这条 @bot 的入站消息；**窗口** = 注入本轮的那段群历史增量。
@@ -24,6 +25,7 @@
 | `ResourceRef` | [feishu.py:26](../../arkagent/feishu.py) | 一条消息里一个**可下载附件**（图片/文件）的引用（`_extract_resources` / `_extract_history_resources` 产出） | `file_key`（下载键）、`file_name`（清洗后作挂载名）、`type`（`image`/`file`，其它类型不挂）、`message_id`（附件所属消息 id，下载资源必须按各自所属消息取；空则由调用方用当前消息 id 兜底） |
 | `PreparedAttachment` | [shared.py](shared.py) | 一个已上传、待挂载的附件 | `file_id`（方舟文件 ID）、`mount_path`（相对 `/mnt/session/uploads/`）、`name`（提示/错误用）、`file_key`（去重身份） |
 | `GroupConversationKey` | [shared.py:35](shared.py) | 共享会话键，**刻意不含 user_open_id** | `tenant_key` + `chat_id` + `thread_id` → `as_str()` = `"t:chat:thread"` |
+| `MemoryScope` | [memory.py](memory.py) | 长期记忆权限边界 | 单聊=`tenant_key + user + open_id`；群/话题=`tenant_key + group + chat_id` |
 | `SqliteSessionMap` | [shared.py:343](shared.py) | 群 key → 方舟 session_id 的**持久化映射** + 事件去重 + 附件两层去重，跨重启不丢 | 表 `sessions(key, session_id)`、`seen_events(event_id)`、`attachments(file_key, file_id)`（文件缓存·跨 session）、`attachment_mounts(session_id, file_key)`（挂载记录·按 session） |
 | `RunResult` | [ark.py:27](../../arkagent/ark.py) | 方舟一轮运行的终态结果 | `terminal`（`"idle"`/`"failed"`）、`messages` |
 | `ArkError` | [ark.py:33](../../arkagent/ark.py) | 方舟异常，带**结构化状态码** | `status_code`（404=Session 失效、409=RuntimeBusy）、`body` |
@@ -215,6 +217,19 @@ flowchart TD
 - `sessions` 表让 gateway 重启后仍复用同一个群/话题的方舟 Session（对话记忆存在方舟侧）。
 - `seen_events` 表让事件去重跨进程重启仍生效（24h TTL，启动清理一次）。
 - 并发：WS 线程与事件循环线程共用连接（`check_same_thread=False`），进程内一把锁串行化写。
+
+### 7.1 长期记忆作用域
+
+- `memory_scopes` 保存 `(tenant_key, scope_type, scope_id) → store_id`。个人以 `open_id`
+  为 `scope_id`，群以 `chat_id` 为 `scope_id`。默认独立存放于
+  `data/group_bot_memory.db`，由 serial/native-queue 共用。
+- `session_memory_scopes` 保存 `session_id → scope + store_id`，是 Custom Tool 的鉴权依据；
+  Agent 的工具参数不包含任何身份或 Store ID。
+- 创建单聊 Session 时挂个人 Store；创建群主时间线或群话题 Session 时挂所属群 Store。
+  `thread_id` 不参与 Store 定位，因此同群所有话题共享群记忆，且不存在话题 Store。
+- `agent.custom_tool_use` 由 Gateway 执行后用 `user.custom_tool_result` 回传。
+  `requires_action` 的 idle 只是等待 Tool 结果，不作为本轮终态。
+- 同一作用域的 CRUD 通过 `ScopedMemoryManager` 的异步锁串行化，避免同群不同话题并发更新。
 
 ---
 
