@@ -45,6 +45,7 @@ from shared import (
     multimodal_enabled,
     prepare_attachments,
     setup_logging,
+    should_handle,
     update_lark_cli_vault_token,
 )
 from user_oauth import FeishuOAuth, UserAuthorizationManager
@@ -232,17 +233,19 @@ class TopicSessionBot:
             self._memory = ScopedMemoryManager(self._ark, state)
 
     def accept(self, message: IncomingMessage) -> bool:
-        """WS 同步入口：群聊只有 @bot 才触发运行和回复。"""
+        """WS 同步入口：单聊仅文本触发；群聊只有 @bot 才触发。"""
         tag = message_log_tag(message)
-        if not message.text.strip() and not message.resources:
-            log.info("%s 丢弃：空消息且无附件", tag)
+        if not should_handle(message):
+            if message.chat_type == "p2p" and message.content_type != "text":
+                log.info("%s 丢弃：单聊非文本消息 type=%s", tag, message.content_type)
+            elif message.chat_type == "group" and not message.mentioned_bot:
+                log.info("%s 丢弃：群消息未 @bot（保留在话题历史，等下次 @bot 时读取）", tag)
+            else:
+                log.info("%s 丢弃：空文本消息", tag)
             return False
 
         public_key = to_topic_key(message)
         key = self._thread_aliases.get(public_key.as_str(), public_key)
-        if message.chat_type == "group" and not message.mentioned_bot:
-            log.info("%s 丢弃：群消息未 @bot（保留在话题历史，等下次 @bot 时读取）", tag)
-            return False
 
         if not self._sessions.claim_event(message.event_id):
             log.info("%s 丢弃：event 已处理过", tag)

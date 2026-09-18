@@ -69,14 +69,14 @@ def to_group_key(message: IncomingMessage) -> GroupConversationKey:
 
 
 def should_handle(message: IncomingMessage) -> bool:
-    """群里仅在 @ 到 bot 时处理；私聊直接处理（与主包一致）。
+    """单聊仅文本触发；群聊仅在 @ 到 bot 时处理。
 
-    带附件的图片/文件消息本身没有正文（text 为空），但仍是有效请求——只要携带了可挂载
-    的 resources 就放行，避免把「只发了一张图 @bot」的消息当成空文本丢弃。
+    单聊直接发送文件、图片、富文本或分享卡片只表示把材料放进会话，不构成明确请求，因此不
+    触发 Agent。群聊则保留多模态能力：显式 @bot 的图片/文件消息即使没有正文也会放行。
     """
-    if not message.text.strip() and not message.resources:
-        return False
-    return message.chat_type == "p2p" or message.mentioned_bot
+    if message.chat_type == "p2p":
+        return message.content_type == "text" and bool(message.text.strip())
+    return message.mentioned_bot and bool(message.text.strip() or message.resources)
 
 
 def is_reset_command(text: str) -> bool:
