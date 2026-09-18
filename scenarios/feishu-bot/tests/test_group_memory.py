@@ -174,6 +174,52 @@ async def test_group_topics_share_group_store_without_personal_store():
     assert store.get_memory_store("tenant", "user", "user-a") is None
 
 
+async def test_group_conventions_are_injected_every_turn():
+    ark = FakeMemoryArk()
+    store = shared.InMemorySessionMap()
+    manager = group_memory.ScopedMemoryManager(ark, store)
+    message = _message(chat_type="group", chat_id="group-a", open_id="user-a")
+    scope, store_id, _ = await manager.resources_for_message(message)
+    manager.bind_session("session-1", scope, store_id)
+    await manager.handle_tool(
+        "session-1",
+        "memory_upsert",
+        {
+            "category": "conventions",
+            "key": "reply-style",
+            "content": "每次回复先称呼当前提问人，并说同学你好。",
+        },
+    )
+    await manager.handle_tool(
+        "session-1",
+        "memory_upsert",
+        {
+            "category": "decisions",
+            "key": "release-day",
+            "content": "每周四发布。",
+        },
+    )
+
+    context = await manager.always_apply_context(message)
+
+    assert context == (
+        "【群共享约定（必须遵守）】\n"
+        "- 每次回复先称呼当前提问人，并说同学你好。"
+    )
+
+
+async def test_direct_messages_do_not_inject_group_conventions():
+    manager = group_memory.ScopedMemoryManager(
+        FakeMemoryArk(), shared.InMemorySessionMap()
+    )
+
+    context = await manager.always_apply_context(
+        _message(chat_type="p2p", chat_id="dm-a", open_id="user-a")
+    )
+
+    assert context == ""
+
+
 async def test_memory_tools_upsert_get_list_and_forget_in_bound_scope():
     ark = FakeMemoryArk()
     store = shared.InMemorySessionMap()

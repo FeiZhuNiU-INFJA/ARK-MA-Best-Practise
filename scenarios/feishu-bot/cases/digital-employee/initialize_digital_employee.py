@@ -14,7 +14,7 @@ ARK_API_KEY / ARK_BASE_URL 直接沿用 config.env 里已有的，不重建；�
 ARK_ENVIRONMENT_ID / MCP / Vault 一概不碰——数字员工用自己的 Environment 和 Vault。
 
 运行（无需先 source，脚本会自己读 config.env）：
-  python scenarios/feishu-bot/cases/digital-employee/init_group_bot.py
+  python scenarios/feishu-bot/cases/digital-employee/initialize_digital_employee.py
 
 可选：ARK_API_KEY / ARK_BASE_URL / GROUP_BOT_MODEL_ID 用环境变量覆盖 config.env 里的值。
 """
@@ -65,7 +65,9 @@ def _ensure_config_file(config_path: str) -> None:
     os.chmod(config_path, stat.S_IRUSR | stat.S_IWUSR)
 
 
-async def _create_group_agent(api_key: str, base_url: str, model_id: str, bot_name: str) -> str:
+async def _create_digital_employee_agent(
+    api_key: str, base_url: str, model_id: str, bot_name: str
+) -> str:
     ark = ArkClient(api_key, base_url)
     try:
         agent = await ark.create_agent(build_group_agent_config(model_id, bot_name))
@@ -74,7 +76,7 @@ async def _create_group_agent(api_key: str, base_url: str, model_id: str, bot_na
     return str(agent["id"])
 
 
-async def _provision_lark_cli(
+async def _provision_digital_employee_lark_cli(
     api_key: str, base_url: str, feishu_app_id: str, feishu_app_secret: str
 ) -> tuple[str, str]:
     """置备 lark-cli 能力：装了 lark-cli 的 Environment + 存短期 tenant token 的 Vault。
@@ -125,14 +127,18 @@ def _main() -> None:
 
     # ---- 阶段 4a：建双身份边界 Agent ----
     print("【2/4】正在创建飞书数字员工 Agent……")
-    agent_id = asyncio.run(_create_group_agent(api_key, base_url, model_id, bot_name))
+    agent_id = asyncio.run(
+        _create_digital_employee_agent(api_key, base_url, model_id, bot_name)
+    )
     print(f"      已创建群聊共享 Agent：{agent_id}")
     update_env_file(config_path, {"GROUP_BOT_AGENT_ID": agent_id})
 
     # ---- 阶段 4b：置备 lark-cli 能力（Environment 装 CLI + Vault 存短期 token）----
     print("【3/4】正在置备 lark-cli 能力（Environment 装 CLI + Vault 存 tenant token，均幂等）……")
     environment_id, vault_id = asyncio.run(
-        _provision_lark_cli(api_key, base_url, creds.app_id, creds.app_secret)
+        _provision_digital_employee_lark_cli(
+            api_key, base_url, creds.app_id, creds.app_secret
+        )
     )
     update_env_file(
         config_path,
@@ -157,9 +163,9 @@ def _main() -> None:
     print("    事件订阅（长连接 + im.message.receive_v1）、开启机器人能力，然后【发布版本】。")
     print("  · 启动数字员工阿J：")
     print("      set -a && source ~/.arkagent/config.env && set +a")
-    print("      python scenarios/feishu-bot/cases/digital-employee/topic_session_bot.py --execution-mode serial")
+    print("      python scenarios/feishu-bot/cases/digital-employee/digital_employee.py --execution-mode serial")
     print("    或使用方舟原生队列：")
-    print("      python scenarios/feishu-bot/cases/digital-employee/topic_session_bot.py --execution-mode native-queue")
+    print("      python scenarios/feishu-bot/cases/digital-employee/digital_employee.py --execution-mode native-queue")
     print("=" * 60)
 
 

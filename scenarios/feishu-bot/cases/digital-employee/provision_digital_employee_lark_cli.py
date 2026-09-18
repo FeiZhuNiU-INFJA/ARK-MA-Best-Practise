@@ -1,14 +1,14 @@
 """给**现有**飞书应用 + 现有 Agent 补 lark-cli 能力（不扫码、不新建应用、不新建 Agent）。
 
-与 init_group_bot.py 的区别：init 是「从零一条龙」（扫码建应用 + 建 Agent + 置备 lark-cli），
+与 initialize_digital_employee.py 的区别：前者是「从零一条龙」（扫码建应用 + 建 Agent + 置备 lark-cli），
 本脚本只做其中的**置备 lark-cli** 这一步——复用 config.env 里已有的 FEISHU_APP_ID/SECRET，
 建（或按名字复用）一个装了 lark-cli 的 Environment + 一个存短期 tenant token 的 Vault，并把
 GROUP_BOT_ENVIRONMENT_ID / GROUP_BOT_LARK_VAULT_ID 写回 config.env。两者都幂等，重复跑不堆资源。
 
-GROUP_BOT_AGENT_ID 一概不碰（system prompt 的更新走 update_group_agent.py）。
+GROUP_BOT_AGENT_ID 一概不碰（system prompt 的更新走 update_digital_employee_agent.py）。
 
 运行（无需先 source，脚本会自己读 config.env；也可用环境变量覆盖）：
-  python scenarios/feishu-bot/cases/digital-employee/provision_lark_cli.py
+  python scenarios/feishu-bot/cases/digital-employee/provision_digital_employee_lark_cli.py
 
 前置：config.env 里已有 ARK_API_KEY、FEISHU_APP_ID、FEISHU_APP_SECRET
 （即你已经跑过主包 arkagent init 或本 case 的建应用流程）。
@@ -81,7 +81,7 @@ def _main() -> None:
     print(f"  已写入 GROUP_BOT_LARK_VAULT_ID={vault_id} → {config_path}")
     print()
     print("还差两步（脚本不代劳）：")
-    print("  1. 用 update_group_agent.py 把带 lark-cli 段落的新 system prompt 推给现有 Agent。")
+    print("  1. 用 update_digital_employee_agent.py 把带 lark-cli 段落的新 system prompt 推给现有 Agent。")
     print("  2. 去飞书开放平台给这个应用勾上 lark-cli 要操作的业务域权限（docx / drive / calendar 等），并发布版本。")
     print("  然后 `set -a && source ~/.arkagent/config.env && set +a` 重启 bot；老会话需 /new 重建才会挂上 vault。")
 

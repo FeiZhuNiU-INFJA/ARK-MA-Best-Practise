@@ -12,7 +12,7 @@
 
 运行：
   set -a && source ~/.arkagent/config.env && set +a
-  python scenarios/feishu-bot/cases/digital-employee/topic_session_bot.py --execution-mode serial
+  python scenarios/feishu-bot/cases/digital-employee/digital_employee.py --execution-mode serial
 """
 from __future__ import annotations
 
@@ -45,6 +45,7 @@ from shared import (
     multimodal_enabled,
     prepare_attachments,
     setup_logging,
+    should_handle,
     update_lark_cli_vault_token,
 )
 from user_oauth import FeishuOAuth, UserAuthorizationManager
@@ -224,24 +225,31 @@ class TopicSessionBot:
                     if sessions_were_injected
                     else SqliteMemoryState(
                         os.environ.get(
-                            "GROUP_BOT_MEMORY_DB_PATH", DEFAULT_MEMORY_DB_PATH
+                            "DIGITAL_EMPLOYEE_MEMORY_DB_PATH",
+                            DEFAULT_MEMORY_DB_PATH,
                         )
                     )
                 )
             self._memory = ScopedMemoryManager(self._ark, state)
 
     def accept(self, message: IncomingMessage) -> bool:
-        """WS 同步入口：群聊只有 @bot 才触发运行和回复。"""
+        """WS 同步入口：单聊需有明确文本请求；群聊只有 @bot 才触发。"""
         tag = message_log_tag(message)
-        if not message.text.strip() and not message.resources:
-            log.info("%s 丢弃：空消息且无附件", tag)
+        if not should_handle(message):
+            if message.chat_type == "p2p" and message.content_type != "text":
+                log.info(
+                    "%s 丢弃：单聊消息没有明确文本请求 type=%s",
+                    tag,
+                    message.content_type,
+                )
+            elif message.chat_type == "group" and not message.mentioned_bot:
+                log.info("%s 丢弃：群消息未 @bot（保留在话题历史，等下次 @bot 时读取）", tag)
+            else:
+                log.info("%s 丢弃：空文本消息", tag)
             return False
 
         public_key = to_topic_key(message)
         key = self._thread_aliases.get(public_key.as_str(), public_key)
-        if message.chat_type == "group" and not message.mentioned_bot:
-            log.info("%s 丢弃：群消息未 @bot（保留在话题历史，等下次 @bot 时读取）", tag)
-            return False
 
         if not self._sessions.claim_event(message.event_id):
             log.info("%s 丢弃：event 已处理过", tag)
@@ -439,6 +447,13 @@ class TopicSessionBot:
             notices=notices,
             selected_history=topic_delta,
         )
+        try:
+            always_apply_context = await self._memory.always_apply_context(message)
+        except Exception as error:  # noqa: BLE001 - 记忆读取失败不应阻断正常回复
+            log.warning("读取群共享约定失败，本轮继续处理：%s", error)
+            always_apply_context = ""
+        if always_apply_context:
+            actor_input = f"{always_apply_context}\n\n{actor_input}"
         return message, roster, actor_input, prepared
 
     async def _ensure_native_session(
@@ -476,7 +491,7 @@ class TopicSessionBot:
         # #region debug-point A-B:consumer-state
         _debug_report(
             "A,B",
-            "topic_session_bot.py:_ensure_consumer",
+            "digital_employee.py:_ensure_consumer",
             "ensure consumer",
             {
                 "key": key_str,
@@ -536,7 +551,7 @@ class TopicSessionBot:
                 # #region debug-point B:stream-open
                 _debug_report(
                     "B",
-                    "topic_session_bot.py:_consume",
+                    "digital_employee.py:_consume",
                     "opening event stream",
                     {
                         "session_id": session_id,
@@ -561,7 +576,7 @@ class TopicSessionBot:
                         # #region debug-point A-D:event-received
                         _debug_report(
                             "A,B,C,D",
-                            "topic_session_bot.py:_consume:event",
+                            "digital_employee.py:_consume:event",
                             "event received",
                             {
                                 "session_id": session_id,
@@ -636,7 +651,7 @@ class TopicSessionBot:
                 # #region debug-point B-C:stream-error
                 _debug_report(
                     "B,C",
-                    "topic_session_bot.py:_consume:except",
+                    "digital_employee.py:_consume:except",
                     "consumer stream failed",
                     {
                         "session_id": session_id,
@@ -668,7 +683,7 @@ class TopicSessionBot:
         # #region debug-point C:before-reply
         _debug_report(
             "C",
-            "topic_session_bot.py:_deliver_native_message",
+            "digital_employee.py:_deliver_native_message",
             "replying agent message",
             {
                 "session_id": session_id,
@@ -690,7 +705,7 @@ class TopicSessionBot:
         # #region debug-point C:after-reply
         _debug_report(
             "C",
-            "topic_session_bot.py:_deliver_native_message",
+            "digital_employee.py:_deliver_native_message",
             "reply completed",
             {
                 "session_id": session_id,
@@ -1177,7 +1192,7 @@ def _result_to_text(result: RunResult) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="按飞书话题隔离的群聊 Agent")
+    parser = argparse.ArgumentParser(description="按飞书话题隔离的数字员工")
     parser.add_argument(
         "--execution-mode",
         choices=("serial", "native-queue"),

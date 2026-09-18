@@ -9,7 +9,7 @@
   - arkagent.feishu          —— 飞书消息归一化 / 发送
   - arkagent.gateway.KeyedQueue —— 按 key 串行化协程（客户端串行方案用）
 
-`topic_session_bot.py` 始终以一个飞书话题对应一个 Session，并通过
+`digital_employee.py` 始终以一个飞书话题对应一个 Session，并通过
 `--execution-mode serial|native-queue` 选择客户端串行或方舟原生队列。
 """
 from __future__ import annotations
@@ -69,14 +69,24 @@ def to_group_key(message: IncomingMessage) -> GroupConversationKey:
 
 
 def should_handle(message: IncomingMessage) -> bool:
-    """群里仅在 @ 到 bot 时处理；私聊直接处理（与主包一致）。
+    """单聊需有明确文本请求；群聊仅在 @ 到 bot 时处理。
 
-    带附件的图片/文件消息本身没有正文（text 为空），但仍是有效请求——只要携带了可挂载
-    的 resources 就放行，避免把「只发了一张图 @bot」的消息当成空文本丢弃。
+    单聊直接发送文件、图片或分享卡片不触发；带附件的富文本消息只有在去掉附件占位后仍有
+    用户正文时才触发。群聊保留多模态能力：显式 @bot 的图片/文件消息即使没有正文也会放行。
     """
-    if not message.text.strip() and not message.resources:
-        return False
-    return message.chat_type == "p2p" or message.mentioned_bot
+    if message.chat_type == "p2p":
+        if message.content_type == "text":
+            return bool(message.text.strip())
+        if not message.resources:
+            return False
+        text_without_attachments = re.sub(
+            r"<(?:file|folder)\b[^>]*/>|!\[[^\]]*\]\([^)]+\)|\[media:[^\]]*\]",
+            "",
+            message.text,
+            flags=re.IGNORECASE,
+        )
+        return bool(text_without_attachments.strip())
+    return message.mentioned_bot and bool(message.text.strip() or message.resources)
 
 
 def is_reset_command(text: str) -> bool:
@@ -519,7 +529,8 @@ def build_actor_input(message: IncomingMessage) -> str:
 GROUP_BOT_NAME = "数字员工阿J"
 
 # system prompt 里 bot 自称的默认名字。真名以飞书开放平台配的机器人显示名为准，建 Agent 时
-# 由 build_group_agent_config(bot_name=...) 覆盖（见 create_group_agent.py / init_group_bot.py）。
+# 由 build_group_agent_config(bot_name=...) 覆盖（见 create_digital_employee_agent.py /
+# initialize_digital_employee.py）。
 DEFAULT_BOT_DISPLAY_NAME = "数字员工阿J"
 GROUP_BOT_PIP_PACKAGES = ["pypdf==6.19.0"]
 
@@ -850,7 +861,7 @@ def load_group_bot_config() -> GroupBotConfig:
     if not environment_id:
         raise RuntimeError(
             "缺少环境变量 GROUP_BOT_ENVIRONMENT_ID（或 ARK_ENVIRONMENT_ID）。"
-            "请先跑 init_group_bot.py 建好装了 lark-cli 的 Environment，或手动 export。"
+            "请先跑 initialize_digital_employee.py 建好装了 lark-cli 的 Environment，或手动 export。"
         )
 
     return GroupBotConfig(
@@ -863,7 +874,8 @@ def load_group_bot_config() -> GroupBotConfig:
         session_timeout_ms=timeout_ms if timeout_ms >= 1000 else 600000,
         authorized_open_ids=open_ids,
         authorized_user_ids=user_ids,
-        # 可选：init_group_bot.py 建好 Vault 后写回 GROUP_BOT_LARK_VAULT_ID；缺失则不启用 lark-cli。
+        # 可选：initialize_digital_employee.py 建好 Vault 后写回 GROUP_BOT_LARK_VAULT_ID；
+        # 缺失则不启用 lark-cli。
         lark_vault_id=(os.environ.get("GROUP_BOT_LARK_VAULT_ID") or "").strip(),
     )
 

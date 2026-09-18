@@ -59,6 +59,57 @@ def _trigger(**overrides) -> IncomingMessage:
     return IncomingMessage(**base)
 
 
+def test_should_handle_direct_text_only():
+    assert shared.should_handle(
+        _trigger(chat_type="p2p", text="请帮我总结", mentioned_bot=False)
+    )
+    assert not shared.should_handle(
+        _trigger(
+            chat_type="p2p",
+            text="",
+            mentioned_bot=False,
+            content_type="file",
+            resources=(_ref("fk-pdf", "report.pdf"),),
+        )
+    )
+    assert not shared.should_handle(
+        _trigger(
+            chat_type="p2p",
+            text="[unsupported message]",
+            mentioned_bot=False,
+            content_type="share_doc",
+        )
+    )
+    assert not shared.should_handle(
+        _trigger(
+            chat_type="p2p",
+            text='<file key="fk-pdf" name="report.pdf"/>',
+            mentioned_bot=False,
+            content_type="post",
+            resources=(_ref("fk-pdf", "report.pdf"),),
+        )
+    )
+    assert shared.should_handle(
+        _trigger(
+            chat_type="p2p",
+            text='总结一下这个文档\n\n<file key="fk-pdf" name="report.pdf"/>',
+            mentioned_bot=False,
+            content_type="post",
+            resources=(_ref("fk-pdf", "report.pdf"),),
+        )
+    )
+
+
+def test_should_handle_mentioned_group_attachment():
+    assert shared.should_handle(
+        _trigger(
+            text="",
+            content_type="file",
+            resources=(_ref("fk-pdf", "report.pdf"),),
+        )
+    )
+
+
 def test_window_starts_at_last_history_trigger():
     # 历史里最近一条 @bot 是 m3；窗口应从 m3 起（含 m3、m4），把上一轮触发后的增量都带上。
     history = [

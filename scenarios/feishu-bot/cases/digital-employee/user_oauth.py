@@ -35,6 +35,7 @@ DOMAIN_USER_SCOPES = {
 }
 MAX_VAULT_SECRET_BYTES = 4096
 DEBUG_ACCESS_TOKEN_PATH = Path(".dbg/oauth-vault-token-limit.access_token")
+DEBUG_REQUEST_IDS_PATH = Path(".dbg/oauth-vault-token-limit.request_ids.jsonl")
 
 
 def _token_diagnostics(token: str) -> dict:
@@ -85,6 +86,37 @@ def _capture_access_token(token: str) -> None:
     try:
         os.write(descriptor, token.encode("utf-8"))
         os.fchmod(descriptor, 0o600)
+    finally:
+        os.close(descriptor)
+
+
+def _capture_request_id(operation: str, response: httpx.Response) -> None:
+    """仅保存 OAuth 调用的追踪 ID，不保存凭据、请求体或响应体。"""
+    request_id = next(
+        (
+            response.headers.get(header)
+            for header in ("x-tt-logid", "x-request-id", "x-requestid")
+            if response.headers.get(header)
+        ),
+        "",
+    )
+    if not request_id:
+        return
+    DEBUG_REQUEST_IDS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(
+        DEBUG_REQUEST_IDS_PATH,
+        os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+        0o600,
+    )
+    try:
+        os.fchmod(descriptor, 0o600)
+        entry = {
+            "at_ms": _now_ms(),
+            "operation": operation,
+            "status_code": response.status_code,
+            "request_id": request_id,
+        }
+        os.write(descriptor, (json.dumps(entry) + "\n").encode("utf-8"))
     finally:
         os.close(descriptor)
 
@@ -228,9 +260,13 @@ class FeishuOAuth:
 
     async def _post_json(self, url: str, body: dict) -> httpx.Response:
         if self._client is not None:
-            return await self._client.post(url, json=body)
+            response = await self._client.post(url, json=body)
+            _capture_request_id("oauth_token", response)
+            return response
         async with httpx.AsyncClient(timeout=30.0) as client:
-            return await client.post(url, json=body)
+            response = await client.post(url, json=body)
+            _capture_request_id("oauth_token", response)
+            return response
 
     async def _request(self, method: str, url: str, **kwargs) -> dict:
         if self._client is not None:
@@ -238,6 +274,7 @@ class FeishuOAuth:
         else:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.request(method, url, **kwargs)
+        _capture_request_id(_oauth_operation(url), response)
         payload = _json(response)
         if (
             not response.is_success
@@ -246,6 +283,14 @@ class FeishuOAuth:
         ):
             raise _oauth_error(response.status_code, payload)
         return payload
+
+
+def _oauth_operation(url: str) -> str:
+    if "device_authorization" in url:
+        return "device_authorization"
+    if "user_info" in url:
+        return "user_info"
+    return "oauth_request"
 
 
 Resume = Callable[[], Awaitable[None]]

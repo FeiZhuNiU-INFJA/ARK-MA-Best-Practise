@@ -11,6 +11,7 @@ if str(_GROUP_BOT_DIR) not in sys.path:
     sys.path.insert(0, str(_GROUP_BOT_DIR))
 
 import shared  # noqa: E402
+import user_oauth  # noqa: E402
 from user_oauth import (  # noqa: E402
     CALENDAR_USER_SCOPES,
     DeviceAuthorization,
@@ -20,6 +21,7 @@ from user_oauth import (  # noqa: E402
     USER_AUTH_PENDING,
     UserAuthorizationManager,
     _capture_access_token,
+    _capture_request_id,
     _token_diagnostics,
 )
 
@@ -121,6 +123,23 @@ def test_capture_access_token_writes_owner_only_file(tmp_path, monkeypatch):
     _capture_access_token("full-access-token")
 
     assert path.read_text() == "full-access-token"
+    assert os.stat(path).st_mode & 0o777 == 0o600
+
+
+def test_capture_request_id_writes_trace_only_file(tmp_path, monkeypatch):
+    path = tmp_path / "request-ids.jsonl"
+    monkeypatch.setattr(user_oauth, "DEBUG_REQUEST_IDS_PATH", path)
+
+    class Response:
+        status_code = 400
+        headers = {"x-tt-logid": "20260917-request-id"}
+
+    _capture_request_id("oauth_token", Response())
+
+    entry = __import__("json").loads(path.read_text())
+    assert entry["operation"] == "oauth_token"
+    assert entry["status_code"] == 400
+    assert entry["request_id"] == "20260917-request-id"
     assert os.stat(path).st_mode & 0o777 == 0o600
 
 

@@ -80,6 +80,9 @@ class IncomingMessage:
     # 这条消息携带的图片/文件附件（多模态）。走「下载→上传方舟→挂载到 /mnt/session/uploads/」
     # 的挂载文件系统方案；空表示纯文本消息。图片消息本身没有正文，text 会是占位/空。
     resources: tuple[ResourceRef, ...] = ()
+    # 飞书原始消息类型（text/file/image/post/share_* 等）。单聊只允许 text 主动触发 Agent；
+    # 群聊仍允许用户显式 @bot 时携带图片/文件。
+    content_type: str = "text"
 
     @property
     def employee_id(self) -> str:
@@ -849,15 +852,16 @@ def _inbound_to_incoming(msg: object) -> Optional[IncomingMessage]:
     （_extract_resources），交由上层「下载→上传方舟→挂载到 /mnt/session/uploads/」。既非文本
     也无可挂载附件的消息（sticker/audio/video 等）返回 None，维持原「只处理文本」的下游契约。
     """
+    content_type = str(getattr(msg, "raw_content_type", None) or "")
     resources = _extract_resources(msg)
-    if getattr(msg, "raw_content_type", None) != "text" and not resources:
+    if content_type != "text" and not resources:
         return None
     conversation = getattr(msg, "conversation", None)
     sender = getattr(msg, "sender", None)
     text = (getattr(msg, "content_text", "") or "").strip()
     # 图片/文件消息的 content_text 是 SDK 的媒体占位（`![image](key)` / `<file .../>`），
     # 对转录无意义且会混淆模型——附件已由 resources 单独承载、挂到文件系统，故清掉占位文本。
-    if resources and getattr(msg, "raw_content_type", None) in ("image", "file"):
+    if resources and content_type in ("image", "file"):
         text = ""
     chat_type = "p2p" if getattr(conversation, "chat_type", "") == "p2p" else "group"
     tenant_key = "default"
@@ -889,6 +893,7 @@ def _inbound_to_incoming(msg: object) -> Optional[IncomingMessage]:
         reply_to_message_id=reply_to or "",
         root_id=root_id,
         resources=resources,
+        content_type=content_type or "unknown",
     )
 
 
@@ -900,7 +905,7 @@ def start_feishu_gateway(app_id: str, app_secret: str, gateway: GatewayLike) -> 
       - transport=ws：与原实现一致，无需公网回调（另一个可选值是 webhook）。
       - policy.require_mention=False + group_policy=open：**不让 SDK 层拦**，是否处理仍由
         下游 gateway 的 should_handle 判定（群里只在 @bot 时处理），保持与迁移前行为一致。
-      - safety.chat_queue.enabled=False：关掉 SDK 侧的排队/合并——topic_session_bot 的 serial
+      - safety.chat_queue.enabled=False：关掉 SDK 侧的排队/合并——digital_employee 的 serial
         模式用自己的 KeyedQueue，native-queue 模式靠方舟原生队列；SDK 若再合并会破坏
         「每条消息独立成窗」的规则。关掉后 SDK 逐条直投，dedup 仍然生效。
 

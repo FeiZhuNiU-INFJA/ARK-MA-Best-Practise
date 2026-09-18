@@ -14,8 +14,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import AsyncIterator, Awaitable, Callable, Optional
 from urllib.parse import quote, urlencode
 
@@ -26,6 +28,7 @@ from .timing import Stopwatch, time_block, timing_logger
 log = logging.getLogger("arkagent.ark")
 
 REQUEST_TIMEOUT = 30.0
+DEBUG_MA_REQUEST_IDS_PATH = Path(".dbg/oauth-vault-token-limit.ma_request_ids.jsonl")
 
 # lark-cli 版本 + 安装脚本（对齐源仓库 src/ark.ts 的 LARK_CLI_SETUP_SCRIPT）。
 # 方舟沙箱是干净的 cloud 环境，agent_toolset 的 shell 里默认没有 lark-cli——建 Environment 时
@@ -99,6 +102,56 @@ def _response_id(payload: dict, resource: str) -> str:
     return ident
 
 
+def _capture_ma_request_id(operation: str, path: str, response: httpx.Response) -> None:
+    """临时记录 MA 响应追踪 ID，不记录请求或响应内容。"""
+    if not os.environ.get("MA_DEBUG_REQUEST_IDS", ""):
+        return
+    header, request_id = next(
+        (
+            (name, response.headers.get(name))
+            for name in (
+                "x-request-id",
+                "x-tt-logid",
+                "x-volc-request-id",
+                "x-ark-request-id",
+            )
+            if response.headers.get(name)
+        ),
+        ("", ""),
+    )
+    if not request_id:
+        return
+    target = Path(
+        os.environ.get("MA_DEBUG_REQUEST_IDS_PATH", DEBUG_MA_REQUEST_IDS_PATH)
+    )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(
+        target,
+        os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+        0o600,
+    )
+    try:
+        os.fchmod(descriptor, 0o600)
+        os.write(
+            descriptor,
+            (
+                json.dumps(
+                    {
+                        "at_ms": _now_ms(),
+                        "operation": operation,
+                        "path": path,
+                        "status_code": response.status_code,
+                        "header": header,
+                        "request_id": request_id,
+                    }
+                )
+                + "\n"
+            ).encode("utf-8"),
+        )
+    finally:
+        os.close(descriptor)
+
+
 class ArkClient:
     def __init__(self, api_key: str, base_url: str, client: Optional[httpx.AsyncClient] = None):
         self.api_key = api_key
@@ -119,6 +172,9 @@ class ArkClient:
             headers=headers,
             content=json.dumps(body) if body is not None else None,
             timeout=REQUEST_TIMEOUT,
+        )
+        _capture_ma_request_id(
+            f"{method} {path}", path, response
         )
         if response.status_code >= 400:
             request_id = response.headers.get("x-request-id")
@@ -479,6 +535,7 @@ class ArkClient:
                 files=files,
                 timeout=REQUEST_TIMEOUT,
             )
+        _capture_ma_request_id("POST /files", "/files", response)
         if response.status_code >= 400:
             request_id = response.headers.get("x-request-id")
             suffix = f" ({request_id})" if request_id else ""
@@ -676,6 +733,11 @@ class _EventStream:
         headers = {"Accept": "text/event-stream", "Authorization": f"Bearer {self._client.api_key}"}
         self._ctx = self._client._client.stream("GET", url, headers=headers, timeout=None)
         self._response = await self._ctx.__aenter__()
+        _capture_ma_request_id(
+            "GET /sessions/{session_id}/events/stream",
+            f"/sessions/{self._session_id}/events/stream",
+            self._response,
+        )
         if self._response.status_code >= 400:
             body = ""
             try:
@@ -849,15 +911,8 @@ def event_user_authorization_required(
     text = event_text(event).strip()
     import re
 
-    if not re.search(r"^exit_code:\s*3\b", text, re.M):
-        return None
-    marker = re.search(
-        r"--- (?:stderr|output \(stdout \+ stderr\)) ---\s*\n([\s\S]+)$", text
-    )
-    if not marker:
-        return None
     normalized = "\n".join(
-        re.sub(r"^\s*\d+\t", "", line) for line in marker.group(1).splitlines()
+        re.sub(r"^\s*\d+\t", "", line) for line in text.splitlines()
     ).strip()
     start, end = normalized.find("{"), normalized.rfind("}")
     if start < 0 or end < start:
@@ -871,7 +926,7 @@ def event_user_authorization_required(
     subtype = error.get("subtype")
     is_token_error = (
         error_type == "authentication"
-        and subtype in ("token_missing", "token_invalid")
+        and subtype in ("token_missing", "token_invalid", "token_expired")
     )
     is_scope_error = error_type == "authorization" and subtype == "missing_scope"
     if not (

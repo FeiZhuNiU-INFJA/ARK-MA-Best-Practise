@@ -243,6 +243,7 @@ def test_inbound_maps_channel_message_to_incoming():
     assert result.thread_id == "th-1"
     assert result.user_open_id == "ou-user"
     assert result.text == "@小助手 帮我总结"  # SDK 已剥离 mention token，content_text 直接用
+    assert result.content_type == "text"
     assert result.mentioned_bot is True
     assert result.tenant_key == "default"  # mention 与否不能改变同一话题的会话键
     assert result.create_time == 1700000009999
@@ -445,8 +446,45 @@ def test_inbound_keeps_text_and_resources_for_file_message():
     result = _inbound_to_incoming(msg)
     assert result is not None
     assert result.text == ""
+    assert result.content_type == "file"
     assert result.resources[0].file_name == "doc.pdf"
     assert result.resources[0].message_id == "om-in-1"  # 触发消息的附件带当前消息 id
+
+
+def test_inbound_keeps_direct_file_type_for_gateway_filtering():
+    msg = _inbound(
+        raw_content_type="file",
+        content_text="<file key=fk-1/>",
+        conversation=SimpleNamespace(
+            chat_id="oc-direct", chat_type="p2p", thread_id=None
+        ),
+        resources=[_descriptor(type="file", file_key="fk-1", file_name="doc.pdf")],
+    )
+
+    result = _inbound_to_incoming(msg)
+
+    assert result is not None
+    assert result.chat_type == "p2p"
+    assert result.content_type == "file"
+    assert result.text == ""
+
+
+def test_inbound_preserves_direct_post_text_with_attachment():
+    msg = _inbound(
+        raw_content_type="post",
+        content_text='总结一下这个文档\n\n<file key="fk-1" name="doc.pdf"/>',
+        conversation=SimpleNamespace(
+            chat_id="oc-direct", chat_type="p2p", thread_id=None
+        ),
+        resources=[_descriptor(type="file", file_key="fk-1", file_name="doc.pdf")],
+    )
+
+    result = _inbound_to_incoming(msg)
+
+    assert result is not None
+    assert result.content_type == "post"
+    assert result.text.startswith("总结一下这个文档")
+    assert result.resources[0].file_name == "doc.pdf"
 
 
 def test_inbound_text_message_has_no_resources():

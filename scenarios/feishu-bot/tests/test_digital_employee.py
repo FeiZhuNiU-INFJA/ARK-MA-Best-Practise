@@ -13,8 +13,8 @@ if str(_GROUP_BOT_DIR) not in sys.path:
     sys.path.insert(0, str(_GROUP_BOT_DIR))
 
 import shared  # noqa: E402
-import topic_session_bot as topic_bot  # noqa: E402
-from topic_session_bot import (  # noqa: E402
+import digital_employee as topic_bot  # noqa: E402
+from digital_employee import (  # noqa: E402
     TopicSessionBot,
     _is_runtime_busy,
     _with_roster_history_names,
@@ -25,7 +25,7 @@ from topic_session_bot import (  # noqa: E402
 )
 
 from arkagent.ark import ArkError, RunResult, UserAuthorizationRequired  # noqa: E402
-from arkagent.feishu import HistoryMessage, IncomingMessage  # noqa: E402
+from arkagent.feishu import HistoryMessage, IncomingMessage, ResourceRef  # noqa: E402
 
 
 class FakeArk:
@@ -137,6 +137,8 @@ def _msg(
     user_name: str = "Alice",
     chat_type: str = "group",
     chat_id: str = "oc-team",
+    content_type: str = "text",
+    resources: tuple[ResourceRef, ...] = (),
 ) -> IncomingMessage:
     return IncomingMessage(
         event_id=eid,
@@ -151,6 +153,8 @@ def _msg(
         mentioned_bot=mentioned_bot,
         create_time=1000,
         root_id=root_id,
+        content_type=content_type,
+        resources=resources,
     )
 
 
@@ -267,6 +271,74 @@ def test_direct_session_mounts_bot_and_sender_user_vault(loop):
     assert sessions.get_session_vaults("sesn-1") == ("vlt-bot", "vlt-user")
     assert sender.reactions == [("om-direct", "OneSecond")]
     assert sender.deleted_reactions == [("om-direct", "rx-1")]
+
+
+def test_direct_non_text_messages_do_not_trigger_agent(loop):
+    bot, ark, sender, sessions = _make_bot(loop)
+    direct_file = _msg(
+        "",
+        mid="om-direct-file",
+        eid="ev-direct-file",
+        chat_type="p2p",
+        chat_id="oc-direct",
+        content_type="file",
+        resources=(
+            ResourceRef(
+                file_key="fk-pdf",
+                file_name="report.pdf",
+                type="file",
+                message_id="om-direct-file",
+            ),
+        ),
+    )
+    shared_doc = _msg(
+        "[unsupported message]",
+        mid="om-direct-doc",
+        eid="ev-direct-doc",
+        chat_type="p2p",
+        chat_id="oc-direct",
+        content_type="share_doc",
+    )
+
+    assert bot.accept(direct_file) is False
+    assert bot.accept(shared_doc) is False
+    assert ark.created == 0
+    assert ark.run_calls == []
+    assert sender.chat_sends == []
+    assert sessions.get(to_topic_key(direct_file)) is None
+
+
+def test_direct_post_with_text_and_file_triggers_agent(loop):
+    ark = FakeArk()
+    sender = FakeSender()
+    sessions = shared.InMemorySessionMap()
+    bot = TopicSessionBot(
+        _config(), ark, sender, loop, sessions, user_auth=FakeUserAuth()
+    )
+    message = _msg(
+        '总结一下这个文档\n\n<file key="fk-pdf" name="report.pdf"/>',
+        mid="om-direct-post",
+        eid="ev-direct-post",
+        chat_type="p2p",
+        chat_id="oc-direct",
+        content_type="post",
+        resources=(
+            ResourceRef(
+                file_key="fk-pdf",
+                file_name="report.pdf",
+                type="file",
+                message_id="om-direct-post",
+            ),
+        ),
+    )
+
+    assert bot.accept(message) is True
+    _drain(loop, lambda: len(sender.chat_sends) == 1)
+
+    assert ark.created == 1
+    assert ark.upload_calls[0][0] == "report.pdf"
+    assert "总结一下这个文档" in ark.run_calls[0][1]
+    assert "【文件挂载】" in ark.run_calls[0][1]
 
 
 def test_native_expired_authorization_request_generates_new_card(loop):
