@@ -80,6 +80,24 @@ def test_should_handle_direct_text_only():
             content_type="share_doc",
         )
     )
+    assert not shared.should_handle(
+        _trigger(
+            chat_type="p2p",
+            text='<file key="fk-pdf" name="report.pdf"/>',
+            mentioned_bot=False,
+            content_type="post",
+            resources=(_ref("fk-pdf", "report.pdf"),),
+        )
+    )
+    assert shared.should_handle(
+        _trigger(
+            chat_type="p2p",
+            text='总结一下这个文档\n\n<file key="fk-pdf" name="report.pdf"/>',
+            mentioned_bot=False,
+            content_type="post",
+            resources=(_ref("fk-pdf", "report.pdf"),),
+        )
+    )
 
 
 def test_should_handle_mentioned_group_attachment():

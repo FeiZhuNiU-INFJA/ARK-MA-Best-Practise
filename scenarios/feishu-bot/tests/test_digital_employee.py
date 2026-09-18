@@ -308,6 +308,39 @@ def test_direct_non_text_messages_do_not_trigger_agent(loop):
     assert sessions.get(to_topic_key(direct_file)) is None
 
 
+def test_direct_post_with_text_and_file_triggers_agent(loop):
+    ark = FakeArk()
+    sender = FakeSender()
+    sessions = shared.InMemorySessionMap()
+    bot = TopicSessionBot(
+        _config(), ark, sender, loop, sessions, user_auth=FakeUserAuth()
+    )
+    message = _msg(
+        '总结一下这个文档\n\n<file key="fk-pdf" name="report.pdf"/>',
+        mid="om-direct-post",
+        eid="ev-direct-post",
+        chat_type="p2p",
+        chat_id="oc-direct",
+        content_type="post",
+        resources=(
+            ResourceRef(
+                file_key="fk-pdf",
+                file_name="report.pdf",
+                type="file",
+                message_id="om-direct-post",
+            ),
+        ),
+    )
+
+    assert bot.accept(message) is True
+    _drain(loop, lambda: len(sender.chat_sends) == 1)
+
+    assert ark.created == 1
+    assert ark.upload_calls[0][0] == "report.pdf"
+    assert "总结一下这个文档" in ark.run_calls[0][1]
+    assert "【文件挂载】" in ark.run_calls[0][1]
+
+
 def test_native_expired_authorization_request_generates_new_card(loop):
     ark = NativeFakeArk()
     sender = FakeSender()

@@ -469,6 +469,24 @@ def test_inbound_keeps_direct_file_type_for_gateway_filtering():
     assert result.text == ""
 
 
+def test_inbound_preserves_direct_post_text_with_attachment():
+    msg = _inbound(
+        raw_content_type="post",
+        content_text='总结一下这个文档\n\n<file key="fk-1" name="doc.pdf"/>',
+        conversation=SimpleNamespace(
+            chat_id="oc-direct", chat_type="p2p", thread_id=None
+        ),
+        resources=[_descriptor(type="file", file_key="fk-1", file_name="doc.pdf")],
+    )
+
+    result = _inbound_to_incoming(msg)
+
+    assert result is not None
+    assert result.content_type == "post"
+    assert result.text.startswith("总结一下这个文档")
+    assert result.resources[0].file_name == "doc.pdf"
+
+
 def test_inbound_text_message_has_no_resources():
     result = _inbound_to_incoming(_inbound())
     assert result is not None
