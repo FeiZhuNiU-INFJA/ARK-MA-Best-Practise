@@ -12,7 +12,7 @@
 
 运行：
   set -a && source ~/.arkagent/config.env && set +a
-  python scenarios/feishu-bot/cases/digital-employee/topic_session_bot.py --execution-mode serial
+  python scenarios/feishu-bot/cases/digital-employee/digital_employee.py --execution-mode serial
 """
 from __future__ import annotations
 
@@ -477,7 +477,7 @@ class TopicSessionBot:
         # #region debug-point A-B:consumer-state
         _debug_report(
             "A,B",
-            "topic_session_bot.py:_ensure_consumer",
+            "digital_employee.py:_ensure_consumer",
             "ensure consumer",
             {
                 "key": key_str,
@@ -537,7 +537,7 @@ class TopicSessionBot:
                 # #region debug-point B:stream-open
                 _debug_report(
                     "B",
-                    "topic_session_bot.py:_consume",
+                    "digital_employee.py:_consume",
                     "opening event stream",
                     {
                         "session_id": session_id,
@@ -562,7 +562,7 @@ class TopicSessionBot:
                         # #region debug-point A-D:event-received
                         _debug_report(
                             "A,B,C,D",
-                            "topic_session_bot.py:_consume:event",
+                            "digital_employee.py:_consume:event",
                             "event received",
                             {
                                 "session_id": session_id,
@@ -637,7 +637,7 @@ class TopicSessionBot:
                 # #region debug-point B-C:stream-error
                 _debug_report(
                     "B,C",
-                    "topic_session_bot.py:_consume:except",
+                    "digital_employee.py:_consume:except",
                     "consumer stream failed",
                     {
                         "session_id": session_id,
@@ -669,7 +669,7 @@ class TopicSessionBot:
         # #region debug-point C:before-reply
         _debug_report(
             "C",
-            "topic_session_bot.py:_deliver_native_message",
+            "digital_employee.py:_deliver_native_message",
             "replying agent message",
             {
                 "session_id": session_id,
@@ -691,7 +691,7 @@ class TopicSessionBot:
         # #region debug-point C:after-reply
         _debug_report(
             "C",
-            "topic_session_bot.py:_deliver_native_message",
+            "digital_employee.py:_deliver_native_message",
             "reply completed",
             {
                 "session_id": session_id,
@@ -1178,7 +1178,7 @@ def _result_to_text(result: RunResult) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="按飞书话题隔离的群聊 Agent")
+    parser = argparse.ArgumentParser(description="按飞书话题隔离的数字员工")
     parser.add_argument(
         "--execution-mode",
         choices=("serial", "native-queue"),

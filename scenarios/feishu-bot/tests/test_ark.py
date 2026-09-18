@@ -1,9 +1,12 @@
+import json
+
 import httpx
 import pytest
 import respx
 
 from arkagent.ark import (
     ArkClient,
+    _capture_ma_request_id,
     drain_event_buffer,
     event_custom_tool_call,
     event_progress,
@@ -19,6 +22,26 @@ BASE = "https://ark.example/api/v3"
 
 def _client():
     return ArkClient("key", BASE)
+
+
+def test_capture_ma_request_id_writes_success_trace_only_file(tmp_path, monkeypatch):
+    path = tmp_path / "ma-request-ids.jsonl"
+    monkeypatch.setenv("MA_DEBUG_REQUEST_IDS", "1")
+    monkeypatch.setenv("MA_DEBUG_REQUEST_IDS_PATH", str(path))
+
+    _capture_ma_request_id(
+        "POST /sessions",
+        "/sessions",
+        httpx.Response(200, headers={"x-request-id": "ma-request-id"}),
+    )
+
+    entry = json.loads(path.read_text())
+    assert entry["operation"] == "POST /sessions"
+    assert entry["path"] == "/sessions"
+    assert entry["status_code"] == 200
+    assert entry["header"] == "x-request-id"
+    assert entry["request_id"] == "ma-request-id"
+    assert path.stat().st_mode & 0o777 == 0o600
 
 
 # ---- pure SSE helpers ----
@@ -130,6 +153,30 @@ def test_detects_structured_lark_user_token_invalid():
     assert request is not None
     assert request.subtype == "token_invalid"
     assert request.domain == "calendar"
+
+
+def test_detects_token_expired_when_shell_masks_exit_code():
+    request = event_user_authorization_required(
+        {
+            "type": "agent.tool_result",
+            "tool_use_id": "tool-drive",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        'exit_code: 0\n--- stdout ---\n'
+                        '{"ok":false,"identity":"user","error":'
+                        '{"type":"authentication","subtype":"token_expired",'
+                        '"code":99991677}}\nEXIT=3\n--- stderr ---\n'
+                    ),
+                }
+            ],
+        },
+        {"tool-drive": "drive"},
+    )
+    assert request is not None
+    assert request.subtype == "token_expired"
+    assert request.domain == "drive"
 
 
 def test_detects_structured_lark_user_missing_scope():

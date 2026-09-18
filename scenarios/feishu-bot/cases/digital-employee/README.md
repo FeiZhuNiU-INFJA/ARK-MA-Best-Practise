@@ -1,9 +1,12 @@
 # 数字员工阿J（群聊与单聊）
 
-这里只有一个运行入口 `topic_session_bot.py`。数字员工阿J既可在群聊中响应 `@bot` 并创建
+这里只有一个运行入口 `digital_employee.py`。数字员工阿J既可在群聊中响应 `@bot` 并创建
 飞书话题，也可在单聊中提供个人协作服务。群聊中**一个话题对应一个方舟 Session**；后续仍只有
 `@bot` 才触发回复，但中间普通消息会作为上下文带入，不同话题严格隔离。启动参数可选择客户端
 串行或方舟原生队列。
+
+> **兼容性说明**：运行脚本与文档已统一使用 `digital_employee` 命名；`GROUP_BOT_*` 配置键、
+> 既有 Environment/Vault 资源名和会话数据库名保留不变，以复用现有线上 Agent、凭据和会话状态。
 
 > **架构 / 数据流 / 判断节点** 见 [ARCHITECTURE.md](ARCHITECTURE.md)：含入站归一化→判断链→
 > 窗口→方舟→回复的完整数据流图、关键数据结构表，以及「每个判断节点依据对象哪个属性」的对照表。
@@ -16,7 +19,7 @@
 
 ## 推荐方案：一个话题一个 Session
 
-`topic_session_bot.py` 的规则：
+`digital_employee.py` 的规则：
 
 - 主时间线只有明确 `@bot` 的消息会被处理；每条这样的消息都成为一个新话题根。
 - Bot 使用飞书 `reply_in_thread=true` 回复首条消息，因此回复和后续讨论都留在该话题。
@@ -51,7 +54,7 @@
 Memory Store 在 Session 中只读；增删改查由 Agent 的 `memory_list` / `memory_get` /
 `memory_upsert` / `memory_forget` Custom Tool 触发，Gateway 根据 `session_id` 的持久化绑定
 决定目标 Store，Agent 不能传 `store_id`、`open_id` 或 `chat_id`。修改 Agent 配置后需运行
-`update_group_agent.py`，已有飞书会话再发送 `/new` 才会创建挂载 Memory Store 的新 Session。
+`update_digital_employee_agent.py`，已有飞书会话再发送 `/new` 才会创建挂载 Memory Store 的新 Session。
 
 ## 话题增量窗口
 
@@ -145,7 +148,7 @@ notes.md： /mnt/session/uploads/81ab…/notes.md
 `_mount_path` 由 `file_key` 哈希决定（不掺 message_id），保证同一资源恒定落到同一挂载路径。
 效果：同 Session 内第二次引用 → 0 下载 / 0 上传 / 0 挂载；跨 Session 第二次引用 → 0 下载 / 0 上传，
 各 Session 各挂一次（复用同一 `file_id`）。详见 [ARCHITECTURE.md](ARCHITECTURE.md) §8.1，测试见
-`tests/test_topic_session_bot.py`。
+`tests/test_digital_employee.py`。
 
 ### 历史消息里的附件：文件单独发、之后另一条消息才 @bot
 
@@ -165,7 +168,7 @@ PDF」。此时触发消息本身**没有**附件、只有正文——若只看�
 
 这样「进正文的转录范围」与「挂进 Session 的附件范围」严格一致；撤回消息只留占位文本、不带
 附件。详见 [ARCHITECTURE.md](ARCHITECTURE.md) §8.2，测试见 `tests/test_group_bot.py`
-（`collect_round_resources`）与 `tests/test_topic_session_bot.py`。
+（`collect_round_resources`）与 `tests/test_digital_employee.py`。
 
 ## 回复渲染：Markdown → 飞书富文本（post）
 
@@ -201,7 +204,7 @@ Agent 常在回复里点名群成员（「@张三 请跟进」）。若直接发
 - **绝不拖垮回复**：名册拉取失败退回空名册（不 @，正文照发）；私聊没有 @ 别人的语义，不拉名册。
 - **发问人显示名**：转录里「当前请求行」也优先用发言人显示名（`IncomingMessage.user_name`），
   取不到才回退 open_id，和历史行同一口径。测试见 `tests/test_feishu.py` /
-  `tests/test_topic_session_bot.py`。
+  `tests/test_digital_employee.py`。
 
 ## Agent 的飞书操作能力（lark-cli，群聊/单聊双身份）
 
@@ -230,7 +233,7 @@ Agent 常在回复里点名群成员（「@张三 请跟进」）。若直接发
   必须与当前消息发送者一致。
 - **按需授权**：用户命令返回结构化 `token_missing` 后发送授权卡片，成功后自动续跑原任务；
   每条消息最多自动授权重试一次。
-- **幂等**：`init_group_bot.py` 会自动建（或复用）这套 Environment + Vault，把
+- **幂等**：`initialize_digital_employee.py` 会自动建（或复用）这套 Environment + Vault，把
   `GROUP_BOT_ENVIRONMENT_ID` / `GROUP_BOT_LARK_VAULT_ID` 写回 config.env，重复跑不会堆资源。
 - **开关**：只有配了 `GROUP_BOT_LARK_VAULT_ID` 才启用 lark-cli（`lark_cli_enabled`）；没配则 Agent
   退回纯对话，不挂 Vault、不注入定位变量。
@@ -252,7 +255,7 @@ Agent 常在回复里点名群成员（「@张三 请跟进」）。若直接发
   该变量在沙箱内是 opaque placeholder，只适合在出站请求中原样替换，不能参与 JSON body
   的 token 交换。正确链路是 Bot 主机换取 tenant token，再把
   `LARKSUITE_CLI_TENANT_ACCESS_TOKEN` 写入 Vault。
-- 从旧 App Secret/wrapper 方案升级时，运行 `provision_lark_cli.py` 创建 token-v3
+- 从旧 App Secret/wrapper 方案升级时，运行 `provision_digital_employee_lark_cli.py` 创建 token-v3
   Environment/Vault 并更新 `config.env`，然后重启 Bot。已经创建的 Session 仍绑定旧 Vault；
   可在对应话题发送 `/new`，或在停服后清理当前执行模式数据库的 `sessions` 映射，使下一条消息
   自动创建挂载新 Vault 的 Session。附件缓存无需清理。
@@ -266,7 +269,7 @@ Agent 常在回复里点名群成员（「@张三 请跟进」）。若直接发
 
 | | `serial`（默认） | `native-queue` |
 |---|---|---|
-| 入口 | `topic_session_bot.py --execution-mode serial` | `topic_session_bot.py --execution-mode native-queue` |
+| 入口 | `digital_employee.py --execution-mode serial` | `digital_employee.py --execution-mode native-queue` |
 | Session 粒度 | **每个话题一个** | **每个话题一个** |
 | 上下文输入 | 当前话题内上次 `@bot` 之后至今 | 相同 |
 | 发送策略 | 每话题 `KeyedQueue` 串行，调用 `run` | `send_message` 直发，运行中由方舟吸收/合并 |
@@ -279,22 +282,22 @@ Agent 常在回复里点名群成员（「@张三 请跟进」）。若直接发
 ## 运行
 
 前置：方舟 API Key（+ 可选 `ARK_BASE_URL`）。飞书应用、群聊 Agent、装了 lark-cli 的
-Environment、存短期 tenant token 的 Vault 都由 `init_group_bot.py` 一键置备。
+Environment、存短期 tenant token 的 Vault 都由 `initialize_digital_employee.py` 一键置备。
 
 ### 一键初始化（推荐）
 
-`init_group_bot.py` 会：扫码建飞书应用 → 建双身份边界 Agent → 置备 lark-cli 能力
+`initialize_digital_employee.py` 会：扫码建飞书应用 → 建双身份边界 Agent → 置备 lark-cli 能力
 （装了 lark-cli 的 Environment + 存短期 tenant token 的 Vault，均幂等） → 把
 `FEISHU_APP_ID/SECRET`、`GROUP_BOT_AGENT_ID`、`GROUP_BOT_ENVIRONMENT_ID`、
 `GROUP_BOT_LARK_VAULT_ID` 都写回 `~/.arkagent/config.env`：
 
 ```bash
 # 只需 config.env 里已有 ARK_API_KEY（跑过一次主包 arkagent init 即有），脚本自己读
-python scenarios/feishu-bot/cases/digital-employee/init_group_bot.py
+python scenarios/feishu-bot/cases/digital-employee/initialize_digital_employee.py
 
 # 按提示去飞书开放平台确认权限 + 事件订阅 + 发布版本后启动：
 set -a && source ~/.arkagent/config.env && set +a
-python scenarios/feishu-bot/cases/digital-employee/topic_session_bot.py --execution-mode serial
+python scenarios/feishu-bot/cases/digital-employee/digital_employee.py --execution-mode serial
 # 或：--execution-mode native-queue
 ```
 
@@ -308,17 +311,17 @@ python scenarios/feishu-bot/cases/digital-employee/topic_session_bot.py --execut
 set -a && source ~/.arkagent/config.env && set +a
 
 # 2) 创建群聊 Bot-only、单聊按需用户只读 OAuth 的 Agent，拿到 agent id
-python scenarios/feishu-bot/cases/digital-employee/create_group_agent.py
+python scenarios/feishu-bot/cases/digital-employee/create_digital_employee_agent.py
 export GROUP_BOT_AGENT_ID=<上一步打印的 agent id>
 
 # 3) 群聊 Bot 用自己的 Environment（装了 lark-cli 的那个）。缺 GROUP_BOT_ENVIRONMENT_ID
 #    时回退共用 ARK_ENVIRONMENT_ID，但那个没装 lark-cli、也没挂 Vault，Agent 只能纯对话。
-#    要启用 lark-cli：跑一次 init_group_bot.py（或手动建 Environment + Vault）并 export：
+#    要启用 lark-cli：跑一次 initialize_digital_employee.py（或手动建 Environment + Vault）并 export：
 #      export GROUP_BOT_ENVIRONMENT_ID=<装了 lark-cli 的 environment id>
 #      export GROUP_BOT_LARK_VAULT_ID=<存短期 tenant token 的 vault id>
 
 # 4) 启动唯一入口；默认 serial
-python scenarios/feishu-bot/cases/digital-employee/topic_session_bot.py --execution-mode serial
+python scenarios/feishu-bot/cases/digital-employee/digital_employee.py --execution-mode serial
 # 需要服务端吸收/合并时改为：--execution-mode native-queue
 ```
 
@@ -331,17 +334,17 @@ python scenarios/feishu-bot/cases/digital-employee/topic_session_bot.py --execut
 
 改了 `GROUP_BOT_DISPLAY_NAME`、`shared.GROUP_BOT_SYSTEM_TEMPLATE` 或 `GROUP_BOT_MODEL_ID`
 后，方舟里的 Agent 不会自动跟着变（system prompt 是建 Agent 时静态写死的）。用
-`update_group_agent.py` **原地更新**即可，`GROUP_BOT_AGENT_ID` 不变、不重扫码、运行入口
+`update_digital_employee_agent.py` **原地更新**即可，`GROUP_BOT_AGENT_ID` 不变、不重扫码、运行入口
 无需改任何环境变量：
 
 ```bash
 set -a && source ~/.arkagent/config.env && set +a   # 需 ARK_API_KEY + GROUP_BOT_AGENT_ID
 GROUP_BOT_DISPLAY_NAME=数字员工阿J \
-  python scenarios/feishu-bot/cases/digital-employee/update_group_agent.py
+  python scenarios/feishu-bot/cases/digital-employee/update_digital_employee_agent.py
 # 打印「版本 N → N+1」后，重启正在跑的 bot 即可生效
 ```
 
-> 优先用它而不是重跑 `create_group_agent.py`——后者会新建 Agent、换掉 `GROUP_BOT_AGENT_ID`，
+> 优先用它而不是重跑 `create_digital_employee_agent.py`——后者会新建 Agent、换掉 `GROUP_BOT_AGENT_ID`，
 > 旧 Session 上下文也会丢。
 
 必需环境变量：`ARK_API_KEY`、`GROUP_BOT_AGENT_ID`、`FEISHU_APP_ID`、`FEISHU_APP_SECRET`、
@@ -352,7 +355,7 @@ GROUP_BOT_DISPLAY_NAME=数字员工阿J \
 `AUTHORIZED_OPEN_IDS`（旧白名单兼容项；迁移完成后移除）、
 `GROUP_BOT_MODEL_ID`（默认 doubao-seed-evolving）、
 `GROUP_BOT_DISPLAY_NAME`（默认「数字员工阿J」，写进 Agent system prompt 供模型识别「转录里
-@谁 = 在叫自己」；应与飞书开放平台配置的机器人显示名一致，改名后跑上面的 `update_group_agent.py` 生效）、
+@谁 = 在叫自己」；应与飞书开放平台配置的机器人显示名一致，改名后跑上面的 `update_digital_employee_agent.py` 生效）、
 `GROUP_BOT_MULTIMODAL`（默认开启；设 `0`/`false`/`no`/`off` 关闭图片/文件的下载挂载，带附件的消息按纯文本处理）、
 `GROUP_BOT_MARKDOWN`（默认开启；把回复渲染成飞书 post 富文本，设 `0`/`false`/`no`/`off` 退回纯文本直发）、
 `GROUP_BOT_LARK_VAULT_ID`（存短期 tenant token 的 Vault id；配了才启用 lark-cli，否则 Agent 退回纯对话）、
@@ -369,10 +372,11 @@ serial/native-queue 共用，保证切换执行模式后仍复用原 Store）、
   Environment/Bot Vault、双身份会话环境、OAuth/Session Vault 持久化、Agent 定义与配置读取。
 - `memory.py` —— 个人/群记忆作用域、共享 SQLite 映射、Session 挂载与四个 Memory Custom Tool。
 - `user_oauth.py` —— 单聊 Device OAuth、每用户 Vault/Credential、token 刷新、账号一致性校验与续跑编排。
-- `init_group_bot.py` —— 一键初始化：扫码建飞书应用 + 建群聊 Agent + 置备 lark-cli（Environment + Vault，幂等）+ 把各 ID 写回 config.env。
-- `create_group_agent.py` —— 只创建数字员工 Agent（不含 lark-cli 置备；配套手动分步用）。
-- `update_group_agent.py` —— 原地更新现有 Agent 的 system prompt / 模型 / bot 名字（Agent ID 不变，不重扫码）。
-- `topic_session_bot.py` —— 唯一入口；一个话题一个 Session，仅 `@bot` 回复，并通过
+- `initialize_digital_employee.py` —— 一键初始化：扫码建飞书应用 + 建数字员工 Agent + 置备 lark-cli（Environment + Vault，幂等）+ 把各 ID 写回 config.env。
+- `create_digital_employee_agent.py` —— 只创建数字员工 Agent（不含 lark-cli 置备；配套手动分步用）。
+- `update_digital_employee_agent.py` —— 原地更新现有 Agent 的 system prompt / 模型 / bot 名字（Agent ID 不变，不重扫码）。
+- `provision_digital_employee_lark_cli.py` —— 为现有数字员工应用补齐 lark-cli Environment 和 Vault。
+- `digital_employee.py` —— 唯一入口；一个话题一个 Session，仅 `@bot` 回复，并通过
   `--execution-mode serial|native-queue` 选择客户端串行或方舟原生队列。
 
 > 群历史读取（`FeishuSender.list_messages`）、`IncomingMessage.create_time`、

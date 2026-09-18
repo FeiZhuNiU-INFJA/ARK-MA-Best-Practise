@@ -7,7 +7,7 @@
 3. 每个**判断节点依据对象的哪个属性**做决策。
 
 代码入口：`shared.py`（公共底座）、`memory.py`（长期记忆作用域与 Custom Tool）、
-`topic_session_bot.py`（话题级 Session，支持 `serial` / `native-queue`）、
+`digital_employee.py`（话题级 Session，支持 `serial` / `native-queue`）、
 `../../arkagent/feishu.py`（飞书接入 + 归一化）、
 `../../arkagent/ark.py`（方舟客户端）、`../../arkagent/gateway.py`（`KeyedQueue`）。
 
@@ -49,7 +49,7 @@ flowchart TD
     P --> S
 ```
 
-`topic_session_bot.py` 只有在收到 `@bot` 时才运行和回复。此时调用
+`digital_employee.py` 只有在收到 `@bot` 时才运行和回复。此时调用
 `FeishuSender.list_messages`，但容器严格限定为当前 thread，再截取
 「上一次 `@bot` 之后到当前」；边界消息已在 Session 中，不会重复注入。普通消息因此进入
 下一轮上下文，却不会单独触发 Bot。
@@ -203,7 +203,7 @@ flowchart TD
 |---|---|---|---|
 | Session 失效 | `_process_serial` / `_send_native` | `ArkError.status_code == 404` | 重置映射 → 重建 Session → 重跑/重发；原生模式同时重启 consumer |
 | 队列忙 | `_send_native` | `ArkError.status_code == 409`（`_is_runtime_busy`） | 指数退避重试（上限 `MAX_409_RETRIES`） |
-| 运行终态 | `_result_to_text` [topic_session_bot.py](topic_session_bot.py) | `RunResult.terminal` / `messages` | `failed` 报错、`idle` 取最后一条 |
+| 运行终态 | `_result_to_text` [digital_employee.py](digital_employee.py) | `RunResult.terminal` / `messages` | `failed` 报错、`idle` 取最后一条 |
 
 `ArkError.status_code` / `body` 由 `ArkClient._request` 与事件流在 4xx 时填充
 （[ark.py:86](../../arkagent/ark.py)），调用方据此精准分流，不再靠字符串匹配。
@@ -289,7 +289,7 @@ flowchart TD
   每轮都下载/上传/挂载的老行为（鸭子类型，测试替身无需实现全部方法）。
 - 效果：同 Session 内第二次引用同一文件 → 0 下载、0 上传、0 挂载；跨 Session（不同群）第二次
   引用 → 0 下载、0 上传，但各 Session 各挂一次（复用同一 `file_id`）。测试见
-  `tests/test_topic_session_bot.py`。
+  `tests/test_digital_employee.py`。
 
 ### 8.2 历史消息里的附件（文件单独发、之后另一条消息才 @bot）
 
@@ -314,7 +314,7 @@ PDF」。此时触发消息本身**没有** `resources`，只有正文——若�
 - 撤回消息只留占位文本、**不带附件**（`file_key` 已失效）。
 - 与去重（§8.1）叠加：历史里收出来的文件同样先查文件缓存，命中则跳过下载/上传。
   测试见 `tests/test_group_bot.py`（`collect_round_resources`）与
-  `tests/test_topic_session_bot.py`。
+  `tests/test_digital_employee.py`。
 
 ---
 
@@ -353,7 +353,7 @@ flowchart LR
 | Vault 凭据 | `environment_variable` 凭据：`LARKSUITE_CLI_TENANT_ACCESS_TOKEN` | token 可原样替换进 Authorization header；App Secret 不进入 Vault 或 Agent 沙箱 | `ensure_lark_cli_vault` / `update_lark_cli_vault_token` [shared.py](shared.py) |
 | 用户 Vault | 每个单聊发送者一个 `LARKSUITE_CLI_USER_ACCESS_TOKEN` Credential | Session 创建后不能追加 Vault，因此单聊首轮先挂占位 Credential；授权后原地更新 | `user_oauth.py` |
 | 本地 SQLite | 用户 refresh token、过期时间、scope 与 Session-Vault 绑定 | 支持刷新、进程重启恢复，并识别未挂用户 Vault 的旧单聊 Session | `SqliteSessionMap` [shared.py](shared.py) |
-| `create_session` | 群聊挂 Bot Vault；单聊挂 Bot Vault + 当前发送者用户 Vault | `env_overrides` 同时注入位置、身份模式；仅单聊注入可信 `FEISHU_USER_OPEN_ID` | `topic_session_bot.py` 的 `_create_session` |
+| `create_session` | 群聊挂 Bot Vault；单聊挂 Bot Vault + 当前发送者用户 Vault | `env_overrides` 同时注入位置、身份模式；仅单聊注入可信 `FEISHU_USER_OPEN_ID` | `digital_employee.py` 的 `_create_session` |
 
 要点：
 - **群聊 Bot-only**：群 Session 永远只注入 Bot 上下文，禁止 `--as user` 和个人授权。
@@ -364,12 +364,12 @@ flowchart LR
   `open_id` 必须等于消息发送者；成功后更新原 Credential 并自动续跑原任务。卡片失效时用户发送
   “重新授权”会取消旧轮询并生成新卡片。
 - **幂等置备**：`ensure_lark_cli_environment` / `ensure_lark_cli_vault` 都按名字复用已有资源，
-  `init_group_bot.py` 重复跑不会堆一堆环境/凭据；每轮发送前按 token 有效期检查，临近过期时
+  `initialize_digital_employee.py` 重复跑不会堆一堆环境/凭据；每轮发送前按 token 有效期检查，临近过期时
   `update_environment_credential` 原地改值，凭据 id 不变。
 - **开关**：`lark_cli_enabled(config)` 依据 `config.lark_vault_id` 是否非空——配了 Vault 才挂、
   才注入定位变量；没配则 Agent 退回纯对话（避免 prompt 承诺了 lark-cli 却没凭据可用）。
 - **环境隔离**：群聊 Bot 用自己的 `GROUP_BOT_ENVIRONMENT_ID`（装了 lark-cli 的那个），与四卡点
-  case 的 `ARK_ENVIRONMENT_ID` 分开；`init_group_bot.py` 把 `GROUP_BOT_ENVIRONMENT_ID` /
+  case 的 `ARK_ENVIRONMENT_ID` 分开；`initialize_digital_employee.py` 把 `GROUP_BOT_ENVIRONMENT_ID` /
   `GROUP_BOT_LARK_VAULT_ID` 写回 config.env，统一入口直接 source。
 - **资源迁移**：Environment/Vault 只在创建 Session 时绑定。切换凭据方案或 Vault ID 后，
   旧 Session 不会自动改挂新资源；必须重建对应 Session。Vault ID 不变时原地更新 token 凭据，
@@ -438,4 +438,4 @@ flowchart TD
 - **发问人显示名**：转录里「当前请求行」也优先用发言人显示名（`IncomingMessage.user_name`，见 §1），
   取不到才回退 open_id，和历史行同一口径（`build_windowed_input`）。
 - 测试见 `tests/test_feishu.py`（名册归一/消歧、分块、重写与混合渲染）与
-  `tests/test_topic_session_bot.py`（名册接线）。
+  `tests/test_digital_employee.py`（名册接线）。

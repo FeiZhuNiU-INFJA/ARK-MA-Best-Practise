@@ -13,8 +13,8 @@ if str(_GROUP_BOT_DIR) not in sys.path:
     sys.path.insert(0, str(_GROUP_BOT_DIR))
 
 import shared  # noqa: E402
-import topic_session_bot as topic_bot  # noqa: E402
-from topic_session_bot import (  # noqa: E402
+import digital_employee as topic_bot  # noqa: E402
+from digital_employee import (  # noqa: E402
     TopicSessionBot,
     _is_runtime_busy,
     _with_roster_history_names,

@@ -9,7 +9,7 @@
   - arkagent.feishu          —— 飞书消息归一化 / 发送
   - arkagent.gateway.KeyedQueue —— 按 key 串行化协程（客户端串行方案用）
 
-`topic_session_bot.py` 始终以一个飞书话题对应一个 Session，并通过
+`digital_employee.py` 始终以一个飞书话题对应一个 Session，并通过
 `--execution-mode serial|native-queue` 选择客户端串行或方舟原生队列。
 """
 from __future__ import annotations
@@ -519,7 +519,8 @@ def build_actor_input(message: IncomingMessage) -> str:
 GROUP_BOT_NAME = "数字员工阿J"
 
 # system prompt 里 bot 自称的默认名字。真名以飞书开放平台配的机器人显示名为准，建 Agent 时
-# 由 build_group_agent_config(bot_name=...) 覆盖（见 create_group_agent.py / init_group_bot.py）。
+# 由 build_group_agent_config(bot_name=...) 覆盖（见 create_digital_employee_agent.py /
+# initialize_digital_employee.py）。
 DEFAULT_BOT_DISPLAY_NAME = "数字员工阿J"
 GROUP_BOT_PIP_PACKAGES = ["pypdf==6.19.0"]
 
@@ -850,7 +851,7 @@ def load_group_bot_config() -> GroupBotConfig:
     if not environment_id:
         raise RuntimeError(
             "缺少环境变量 GROUP_BOT_ENVIRONMENT_ID（或 ARK_ENVIRONMENT_ID）。"
-            "请先跑 init_group_bot.py 建好装了 lark-cli 的 Environment，或手动 export。"
+            "请先跑 initialize_digital_employee.py 建好装了 lark-cli 的 Environment，或手动 export。"
         )
 
     return GroupBotConfig(
@@ -863,7 +864,8 @@ def load_group_bot_config() -> GroupBotConfig:
         session_timeout_ms=timeout_ms if timeout_ms >= 1000 else 600000,
         authorized_open_ids=open_ids,
         authorized_user_ids=user_ids,
-        # 可选：init_group_bot.py 建好 Vault 后写回 GROUP_BOT_LARK_VAULT_ID；缺失则不启用 lark-cli。
+        # 可选：initialize_digital_employee.py 建好 Vault 后写回 GROUP_BOT_LARK_VAULT_ID；
+        # 缺失则不启用 lark-cli。
         lark_vault_id=(os.environ.get("GROUP_BOT_LARK_VAULT_ID") or "").strip(),
     )
 

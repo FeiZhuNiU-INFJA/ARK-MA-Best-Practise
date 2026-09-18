@@ -8,9 +8,9 @@
 
 运行：
   set -a && source ~/.arkagent/config.env && set +a   # 需要 ARK_API_KEY[/ARK_BASE_URL] + GROUP_BOT_AGENT_ID
-  python scenarios/feishu-bot/cases/digital-employee/update_group_agent.py
+  python scenarios/feishu-bot/cases/digital-employee/update_digital_employee_agent.py
 
-可选环境变量（同 create_group_agent.py）：
+可选环境变量（同 create_digital_employee_agent.py）：
   GROUP_BOT_MODEL_ID      默认 doubao-seed-evolving
   GROUP_BOT_DISPLAY_NAME  默认「数字员工阿J」，写进 system prompt 供模型识别「@谁=在叫自己」，
                           应与飞书开放平台配的机器人显示名一致。
@@ -32,8 +32,9 @@ async def _main() -> None:
     agent_id = (os.environ.get("GROUP_BOT_AGENT_ID") or "").strip()
     if not agent_id:
         raise RuntimeError(
-            "缺少 GROUP_BOT_AGENT_ID。这是要更新的现有 Agent id——先跑一次 create_group_agent.py "
-            "或 init_group_bot.py 建出 Agent，或手动 export。"
+            "缺少 GROUP_BOT_AGENT_ID。这是要更新的现有 Agent id——先跑一次 "
+            "create_digital_employee_agent.py 或 initialize_digital_employee.py 建出 Agent，"
+            "或手动 export。"
         )
     base_url = (os.environ.get("ARK_BASE_URL") or "https://ark.cn-beijing.volces.com/api/v3").rstrip("/")
     model_id = (os.environ.get("GROUP_BOT_MODEL_ID") or "doubao-seed-evolving").strip()
