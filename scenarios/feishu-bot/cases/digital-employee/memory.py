@@ -25,6 +25,8 @@ MEMORY_CATEGORIES = (
 )
 MAX_MEMORY_BYTES = 80 * 1024
 MAX_LIST_ITEMS = 100
+MAX_ALWAYS_APPLY_CONVENTIONS = 20
+MAX_ALWAYS_APPLY_BYTES = 16 * 1024
 DEFAULT_MEMORY_DB_PATH = str(
     Path(__file__).resolve().parents[4] / "data" / "digital_employee_memory.db"
 )
@@ -319,6 +321,45 @@ class ScopedMemoryManager:
             expected.tenant_key, expected.scope_type, expected.scope_id
         )
         return identity_matches and binding["store_id"] == current_store
+
+    async def always_apply_context(self, message: IncomingMessage) -> str:
+        """把群级行为约定显式注入每轮输入，避免依赖 Memory Store 的概率性语义召回。"""
+        if message.chat_type != "group":
+            return ""
+        scope = MemoryScope.from_message(message)
+        store_id = self._store.get_memory_store(
+            scope.tenant_key, scope.scope_type, scope.scope_id
+        )
+        if not store_id:
+            return ""
+        items = await self._ark.list_memories(
+            store_id, "/conventions/", depth=2
+        )
+        lines: list[str] = []
+        used_bytes = 0
+        for item in sorted(items, key=lambda value: value.get("path", "")):
+            if item.get("type") == "directory" or not item.get("id"):
+                continue
+            detail = await self._ark.get_memory(store_id, item["id"])
+            content = str(detail.get("content") or "").strip()
+            if not content:
+                continue
+            line = f"- {content}"
+            line_bytes = len(line.encode("utf-8"))
+            if lines and used_bytes + line_bytes > MAX_ALWAYS_APPLY_BYTES:
+                break
+            if line_bytes > MAX_ALWAYS_APPLY_BYTES:
+                line = line.encode("utf-8")[:MAX_ALWAYS_APPLY_BYTES].decode(
+                    "utf-8", errors="ignore"
+                )
+                line_bytes = len(line.encode("utf-8"))
+            lines.append(line)
+            used_bytes += line_bytes
+            if len(lines) >= MAX_ALWAYS_APPLY_CONVENTIONS:
+                break
+        if not lines:
+            return ""
+        return "【群共享约定（必须遵守）】\n" + "\n".join(lines)
 
     async def handle_tool(
         self, session_id: str, name: str, arguments: dict

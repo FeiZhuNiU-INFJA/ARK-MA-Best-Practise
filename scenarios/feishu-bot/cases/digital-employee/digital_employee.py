@@ -447,6 +447,13 @@ class TopicSessionBot:
             notices=notices,
             selected_history=topic_delta,
         )
+        try:
+            always_apply_context = await self._memory.always_apply_context(message)
+        except Exception as error:  # noqa: BLE001 - 记忆读取失败不应阻断正常回复
+            log.warning("读取群共享约定失败，本轮继续处理：%s", error)
+            always_apply_context = ""
+        if always_apply_context:
+            actor_input = f"{always_apply_context}\n\n{actor_input}"
         return message, roster, actor_input, prepared
 
     async def _ensure_native_session(

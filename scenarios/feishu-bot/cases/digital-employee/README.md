@@ -17,6 +17,42 @@
 > 部分（`arkagent.ark.ArkClient` 方舟客户端、`arkagent.feishu` 飞书接入、
 > `arkagent.gateway.KeyedQueue` 串行队列）。群聊共享会话逻辑全部在本目录新写。
 
+## 部署总览 / Quick Start
+
+**前置**：只需一个方舟 API Key（`ARK_API_KEY`，跑过一次主包 `arkagent init` 即写入
+`~/.arkagent/config.env`）。飞书应用、数字员工 Agent、装了 lark-cli 的 Environment、存
+tenant token 的 Vault 全部由初始化脚本自动置备，无需手动准备。
+
+三步上线（① 一条命令置备，② 唯一的手动步骤，③ 启动）：
+
+```bash
+# ① 一键初始化：扫码建飞书应用 + 建数字员工 Agent + 置备 lark-cli(Environment + Vault)，
+#    并把 FEISHU_APP_ID/SECRET、GROUP_BOT_AGENT_ID、GROUP_BOT_ENVIRONMENT_ID、
+#    GROUP_BOT_LARK_VAULT_ID 全部写回 ~/.arkagent/config.env（幂等，可重复跑不堆资源）
+python scenarios/feishu-bot/cases/digital-employee/initialize_digital_employee.py
+
+# ② 唯一的手动步骤（脚本无法代劳）：去飞书开放平台 https://open.feishu.cn/app 打开该应用，
+#    勾权限 + 配事件订阅（长连接 + im.message.receive_v1）+【发布版本】。
+#    具体权限清单见脚本运行结束时的打印，或下方「Agent 的飞书操作能力」一节。
+
+# ③ 载入配置并启动（serial 逐条独立回复；native-queue 允许服务端吸收/合并）
+set -a && source ~/.arkagent/config.env && set +a
+python scenarios/feishu-bot/cases/digital-employee/digital_employee.py --execution-mode serial
+```
+
+**脚本速查**（各脚本头部 docstring 有更详细说明）：
+
+| 场景 | 脚本 |
+|---|---|
+| 从零一条龙初始化（扫码建应用 + 建 Agent + 置备 lark-cli） | `initialize_digital_employee.py` |
+| 只新建 Agent（已有飞书应用、手动分步用） | `create_digital_employee_agent.py` |
+| 改名 / 改 system prompt / 换模型（Agent ID 不变，重启生效） | `update_digital_employee_agent.py` |
+| 给已有应用 + Agent 补 lark-cli 能力（不重建应用/Agent） | `provision_digital_employee_lark_cli.py` |
+| 运行入口（`--execution-mode serial` 或 `native-queue`） | `digital_employee.py` |
+
+> 已有飞书应用想手动分步、需要完整环境变量清单，或改配置后如何原地更新 Agent，见下方
+> [运行](#运行) 一节。每个模块文件的职责索引见文末 [文件](#文件) 一节。
+
 ## 推荐方案：一个话题一个 Session
 
 `digital_employee.py` 的规则：
@@ -57,6 +93,8 @@ Memory Store 在 Session 中只读；增删改查由 Agent 的 `memory_list` / `
 `memory_upsert` / `memory_forget` Custom Tool 触发，Gateway 根据 `session_id` 的持久化绑定
 决定目标 Store，Agent 不能传 `store_id`、`open_id` 或 `chat_id`。修改 Agent 配置后需运行
 `update_digital_employee_agent.py`，已有飞书会话再发送 `/new` 才会创建挂载 Memory Store 的新 Session。
+群级 `conventions` 会在每轮显式注入为“必须遵守”的约定，不依赖 Memory Store 的语义召回；
+其他事实、决策和背景仍由 Agent 按需检索，避免每轮上下文无限增长。
 
 ## 话题增量窗口
 
@@ -283,25 +321,8 @@ Agent 常在回复里点名群成员（「@张三 请跟进」）。若直接发
 
 ## 运行
 
-前置：方舟 API Key（+ 可选 `ARK_BASE_URL`）。飞书应用、群聊 Agent、装了 lark-cli 的
-Environment、存短期 tenant token 的 Vault 都由 `initialize_digital_employee.py` 一键置备。
-
-### 一键初始化（推荐）
-
-`initialize_digital_employee.py` 会：扫码建飞书应用 → 建双身份边界 Agent → 置备 lark-cli 能力
-（装了 lark-cli 的 Environment + 存短期 tenant token 的 Vault，均幂等） → 把
-`FEISHU_APP_ID/SECRET`、`GROUP_BOT_AGENT_ID`、`GROUP_BOT_ENVIRONMENT_ID`、
-`GROUP_BOT_LARK_VAULT_ID` 都写回 `~/.arkagent/config.env`：
-
-```bash
-# 只需 config.env 里已有 ARK_API_KEY（跑过一次主包 arkagent init 即有），脚本自己读
-python scenarios/feishu-bot/cases/digital-employee/initialize_digital_employee.py
-
-# 按提示去飞书开放平台确认权限 + 事件订阅 + 发布版本后启动：
-set -a && source ~/.arkagent/config.env && set +a
-python scenarios/feishu-bot/cases/digital-employee/digital_employee.py --execution-mode serial
-# 或：--execution-mode native-queue
-```
+**一键初始化（推荐）见文档顶部 [部署总览 / Quick Start](#部署总览--quick-start)。** 本节补充
+「已有飞书应用时的手动分步」「更新已有 Agent」以及完整的环境变量清单。
 
 ### 手动分步（已有飞书应用时）
 
