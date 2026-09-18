@@ -26,7 +26,7 @@ MEMORY_CATEGORIES = (
 MAX_MEMORY_BYTES = 80 * 1024
 MAX_LIST_ITEMS = 100
 DEFAULT_MEMORY_DB_PATH = str(
-    Path(__file__).resolve().parents[4] / "data" / "group_bot_memory.db"
+    Path(__file__).resolve().parents[4] / "data" / "digital_employee_memory.db"
 )
 
 USER_MEMORY_INSTRUCTIONS = (

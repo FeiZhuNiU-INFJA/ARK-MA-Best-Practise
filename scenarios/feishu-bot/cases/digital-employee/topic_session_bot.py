@@ -224,7 +224,8 @@ class TopicSessionBot:
                     if sessions_were_injected
                     else SqliteMemoryState(
                         os.environ.get(
-                            "GROUP_BOT_MEMORY_DB_PATH", DEFAULT_MEMORY_DB_PATH
+                            "DIGITAL_EMPLOYEE_MEMORY_DB_PATH",
+                            DEFAULT_MEMORY_DB_PATH,
                         )
                     )
                 )

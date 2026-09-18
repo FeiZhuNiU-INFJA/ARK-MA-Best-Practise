@@ -223,7 +223,7 @@ flowchart TD
 - `memory_scopes` 保存 `(tenant_key, scope_type, scope_id) → store_id`。个人以租户级
   `user_id` 为 `scope_id`，群以 `chat_id` 为 `scope_id`。首次同时收到 `user_id` 与旧
   `open_id` 时，会将旧映射原地关联到新键，不复制或删除实际 Memory Store。默认独立存放于
-  `data/group_bot_memory.db`，由 serial/native-queue 共用。
+  `data/digital_employee_memory.db`，由 serial/native-queue 共用。
 - `session_memory_scopes` 保存 `session_id → scope + store_id`，是 Custom Tool 的鉴权依据；
   Agent 的工具参数不包含任何身份或 Store ID。
 - 创建单聊 Session 时挂个人 Store；创建群主时间线或群话题 Session 时挂所属群 Store。

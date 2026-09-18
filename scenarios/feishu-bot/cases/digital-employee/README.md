@@ -358,7 +358,7 @@ GROUP_BOT_DISPLAY_NAME=数字员工阿J \
 `GROUP_BOT_LARK_VAULT_ID`（存短期 tenant token 的 Vault id；配了才启用 lark-cli，否则 Agent 退回纯对话）、
 `TOPIC_BOT_DB_PATH`（SQLite 路径；不指定时 serial 使用 `data/topic_bot_sessions.db`，
 native-queue 使用 `data/topic_bot_native_queue_sessions.db`，避免切换执行语义时复用状态）、
-`GROUP_BOT_MEMORY_DB_PATH`（记忆作用域 SQLite 路径；默认 `data/group_bot_memory.db`，
+`DIGITAL_EMPLOYEE_MEMORY_DB_PATH`（记忆作用域 SQLite 路径；默认 `data/digital_employee_memory.db`，
 serial/native-queue 共用，保证切换执行模式后仍复用原 Store）、
 `FEISHU_SDK_DEBUG`（设 `1`/`true` 打开 Channel SDK 内部的 stale/去重/策略日志，排查
 「消息没进来 / 被去重 / 被策略过滤」时用）。
