@@ -4526,7 +4526,7 @@ curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/memory_store
 
 Memory Store 需要在创建 Session 时通过 `resources` 数组挂载。与文件和代码仓库资源不同，Memory Store 只能在 Session 创建时挂载，不支持在运行中的 Session 中追加或移除。
 
-可以通过 `instructions` 为本次 Session 提供额外使用说明，例如要求 Agent 在开始任务前先读取偏好文件。`instructions` 会连同 Store 的名称和描述一起展示给 Agent，长度上限为 4,096 字符。
+以下示例将访问权限显式设置为 `read_only`，使 Agent 可以读取 Memory Store，但不能修改其中的内容。
 
 ```bash
 session=$(
@@ -4541,7 +4541,7 @@ session=$(
     {
       "type": "memory_store",
       "memory_store_id": "$STORE_ID",
-      "instructions": "<SPECIFIC_INSTRUCTIONS>"
+      "access": "read_only"
     }
   ]
 }
@@ -4670,9 +4670,9 @@ curl -sS --fail-with-body -X DELETE "https://ark.cn-beijing.volces.com/api/v3/me
 
 当 Store 达到 2,000 条 Memory 上限后，新 Memory 写入会失败。已有 Memory 仍可读取和更新。建议按以下方式管理长期记忆：
 
-- **按用途拆分 Store** ：不要把所有内容放进一个通用 Store。可以按用户、团队共享知识、项目上下文分别建 Store。
+- **按用途拆分 Store**：不要把所有内容放进一个通用 Store。可以按用户、团队共享知识、项目上下文分别建 Store。
 
-- **在接近上限前整理内容** ：定期删除过期或重复 Memory，或将碎片化内容整理成更稳定的摘要 Store。
+- **在接近上限前整理内容**：定期删除过期或重复 Memory，或将碎片化内容整理成更稳定的摘要 Store。
 
 <a id="doc-2553729"></a>
 
