@@ -12,11 +12,6 @@
 > 窗口→方舟→回复的完整数据流图、关键数据结构表，以及「每个判断节点依据对象哪个属性」的对照表。
 
 
-> 这组示例与主包 `arkagent/`（四卡点：static_bearer / OpenID 透传 / 岗位注入 /
-> 跨 Session 记忆）**完全解耦**：不修改主包任何文件，只**复用**主包里纯基础设施的
-> 部分（`arkagent.ark.ArkClient` 方舟客户端、`arkagent.feishu` 飞书接入、
-> `arkagent.gateway.KeyedQueue` 串行队列）。群聊共享会话逻辑全部在本目录新写。
-
 ## 部署总览 / Quick Start
 
 **前置**：只需一个方舟 API Key（`ARK_API_KEY`，跑过一次主包 `arkagent init` 即写入
@@ -72,7 +67,7 @@ python scenarios/feishu-bot/cases/digital-employee/digital_employee.py --executi
 需要把材料带入新话题时，可回复该文件创建话题，也可在首条 `@bot` 消息中直接附带文件或
 显式引用目标消息。
 
-## 与四卡点 demo 的关系（身份策略）
+## 身份与记忆隔离策略
 
 本数字员工采用 **群聊 Bot-only、单聊按需用户只读授权**，并把长期记忆按作用域隔离：
 - 单聊按 `tenant_key + open_id` 懒创建并挂载个人 Memory Store。
