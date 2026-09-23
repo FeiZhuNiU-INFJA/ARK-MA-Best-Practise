@@ -50,6 +50,9 @@ class GroupConversationKey:
 
     群里任何人 @ bot 都命中同一个 key → 同一个方舟 Session（Claude Tag 的
     “每频道共享一个身份”）。带 thread_id 时以话题串为粒度，符合飞书话题群语义。
+
+    ``tenant_key`` 仅作归属/治理属性保留，**不参与会话键**：chat_id 全局唯一且不跨租户
+    复用，进键只会造成 runtime 侧（tenant_key 恒为 "default"）与真实值不一致的 footgun。
     """
 
     tenant_key: str
@@ -57,7 +60,7 @@ class GroupConversationKey:
     thread_id: str
 
     def as_str(self) -> str:
-        return ":".join([self.tenant_key, self.chat_id, self.thread_id or "-"])
+        return ":".join([self.chat_id, self.thread_id or "-"])
 
 
 def to_group_key(message: IncomingMessage) -> GroupConversationKey:
@@ -608,34 +611,25 @@ def build_group_agent_config(
     model_id: str = "doubao-seed-evolving",
     bot_name: str = DEFAULT_BOT_DISPLAY_NAME,
 ) -> dict:
-    """群聊 Bot-only、单聊按需用户只读 OAuth 的共享 Agent 定义。
+    """群聊 Bot-only、单聊按需用户只读 OAuth 的共享 Agent 定义（薄封装）。
 
     bot_name：bot 在飞书群里的显示名，写进 system prompt 供模型识别「@谁=在叫自己」；
     应与开放平台配的机器人显示名一致，建 Agent 时由 create/init 脚本传入。
 
-    如需连业务 MCP，可自行往 mcp_servers / tools 里加 mcp_toolset——但注意
-    群聊场景下工具应是“团队级/公共”的，不要接需要个人身份鉴权的接口。
+    实现委托给 ark-gateway 的参数化 ``build_agent_config``：把默认 persona 映射成一个
+    ``DigitalEmployee``（name=群 Bot 名、identity_prompt=渲染后的 system prompt、model_id），
+    bundle 传 None（内置工具默认全关 + memory 4 工具），与历史输出等价。如需连业务 MCP /
+    额外 skills，改走管理系统的 capability_bundle，不再在此硬编码。
     """
-    from memory import build_memory_custom_tools  # type: ignore[import-not-found]
+    from arkagent.gateway import DigitalEmployee, build_agent_config  # noqa: E402
 
-    return {
-        "name": GROUP_BOT_NAME,
-        "description": "飞书数字员工：群聊使用 Bot 身份，单聊按需使用当前用户只读授权",
-        "model": {"id": model_id},
-        "system": build_group_system(bot_name),
-        "tools": [
-            {
-                "type": "agent_toolset_20260701",
-                "default_config": {"enabled": True},
-                "configs": [
-                    {"name": "web_search", "enabled": False},
-                    {"name": "web_fetch", "enabled": False},
-                ],
-            }
-        ] + build_memory_custom_tools(),
-        "skills": [],
-        "metadata": {"created_via": "group-bot-demo", "scenario": "feishu-digital-employee"},
-    }
+    persona = DigitalEmployee(
+        id="",
+        name=GROUP_BOT_NAME,
+        identity_prompt=build_group_system(bot_name),
+        model_id=model_id,
+    )
+    return build_agent_config(persona, None)
 
 
 # ---- lark-cli 资源置备（Environment + Vault + 凭据）--------------------------
@@ -947,7 +941,7 @@ class InMemorySessionMap:
         self._attachment_mounts.add((session_id, file_key))
 
     def get_user_oauth(self, tenant_key: str, open_id: str) -> Optional[dict]:
-        value = self._user_oauth.get((tenant_key, open_id))
+        value = self._user_oauth.get(open_id)
         return dict(value) if value else None
 
     def save_user_oauth(
@@ -960,7 +954,7 @@ class InMemorySessionMap:
         expires_at: int,
         scopes: tuple[str, ...],
     ) -> None:
-        self._user_oauth[(tenant_key, open_id)] = {
+        self._user_oauth[open_id] = {
             "tenant_key": tenant_key,
             "open_id": open_id,
             "vault_id": vault_id,
@@ -993,12 +987,12 @@ class InMemorySessionMap:
     def get_memory_store(
         self, tenant_key: str, scope_type: str, scope_id: str
     ) -> Optional[str]:
-        return self._memory_stores.get((tenant_key, scope_type, scope_id))
+        return self._memory_stores.get((scope_type, scope_id))
 
     def save_memory_store(
         self, tenant_key: str, scope_type: str, scope_id: str, store_id: str
     ) -> None:
-        self._memory_stores[(tenant_key, scope_type, scope_id)] = store_id
+        self._memory_stores[(scope_type, scope_id)] = store_id
 
     def save_session_memory_scope(
         self,
@@ -1104,7 +1098,7 @@ class SqliteSessionMap:
                 expires_at    INTEGER NOT NULL,
                 scopes        TEXT NOT NULL,
                 updated_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-                PRIMARY KEY (tenant_key, open_id)
+                PRIMARY KEY (open_id)
             )
             """
         )
@@ -1135,7 +1129,7 @@ class SqliteSessionMap:
                 scope_id TEXT NOT NULL,
                 store_id TEXT NOT NULL,
                 created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-                PRIMARY KEY (tenant_key, scope_type, scope_id)
+                PRIMARY KEY (scope_type, scope_id)
             )
             """
         )
@@ -1243,15 +1237,15 @@ class SqliteSessionMap:
         with self._lock:
             row = self._conn.execute(
                 """
-                SELECT vault_id, credential_id, refresh_token, expires_at, scopes
-                FROM user_oauth WHERE tenant_key = ? AND open_id = ?
+                SELECT vault_id, credential_id, refresh_token, expires_at, scopes, tenant_key
+                FROM user_oauth WHERE open_id = ?
                 """,
-                (tenant_key, open_id),
+                (open_id,),
             ).fetchone()
         if not row:
             return None
         return {
-            "tenant_key": tenant_key,
+            "tenant_key": row[5],
             "open_id": open_id,
             "vault_id": row[0],
             "credential_id": row[1],
@@ -1277,7 +1271,8 @@ class SqliteSessionMap:
                     tenant_key, open_id, vault_id, credential_id,
                     refresh_token, expires_at, scopes
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(tenant_key, open_id) DO UPDATE SET
+                ON CONFLICT(open_id) DO UPDATE SET
+                    tenant_key=excluded.tenant_key,
                     vault_id=excluded.vault_id,
                     credential_id=excluded.credential_id,
                     refresh_token=excluded.refresh_token,
@@ -1347,9 +1342,9 @@ class SqliteSessionMap:
             row = self._conn.execute(
                 """
                 SELECT store_id FROM memory_scopes
-                WHERE tenant_key = ? AND scope_type = ? AND scope_id = ?
+                WHERE scope_type = ? AND scope_id = ?
                 """,
-                (tenant_key, scope_type, scope_id),
+                (scope_type, scope_id),
             ).fetchone()
         return row[0] if row else None
 
@@ -1362,7 +1357,8 @@ class SqliteSessionMap:
                 INSERT INTO memory_scopes (
                     tenant_key, scope_type, scope_id, store_id
                 ) VALUES (?, ?, ?, ?)
-                ON CONFLICT(tenant_key, scope_type, scope_id) DO UPDATE SET
+                ON CONFLICT(scope_type, scope_id) DO UPDATE SET
+                    tenant_key=excluded.tenant_key,
                     store_id=excluded.store_id
                 """,
                 (tenant_key, scope_type, scope_id, store_id),

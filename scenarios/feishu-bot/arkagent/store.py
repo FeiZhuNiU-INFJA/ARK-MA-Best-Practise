@@ -79,7 +79,8 @@ class GatewayStore:
 
     # ---- conversations ----
     def conversation_key(self, key: ConversationKey) -> str:
-        return ":".join([key.tenant_key, key.chat_id, key.thread_id or "-", key.user_open_id or "-"])
+        # tenant_key 仅作归属属性保留，不进会话键：chat_id 全局唯一且不跨租户复用。
+        return ":".join([key.chat_id, key.thread_id or "-", key.user_open_id or "-"])
 
     def get_session(self, key: ConversationKey) -> Optional[str]:
         with self._lock:

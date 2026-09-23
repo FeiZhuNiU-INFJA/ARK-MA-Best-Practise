@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>数字员工管理系统</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <h1>数字员工管理系统</h1>
+      <div class="subtitle">配置库 = 全量权威 · 单向同步到方舟</div>
+    </div>
+    <div class="spacer"></div>
+    <input id="token" type="text" placeholder="Admin Token（如已开启鉴权）" />
+  </header>
+
+  <nav id="tabs">
+    <button data-tab="overview" class="active">总览</button>
+    <button data-tab="employees">数字员工</button>
+    <button data-tab="projects">项目</button>
+    <button data-tab="bindings">群绑定</button>
+    <button data-tab="bundles">能力包</button>
+    <button data-tab="memory">项目记忆</button>
+  </nav>
+
+  <main>
+    <!-- 总览 -->
+    <section id="tab-overview" class="tab">
+      <div class="panel">
+        <h2>概览</h2>
+        <div class="cards" id="overview-cards"></div>
+      </div>
+      <div class="panel">
+        <h2>最近同步日志</h2>
+        <table>
+          <thead><tr><th>时间</th><th>实体</th><th>动作</th><th>状态</th><th>详情</th></tr></thead>
+          <tbody id="overview-logs"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 数字员工 -->
+    <section id="tab-employees" class="tab hidden">
+      <div class="panel">
+        <h2 id="emp-form-title">新建数字员工</h2>
+        <input type="hidden" id="emp-id" />
+        <div class="row">
+          <div class="field"><label>名称</label><input type="text" id="emp-name" /></div>
+          <div class="field"><label>模型 ID</label><input type="text" id="emp-model" placeholder="doubao-seed-evolving" /></div>
+          <div class="field" style="min-width:220px">
+            <label>能力包（可选）</label>
+            <select id="emp-bundle"><option value="">（无）</option></select>
+          </div>
+        </div>
+        <div class="field"><label>身份提示词（→ Agent system）</label><textarea id="emp-prompt"></textarea></div>
+        <div class="row">
+          <button class="btn" id="emp-save">保存</button>
+          <button class="btn ghost hidden" id="emp-cancel">取消编辑</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>数字员工列表</h2>
+        <table>
+          <thead><tr><th>名称</th><th>模型</th><th>Agent ID</th><th>版本</th><th>同步状态</th><th>操作</th></tr></thead>
+          <tbody id="emp-list"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 项目 -->
+    <section id="tab-projects" class="tab hidden">
+      <div class="panel">
+        <h2 id="proj-form-title">新建项目</h2>
+        <input type="hidden" id="proj-id" />
+        <div class="row">
+          <div class="field"><label>名称</label><input type="text" id="proj-name" /></div>
+          <div class="field" style="flex:1;min-width:260px"><label>描述</label><input type="text" id="proj-desc" /></div>
+        </div>
+        <div class="field">
+          <label>可写记忆分类（越权写入会被 runtime 拦截）</label>
+          <div class="checks" id="proj-cats"></div>
+        </div>
+        <div class="field">
+          <label>开关</label>
+          <div class="checks">
+            <label><input type="checkbox" id="proj-topic" checked /> 回复使用话题</label>
+            <label><input type="checkbox" id="proj-multimodal" checked /> 多模态</label>
+            <label><input type="checkbox" id="proj-markdown" checked /> Markdown</label>
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn" id="proj-save">保存</button>
+          <button class="btn ghost hidden" id="proj-cancel">取消编辑</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>项目列表</h2>
+        <table>
+          <thead><tr><th>名称</th><th>Memory Store</th><th>话题</th><th>可写分类</th><th>操作</th></tr></thead>
+          <tbody id="proj-list"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 群绑定 -->
+    <section id="tab-bindings" class="tab hidden">
+      <div class="panel">
+        <h2>新建 / 更新群绑定</h2>
+        <p class="hint">路由表：chat_id → 项目 + 数字员工。同项目多群共享群记忆。</p>
+        <div class="row">
+          <div class="field"><label>chat_id</label><input type="text" id="bind-chat" placeholder="oc_..." /></div>
+          <div class="field" style="min-width:200px"><label>项目</label><select id="bind-project"></select></div>
+          <div class="field" style="min-width:200px"><label>数字员工</label><select id="bind-employee"></select></div>
+          <button class="btn" id="bind-save">绑定</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>绑定列表</h2>
+        <table>
+          <thead><tr><th>chat_id</th><th>项目</th><th>数字员工</th><th>操作</th></tr></thead>
+          <tbody id="bind-list"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 能力包 -->
+    <section id="tab-bundles" class="tab hidden">
+      <div class="panel">
+        <h2 id="bundle-form-title">新建能力包</h2>
+        <input type="hidden" id="bundle-id" />
+        <div class="field"><label>名称</label><input type="text" id="bundle-name" /></div>
+        <div class="row">
+          <div class="field" style="flex:1;min-width:260px"><label>skills（JSON 数组）</label><textarea id="bundle-skills">[]</textarea></div>
+          <div class="field" style="flex:1;min-width:260px"><label>mcp_servers（JSON 数组）</label><textarea id="bundle-mcp">[]</textarea></div>
+        </div>
+        <div class="field">
+          <label>内置工具开关</label>
+          <div class="checks">
+            <label><input type="checkbox" id="bundle-websearch" /> web_search</label>
+            <label><input type="checkbox" id="bundle-webfetch" /> web_fetch</label>
+          </div>
+        </div>
+        <div class="field">
+          <label>可写记忆分类</label>
+          <div class="checks" id="bundle-cats"></div>
+        </div>
+        <div class="row">
+          <button class="btn" id="bundle-save">保存</button>
+          <button class="btn ghost hidden" id="bundle-cancel">取消编辑</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>能力包列表</h2>
+        <table>
+          <thead><tr><th>名称</th><th>skills</th><th>mcp</th><th>可写分类</th><th>操作</th></tr></thead>
+          <tbody id="bundle-list"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 项目记忆 -->
+    <section id="tab-memory" class="tab hidden">
+      <div class="panel">
+        <h2>项目共享记忆</h2>
+        <div class="row">
+          <div class="field" style="min-width:240px"><label>选择项目</label><select id="mem-project"></select></div>
+          <button class="btn ghost" id="mem-provision">懒建 / 确保 Memory Store</button>
+          <button class="btn ghost" id="mem-refresh">刷新列表</button>
+        </div>
+        <p class="hint" id="mem-store-hint">选择项目后显示其 Memory Store。</p>
+      </div>
+      <div class="panel">
+        <h2>新增记忆条目</h2>
+        <div class="row">
+          <div class="field" style="min-width:260px"><label>path（如 /facts/xxx）</label><input type="text" id="mem-path" /></div>
+          <div class="field" style="flex:1;min-width:300px"><label>content</label><input type="text" id="mem-content" /></div>
+          <button class="btn" id="mem-add">新增</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>记忆列表</h2>
+        <table>
+          <thead><tr><th>path</th><th>类型</th><th>id</th><th>操作</th></tr></thead>
+          <tbody id="mem-list"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

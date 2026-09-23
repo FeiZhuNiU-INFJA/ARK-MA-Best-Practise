@@ -100,7 +100,7 @@ arkagent run
 ## 消息与 Session 行为
 
 - 单聊处理文本消息；群聊只处理明确 `@Bot` 的文本消息。
-- 会话隔离键为 `(tenant_key, chat_id, thread_id, user_open_id)` 四元组：**不同发送者不复用 Session**（群里各人独立）；`/new` 显式重置当前会话。
+- 会话隔离键为 `(chat_id, thread_id, user_open_id)` 三元组（`tenant_key` 已降级为归属属性、不进键）：**不同发送者不复用 Session**（群里各人独立）；`/new` 显式重置当前会话。
 - 新建 Session 会立即回复「正在处理」；复用 Session 仅在超过 ~2.5 秒未完成时提示一次。
 - Gateway 不转发工具执行过程，只发处理中提示和最终结果。
 - 图片、文件、富文本、交互卡片暂不处理。
@@ -142,7 +142,7 @@ scenarios/feishu-bot/
 | [cli.py](arkagent/cli.py) | 命令入口 `init/doctor/run/update-agent` | 飞书 WS 在主线程阻塞，asyncio 事件循环跑后台线程，回调 `call_soon_threadsafe` 投递协程，满足飞书 3 秒处理约束 |
 | [init.py](arkagent/init.py) | 首次初始化全部方舟资源 + 飞书应用 | 建 Agent（挂 `mcp_servers`+`mcp_toolset`+`agent_toolset`）、Vault、`static_bearer` 凭据（创建时方舟会握手探测 MCP）、Environment，写 `config.env` |
 | [node_helper.py](arkagent/node_helper.py) | 封装 Node 小岛 | `registerApp` 无 Python 等价物；子进程运行，stderr 透传二维码，从临时 JSON 读回 `{appId,appSecret,userOpenId}` |
-| [gateway.py](arkagent/gateway.py) | 网关编排核心 | 串行队列；指令分发（`/new` `/role` `/whoami` `/remember`）；创建 Session 时组装 `env_overrides`（OpenID 透传）+ `vault_ids`（凭据）+ `resources`（挂 Memory Store） |
+| [gateway/orchestrator.py](arkagent/gateway/orchestrator.py) | 网关编排核心 | 串行队列；指令分发（`/new` `/role` `/whoami` `/remember`）；创建 Session 时组装 `env_overrides`（OpenID 透传）+ `vault_ids`（凭据）+ `resources`（挂 Memory Store） |
 | [ark.py](arkagent/ark.py) | 方舟 MA 异步客户端 | `create_session`(resources) / `send_message`(system.message) / `create_static_bearer_credential` / `create_memory_store`+`create_memory` / `update_agent`；SSE 流式 + 超时回查 |
 | [feishu.py](arkagent/feishu.py) | 飞书接入层 | 入站基于官方 `lark-channel-sdk`（`FeishuChannel`：WS 长连接/断线重连/事件归一化/去重打包），出站沿用 SDK 自带的同步 OpenAPI `Client`；单聊全量、群聊仅 `@Bot` |
 | [role.py](arkagent/role.py) | 岗位信息（软层） | 24h TTL 缓存；仅在「本 Session 未注入过」时挂一次 `system.message`；`on_role_change` 清标记强制重注入；HR Provider 可替换（默认 mock） |

@@ -55,7 +55,7 @@ python scenarios/feishu-bot/cases/digital-employee/digital_employee.py --executi
 - 主时间线只有明确 `@bot` 的消息会被处理；每条这样的消息都成为一个新话题根。
 - Bot 使用飞书 `reply_in_thread=true` 回复首条消息，因此回复和后续讨论都留在该话题。
 - 话题内普通消息不触发 Bot；下一次 `@bot` 时统一作为本轮上下文。
-- Session 键为 `tenant_key + chat_id + thread_id`；不同话题永不复用 Session。创建话题的
+- Session 键为 `chat_id + thread_id`（`tenant_key` 已降级为归属属性，不进键）；不同话题永不复用 Session。创建话题的
   首条 `@bot` 到达时尚无 `thread_id`，先以该消息自身 ID 建 Session；Bot 首次回复后从飞书
   响应取得新生成的 `thread_id`，再绑定到同一个 Session。
 - 每轮会精确读取 `root_id` 对应的话题根消息，并读取当前 thread，把「上一次 `@bot` 之后
@@ -70,9 +70,9 @@ python scenarios/feishu-bot/cases/digital-employee/digital_employee.py --executi
 ## 身份与记忆隔离策略
 
 本数字员工采用 **群聊 Bot-only、单聊按需用户只读授权**，并把长期记忆按作用域隔离：
-- 单聊按 `tenant_key + open_id` 懒创建并挂载个人 Memory Store。
-- 群聊按 `tenant_key + chat_id` 懒创建并挂载群 Memory Store；同群所有话题挂同一个 Store，
-  不创建话题级 Store。
+- 单聊按 `open_id`（绑定 persona 后按 `employee_id`）懒创建并挂载个人 Memory Store。
+- 群聊按 `chat_id`（绑定项目后按 `project_id`）懒创建并挂载群 Memory Store；同群所有话题挂同一个 Store，
+  不创建话题级 Store。（`tenant_key` 已降级为归属属性，不进作用域键。）
 - 群聊 Session **不注入**任何个人 open_id，**不挂**个人 Vault / Memory Store；因此群聊和
   群话题无法读取个人记忆。
 - 「现在是谁在说」只靠每轮正文转录里的发言人名字（`名字: 内容`）传递，最后一行即当前发言人。
@@ -384,8 +384,31 @@ serial/native-queue 共用，保证切换执行模式后仍复用原 Store）、
 `FEISHU_SDK_DEBUG`（设 `1`/`true` 打开 Channel SDK 内部的 stale/去重/策略日志，排查
 「消息没进来 / 被去重 / 被策略过滤」时用）。
 
+## 可视化管理系统（多员工路由 / 项目共享记忆）
+
+除了「一个进程一个数字员工」的 env 单员工模式，本场景还提供一个**可视化管理系统**（`admin/`），
+让一个飞书 bot 承载**多个数字员工 persona**，按 **项目 → 多个飞书群** 的模型组织，并支持**同项目多群共享群记忆**。
+
+配置库是**全量权威**：identity 文本、skills/mcp 清单、路由映射、开关全部先落本地 SQLite
+（`data/digital_employee_admin.db`），再由 **ark-gateway 控制面**单向同步到方舟（建/更新 Agent、
+懒建项目共享 Memory Store）。runtime 经 **ark-gateway 数据面** 按 `chat_id` 查绑定，
+路由出对应 Agent 与项目共享 Store；群记忆作用域用 `project_id`；`reply_uses_topic` 决定回复走话题还是直发。
+**无绑定时回退现有 env 单员工模式**（向后兼容）。
+
+```bash
+set -a && source ~/.arkagent/config.env && set +a   # 需要 ARK_API_KEY[/ARK_BASE_URL]
+python scenarios/feishu-bot/cases/digital-employee/admin/run_admin.py
+# 打开 http://127.0.0.1:8787  —— 建员工/项目/能力包 → 绑群 → 同步 → 编辑记忆
+```
+
+架构分层、数据模型、API 与页面职责详见 [admin/README.md](admin/README.md)。
+
+> **仅限本地/内网**：管理 API 鉴权只做了简单 token（env `ADMIN_API_TOKEN`），勿暴露公网。
+
 ## 文件
 
+- `admin/` —— 可视化管理系统：`server.py`（REST API + 静态托管）、`run_admin.py`（入口）、
+  `web/`（静态前端）、`README.md`（分层图 / 数据模型 / API）。建在 ark-gateway 控制面上，与 runtime 解耦。
 - `shared.py` —— 公共底座：共享会话键、群历史窗口、附件挂载与去重、lark-cli
   Environment/Bot Vault、双身份会话环境、OAuth/Session Vault 持久化、Agent 定义与配置读取。
 - `memory.py` —— 个人/群记忆作用域、共享 SQLite 映射、Session 挂载与四个 Memory Custom Tool。

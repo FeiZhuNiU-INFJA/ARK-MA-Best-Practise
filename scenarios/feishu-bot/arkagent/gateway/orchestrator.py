@@ -14,12 +14,12 @@ import asyncio
 import contextlib
 from typing import Awaitable, Callable, Optional
 
-from .ark import ArkClient, RunResult
-from .feishu import IncomingMessage
-from .memory import MemoryManager
-from .role import RoleInfo, RoleManager
-from .store import ConversationKey, GatewayStore
-from .timing import Stopwatch, time_block
+from ..ark import ArkClient, RunResult
+from ..feishu import IncomingMessage
+from ..memory import MemoryManager
+from ..role import RoleInfo, RoleManager
+from ..store import ConversationKey, GatewayStore
+from ..timing import Stopwatch, time_block
 
 Reply = Callable[[str, str], Awaitable[None]]
 DEFAULT_PROGRESS_DELAY_MS = 2_500

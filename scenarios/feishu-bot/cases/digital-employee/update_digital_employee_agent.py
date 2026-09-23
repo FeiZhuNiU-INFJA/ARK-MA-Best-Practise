@@ -20,9 +20,13 @@ from __future__ import annotations
 import asyncio
 import os
 
-from shared import build_group_agent_config
+from shared import GROUP_BOT_NAME, build_group_system
 
 from arkagent.ark import ArkClient
+from arkagent.gateway import ConfigStore, DigitalEmployee, MAControlPlane
+
+# 与 create 脚本共用的默认 persona id。
+DEFAULT_PERSONA_ID = "emp_group_bot_default"
 
 
 async def _main() -> None:
@@ -42,19 +46,27 @@ async def _main() -> None:
     bot_name = (os.environ.get("GROUP_BOT_DISPLAY_NAME") or "数字员工阿J").strip()
 
     ark = ArkClient(api_key, base_url)
+    store = ConfigStore()
+    plane = MAControlPlane(ark, store)
     try:
-        # 原地更新须带当前 version：先读回来，方舟据此做乐观并发校验。
-        current = await ark.get_agent(agent_id)
-        if current.get("version") is None:
-            raise RuntimeError(f"无法获取 Agent {agent_id} 的当前版本，无法更新。")
-        version = int(current["version"])
-
-        new_config = build_group_agent_config(model_id, bot_name)
-        updated = await ark.update_agent(agent_id, new_config, version)
+        # 走控制面 sync_employee：带 ark_agent_id → get_agent 读回 version → update_agent（Agent ID 不变）。
+        persona = store.get_employee(DEFAULT_PERSONA_ID) or DigitalEmployee(
+            id=DEFAULT_PERSONA_ID, name=GROUP_BOT_NAME
+        )
+        old_version = persona.ark_agent_version
+        persona.name = GROUP_BOT_NAME
+        persona.identity_prompt = build_group_system(bot_name)
+        persona.model_id = model_id
+        persona.ark_agent_id = agent_id  # 以入口 env 指定的现有 Agent 为准
+        persona = await plane.sync_employee(persona)
     finally:
         await ark.aclose()
+        store.close()
 
-    print(f"已更新飞书数字员工 Agent：{updated['id']}（版本 {version} → {updated.get('version')}）")
+    print(
+        f"已更新飞书数字员工 Agent：{persona.ark_agent_id}"
+        f"（版本 {old_version or '?'} → {persona.ark_agent_version}）"
+    )
     print(f"  模型：{model_id}")
     print(f"  bot 名字（system prompt）：{bot_name}")
     print("  GROUP_BOT_AGENT_ID 不变，运行入口无需改环境变量，重启即可生效。")

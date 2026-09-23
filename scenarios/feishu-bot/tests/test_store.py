@@ -11,10 +11,11 @@ def _store():
 
 def test_conversation_key_includes_all_identity_fields():
     store = _store()
+    # tenant_key 已降级为归属属性，不再进会话键（chat_id 全局唯一）。
     key = ConversationKey(tenant_key="t", chat_id="c", thread_id="th", user_open_id="ou")
-    assert store.conversation_key(key) == "t:c:th:ou"
+    assert store.conversation_key(key) == "c:th:ou"
     empty = ConversationKey(tenant_key="t", chat_id="c", thread_id="", user_open_id="")
-    assert store.conversation_key(empty) == "t:c:-:-"
+    assert store.conversation_key(empty) == "c:-:-"
 
 
 def test_session_roundtrip_and_reset():

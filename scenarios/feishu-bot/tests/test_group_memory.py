@@ -287,6 +287,72 @@ async def test_memory_tool_rejects_unbound_session_and_invalid_category():
     assert json.loads(invalid)["error"]["code"] == "INVALID_ARGUMENT"
 
 
+async def test_memory_writable_subset_blocks_upsert_and_forget_outside_subset():
+    ark = FakeMemoryArk()
+    store = shared.InMemorySessionMap()
+    # 只允许写 conventions；读取仍开放全部分类。
+    manager = group_memory.ScopedMemoryManager(
+        ark, store, writable_resolver=lambda scope: ("conventions",)
+    )
+    message = _message(chat_type="group", chat_id="group-a", open_id="user-a")
+    scope, store_id, _ = await manager.resources_for_message(message)
+    manager.bind_session("session-1", scope, store_id)
+
+    # 可写子集内：放行。
+    allowed, allowed_error = await manager.handle_tool(
+        "session-1",
+        "memory_upsert",
+        {"category": "conventions", "key": "reply-style", "content": "先称呼提问人"},
+    )
+    assert allowed_error is False
+    assert json.loads(allowed)["action"] == "created"
+
+    # 越权写：拦截，返回结构化只读错误。
+    denied, denied_error = await manager.handle_tool(
+        "session-1",
+        "memory_upsert",
+        {"category": "decisions", "key": "release-day", "content": "每周四"},
+    )
+    assert denied_error is True
+    assert json.loads(denied)["error"]["code"] == "MEMORY_CATEGORY_READONLY"
+
+    # 越权删：同样拦截。
+    forget_denied, forget_error = await manager.handle_tool(
+        "session-1",
+        "memory_forget",
+        {"category": "decisions", "key": "release-day", "reason": "用户要求"},
+    )
+    assert forget_error is True
+    assert json.loads(forget_denied)["error"]["code"] == "MEMORY_CATEGORY_READONLY"
+
+    # 读取不受可写子集约束：越出可写子集的分类仍可 list。
+    listed, listed_error = await manager.handle_tool(
+        "session-1", "memory_list", {"category": "decisions"}
+    )
+    assert listed_error is False
+    assert json.loads(listed)["ok"] is True
+
+
+async def test_memory_store_id_resolver_adopts_control_plane_store():
+    ark = FakeMemoryArk()
+    store = shared.InMemorySessionMap()
+    # 控制面已为项目建好 Store：数据面直接采用，不再懒建。
+    manager = group_memory.ScopedMemoryManager(
+        ark, store, store_id_resolver=lambda scope: "ms-project-preprovisioned"
+    )
+    message = _message(chat_type="group", chat_id="group-a", open_id="user-a")
+
+    scope, store_id, resources = await manager.resources_for_message(message)
+
+    assert store_id == "ms-project-preprovisioned"
+    assert resources[0]["memory_store_id"] == "ms-project-preprovisioned"
+    assert ark.created_stores == []  # 没有重复懒建
+    assert (
+        store.get_memory_store(scope.tenant_key, scope.scope_type, scope.scope_id)
+        == "ms-project-preprovisioned"
+    )
+
+
 def test_sqlite_memory_state_is_shared_across_reopen(tmp_path):
     path = str(tmp_path / "memory.db")
     first = group_memory.SqliteMemoryState(path)
