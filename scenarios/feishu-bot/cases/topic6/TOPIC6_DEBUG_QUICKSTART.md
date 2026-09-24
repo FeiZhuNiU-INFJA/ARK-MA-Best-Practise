@@ -33,6 +33,42 @@ topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 
 ---
 
+## 1.1 飞书权限清单(首次)
+
+`init --topic6` 只帮你把应用建起来,**不会**自动申请任何权限 scope 与事件订阅——这些都得人工在飞书 [Open Platform 后台](https://open.feishu.cn/app) 里点。按下面 checklist 一次点完,后面调试就不用来回补权限。
+
+### 权限 scope(权限管理 → API 权限)
+
+**消息与卡片(必需)**
+
+- [ ] `im:message` — 接收群/单聊消息事件
+- [ ] `im:message:send_as_bot` — 以 Bot 身份回复文本
+- [ ] `im:resource` — 上传/下载图片、文件(Phase G 抓飞书图片必需)
+
+**飞书文档(F/G/H 阶段必需)**
+
+- [ ] `docx:document` — 读写飞书文档正文(Phase F 拉草稿、Phase H 写回)
+- [ ] `docx:document.content:read` — 仅读文档内容(部分租户单独开)
+- [ ] `drive:drive` **或** `drive:file:writeable` — 在指定云空间目录里新建/移动文档
+
+**可选**
+
+- [ ] `contact:user.id:readonly` — open_id ↔ user_id 反查(若白名单只用 open_id 可省)
+
+### 事件订阅(事件与回调 → 事件订阅)
+
+- [ ] `im.message.receive_v1` — 用户在群/单聊里发消息(触发词入口)
+- [ ] `card.action.trigger` — HC1/HC2/HC3 卡片按钮点击回调(HITL 必需)
+
+### 生效方式
+
+- **企业自建应用**:保存后即时生效,无需审核。
+- **应用状态**要点到「启用」,并在目标群里把 Bot 加为群成员;单聊需管理员放开可用范围。
+
+跑通冒烟测试后,如果发现某个动作报权限错误,回来对照这份清单补齐即可。
+
+---
+
 ## 2. 建 topic6 MA 资源(首次)
 
 ```bash
