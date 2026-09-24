@@ -3,17 +3,17 @@
   "description": "topic6 跨会话业务记忆。承载版本状态、错误案例库、必读清单;Agent 只读挂到 /mnt/memory/topic6/。由 gateway 侧 Memory Store API 维护,与 assets_from_customer 完全解耦。",
   "memories": [
     {
-      "path": "topic6/MEMORY.md",
+      "path": "/topic6/MEMORY.md",
       "source_file": "ma-resources/memory/topic6/MEMORY.md",
       "note": "必读清单索引"
     },
     {
-      "path": "topic6/_版本状态.md",
+      "path": "/topic6/_版本状态.md",
       "source_file": "ma-resources/memory/topic6/_版本状态.md",
       "note": "各任务活跃 Prompt 版本;由 gateway 侧 Memory Store API 更新,Agent 不写"
     },
     {
-      "path": "topic6/错误案例库.md",
+      "path": "/topic6/错误案例库.md",
       "source_file": "ma-resources/memory/topic6/错误案例库.md",
       "note": "历史踩坑;由 gateway 侧 Memory Store API 更新,Agent 不写"
     }

@@ -69,25 +69,77 @@ topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 
 ---
 
-## 2. 建 topic6 MA 资源(首次)
+## 2. 环境变量清单(跑 create_all.sh 前必须齐)
+
+**全部写到 `~/.arkagent/config.env`**(该文件已在 §1 由 `init --topic6` 生成,追加即可,不会入库)。
+
+### 2.1 通用(方舟 + 飞书)
+
+```env
+# 方舟——控制台申请
+ARK_API_KEY=xxx
+
+# 飞书——init --topic6 已自动写入
+FEISHU_APP_ID=cli_xxx
+FEISHU_APP_SECRET=xxx
+LARK_APP_ID=cli_xxx           # 与 FEISHU_APP_ID 同值,给沙箱脚本用
+LARK_APP_SECRET=xxx           # 与 FEISHU_APP_SECRET 同值
+```
+
+### 2.2 客户方给的(问客户要)
+
+```env
+# 热点 MCP——BlueView 的爬虫服务
+HOT_TOPICS_MCP_URL=https://smartai.blueviewai.com/mcp/crawler-hot-topics-server
+BLUEAI_API_KEY=<客户给的 Key>
+
+# DataHub——Phase C 标注要用
+DATAHUB_ENDPOINT=https://bmc-data-hub.bluemediagroup.cn/...
+DATAHUB_API_KEY=<客户给的 Key>
+```
+
+### 2.3 可选/延后
+
+```env
+# Phase H 妙搭发布,当前未启用,留空即可
+MIAODA_TOKEN=
+
+# 自有 TOS Bucket——调试期不必配,environment.json 里已禁用 output_storage
+# TOPIC6_TOS_BUCKET=
+```
+
+### 2.4 白名单(建议设,防误触)
+
+```env
+AUTHORIZED_OPEN_IDS=ou_xxx ou_yyy   # 空格或逗号分隔
+```
+
+### 加载到 shell(每次开新终端都要跑)
+
+```bash
+set -a; source ~/.arkagent/config.env; set +a
+```
+
+`set -a` 让 source 出来的所有变量自动 export,省去挨个 export。跑 `pack_skills.sh` / `upload_skills.py` / `create_all.sh` 都依赖这一步。
+
+---
+
+## 3. 建 topic6 MA 资源(首次)
 
 ```bash
 cd scenarios/feishu-bot/cases/topic6
 
-export ARK_API_KEY="xxx"
-export HOT_TOPICS_MCP_URL="https://xxx/mcp"
-
-# 2.1 打包 5 个 Skill zip → tools/out/*.zip
+# 3.1 打包 5 个 Skill zip → tools/out/*.zip
 ./tools/pack_skills.sh
 
-# 2.2 上传 Skill → 写回 ma-resources/skill_ids.json
+# 3.2 上传 Skill → 写回 ma-resources/skill_ids.json
 python3 tools/upload_skills.py
 
-# 2.3 建 Environment / Memory Store / Annotator / Insighter / Coordinator
+# 3.3 建 Environment / Memory Store / Annotator / Insighter / Coordinator
 ./ma-resources/create_all.sh
 ```
 
-`create_all.sh` 会打印:
+ `create_all.sh` 会打印:
 
 - `ENVIRONMENT_ID`
 - `MEMORY_STORE_ID`
@@ -98,24 +150,20 @@ python3 tools/upload_skills.py
 
 ---
 
-## 3. 补 topic6 环境变量
+## 4. 回填 topic6 资源 ID
 
-编辑 `~/.arkagent/config.env`,追加:
+`create_all.sh` 打印的 ID 追加到 `~/.arkagent/config.env`:
 
 ```env
-TOPIC6_COORDINATOR_AGENT_ID="<create_all.sh 输出>"
-TOPIC6_ENVIRONMENT_ID="<create_all.sh 输出,或省略回退 ARK_ENVIRONMENT_ID>"
-TOPIC6_MEMORY_STORE_ID="<create_all.sh 输出>"
-TOPIC6_PIPELINE_DB_PATH="./data/topic6_pipeline.db"
-HOT_TOPICS_MCP_URL="https://xxx/mcp"
-AUTHORIZED_OPEN_IDS="ou_xxx ou_yyy"
+TOPIC6_COORDINATOR_AGENT_ID=<create_all.sh 输出>   # 开关:不填则 topic6 不装配
+TOPIC6_ENVIRONMENT_ID=<create_all.sh 输出>         # 可省略,回退 ARK_ENVIRONMENT_ID
+TOPIC6_MEMORY_STORE_ID=<create_all.sh 输出>
+TOPIC6_PIPELINE_DB_PATH=./data/topic6_pipeline.db
 ```
-
-`TOPIC6_COORDINATOR_AGENT_ID` 是**开关**——不填则 topic6 场景不装配,Bot 只跑 digital-employee。
 
 ---
 
-## 4. 起服务
+## 5. 起服务
 
 ```bash
 cd scenarios/feishu-bot
@@ -166,6 +214,7 @@ topic6 触发词：热点报告 / 热点周报(可加 test/full 指定模式)
 
 ## 附:相关文件速查
 
+- MA 约束变更日志 [TOPIC6_CHANGELOG.md](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/TOPIC6_CHANGELOG.md) — 因方舟侧限制/机制导致的历次修改
 - 主入口 [cli.py](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent/cli.py)
 - 配置字段 [config.py](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent/config.py)
 - topic6 运行器 [topic6_runner.py](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent/gateway/topic6_runner.py)

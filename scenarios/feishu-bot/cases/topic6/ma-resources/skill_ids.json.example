@@ -1,0 +1,10 @@
+{
+  "note": "由 upload_skills.py 上传成功后回填。key = 客户目录名,value = { skill_id, version, uploaded_at, source_sha256 }。真实 skill_ids.json 因人/环境而异,不入库(.gitignore 已拦截)。首次跑 upload_skills.py 前把此文件复制为 skill_ids.json。",
+  "skills": {
+    "topic6-fetch-normalize": null,
+    "topic6-annotation": null,
+    "topic6-insight": null,
+    "topic6-event-registry": null,
+    "topic6-web-report": null
+  }
+}

@@ -1,3 +1,9 @@
+---
+name: topic6-annotation
+version: 1.0.0
+description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础事实、R1~R5 五维借势/合作/风险/创意/舆情、C3 关键词收拢的多路标注，含提交、轮询、合并、筛选、时窗展平的一体化流水线。当用户需要对已归一化的热搜宽表做多维度打标、汇聚成可交付宽表时使用。
+---
+
 # topic6-annotation — 热点标注 Skill (MA 版 v1)
 
 将客户端(Claude Code)版本的 `skill/annotation/` 迁移到火山方舟 Managed Agents。

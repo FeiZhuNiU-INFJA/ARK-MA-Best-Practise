@@ -1,3 +1,9 @@
+---
+name: topic6-insight
+version: 1.0.0
+description: 社媒热点周刊 Phase E+F 洞察生成：从 Phase C 交付的标注宽表出发，四路并发（E1 平台借势 / E2 商业合作 / E3 风险预警 / E4 创意借鉴）调用 Ark OpenAI 兼容接口生成周报四大版块，再由 pipeline_f 拼接成完整草稿。当用户需要基于标注结果生成周报正文洞察时使用。
+---
+
 # topic6-insight
 
 > MA 版洞察生成技能 — 从标注宽表出发,四路并发生成周报四大版块。

@@ -13,13 +13,11 @@
     {"type": "custom", "skill_id": "${skill_id.topic6-web-report}", "version": "${version.topic6-web-report}"}
   ],
   "tools": [
-    {"type": "bash"},
-    {"type": "read"},
-    {"type": "write"},
-    {"type": "edit"}
+    {"type": "agent_toolset_20260701"}
   ],
   "mcp_servers": [
     {
+      "type": "url",
       "name": "hot-topics",
       "url": "${HOT_TOPICS_MCP_URL}"
     }
