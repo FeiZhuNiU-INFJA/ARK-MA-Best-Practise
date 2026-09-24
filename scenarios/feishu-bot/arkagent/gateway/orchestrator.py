@@ -171,7 +171,7 @@ class Gateway:
             mode = parse_trigger(text)
             if mode is not None:
                 try:
-                    job = await self._topic6_runner.start_job(
+                    await self._topic6_runner.start_job(
                         chat_id=message.chat_id,
                         thread_id=message.thread_id,
                         user_open_id=message.user_open_id,
@@ -181,10 +181,8 @@ class Gateway:
                 except Topic6RunnerError as error:
                     await self._reply(message.chat_id, str(error))
                     return
-                await self._reply(
-                    message.chat_id,
-                    f"✅ topic6 pipeline 已启动(job={job.job_id}, mode={mode})，进度会陆续回帖。",
-                )
+                # start_job 内部已经发出"进度卡片"作为启动确认,后续所有进度都 patch 那张卡片,
+                # 这里不再单独回一条文本以避免重复。
                 return
 
         # topic6-only Bot(init --topic6):digital-employee 主链未配置,除触发词外的消息
