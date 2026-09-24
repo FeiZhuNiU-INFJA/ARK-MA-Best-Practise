@@ -187,6 +187,15 @@ class Gateway:
                 )
                 return
 
+        # topic6-only Bot(init --topic6):digital-employee 主链未配置,除触发词外的消息
+        # 一律给出用法提示,避免拿空 agent_id 去创建 Session 报错。
+        if not self._agent_id:
+            await self._reply(
+                message.chat_id,
+                "当前 Bot 仅启用 topic6 场景。发送「热点周报 test」(冒烟)或「热点周报 full」(全量)触发。",
+            )
+            return
+
         if text == "/new":
             # 卡点 D：岗位调动开新 Session（下一条消息会挂同一 Memory Store）。
             self._store.reset_session(key)

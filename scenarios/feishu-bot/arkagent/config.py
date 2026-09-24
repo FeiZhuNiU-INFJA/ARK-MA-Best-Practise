@@ -15,13 +15,18 @@ DEFAULT_DB_PATH = "./data/gateway.db"
 DEFAULT_SESSION_TIMEOUT_MS = 600_000
 DEFAULT_ROLE_TTL_MS = 86_400_000
 
-REQUIRED_KEYS = [
+# 任何场景都必需:方舟鉴权 + 飞书应用凭据。
+REQUIRED_KEYS_COMMON = [
     "ARK_API_KEY",
+    "FEISHU_APP_ID",
+    "FEISHU_APP_SECRET",
+]
+# digital-employee(客户A)场景专属:用 `arkagent init` 创建。
+# 仅装配 topic6(`init --topic6`)时这些键允许为空,触发词之外的消息由 orchestrator 直接兜底提示。
+REQUIRED_KEYS_DIGITAL_EMPLOYEE = [
     "ARK_AGENT_ID",
     "ARK_ENVIRONMENT_ID",
     "ARK_VAULT_ID",
-    "FEISHU_APP_ID",
-    "FEISHU_APP_SECRET",
     "MCP_SERVER_URL",
 ]
 
@@ -81,7 +86,13 @@ def _split_open_ids(value: str) -> tuple[str, ...]:
 
 def load_config(env: Optional[Mapping[str, str]] = None) -> GatewayConfig:
     environ = os.environ if env is None else env
-    missing = [key for key in REQUIRED_KEYS if not (environ.get(key) or "").strip()]
+    missing = [key for key in REQUIRED_KEYS_COMMON if not (environ.get(key) or "").strip()]
+    # 已设置 TOPIC6_COORDINATOR_AGENT_ID 表示 topic6 场景启用;此时 digital-employee 的
+    # Agent/Environment/Vault/MCP 允许缺失(Bot 可只跑 topic6)。
+    if not (environ.get("TOPIC6_COORDINATOR_AGENT_ID") or "").strip():
+        missing += [
+            key for key in REQUIRED_KEYS_DIGITAL_EMPLOYEE if not (environ.get(key) or "").strip()
+        ]
     if missing:
         raise RuntimeError(f"缺少环境变量：{', '.join(missing)}")
 
@@ -92,13 +103,13 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> GatewayConfig:
 
     return GatewayConfig(
         ark_api_key=environ["ARK_API_KEY"],
-        ark_agent_id=environ["ARK_AGENT_ID"],
-        ark_environment_id=environ["ARK_ENVIRONMENT_ID"],
-        ark_vault_id=environ["ARK_VAULT_ID"],
+        ark_agent_id=(environ.get("ARK_AGENT_ID") or "").strip(),
+        ark_environment_id=(environ.get("ARK_ENVIRONMENT_ID") or "").strip(),
+        ark_vault_id=(environ.get("ARK_VAULT_ID") or "").strip(),
         ark_base_url=(environ.get("ARK_BASE_URL") or DEFAULT_ARK_BASE_URL).rstrip("/"),
         feishu_app_id=environ["FEISHU_APP_ID"],
         feishu_app_secret=environ["FEISHU_APP_SECRET"],
-        mcp_server_url=environ["MCP_SERVER_URL"],
+        mcp_server_url=(environ.get("MCP_SERVER_URL") or "").strip(),
         mcp_static_bearer=environ.get("MCP_STATIC_BEARER") or "",
         database_path=environ.get("GATEWAY_DB_PATH") or DEFAULT_DB_PATH,
         session_timeout_ms=session_timeout_ms,
