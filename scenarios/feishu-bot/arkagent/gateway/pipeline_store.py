@@ -81,6 +81,7 @@ class PipelineJob:
     finished_at: Optional[int] = None
     last_error: str = ""
     online_url: str = ""  # Phase H 妙搭产物
+    progress_card_message_id: str = ""  # 进度卡片飞书 message_id;用于 patch 覆写
 
 
 @dataclass
@@ -135,7 +136,8 @@ class PipelineStore:
                 updated_at INTEGER NOT NULL,
                 finished_at INTEGER,
                 last_error TEXT NOT NULL DEFAULT '',
-                online_url TEXT NOT NULL DEFAULT ''
+                online_url TEXT NOT NULL DEFAULT '',
+                progress_card_message_id TEXT NOT NULL DEFAULT ''
             );
 
             CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_session_key
@@ -164,6 +166,12 @@ class PipelineStore:
                 ON pipeline_hc_events(card_message_id);
             """
         )
+        # 老库补列:progress_card_message_id 是后加的,SQLite 没有 IF NOT EXISTS 语法。
+        cols = {r[1] for r in self._conn.execute("PRAGMA table_info(pipeline_jobs)").fetchall()}
+        if "progress_card_message_id" not in cols:
+            self._conn.execute(
+                "ALTER TABLE pipeline_jobs ADD COLUMN progress_card_message_id TEXT NOT NULL DEFAULT ''"
+            )
 
     def _protect_files(self) -> None:
         for suffix in ("", "-wal", "-shm"):
@@ -312,6 +320,14 @@ class PipelineStore:
                 (STATUS_FAILED, now, now, error, job_id),
             )
 
+    def set_progress_card_message_id(self, job_id: str, message_id: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE pipeline_jobs SET progress_card_message_id = ?, updated_at = ? "
+                "WHERE job_id = ?",
+                (message_id or "", _now(), job_id),
+            )
+
     # ---- hc_events ---------------------------------------------------------
 
     def append_hc_event(
@@ -410,6 +426,11 @@ class PipelineStore:
             finished_at=row["finished_at"],
             last_error=row["last_error"],
             online_url=row["online_url"],
+            progress_card_message_id=(
+                row["progress_card_message_id"]
+                if "progress_card_message_id" in row.keys()
+                else ""
+            ),
         )
 
     @staticmethod

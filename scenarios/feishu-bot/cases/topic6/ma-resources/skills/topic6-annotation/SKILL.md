@@ -13,13 +13,13 @@ Prompt 业务口径保留客户版活跃版本；工具链、脚本、路径全�
 
 ```
 /mnt/skills/topic6-annotation/
-├── prompts/          # C0/R1~R5/C3 v1 prompt (客户版活跃版本 fork)
-│   ├── C0_基础事实/v1.md
-│   ├── R1_平台借势/v1.md
+├── prompts/          # C0/R1~R5/C3 各任务活跃版本 fork (版本快照见 ma-resources/memory/topic6/_版本状态.md)
+│   ├── C0_基础事实/v4.md      # 活跃版 v4 (v1~v3 归档保留)
+│   ├── R1_平台借势/v2.md      # 活跃版 v2 (v1 归档保留)
 │   ├── R2_商业合作/v1.md
 │   ├── R3_风险预警/v1.md
-│   ├── R4_创意借鉴/v1.md
-│   ├── R5_消费者行为/v1.md
+│   ├── R4_创意借鉴/v2.md      # 活跃版 v2 (v1 归档保留)
+│   ├── R5_消费者行为/v2.md    # 活跃版 v2 (v1 归档保留)
 │   └── 节点标注/v1.md
 ├── scripts/          # 一体化脚本 (submit+poll+postprocess 合并)
 │   ├── datahub_annotate.py    # 单任务全流程 (C0/R1~R5/C3)

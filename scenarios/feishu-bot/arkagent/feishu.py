@@ -592,6 +592,29 @@ class FeishuSender:
             chat_id, "interactive", json.dumps(card, ensure_ascii=False)
         )
 
+    def patch_interactive_card(self, message_id: str, card: dict) -> None:
+        """就地覆写一条已发出的 interactive 卡片(topic6 进度卡片用)。
+
+        飞书 `PATCH /open-apis/im/v1/messages/{message_id}` 只允许修改卡片(interactive),
+        不能改文本。这里假定 message_id 对应的原消息就是 interactive 卡片;不满足会 400。
+        """
+        from lark_channel.api.im.v1.model.patch_message_request import (
+            PatchMessageRequest,
+            PatchMessageRequestBody,
+        )
+
+        body = (
+            PatchMessageRequestBody.builder()
+            .content(json.dumps(card, ensure_ascii=False))
+            .build()
+        )
+        request = (
+            PatchMessageRequest.builder().message_id(message_id).request_body(body).build()
+        )
+        response = self._client.im.v1.message.patch(request)
+        if not response.success():
+            raise RuntimeError(f"飞书 patch 卡片失败 {response.code}: {response.msg}")
+
     def list_messages(
         self,
         message: "IncomingMessage",
