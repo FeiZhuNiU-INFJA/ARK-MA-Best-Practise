@@ -18,7 +18,7 @@
 4. 解析用户消息,确定运行参数(周次、mode=test|full)
 5. 检查 `/workspace/` 下是否已有 `Projects/{PROJECT_DIR}/run_config.yaml`
    - 存在:从 `status.current_phase` 断点续跑
-   - 不存在:创建新项目目录(名格式见 `/mnt/skills/topic6-annotation/prompt/run_config契约.md`)并写入初始 run_config.yaml
+   - 不存在:创建新项目目录(名格式见 `/mnt/skills/topic6-annotation/prompts/run_config契约.md`)并写入初始 run_config.yaml
 6. 进入 Phase A
 
 ## 三、路径映射(相对于客户原始 Prompt 的改写)
@@ -26,7 +26,6 @@
 | 客户原路径 | MA 沙箱路径 |
 |---|---|
 | `Projects/{PROJECT_DIR}/` | `/workspace/Projects/{PROJECT_DIR}/` |
-| `lm/xxx.md` | `/mnt/memory/topic6/xxx.md`(只读) |
 | `skill/annotation/` | `/mnt/skills/topic6-annotation/` |
 | `skill/insight/` | `/mnt/skills/topic6-insight/` |
 | `skill/fetch-normalize/` | `/mnt/skills/topic6-fetch-normalize/` |
@@ -68,7 +67,7 @@
 **通过 Multi Agent 并发委派 6 个子 Agent 会话:**
 
 - `topic6-annotator` × 5 (task=r1..r5),input=`04_筛选/usable_subset.xlsx`,output=`04_标注/r{N}_raw.jsonl`
-- C2 事件合并:直接执行 `bash /mnt/skills/topic6-event-registry/scripts/00_run_all.sh`(不用子 Agent,skill 内部就是脚本流水线),input 同上,output=`04_标注/c2_raw.jsonl`
+- C2 事件合并:依次执行 `/mnt/skills/topic6-event-registry/scripts/` 下 00~08 编号脚本(`00_seed_from_registry.py` → `01_eventness.py` → ... → `08_rank_events.py`,不用子 Agent,skill 内部就是脚本流水线),input 同上,output=`04_标注/c2_raw.jsonl`
 
 六路全部完成后 → 进入 Phase D。
 
@@ -107,7 +106,7 @@
 **通过 Multi Agent 委派 4 个 `topic6-insighter` 子 Agent 会话并行执行:**
 
 - E1 行业及热门话题
-- E2 营销节点(依赖 C3 标注 + `/mnt/skills/topic6-insight/references/marketing_calendar_2026.csv`,**不再依赖已删除的 marketing-node-tagging skill**)
+- E2 营销节点(依赖 C3 标注 + `/mnt/skills/topic6-fetch-normalize/references/marketing_calendar_2026.csv`,**不再依赖已删除的 marketing-node-tagging skill**)
 - E3 平台新鲜事
 - E4 营销发现
 
@@ -137,7 +136,7 @@
 ### Phase G · UI 网页发布
 
 - 收到 HC3 通过后,重新读取飞书文档最终版(含用户手工替换的图)
-- 调 `bash /mnt/skills/topic6-web-report/scripts/build-report.mjs`(node.js)→ `07_ui/index.html`
+- 调 `node /mnt/skills/topic6-web-report/scripts/upload-html.mjs`(node.js)→ `07_ui/index.html` <!-- 原客户脚本 build-report.mjs 未 fork 过来,当前用 upload-html.mjs 兜底 -->
 
 ### Phase H · 妙搭发布
 
@@ -187,10 +186,10 @@ python /mnt/skills/topic6-annotation/tool/cost-tracker/cost_tracker.py \
 
 ## 八、关键引用(挂载后 Agent 可直接读)
 
-- 主线时序权威:`/mnt/skills/topic6-annotation/prompt/01_pipeline总览.md`
-- 抽样口径:`/mnt/skills/topic6-annotation/prompt/03_阶段_抽样.md`
-- run_config 契约:`/mnt/skills/topic6-annotation/prompt/run_config契约.md`
+- 主线时序权威:`/mnt/skills/topic6-annotation/prompts/01_pipeline总览.md`
+- 抽样口径:`/mnt/skills/topic6-annotation/prompts/03_阶段_抽样.md`
+- run_config 契约:`/mnt/skills/topic6-annotation/prompts/run_config契约.md`
 - 字段速查:`/mnt/skills/topic6-annotation/ks/_字段速查.md`
-- 报告结构:`/mnt/skills/topic6-insight/ks/07_报告结构.md`
+- 报告结构:`/mnt/skills/topic6-annotation/ks/07_报告结构.md`
 
 **当客户 prompt/ks/lm 文件与本 Prompt 冲突时,以本 Prompt 为准**(因为本 Prompt 已做平台路径映射)。

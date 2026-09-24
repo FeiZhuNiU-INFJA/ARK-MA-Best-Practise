@@ -35,7 +35,7 @@
 | section | Prompt 文件 | 统计脚本(准备数据) | 输出文件 |
 |---|---|---|---|
 | `e1` | `/mnt/skills/topic6-insight/02_洞察/E1_行业话题/{prompt_version}.md` | `01_统计/e1_industry.py::prep_e1_industry()` | `06_洞察/v{N}/e1_v{N}.md` + `e1_data.md` |
-| `e2` | `/mnt/skills/topic6-insight/02_洞察/E2_营销节点/{prompt_version}.md` | `01_统计/e2_marketing_node.py` + 节点日历基线 `/mnt/skills/topic6-insight/references/marketing_calendar_2026.csv` | `06_洞察/v{N}/e2_v{N}.md` + `e2_flags.json` |
+| `e2` | `/mnt/skills/topic6-insight/02_洞察/E2_营销节点/{prompt_version}.md` | `01_统计/e2_marketing_node.py` + 节点日历基线 `/mnt/skills/topic6-fetch-normalize/references/marketing_calendar_2026.csv` | `06_洞察/v{N}/e2_v{N}.md` + `e2_flags.json` |
 | `e3` | `/mnt/skills/topic6-insight/02_洞察/E3_平台新鲜事/{prompt_version}.md` | `01_统计/e3_platform.py` | `06_洞察/v{N}/e3_v{N}.md` + `e3_data.md` |
 | `e4` | `/mnt/skills/topic6-insight/02_洞察/E4_营销发现/{prompt_version}.md` | `01_统计/e4_marketing.py` + 打标步骤 | `06_洞察/v{N}/e4_v{N}.md` + `e4_candidates.json` + `e4_tagging_audit.md` |
 
