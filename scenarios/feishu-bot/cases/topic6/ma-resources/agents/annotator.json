@@ -9,8 +9,6 @@
     {"type": "custom", "skill_id": "${skill_id.topic6-annotation}", "version": "${version.topic6-annotation}"}
   ],
   "tools": [
-    {"type": "bash"},
-    {"type": "read"},
-    {"type": "write"}
+    {"type": "agent_toolset_20260701"}
   ]
 }

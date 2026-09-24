@@ -1,3 +1,9 @@
+---
+name: topic6-fetch-normalize
+version: 1.0.0
+description: 社媒热点周刊 Phase A+B：从 hot-topics MCP 取数，清洗、log1p+P1/P99 标准化到 [40,100]，产出原始数据与标准化宽表，并做样本抽样。当用户需要拉取微博/抖音/B站/知乎的一周热搜数据、清洗归一化、准备后续标注/洞察输入时使用。
+---
+
 # topic6-fetch-normalize · MA 口径 v1
 
 社媒热点周刊 · Phase A+B：取数 → 清洗 → 标准化 → 抽样。

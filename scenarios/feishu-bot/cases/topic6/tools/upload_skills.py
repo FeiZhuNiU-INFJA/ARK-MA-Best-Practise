@@ -25,7 +25,11 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = Path(__file__).resolve().parent / "out"
 SKILL_IDS_FILE = ROOT / "ma-resources" / "skill_ids.json"
-BASE_URL = os.environ.get("ARK_BASE_URL", "https://ark.cn-beijing.volces.com")
+# 兼容两种 ARK_BASE_URL 写法:带或不带 /api/v3 后缀
+_raw_base = os.environ.get("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3").rstrip("/")
+BASE_URL = _raw_base if _raw_base.endswith("/api/v3") else f"{_raw_base}/api/v3"
+# 方舟 CreateSkill 属于 agentic beta 面,必须带这个 header,否则 404 Not Found
+ARK_BETA_HEADER = {"X-Ark-Beta": "agentic-2026-06-01"}
 
 SKILLS = [
     ("topic6-fetch-normalize", "topic6-fetch-normalize.zip", "topic6 · Phase A+B 取数标准化"),
@@ -75,8 +79,11 @@ def upload(key: str, zip_name: str, display_title: str, force: bool = False) -> 
     print(f"=== 上传 {key} ({display_title}) ===")
     with zip_path.open("rb") as fh:
         resp = requests.post(
-            f"{BASE_URL}/api/v3/skills",
-            headers={"Authorization": f"Bearer {api_key}"},
+            f"{BASE_URL}/skills",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                **ARK_BETA_HEADER,
+            },
             files={"files": (zip_name, fh, "application/zip")},
             data={"display_title": display_title},
             timeout=300,
@@ -85,15 +92,20 @@ def upload(key: str, zip_name: str, display_title: str, force: bool = False) -> 
         raise RuntimeError(f"上传失败 status={resp.status_code} body={resp.text[:500]}")
 
     payload = resp.json()
+    # 方舟响应可能包在 data 里,兼容两种形状
+    record = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    skill_id = record.get("id")
+    if not skill_id:
+        raise RuntimeError(f"上传成功但响应无 id: {payload}")
     state["skills"][key] = {
-        "skill_id": payload["id"],
-        "version": payload.get("latest_version", "1"),
+        "skill_id": skill_id,
+        "version": record.get("latest_version", "1"),
         "uploaded_at": int(time.time()),
         "source_sha256": sha,
         "display_title": display_title,
     }
     _save_state(state)
-    print(f"  ok · skill_id={payload['id']} · version={payload.get('latest_version')}")
+    print(f"  ok · skill_id={skill_id} · version={record.get('latest_version')}")
 
 
 def main() -> int:

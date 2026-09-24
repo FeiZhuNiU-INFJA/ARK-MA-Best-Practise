@@ -27,6 +27,11 @@ scenarios/feishu-bot/cases/topic6/tools/out/
 *.zip
 *.sha256
 
+# topic6 方舟资源 ID:每人/每环境独立,由 upload_skills.py 和 create_all.sh 生成,
+# 入库会天天 diff 冲突且暗示 ID 可跨环境复用(错的)。保留 .example 当模板。
+scenarios/feishu-bot/cases/topic6/ma-resources/skill_ids.json
+scenarios/feishu-bot/cases/topic6/ma-resources/created_ids.json
+
 # 本地 SQLite 数据库(gateway 存量表 / pipeline_store):运行期数据
 *.db
 *.db-journal
