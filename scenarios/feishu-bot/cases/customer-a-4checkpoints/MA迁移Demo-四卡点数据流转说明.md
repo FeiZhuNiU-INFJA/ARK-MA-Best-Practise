@@ -42,13 +42,13 @@ sequenceDiagram
 | 步骤 | 做什么 | 代码入口 |
 | --- | --- | --- |
 | 1 | 飞书 WS 收到消息，回调里归一化成 `IncomingMessage` | [feishu.py `_on_message`](../../arkagent/feishu.py#L117-L122)、[normalize_feishu_message](../../arkagent/feishu.py#L30-L58) |
-| 2 | 同步入口：过滤（群聊需 @）+ 事件去重 + 投递到事件循环 | [gateway.py `accept`](../../arkagent/gateway.py#L88-L112)、[should_handle_message](../../arkagent/gateway.py#L238-L241) |
-| 3 | 按「会话四元组」串行化，同会话顺序处理、跨会话并行 | [KeyedQueue](../../arkagent/gateway.py#L27-L52)、[to_conversation_key](../../arkagent/gateway.py#L244-L250) |
-| 4 | 主处理：鉴权 → 指令分发 → 建/复用 Session → run → 回执 | [gateway.py `_process`](../../arkagent/gateway.py#L123-L172) |
-| 5 | 首次建 Session（这里注入卡点 B/C/D 的三样东西） | [gateway.py `_create_session`](../../arkagent/gateway.py#L174-L187) |
-| 6 | 驱动方舟 Session 跑一轮，解析 SSE，取最后一条回复 | [ark.py `run`](../../arkagent/ark.py#L261-L301)、[result_to_reply](../../arkagent/gateway.py#L253-L259) |
+| 2 | 同步入口：过滤（群聊需 @）+ 事件去重 + 投递到事件循环 | [orchestrator.py `accept`](../../arkagent/gateway/orchestrator.py#L89-L113)、[should_handle_message](../../arkagent/gateway/orchestrator.py#L249-L252) |
+| 3 | 按「会话键」串行化，同会话顺序处理、跨会话并行 | [KeyedQueue](../../arkagent/gateway/orchestrator.py)、[to_conversation_key](../../arkagent/gateway/orchestrator.py#L255-L261) |
+| 4 | 主处理：鉴权 → 指令分发 → 建/复用 Session → run → 回执 | [orchestrator.py `_process`](../../arkagent/gateway/orchestrator.py#L124-L180) |
+| 5 | 首次建 Session（这里注入卡点 B/C/D 的三样东西） | [orchestrator.py `_create_session`](../../arkagent/gateway/orchestrator.py#L182-L198) |
+| 6 | 驱动方舟 Session 跑一轮，解析 SSE，取最后一条回复 | [ark.py `run`](../../arkagent/ark.py#L261-L301)、[result_to_reply](../../arkagent/gateway/orchestrator.py#L264-L270) |
 
-**会话隔离键（关键）**：会话 = `(tenant_key, chat_id, thread_id, user_open_id)` 四元组（[to_conversation_key](../../arkagent/gateway.py#L244-L250)）。因为含 `user_open_id`，**群聊里不同人天然是不同 Session**；单聊里每个人也各自独立。`/new` 只重置当前这一条会话（[reset_session](../../arkagent/store.py#L108-L114)）。
+**会话隔离键（关键）**：会话 = `(chat_id, thread_id, user_open_id)` 三元组（[to_conversation_key](../../arkagent/gateway/orchestrator.py#L255-L261)）。`tenant_key` 已降级为归属属性、不进键——`chat_id`/`open_id` 全局唯一且不跨租户复用，多带一段没有额外判别力。因为键里含 `user_open_id`，**群聊里不同人天然是不同 Session**；单聊里每个人也各自独立。`/new` 只重置当前这一条会话（[reset_session](../../arkagent/store.py#L109-L115)）。
 
 ---
 
@@ -78,7 +78,7 @@ Vault（金库，本 demo 一个）
         auth.token          = demo-bearer-token         ← 敲门口令（方舟加密保管，API 不回显明文）
 ```
 
-- **谁把它交给运行时**：建 Session 时传 `vault_ids=[vault_id]`（[gateway.py:184](../../arkagent/gateway.py#L184)），等于告诉这次会话"能用这个金库里的钥匙"。
+- **谁把它交给运行时**：建 Session 时传 `vault_ids=[vault_id]`（[orchestrator.py:195](../../arkagent/gateway/orchestrator.py#L195)），等于告诉这次会话"能用这个金库里的钥匙"。
 - **方舟怎么用它**：运行时方舟要连 Agent 定义里的 `mcp_servers[].url`，就去挂到本 Session 的 Vault 里，**按 `mcp_server_url` 匹配**找到对应 Credential，取出 token 自动拼 `Authorization: Bearer <token>` 发出去。**匹配是按 URL 的**——这也是"换 cpolar 地址后必须重建凭据"的根因：凭据 URL 若还指向旧址，方舟按新址找不到匹配凭据 → 干脆匿名连接（不带头）→ mock 打 `auth=<缺失> 401`。
 - **`mcp_server_url` 创建后不可改**：它是结构性字段，换地址只能"删旧建新"（[delete_credential](../../arkagent/ark.py#L200-L206) 注释 + `arkagent update-agent --mcp-url` 已封装这套删建）。
 
@@ -101,15 +101,15 @@ Vault（金库，本 demo 一个）
 | 跳 | OpenID 以什么形态存在 | 代码 |
 | --- | --- | --- |
 | ① 飞书事件 | 事件体 `sender.sender_id.open_id`（对话用户，非 bot） | [normalize_feishu_message](../../arkagent/feishu.py#L45-L54) |
-| ② Gateway 内存 | 归一化成 `IncomingMessage.user_open_id`，并作为**会话四元组的一段**参与 Session 隔离 | [to_conversation_key](../../arkagent/gateway.py#L244-L250) |
-| ③ 建 Session（关键一跳） | 作为**会话级环境变量** `FEISHU_USER_OPEN_ID` 注入方舟运行环境 | [gateway.py:185](../../arkagent/gateway.py#L185) |
+| ② Gateway 内存 | 归一化成 `IncomingMessage.user_open_id`，并作为**会话键的一段**参与 Session 隔离 | [to_conversation_key](../../arkagent/gateway/orchestrator.py#L255-L261) |
+| ③ 建 Session（关键一跳） | 作为**会话级环境变量** `FEISHU_USER_OPEN_ID` 注入方舟运行环境 | [orchestrator.py:196](../../arkagent/gateway/orchestrator.py#L196) |
 | ④ 方舟环境 | 经 `environment_with_overrides` 合并进 Environment 的 `env`，成为沙箱里的一个环境变量 | [ark.py create_session:235-243](../../arkagent/ark.py#L235-L243) |
 | ⑤ 模型运行时 | 模型按 system prompt 指示，用 `bash printf '%s' "$FEISHU_USER_OPEN_ID"` **读出它的值** | [init.py:27](../../arkagent/init.py#L27) |
 | ⑥ 调工具 | 模型把读到的值作为 JSON 入参 `get_my_sales_data(open_id="ou…")` 填入 | 模型行为（受 prompt 约束） |
 | ⑦ MCP 侧 | 工具函数拿到 `open_id` 参数，查白名单/权限、返回该用户专属数据 | [get_my_sales_data](../../mock_mcp/server.py#L52-L61) |
 
 > **两个要点**：
-> - **为什么不落库、每 Session 一注入**：openid 属于"这次对话是谁"，随 Session 创建当场注入即可；它已进了会话四元组做隔离，无需额外持久化。（对比：卡点 C 的岗位、D 的 store 映射才需要落 SQLite。）
+> - **为什么不落库、每 Session 一注入**：openid 属于"这次对话是谁"，随 Session 创建当场注入即可；它已进了会话键做隔离，无需额外持久化。（对比：卡点 C 的岗位、D 的 store 映射才需要落 SQLite。）
 > - **为什么模型是链路的一环**：openid 不是框架自动塞进工具的，是**模型读环境变量→自己填参数**。所以这条链依赖模型执行 bash——这正是历史上"bash 抢戏"坑的由来（模型可能拿 bash 去沙箱瞎找 MCP 而不直接调工具），已靠 system prompt 强约束修正（[init.py:44](../../arkagent/init.py#L44)）。
 
 ---
@@ -125,7 +125,7 @@ Vault（金库，本 demo 一个）
 | 敏感物 | 存放位置 | 模型能否拿到 | 性质 |
 | --- | --- | --- | --- |
 | `MCP_STATIC_BEARER`（卡点 A 门禁 token） | Vault 凭据，方舟**编排层**连 MCP 时拼进 HTTP `Authorization` 头（[create_static_bearer_credential](../../arkagent/ark.py#L190)、[StaticBearerMiddleware](../../mock_mcp/server.py#L106-L133)） | **不能**（不进沙箱/Session env/上下文，即便 `env` 全打印也读不到） | 密钥 |
-| `FEISHU_USER_OPEN_ID`（卡点 B 用户标识） | Session 沙箱环境变量（[gateway.py:196](../../arkagent/gateway.py#L196) → [ark.py:238-245](../../arkagent/ark.py#L238-L245)） | **能**（模型按 prompt 用 bash 主动读；但只有**本人**那一份，见下） | 非密钥（用户 ID） |
+| `FEISHU_USER_OPEN_ID`（卡点 B 用户标识） | Session 沙箱环境变量（[orchestrator.py:196](../../arkagent/gateway/orchestrator.py#L196) → [ark.py:238-245](../../arkagent/ark.py#L238-L245)） | **能**（模型按 prompt 用 bash 主动读；但只有**本人**那一份，见下） | 非密钥（用户 ID） |
 | `ARK_API_KEY` / `FEISHU_APP_SECRET` | 本机 `config.env`，仅 Gateway 进程持有 | **不能**（根本不进沙箱） | 密钥 |
 
 **结论**：模型能读到的只有**它本人用户的 open_id**（非密钥、用于工具入参），真正的密钥（MCP token、方舟/飞书密钥）全部在模型触达范围之外。这条边界是**硬的**——static_bearer 由编排层在传输层注入，不依赖"模型听不听话"。所以「模型看到密钥」这类泄露**不成立**。
@@ -167,7 +167,7 @@ sequenceDiagram
 
 **当前有哪些缓解（都非根治）**：
 
-- **Gateway 前置白名单**（[gateway.py:124](../../arkagent/gateway.py#L124)）：`_authorized_open_ids` 非空时，未授权 open_id 连 Bot 都对话不了——**攻击者得先是授权用户**。⚠️ 但该白名单为空时这道门不生效（放行所有人）。
+- **Gateway 前置白名单**（[orchestrator.py:125](../../arkagent/gateway/orchestrator.py#L125)）：`_authorized_open_ids` 非空时，未授权 open_id 连 Bot 都对话不了——**攻击者得先是授权用户**。⚠️ 但该白名单为空时这道门不生效（放行所有人）。
 - **注入值不可伪造**：如上，A 无法让自己 Session 的注入 open_id 变成 B 的。
 - **prompt 软约束**：[init.py:28](../../arkagent/init.py#L28) 让模型别串用他人 open_id——挡君子不挡越狱。
 
@@ -190,7 +190,7 @@ sequenceDiagram
 Gateway 本身对 A **不做特殊处理**，只在建 Session 时把 `vault_id` 传下去——凭据存在 Vault 里，方舟编排层调 MCP 时自动附加 Bearer。
 
 - 凭据在 **init 阶段**创建：[init.py:123-132](../../arkagent/init.py#L123-L132) → [create_static_bearer_credential](../../arkagent/ark.py#L188-L198)（创建时方舟会**握手探测** MCP，不可达直接 4xx）。
-- 运行时透传 vault：[gateway.py `_create_session`:184](../../arkagent/gateway.py#L184)（`vault_ids=[vault_id]`）。
+- 运行时透传 vault：[orchestrator.py `_create_session`:195](../../arkagent/gateway/orchestrator.py#L195)（`vault_ids=[vault_id]`）。
 - 服务端校验：[StaticBearerMiddleware](../../mock_mcp/server.py#L98-L125)。
 
 ### mock 了哪些数据
@@ -240,7 +240,7 @@ sequenceDiagram
 > **关键区分**：`open_id` **不走传输层**（HTTP 头里只有卡点 A 的 Bearer token），它是**应用层数据**——由模型从环境变量读出后，作为工具调用的 JSON 参数 `get_my_sales_data(open_id=…)` 填进去。因此这条链路依赖模型主动执行 bash 去读，模型本身是链路的一环（这也是"bash 抢戏"坑的根源）。
 
 ### Gateway 入口
-- 建 Session 时注入环境变量：[gateway.py `_create_session`:185](../../arkagent/gateway.py#L185)
+- 建 Session 时注入环境变量：[orchestrator.py `_create_session`:196](../../arkagent/gateway/orchestrator.py#L196)
   ```python
   env_overrides={"FEISHU_USER_OPEN_ID": message.user_open_id}
   ```
@@ -306,10 +306,10 @@ sequenceDiagram
 两层不可混淆：软层是"模型自觉"，硬层是"后端强制"。安全数据必须靠硬层。
 
 ### Gateway 入口（软层）
-- 每 session 只注入一次岗位声明：[gateway.py:159-162](../../arkagent/gateway.py#L159-L162) → [RoleManager.system_message_for](../../arkagent/role.py#L77-L84)。
+- 每 session 只注入一次岗位声明：[orchestrator.py:163-167](../../arkagent/gateway/orchestrator.py#L163-L167) → [RoleManager.system_message_for](../../arkagent/role.py#L77-L84)。
 - 注入内容拼装：[build_role_system_message](../../arkagent/role.py#L47-L49)（`【当前用户岗位信息】{json}` + 判定规则）。
-- `/role` 指令改岗位：[gateway.py `_handle_role_command`:211-225](../../arkagent/gateway.py#L211-L225) → [on_role_change](../../arkagent/role.py#L86-L88)（更新缓存 + 清 `injected_for_session` → 下一轮强制重注入）。
-- `/whoami` 看当前缓存岗位：[gateway.py `_describe_role`:227-231](../../arkagent/gateway.py#L227-L231)。
+- `/role` 指令改岗位：[orchestrator.py `_handle_role_command`:222-236](../../arkagent/gateway/orchestrator.py#L222-L236) → [on_role_change](../../arkagent/role.py#L86-L88)（更新缓存 + 清 `injected_for_session` → 下一轮强制重注入）。
+- `/whoami` 看当前缓存岗位：[orchestrator.py `_describe_role`:238-242](../../arkagent/gateway/orchestrator.py#L238-L242)。
 - 岗位缓存与 TTL（24h）：[ensure_fresh_role](../../arkagent/role.py#L67-L75)、缓存表 [role_cache](../../arkagent/store.py#L62-L67)。
 
 ### Gateway 入口（硬层）
@@ -385,15 +385,15 @@ sequenceDiagram
 
 ### Gateway 入口
 **读链路**
-- 建 Session 时挂载 Store：[gateway.py `_create_session`:179-186](../../arkagent/gateway.py#L179-L186) → [MemoryManager.build_session_resources](../../arkagent/memory.py#L78-L89)。
+- 建 Session 时挂载 Store：[orchestrator.py `_create_session`:188-198](../../arkagent/gateway/orchestrator.py#L188-L198) → [MemoryManager.build_session_resources](../../arkagent/memory.py#L78-L89)。
 - 首访建 Store + 预置画像：[ensure_user_store](../../arkagent/memory.py#L33-L52)（首次写 `/profile/basic.md` 岗位画像）。
 - Agent 读取规则：[init.py:36](../../arkagent/init.py#L36)（任务开始前先读 `/mnt/memory/` 下画像与笔记；记忆只读）。
 
 **写链路**
-- `/remember <内容>` 指令：[gateway.py `_handle_remember_command`:189-209](../../arkagent/gateway.py#L189-L209) → [MemoryManager.remember](../../arkagent/memory.py#L54-L64)。
+- `/remember <内容>` 指令：[orchestrator.py `_handle_remember_command`:200-220](../../arkagent/gateway/orchestrator.py#L200-L220) → [MemoryManager.remember](../../arkagent/memory.py#L54-L64)。
 - 落库 API：[ark.py `create_memory`:205-210](../../arkagent/ark.py#L205-L210)（`POST /memory_stores/{id}/memories`），路径 `/notes/<时间戳>.md`。
 
-**`/new` 重置**：[gateway.py:132-136](../../arkagent/gateway.py#L132-L136) → [reset_session](../../arkagent/store.py#L108-L114)（只删会话映射，**不删 Store**）。
+**`/new` 重置**：[orchestrator.py:133-137](../../arkagent/gateway/orchestrator.py#L133-L137) → [reset_session](../../arkagent/store.py#L108-L114)（只删会话映射，**不删 Store**）。
 
 **Store 映射持久化**：[memory_stores 表](../../arkagent/store.py#L184-L202)（open_id → store_id，保证同一用户每次挂同一个 Store）。
 
@@ -502,44 +502,44 @@ sequenceDiagram
 
 | 卡点 | 核心入口（Gateway/代码） | 服务端/后端 | mock 数据 |
 | --- | --- | --- | --- |
-| A 鉴权 | init 建凭据 [init.py:132](../../arkagent/init.py#L132)；运行传 vault [gateway.py:184](../../arkagent/gateway.py#L184) | [StaticBearerMiddleware](../../mock_mcp/server.py#L98-L125) | 一个 static token（`MCP_STATIC_BEARER`） |
-| B 透传 | env_overrides [gateway.py:185](../../arkagent/gateway.py#L185)；组装 [ark.py:227-235](../../arkagent/ark.py#L227-L235) | [get_my_sales_data](../../mock_mcp/server.py#L52-L61) | [USER_DATA](../../mock_mcp/data.py#L14-L50) |
-| C 岗位（软） | [system_message_for](../../arkagent/role.py#L77-L84)；`/role` [gateway.py:211-225](../../arkagent/gateway.py#L211-L225) | —（模型自觉） | [mock_hr_provider](../../arkagent/role.py#L91-L100) |
+| A 鉴权 | init 建凭据 [init.py:132](../../arkagent/init.py#L132)；运行传 vault [orchestrator.py:195](../../arkagent/gateway/orchestrator.py#L195) | [StaticBearerMiddleware](../../mock_mcp/server.py#L98-L125) | 一个 static token（`MCP_STATIC_BEARER`） |
+| B 透传 | env_overrides [orchestrator.py:196](../../arkagent/gateway/orchestrator.py#L196)；组装 [ark.py:227-235](../../arkagent/ark.py#L227-L235) | [get_my_sales_data](../../mock_mcp/server.py#L52-L61) | [USER_DATA](../../mock_mcp/data.py#L14-L50) |
+| C 岗位（软） | [system_message_for](../../arkagent/role.py#L77-L84)；`/role` [orchestrator.py:222-236](../../arkagent/gateway/orchestrator.py#L222-L236) | —（模型自觉） | [mock_hr_provider](../../arkagent/role.py#L91-L100) |
 | C 权限（硬） | 同 B 透传 open_id | [get_team_pipeline](../../mock_mcp/server.py#L72-L93) | [permissions](../../mock_mcp/data.py#L14-L50) + [TEAM_PIPELINE](../../mock_mcp/data.py#L53-L71) |
-| D 记忆（读） | [build_session_resources](../../arkagent/memory.py#L78-L89) [gateway.py:179-186](../../arkagent/gateway.py#L179-L186) | 方舟 Memory Store API | `/profile/basic.md` 画像 |
-| D 记忆（写） | `/remember` [gateway.py:189-209](../../arkagent/gateway.py#L189-L209) → [remember](../../arkagent/memory.py#L54-L64) | [create_memory](../../arkagent/ark.py#L205-L210) | `/notes/<时间戳>.md` 笔记 |
+| D 记忆（读） | [build_session_resources](../../arkagent/memory.py#L78-L89) [orchestrator.py:188-198](../../arkagent/gateway/orchestrator.py#L188-L198) | 方舟 Memory Store API | `/profile/basic.md` 画像 |
+| D 记忆（写） | `/remember` [orchestrator.py:200-220](../../arkagent/gateway/orchestrator.py#L200-L220) → [remember](../../arkagent/memory.py#L54-L64) | [create_memory](../../arkagent/ark.py#L205-L210) | `/notes/<时间戳>.md` 笔记 |
 
 ## 附录 B · 聊天指令一览（背后实际做了什么）
 
-所有指令在主处理 [_process](../../arkagent/gateway.py#L123-L172) 里**先于业务问答**分发：命中指令就处理完直接返回，**不建 Session、不调 Agent**（`/role`/`/whoami`/`/remember`/`/new` 都是纯本地/API 操作，省 token、秒回）。未命中才走正常问答（建/复用 Session → run）。
+所有指令在主处理 [_process](../../arkagent/gateway/orchestrator.py#L124-L180) 里**先于业务问答**分发：命中指令就处理完直接返回，**不建 Session、不调 Agent**（`/role`/`/whoami`/`/remember`/`/new` 都是纯本地/API 操作，省 token、秒回）。未命中才走正常问答（建/复用 Session → run）。
 
 下面逐个拆"背后实际干了哪些步骤"。
 
-### `/new` — 重置会话（[gateway.py:132-136](../../arkagent/gateway.py#L132-L136)）
-1. 调 [reset_session](../../arkagent/store.py#L108-L114) 删掉本会话四元组 → session_id 的映射；
+### `/new` — 重置会话（[orchestrator.py:133-137](../../arkagent/gateway/orchestrator.py#L133-L137)）
+1. 调 [reset_session](../../arkagent/store.py#L109-L115) 删掉本会话键 → session_id 的映射；
 2. 回执"已开启新会话"。
 - **只删映射，不删 Agent Session、不删 Memory Store**：下一条业务消息发现无 session → 新建一个，并挂载**同一个** Memory Store（open_id 不变），所以记忆延续、但对话上下文清零。这就是卡点 D "开新会话仍记得"的机制。
 
-### `/whoami` — 查当前岗位（[gateway.py:137-138](../../arkagent/gateway.py#L137-L138)）
-1. 调 [_describe_role](../../arkagent/gateway.py#L227-L231) → [ensure_fresh_role](../../arkagent/role.py#L67-L75)：读岗位缓存，**命中且未过 TTL(24h) 直接用；否则拉 HR 刷新**；
+### `/whoami` — 查当前岗位（[orchestrator.py:138-140](../../arkagent/gateway/orchestrator.py#L138-L140)）
+1. 调 [_describe_role](../../arkagent/gateway/orchestrator.py#L238-L242) → [ensure_fresh_role](../../arkagent/role.py#L67-L75)：读岗位缓存，**命中且未过 TTL(24h) 直接用；否则拉 HR 刷新**；
 2. 回执"当前岗位：X（门店）"。
 - 纯读操作（可能触发一次 HR 刷新），不影响 Session。
 
-### `/remember <内容>` — 写长期记忆（[gateway.py:189-209](../../arkagent/gateway.py#L189-L209)）
-1. 未启用 memory → 回"未启用长期记忆"；内容为空 → 回用法示例（[gateway.py:196-201](../../arkagent/gateway.py#L196-L201)）；
+### `/remember <内容>` — 写长期记忆（[orchestrator.py:200-220](../../arkagent/gateway/orchestrator.py#L200-L220)）
+1. 未启用 memory → 回"未启用长期记忆"；内容为空 → 回用法示例（[orchestrator.py:207-212](../../arkagent/gateway/orchestrator.py#L207-L212)）；
 2. 取当前岗位（[ensure_fresh_role](../../arkagent/role.py#L67-L75)，供首次建 Store 时预置画像用）；
 3. 调 [MemoryManager.remember](../../arkagent/memory.py#L54-L64)：`ensure_user_store`（无则建 Store + 预置 `/profile/basic.md`）→ [create_memory](../../arkagent/ark.py#L205-L210) 把内容写成 `/notes/<时间戳>.md`；
 4. 回执带**实际写入路径**。
 - **为什么要显式指令**：方舟不自动抽取对话记忆、Agent 对 memory 只读，写入必须应用侧调 API——这是卡点 D 的核心约束（详见卡点 D 一节）。
 
-### `/role 岗位[/门店]` — 模拟岗位调动（[gateway.py:211-225](../../arkagent/gateway.py#L211-L225)）
-1. 无参数 → 回用法；有参数按 `岗位/门店` 拆分（[gateway.py:219-220](../../arkagent/gateway.py#L219-L220)）；
+### `/role 岗位[/门店]` — 模拟岗位调动（[orchestrator.py:222-236](../../arkagent/gateway/orchestrator.py#L222-L236)）
+1. 无参数 → 回用法；有参数按 `岗位/门店` 拆分（[orchestrator.py:230-231](../../arkagent/gateway/orchestrator.py#L230-L231)）；
 2. 调 [on_role_change](../../arkagent/role.py#L86-L88)：更新岗位缓存 **+ 清空 `injected_for_session` 标记**；
 3. 回执"已更新岗位，下一轮自动声明（无需新建 Session）"。
 - **为什么"下一轮才生效、且不用新建 Session"**：岗位是靠 `system.message` 在**每轮 run 时**注入的（[system_message_for](../../arkagent/role.py#L77-L84)），且**一个 session 只注入一次**（靠 `injected_for_session` 去重）。`/role` 清掉这个标记，于是下一轮 run 会重新注入新岗位——Session 和 Agent 都不动。这是卡点 C 软层的机制。
 - **注意**：`/role` 只改**软层话术**，**改不动硬层数据权限**（团队漏斗仍按 [USER_DATA](../../mock_mcp/data.py#L14-L50) 的 permissions 后端校验）。详见卡点 C「关键边界」。
 
-### 其他文本 — 正常业务问答（[gateway.py:147-172](../../arkagent/gateway.py#L147-L172)）
+### 其他文本 — 正常业务问答（[orchestrator.py:148-180](../../arkagent/gateway/orchestrator.py#L148-L180)）
 建/复用 Session → 首轮挂岗位 system.message（卡点 C 软层）→ [ark.run](../../arkagent/ark.py#L261-L301) 驱动模型（按需调 MCP 工具，触发 A/B/C 硬层）→ 取最后一条 `agent.message` 回复。
 
 ## 附录 C · 怎么看日志验证
@@ -570,7 +570,7 @@ sequenceDiagram
 | 盯哪里 | mock 日志的 `open_id=…` 字段 + 两账号返回的数据是否不同 |
 | ✅ 通过 | 日志打**完整 open_id** 且两账号各不相同：`get_my_sales_data  open_id=ou_…  ✅ 命中白名单 → 俞麟（销售经理）`；两账号拿到各自的线索/KPI = 隔离成立 |
 | ❌ 没通过 | 日志 `open_id=<空>`（没透传进来）／两账号数据相同（串号）／`❌ 不在白名单`（真机账号首次正常现象，见下） |
-| 怎么排查 | `<空>`：查 [gateway.py:185](../../arkagent/gateway.py#L185) 是否注入、system prompt 是否要求 bash 读；真机账号被拒是**预期**——把日志里的真实 open_id 加进 [USER_DATA](../../mock_mcp/data.py#L14-L50) 重启 mock 即可（这条"被拒"本身也证明 openid 已正确透传） |
+| 怎么排查 | `<空>`：查 [orchestrator.py:196](../../arkagent/gateway/orchestrator.py#L196) 是否注入、system prompt 是否要求 bash 读；真机账号被拒是**预期**——把日志里的真实 open_id 加进 [USER_DATA](../../mock_mcp/data.py#L14-L50) 重启 mock 即可（这条"被拒"本身也证明 openid 已正确透传） |
 
 ### 卡点 C · 岗位注入（软层话术 + 硬层权限）
 

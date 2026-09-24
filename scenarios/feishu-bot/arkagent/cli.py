@@ -91,6 +91,8 @@ def _run() -> None:
         # lark-oapi 发送是同步阻塞调用，放到 executor 避免卡住事件循环。
         await loop.run_in_executor(None, sender.send_to_chat, chat_id, text)
 
+    topic6_runner, topic6_card_handler = _build_topic6(config, ark, sender, loop)
+
     gateway = Gateway(
         store,
         ark,
@@ -103,6 +105,8 @@ def _run() -> None:
         role_manager=role_manager,
         memory_manager=memory_manager,
         loop=loop,
+        topic6_runner=topic6_runner,
+        topic6_card_handler=topic6_card_handler,
     )
 
     thread = threading.Thread(target=loop.run_forever, name="gateway-loop", daemon=True)
@@ -113,15 +117,55 @@ def _run() -> None:
     print(f"- 方舟 Agent ID：{config.ark_agent_id}")
     print(f"- 方舟 Environment ID：{config.ark_environment_id}")
     print(f"- MCP Server：{config.mcp_server_url}")
+    if topic6_runner is not None:
+        print(
+            f"- topic6 场景：已启用(coordinator={config.topic6_coordinator_agent_id}, "
+            f"env={config.topic6_environment_id})"
+        )
+    else:
+        print("- topic6 场景：未启用(设置 TOPIC6_COORDINATOR_AGENT_ID 启用)")
     if config.authorized_open_ids:
         masked = ", ".join(_mask_identity(o) for o in config.authorized_open_ids)
         print(f"- 授权用户白名单：{masked}")
     else:
         print("- 授权用户白名单：未设置（对话鉴权交给 MCP 白名单）")
     print("聊天指令：/new 开新会话 · /remember <内容> 记入长期记忆 · /role <岗位>[/门店] 模拟岗位调动 · /whoami 查看当前岗位")
+    if topic6_runner is not None:
+        print("topic6 触发词：热点报告 / 热点周报(可加 test/full 指定模式)")
     print("正在连接飞书 WebSocket；请在该 Bot 会话中发送消息。")
     # 阻塞运行 WS 客户端（主线程）。回调里 gateway.accept 会投递到后台事件循环。
     start_feishu_gateway(config.feishu_app_id, config.feishu_app_secret, gateway)
+
+
+def _build_topic6(config, ark, sender, loop):
+    """按 config 决定是否装配 topic6 场景。
+
+    未设置 ``TOPIC6_COORDINATOR_AGENT_ID`` 时直接返回 ``(None, None)``,Gateway 侧的
+    topic6 分派与 SDK 侧 CARD_ACTION 订阅都不会启用,行为与迁移前完全一致。
+    """
+    if not config.topic6_coordinator_agent_id:
+        return None, None
+
+    from .gateway.pipeline_store import PipelineStore
+    from .gateway.topic6_hitl import Topic6Hitl, Topic6HitlDeps
+    from .gateway.topic6_runner import Topic6Config, Topic6Runner
+
+    pipeline_store = PipelineStore(config.topic6_pipeline_db_path or None)
+    topic6_runner = Topic6Runner(
+        ark,
+        sender,
+        pipeline_store,
+        Topic6Config(
+            coordinator_agent_id=config.topic6_coordinator_agent_id,
+            environment_id=config.topic6_environment_id,
+            memory_store_id=config.topic6_memory_store_id,
+            vault_ids=(config.ark_vault_id,) if config.ark_vault_id else (),
+        ),
+        loop=loop,
+    )
+    topic6_hitl = Topic6Hitl(Topic6HitlDeps(store=pipeline_store, runner=topic6_runner))
+    topic6_runner.bind_card_sender(topic6_hitl)
+    return topic6_runner, topic6_hitl.handle_card_action
 
 
 async def _doctor() -> None:

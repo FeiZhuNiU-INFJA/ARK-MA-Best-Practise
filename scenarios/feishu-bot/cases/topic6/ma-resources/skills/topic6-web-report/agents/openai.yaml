@@ -1,0 +1,8 @@
+interface:
+  display_name: "BlueFocus 社媒热点网页报告"
+  short_description: "生成蓝色光标社媒热点网页报告并上传云端"
+  icon_large: "./assets/preview.png"
+  brand_color: "#433DF3"
+  default_prompt: "Use $topic6-web-report to generate a self-contained BlueFocus hotspot-report HTML, extract every marketing-observation image from my source document without substitutes, validate it, and upload the finished HTML snapshot to return a verified cloud URL."
+policy:
+  allow_implicit_invocation: true

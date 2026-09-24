@@ -301,7 +301,7 @@ def test_shared_group_key_excludes_sender():
     a = shared.to_group_key(_trigger(user_open_id="ou-1"))
     b = shared.to_group_key(_trigger(user_open_id="ou-2"))
     assert a == b  # 共享会话键不含发言人
-    assert a.as_str() == "t-1:oc-1:-"
+    assert a.as_str() == "oc-1:-"  # tenant_key 已降级为归属属性，不进会话键
 
 
 # ---- Agent 身份：system prompt 里写入 bot 名字 -------------------------------

@@ -12,9 +12,13 @@ from __future__ import annotations
 import asyncio
 import os
 
-from shared import build_group_agent_config
+from shared import GROUP_BOT_NAME, build_group_system
 
 from arkagent.ark import ArkClient
+from arkagent.gateway import ConfigStore, DigitalEmployee, MAControlPlane
+
+# 默认群 Bot persona 在配置库里的稳定 id：重复运行 create/update 只 upsert 同一行，不累积记录。
+DEFAULT_PERSONA_ID = "emp_group_bot_default"
 
 
 async def _main() -> None:
@@ -27,14 +31,25 @@ async def _main() -> None:
     bot_name = (os.environ.get("GROUP_BOT_DISPLAY_NAME") or "数字员工阿J").strip()
 
     ark = ArkClient(api_key, base_url)
+    store = ConfigStore()
+    plane = MAControlPlane(ark, store)
     try:
-        agent = await ark.create_agent(build_group_agent_config(model_id, bot_name))
+        # 走控制面 sync_employee：无 ark_agent_id → create_agent，并把 id/version 回填配置库。
+        persona = store.get_employee(DEFAULT_PERSONA_ID) or DigitalEmployee(
+            id=DEFAULT_PERSONA_ID, name=GROUP_BOT_NAME
+        )
+        persona.name = GROUP_BOT_NAME
+        persona.identity_prompt = build_group_system(bot_name)
+        persona.model_id = model_id
+        persona.ark_agent_id = ""  # 强制新建
+        persona = await plane.sync_employee(persona)
     finally:
         await ark.aclose()
+        store.close()
 
-    print(f"已创建群聊共享 Agent：{agent['id']}")
+    print(f"已创建群聊共享 Agent：{persona.ark_agent_id}")
     print("请设置环境变量后再启动 demo：")
-    print(f"  export GROUP_BOT_AGENT_ID={agent['id']}")
+    print(f"  export GROUP_BOT_AGENT_ID={persona.ark_agent_id}")
 
 
 if __name__ == "__main__":

@@ -133,11 +133,11 @@ Session 创建时引用的四类东西：
 - 删除 Session 不可逆（`running` 状态需先中断回 `idle` 才能删）。
 - `resources` 里的 **Memory Store 只能创建时挂载**，运行中不能增减。
 
-**本 demo 怎么用**：每条会话首次消息时建 Session，见 [_create_session](../../arkagent/gateway.py#L174-L187)——一次性把 B（env_overrides）、C（不在这，走 system_message）、D（resources）、A（vault_ids）需要的东西都注入。会话身份用四元组 `(tenant_key, chat_id, thread_id, user_open_id)` 隔离，session_id 存在应用侧 SQLite（见 1.6）。`/new` 只重置当前会话的 session 映射，下条消息重新建 Session。
+**本 demo 怎么用**：每条会话首次消息时建 Session，见 [_create_session](../../arkagent/gateway/orchestrator.py#L182-L198)——一次性把 B（env_overrides）、C（不在这，走 system_message）、D（resources）、A（vault_ids）需要的东西都注入。会话身份用 `(chat_id, thread_id, user_open_id)` 三元组隔离（`tenant_key` 已降级为归属属性、不进键），session_id 存在应用侧 SQLite（见 1.6）。`/new` 只重置当前会话的 session 映射，下条消息重新建 Session。
 
 | | |
 | --- | --- |
-| 创建 | [create_session](../../arkagent/ark.py#L221)（每条会话首次消息，[gateway.py:181](../../arkagent/gateway.py#L181)） |
+| 创建 | [create_session](../../arkagent/ark.py#L221)（每条会话首次消息，[orchestrator.py:158](../../arkagent/gateway/orchestrator.py#L158)） |
 | 驱动 | [run](../../arkagent/ark.py#L269)（发 user.message + 收 SSE 事件流） |
 | 存哪 | 方舟侧；session_id 映射存应用侧 SQLite `conversations` 表 |
 
@@ -153,7 +153,7 @@ Session 创建时引用的四类东西：
 
 **本 demo 怎么用（卡点 D）**：
 - **每 open_id 一个专属 Store**（懒创建：首次建 Session 或 `/remember` 时创建，预置一条 `/profile/basic.md` 画像），见 [ensure_user_store](../../arkagent/memory.py#L33-L52)。
-- 写入走 `/remember` 显式指令 → 应用侧调 API 写一条时间戳命名的 note，见 [remember](../../arkagent/memory.py#L54-L64) 和 [_handle_remember_command](../../arkagent/gateway.py#L189-L209)。
+- 写入走 `/remember` 显式指令 → 应用侧调 API 写一条时间戳命名的 note，见 [remember](../../arkagent/memory.py#L54-L64) 和 [_handle_remember_command](../../arkagent/gateway/orchestrator.py#L200-L220)。
 - 建 Session 时把该用户 Store（可选 + 团队 Store）拼进 `resources`，见 [build_session_resources](../../arkagent/memory.py#L78-L89)。
 - 岗位调动 / `/new` **不新建 Store**，只是新开 Session 挂同一个 Store → 天然记得历史。
 
@@ -169,7 +169,7 @@ MA 本身不替你记"哪条飞书会话对应哪个 Session、哪个用户对�
 
 | 表 | 主键 | 存什么 | 服务于 |
 | --- | --- | --- | --- |
-| `conversations` | conversation_key（四元组） | → session_id / agent 版本 | Session 复用 / `/new` 重置 |
+| `conversations` | conversation_key（三元组） | → session_id / agent 版本 | Session 复用 / `/new` 重置 |
 | `processed_events` | event_id | 已处理事件 | 消息去重 |
 | `role_cache` | open_id | 岗位 + TTL | 卡点 C（软层岗位） |
 | `memory_stores` | open_id | → memory_store_id | 卡点 D（用户记忆） |
@@ -219,7 +219,7 @@ graph LR
 | --- | --- | --- |
 | **init（一次性）** | Agent、Environment、Vault + Credential、Feishu App | [init.py `run_guided_init`](../../arkagent/init.py#L98-L175) |
 | **首次触发（懒创建）** | 每 open_id 一个 Memory Store（首次建 Session 或首次 `/remember`） | [ensure_user_store](../../arkagent/memory.py#L33-L52) |
-| **每条会话首次消息** | Session（绑齐 A/B/C/D 所需） | [_create_session](../../arkagent/gateway.py#L174-L187) |
+| **每条会话首次消息** | Session（绑齐 A/B/C/D 所需） | [_create_session](../../arkagent/gateway/orchestrator.py#L182-L198) |
 
 ### 3.2 更新 / 变更时机
 

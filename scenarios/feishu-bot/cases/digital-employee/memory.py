@@ -10,7 +10,7 @@ import threading
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from arkagent.ark import ArkClient
 from arkagent.feishu import IncomingMessage
@@ -70,7 +70,7 @@ class MemoryScope:
         return None
 
     def lock_key(self) -> str:
-        return f"{self.tenant_key}:{self.scope_type}:{self.scope_id}"
+        return f"{self.scope_type}:{self.scope_id}"
 
 
 class SqliteMemoryState:
@@ -92,7 +92,7 @@ class SqliteMemoryState:
                 scope_id TEXT NOT NULL,
                 store_id TEXT NOT NULL,
                 created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-                PRIMARY KEY (tenant_key, scope_type, scope_id)
+                PRIMARY KEY (scope_type, scope_id)
             )
             """
         )
@@ -126,9 +126,9 @@ class SqliteMemoryState:
             row = self._conn.execute(
                 """
                 SELECT store_id FROM memory_scopes
-                WHERE tenant_key = ? AND scope_type = ? AND scope_id = ?
+                WHERE scope_type = ? AND scope_id = ?
                 """,
-                (tenant_key, scope_type, scope_id),
+                (scope_type, scope_id),
             ).fetchone()
         return row[0] if row else None
 
@@ -141,7 +141,8 @@ class SqliteMemoryState:
                 INSERT INTO memory_scopes (
                     tenant_key, scope_type, scope_id, store_id
                 ) VALUES (?, ?, ?, ?)
-                ON CONFLICT(tenant_key, scope_type, scope_id) DO UPDATE SET
+                ON CONFLICT(scope_type, scope_id) DO UPDATE SET
+                    tenant_key=excluded.tenant_key,
                     store_id=excluded.store_id
                 """,
                 (tenant_key, scope_type, scope_id, store_id),
@@ -267,17 +268,47 @@ def build_memory_custom_tools() -> list[dict]:
 
 
 class ScopedMemoryManager:
-    """以 Session 持久化绑定为权限边界，代理 Memory Store API。"""
+    """以 Session 持久化绑定为权限边界，代理 Memory Store API。
 
-    def __init__(self, ark: ArkClient, store: object):
+    可选注入数据面解析器（P3）：
+      - ``scope_resolver(message) -> MemoryScope``：群作用域改用 project_id 做 scope_id，
+        实现「同项目多群共享群记忆」；未注入时退回 ``MemoryScope.from_message``（一群一记忆）。
+      - ``writable_resolver(scope) -> tuple[str, ...]``：该作用域允许写入的分类子集；
+        ``memory_upsert`` / ``memory_forget`` 越权时返回结构化错误。未注入时可写=全部分类。
+    读取（list/get）永远允许全部分类，只有写入受可写子集约束。
+    """
+
+    def __init__(
+        self,
+        ark: ArkClient,
+        store: object,
+        *,
+        scope_resolver: Optional[Callable[[IncomingMessage], "MemoryScope"]] = None,
+        writable_resolver: Optional[Callable[["MemoryScope"], tuple[str, ...]]] = None,
+        store_id_resolver: Optional[Callable[["MemoryScope"], Optional[str]]] = None,
+    ):
         self._ark = ark
         self._store = store
         self._locks: dict[str, asyncio.Lock] = {}
+        self._scope_resolver = scope_resolver
+        self._writable_resolver = writable_resolver
+        self._store_id_resolver = store_id_resolver
+
+    def _scope(self, message: IncomingMessage) -> "MemoryScope":
+        """统一作用域解析入口：优先用注入的数据面解析器，否则退回内置规则。"""
+        if self._scope_resolver is not None:
+            return self._scope_resolver(message)
+        return MemoryScope.from_message(message)
+
+    def _writable_categories(self, scope: "MemoryScope") -> tuple[str, ...]:
+        if self._writable_resolver is not None:
+            return self._writable_resolver(scope)
+        return MEMORY_CATEGORIES
 
     async def resources_for_message(
         self, message: IncomingMessage
     ) -> tuple[MemoryScope, str, list[dict]]:
-        scope = MemoryScope.from_message(message)
+        scope = self._scope(message)
         store_id = await self._ensure_store(
             scope, legacy_scope=MemoryScope.legacy_open_id_scope(message)
         )
@@ -311,12 +342,11 @@ class ScopedMemoryManager:
         binding = self._store.get_session_memory_scope(session_id)
         if not binding:
             return False
-        expected = MemoryScope.from_message(message)
+        expected = self._scope(message)
         identity_matches = (
-            binding["tenant_key"],
             binding["scope_type"],
             binding["scope_id"],
-        ) == (expected.tenant_key, expected.scope_type, expected.scope_id)
+        ) == (expected.scope_type, expected.scope_id)
         current_store = self._store.get_memory_store(
             expected.tenant_key, expected.scope_type, expected.scope_id
         )
@@ -326,7 +356,7 @@ class ScopedMemoryManager:
         """把群级行为约定显式注入每轮输入，避免依赖 Memory Store 的概率性语义召回。"""
         if message.chat_type != "group":
             return ""
-        scope = MemoryScope.from_message(message)
+        scope = self._scope(message)
         store_id = self._store.get_memory_store(
             scope.tenant_key, scope.scope_type, scope.scope_id
         )
@@ -370,6 +400,11 @@ class ScopedMemoryManager:
         scope = MemoryScope(
             binding["tenant_key"], binding["scope_type"], binding["scope_id"]
         )
+        # 写入类工具受可写子集约束；读取（list/get）不校验，读=全部分类。
+        if name in ("memory_upsert", "memory_forget"):
+            denial = self._check_writable(scope, arguments)
+            if denial is not None:
+                return denial
         lock = self._locks.setdefault(scope.lock_key(), asyncio.Lock())
         try:
             async with lock:
@@ -390,6 +425,22 @@ class ScopedMemoryManager:
         result["scope"] = scope.scope_type
         return json.dumps(result, ensure_ascii=False), False
 
+    def _check_writable(
+        self, scope: "MemoryScope", arguments: dict
+    ) -> Optional[tuple[str, bool]]:
+        """写入前校验 category ∈ 可写子集；越权返回结构化错误，否则返回 None 放行。"""
+        writable = self._writable_categories(scope)
+        raw = arguments.get("category")
+        # 无效 category 交给下游 _category 抛 INVALID_ARGUMENT，这里只拦「合法但越权」。
+        if not isinstance(raw, str) or raw not in MEMORY_CATEGORIES:
+            return None
+        if raw in writable:
+            return None
+        return self._error(
+            "MEMORY_CATEGORY_READONLY",
+            f"分类 {raw} 在当前作用域为只读，可写分类：{', '.join(writable) or '（无）'}",
+        )
+
     async def _ensure_store(
         self, scope: MemoryScope, *, legacy_scope: Optional[MemoryScope] = None
     ) -> str:
@@ -400,6 +451,18 @@ class ScopedMemoryManager:
             )
             if existing:
                 return existing
+            # 控制面已为项目建好共享 Store 时，直接采用并回填映射，保持控制/数据面一致，
+            # 不再重复懒建（未注入或返回空时退回下面的 legacy / 懒建路径）。
+            if self._store_id_resolver is not None:
+                provisioned = self._store_id_resolver(scope)
+                if provisioned:
+                    self._store.save_memory_store(
+                        scope.tenant_key,
+                        scope.scope_type,
+                        scope.scope_id,
+                        provisioned,
+                    )
+                    return provisioned
             if legacy_scope is not None:
                 legacy_store = self._store.get_memory_store(
                     legacy_scope.tenant_key,

@@ -51,6 +51,7 @@ from shared import (
 from user_oauth import FeishuOAuth, UserAuthorizationManager
 from memory import (  # type: ignore[import-not-found]
     DEFAULT_MEMORY_DB_PATH,
+    MemoryScope,
     ScopedMemoryManager,
     SqliteMemoryState,
 )
@@ -76,7 +77,7 @@ from arkagent.feishu import (
     normalize_history_item,
     start_feishu_gateway,
 )
-from arkagent.gateway import KeyedQueue
+from arkagent.gateway import ConfigStore, KeyedQueue, MADataPlane, ScopeRef
 
 log = logging.getLogger("group_bot.topic_session")
 
@@ -215,6 +216,15 @@ class TopicSessionBot:
             self._send_authorization_card,
             self._notify_authorization_failure,
         )
+        # 数据面：按 chat_id 路由出 agent / 项目共享 Store / 可写子集 / 话题开关；
+        # 未命中绑定回退 config 的 env 默认（向后兼容单员工模式）。配置库与运行时状态库物理分离。
+        self._config_store = ConfigStore()
+        self._data = MADataPlane(
+            self._ark,
+            self._config_store,
+            default_agent_id=config.ark_agent_id,
+            default_environment_id=config.ark_environment_id,
+        )
         if memory_manager is not None:
             self._memory = memory_manager
         else:
@@ -230,7 +240,33 @@ class TopicSessionBot:
                         )
                     )
                 )
-            self._memory = ScopedMemoryManager(self._ark, state)
+            self._memory = ScopedMemoryManager(
+                self._ark,
+                state,
+                scope_resolver=self._resolve_memory_scope,
+                writable_resolver=self._writable_categories,
+                store_id_resolver=self._project_store_id,
+            )
+
+    def _resolve_memory_scope(self, message: IncomingMessage) -> MemoryScope:
+        """委托数据面解析作用域：群作用域 scope_id 用 project_id（同项目多群共享群记忆）。"""
+        runtime = self._data.resolve_runtime_config(
+            message.tenant_key, message.chat_id
+        )
+        ref = self._data.resolve_memory_scope(message, runtime)
+        return MemoryScope(ref.tenant_key, ref.scope_type, ref.scope_id)
+
+    def _writable_categories(self, scope: MemoryScope) -> tuple[str, ...]:
+        """委托数据面解析该作用域的可写记忆分类子集。"""
+        ref = ScopeRef(scope.tenant_key, scope.scope_type, scope.scope_id)
+        return self._data.writable_categories_for_scope(ref)
+
+    def _project_store_id(self, scope: MemoryScope) -> Optional[str]:
+        """群作用域 scope_id 即 project_id 时，返回控制面已置备的项目共享 Store，避免重复懒建。"""
+        if scope.scope_type != "group":
+            return None
+        project = self._config_store.get_project(scope.scope_id)
+        return project.memory_store_id if project and project.memory_store_id else None
 
     def accept(self, message: IncomingMessage) -> bool:
         """WS 同步入口：单聊需有明确文本请求；群聊只有 @bot 才触发。"""
@@ -739,6 +775,10 @@ class TopicSessionBot:
     async def _create_session(
         self, key: GroupConversationKey, message: IncomingMessage
     ) -> str:
+        # 数据面路由：命中群绑定用该 persona 的 Agent + 项目共享 Store；未命中回退 env 默认。
+        runtime = self._data.resolve_runtime_config(
+            message.tenant_key, message.chat_id
+        )
         vault_ids = (
             [self._config.lark_vault_id] if lark_cli_enabled(self._config) else []
         )
@@ -749,8 +789,8 @@ class TopicSessionBot:
             await self._memory.resources_for_message(message)
         )
         session_id = await self._ark.create_session(
-            self._config.ark_agent_id,
-            self._config.ark_environment_id,
+            runtime.ark_agent_id or self._config.ark_agent_id,
+            runtime.ark_environment_id or self._config.ark_environment_id,
             vault_ids=vault_ids or None,
             env_overrides=(
                 build_lark_session_env(message, self._config.feishu_app_id)
@@ -986,7 +1026,12 @@ class TopicSessionBot:
     async def _reply(
         self, message: IncomingMessage, text: str, roster: Optional[dict] = None
     ) -> Optional[str]:
-        if message.chat_type == "group" and message.message_id:
+        # 话题开关：项目关掉话题时直接发到会话主时间线，不再挂到 thread。
+        runtime = self._data.resolve_runtime_config(
+            message.tenant_key, message.chat_id
+        )
+        use_thread = self._data.decide_reply_strategy(runtime) == "thread"
+        if message.chat_type == "group" and message.message_id and use_thread:
             return await self._loop.run_in_executor(
                 None, self._sender.reply_in_thread, message.message_id, text, roster
             )

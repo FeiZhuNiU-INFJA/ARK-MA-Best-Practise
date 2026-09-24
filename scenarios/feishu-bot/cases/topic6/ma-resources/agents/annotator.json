@@ -1,0 +1,16 @@
+{
+  "name": "topic6-annotator",
+  "description": "topic6 单路 DataHub 标注子 Agent。协调器在 Phase C 第二批(R1~R5)与 Phase C 第一批(C0/C3)时并发调用。",
+  "model": {
+    "id": "doubao-seed-2-1-pro-260628"
+  },
+  "system_file": "annotator.system.md",
+  "skills": [
+    {"type": "custom", "skill_id": "${skill_id.topic6-annotation}", "version": "${version.topic6-annotation}"}
+  ],
+  "tools": [
+    {"type": "bash"},
+    {"type": "read"},
+    {"type": "write"}
+  ]
+}

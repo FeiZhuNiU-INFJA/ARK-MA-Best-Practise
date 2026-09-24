@@ -9,9 +9,86 @@
 代码入口：`shared.py`（公共底座）、`memory.py`（长期记忆作用域与 Custom Tool）、
 `digital_employee.py`（话题级 Session，支持 `serial` / `native-queue`）、
 `../../arkagent/feishu.py`（飞书接入 + 归一化）、
-`../../arkagent/ark.py`（方舟客户端）、`../../arkagent/gateway.py`（`KeyedQueue`）。
+`../../arkagent/ark.py`（方舟客户端）、`../../arkagent/gateway/orchestrator.py`（`KeyedQueue`）。
+
+**ark-gateway 层**（配置与运行时的控制面 / 数据面拆分，见 §0）：
+`../../arkagent/gateway/config_store.py`（`ConfigStore` 配置库）、
+`../../arkagent/gateway/control.py`（`MAControlPlane` 控制面）、
+`../../arkagent/gateway/data.py`（`MADataPlane` 数据面）、
+`admin/`（可视化管理系统：Starlette 后端 + 无构建静态前端，见 [admin/README.md](admin/README.md)）。
 
 > 术语：**触发消息** = 当前这条 @bot 的入站消息；**窗口** = 注入本轮的那段群历史增量。
+
+---
+
+## 0. 控制面 / 数据面总览（ark-gateway）
+
+在「一条消息怎么流过 bot」之上，还有一层**谁来配置、运行时怎么路由**的骨架。它把面向管理的
+**编排逻辑**与飞书 Channel 的**传输逻辑**解耦，落在 `arkagent/gateway/` 包里，分成三块：
+
+| 面 | 代码 | 职责 | 何时跑 |
+|---|---|---|---|
+| **配置库**（权威事实源） | `ConfigStore` [config_store.py](../../arkagent/gateway/config_store.py) | 全量存数字员工 / 项目 / 群绑定 / 能力包，SQLite 落盘。方舟侧是被同步的下游 | 管理系统 / CLI 写入时 |
+| **控制面**（Agent 定义层） | `MAControlPlane` [control.py](../../arkagent/gateway/control.py) | 把配置库**单向同步**到方舟：建/更新 Agent、懒建项目 Memory Store、幂等置备 Environment/Vault | 管理动作触发（非每条消息） |
+| **数据面**（会话运行层） | `MADataPlane` [data.py](../../arkagent/gateway/data.py) | 每条消息按 `chat_id` **路由**出运行参数：用哪个 Agent、属哪个项目、共享哪个 Store、可写哪些记忆分类、回复用不用话题 | 每条消息运行时 |
+
+两面**正交**：控制面动固定/版本化的 Agent 定义，数据面动每次会话可变的
+environment / resources / vault_ids / 记忆作用域 / 回复策略。二者只依赖 `ArkClient` + `ConfigStore`，
+飞书场景特有的置备（lark-cli Environment/Vault）以**可调用对象注入**（`env_provisioner` /
+`vault_provisioner`），避免 gateway 包反向依赖 case 目录。
+
+```mermaid
+flowchart LR
+    subgraph CTRL[控制面（管理时）]
+        UI[admin 可视化管理系统\nStarlette + 静态前端] --> CS[(ConfigStore\n配置库·SQLite)]
+        CS --> CP[MAControlPlane]
+        CP -->|sync_employee / sync_project_memory\nensure_environment / ensure_vault| ARK1[方舟：Agent / Store\nEnvironment / Vault]
+    end
+    subgraph DATA[数据面（运行时）]
+        MSG[IncomingMessage] --> DP[MADataPlane\nresolve_runtime_config chat_id]
+        CS -. get_binding / get_project / get_employee .-> DP
+        DP -->|RuntimeConfig| BOT[TopicSessionBot\ncreate_session + 回复策略]
+    end
+```
+
+### 0.1 配置库实体（`ConfigStore`）
+
+| 实体 | 定义 | 关键字段 | 主键 |
+|---|---|---|---|
+| `DigitalEmployee` | [config_store.py:67](../../arkagent/gateway/config_store.py#L67) | persona ⇔ 一个方舟 Agent 定义：`identity_prompt`、`model_id`、`bundle_id`、`ark_agent_id`/`ark_agent_version`、`sync_status`/`sync_error` | `id` |
+| `Project` | [config_store.py:85](../../arkagent/gateway/config_store.py#L85) | 一个项目含多个飞书群、群间共享群记忆：`memory_store_id`、`writable_memory_categories`、`reply_uses_topic`/`multimodal_enabled`/`markdown_enabled` | `id` |
+| `FeishuGroupBinding` | [config_store.py:103](../../arkagent/gateway/config_store.py#L103) | 路由表：`chat_id → project_id + digital_employee_id`（`tenant_key` 仅归属属性，不进主键） | `chat_id` |
+| `CapabilityBundle` | [config_store.py:118](../../arkagent/gateway/config_store.py#L118) | 具名可复用能力集：`skills`、`mcp_servers`、`builtin_tool_toggles`、可写记忆分类 | `id` |
+
+### 0.2 控制面同步（`MAControlPlane`，管理时单向推送）
+
+| 方法 | 位置 | 做什么 |
+|---|---|---|
+| `sync_employee` | [control.py:69](../../arkagent/gateway/control.py#L69) | 无 `ark_agent_id` → `create_agent`；有 → 带 version `update_agent`；回填 `ark_agent_id`/版本/`sync_status` |
+| `sync_project_memory` | [control.py:109](../../arkagent/gateway/control.py#L109) | 懒建项目共享 Memory Store，回填 `memory_store_id` |
+| `ensure_environment` / `ensure_vault` | [control.py:123](../../arkagent/gateway/control.py#L123) | 幂等置备飞书 lark-cli 的 Environment / Vault（经注入的 provisioner） |
+
+### 0.3 数据面路由（`MADataPlane`，每条消息运行时）
+
+运行时委托点：`TopicSessionBot._resolve_memory_scope` 调
+[data.py `resolve_runtime_config`](../../arkagent/gateway/data.py#L90)
+（见 [digital_employee.py:253](digital_employee.py)）。核心方法：
+
+| 方法 | 位置 | 输出 |
+|---|---|---|
+| `resolve_runtime_config(tenant_key, chat_id)` | [data.py:90](../../arkagent/gateway/data.py#L90) | `RuntimeConfig`：`ark_agent_id`/`ark_environment_id`、`project_id`、`memory_store_id`、`writable_categories`、`reply_uses_topic`/`multimodal_enabled`/`markdown_enabled`、`bound` |
+| `resolve_memory_scope(message, runtime)` | [data.py:129](../../arkagent/gateway/data.py#L129) | `ScopeRef`：群作用域 `scope_id` 用 **project_id**（同项目多群共享群记忆），单聊仍用个人 |
+| `writable_categories_for_scope(scope)` | [data.py:148](../../arkagent/gateway/data.py#L148) | 该作用域可写的记忆分类子集（可读=全部、可写=子集） |
+| `decide_reply_strategy(runtime)` | [data.py:166](../../arkagent/gateway/data.py#L166) | 据 `reply_uses_topic` 返回 `"thread"` / `"chat"` |
+
+**关键约定**：
+
+- **按 `chat_id` 查、不查 `tenant_key`**：`chat_id` / `project_id` / `open_id` 全局唯一且不跨租户复用，
+  runtime 侧 `tenant_key` 恒为 `"default"`；`tenant_key` 全程仅作归属/治理属性透传，不进任何键。
+- **未命中绑定回退 env 默认**（`RuntimeConfig.bound=False`）：无绑定的群/单聊仍能用配置里的默认
+  Agent/Environment 跑，向后兼容单员工模式。
+- **同项目多群共享群记忆**：群作用域 `scope_id` = `project_id` 而非 `chat_id`，因此一个项目下的
+  多个群挂同一个群 Memory Store（与 §7.1 的作用域落库一致）。
 
 ---
 
@@ -19,13 +96,13 @@
 
 | 结构 | 定义位置 | 作用 | 关键字段 |
 |---|---|---|---|
-| `IncomingMessage` | [feishu.py:26](../../arkagent/feishu.py) | **单条入站消息的归一化契约**（接入层→业务的防腐层） | `event_id`（去重）、`chat_id`/`thread_id`/`tenant_key`（分桶）、`chat_type`、`mentioned_bot`（是否处理）、`message_id`（回复/筛历史）、`text`、`create_time`（窗口排序/截断）、`user_open_id`（当前应用交互）、`user_id`（员工持久身份）、`user_name`（发言人显示名→转录当前请求行，取不到回退 open_id）、`reply_to_message_id`（显式引用的消息 id→引用链）、`root_id`（话题根消息 id→话题前情）、`resources`（图片/文件附件→多模态挂载） |
+| `IncomingMessage` | [feishu.py:26](../../arkagent/feishu.py) | **单条入站消息的归一化契约**（接入层→业务的防腐层） | `event_id`（去重）、`chat_id`/`thread_id`（分桶）、`tenant_key`（归属属性，不进键）、`chat_type`、`mentioned_bot`（是否处理）、`message_id`（回复/筛历史）、`text`、`create_time`（窗口排序/截断）、`user_open_id`（当前应用交互）、`user_id`（员工持久身份）、`user_name`（发言人显示名→转录当前请求行，取不到回退 open_id）、`reply_to_message_id`（显式引用的消息 id→引用链）、`root_id`（话题根消息 id→话题前情）、`resources`（图片/文件附件→多模态挂载） |
 | `HistoryMessage` | [feishu.py:64](../../arkagent/feishu.py) | 一条**群历史**消息归一化后的结果，比入站多两个语义判定位 | `at_bot`（切窗口边界）、`is_from_bot`（过滤 bot 回复）、`create_time`（升序）、`sender_name`（转录显示名，保留 `@名字`）、`text`、`resources`（这条历史消息里的图片/文件附件→收进本轮挂载） |
 | `QuotedMessage` | [feishu.py:48](../../arkagent/feishu.py) | 引用链上一条**被引用消息**的归一化结果（`resolve_quote_chain` 产出） | `depth`（1=直接引用，越大越久远，封顶 `MAX_QUOTE_DEPTH`=5）、`sender_name`、`text`、`message_id`（去重用） |
 | `ResourceRef` | [feishu.py:26](../../arkagent/feishu.py) | 一条消息里一个**可下载附件**（图片/文件）的引用（`_extract_resources` / `_extract_history_resources` 产出） | `file_key`（下载键）、`file_name`（清洗后作挂载名）、`type`（`image`/`file`，其它类型不挂）、`message_id`（附件所属消息 id，下载资源必须按各自所属消息取；空则由调用方用当前消息 id 兜底） |
 | `PreparedAttachment` | [shared.py](shared.py) | 一个已上传、待挂载的附件 | `file_id`（方舟文件 ID）、`mount_path`（相对 `/mnt/session/uploads/`）、`name`（提示/错误用）、`file_key`（去重身份） |
-| `GroupConversationKey` | [shared.py:35](shared.py) | 共享会话键，**刻意不含 user_open_id** | `tenant_key` + `chat_id` + `thread_id` → `as_str()` = `"t:chat:thread"` |
-| `MemoryScope` | [memory.py](memory.py) | 长期记忆权限边界 | 单聊=`tenant_key + user + user_id`；群/话题=`tenant_key + group + chat_id` |
+| `GroupConversationKey` | [shared.py:35](shared.py) | 共享会话键，**刻意不含 user_open_id** | `chat_id` + `thread_id` → `as_str()` = `"chat:thread"`（`tenant_key` 保留为归属属性，不进键） |
+| `MemoryScope` | [memory.py](memory.py) | 长期记忆权限边界 | 单聊=`user + user_id`；群/话题=`group + chat_id`（`tenant_key` 保留为归属属性，不进键） |
 | `SqliteSessionMap` | [shared.py:343](shared.py) | 群 key → 方舟 session_id 的**持久化映射** + 事件去重 + 附件两层去重，跨重启不丢 | 表 `sessions(key, session_id)`、`seen_events(event_id)`、`attachments(file_key, file_id)`（文件缓存·跨 session）、`attachment_mounts(session_id, file_key)`（挂载记录·按 session） |
 | `RunResult` | [ark.py:27](../../arkagent/ark.py) | 方舟一轮运行的终态结果 | `terminal`（`"idle"`/`"failed"`）、`messages` |
 | `ArkError` | [ark.py:33](../../arkagent/ark.py) | 方舟异常，带**结构化状态码** | `status_code`（404=Session 失效、409=RuntimeBusy）、`body` |
@@ -121,7 +198,7 @@ flowchart TD
 | 1 | 是否可处理消息 | `_inbound_to_incoming` [feishu.py:290](../../arkagent/feishu.py) | `raw_content_type == "text"` **或** `_extract_resources` 抽到了图片/文件 | 都没有则返回 None、丢弃；image/file 消息清空占位 `text`、把附件挂到 `resources` |
 | 2 | 是否处理这条 | `should_handle` [shared.py:59](shared.py) | （`text` 非空 **或** `resources` 非空）**且**（`chat_type=="p2p"` **或** `mentioned_bot`） | 群里没 @bot、或既无正文又无附件直接丢 |
 | 3 | 事件去重 | `claim_event` [shared.py:410](shared.py) | `event_id`（SQLite 主键唯一约束原子占位） | 重投则丢，跨重启仍生效 |
-| 4 | 会话分桶 | `to_topic_key` | `tenant_key` + `chat_id` + `thread_id`；主时间线首轮临时用 `message_id` | 决定共享哪个 Session；一次性交接后每个真实 thread 独立成桶 |
+| 4 | 会话分桶 | `to_topic_key` | `chat_id` + `thread_id`（`tenant_key` 保留为归属属性，不进键）；主时间线首轮临时用 `message_id` | 决定共享哪个 Session；一次性交接后每个真实 thread 独立成桶 |
 | 5 | 指令分流 | `_process`/`_handle` | `is_reset_command(text)`（剥掉开头 @提及前缀后 == `/new`；群里 @bot 正文带 `@群助手 ` 前缀，直接严格相等永不命中） | 重置本群会话 |
 | 6 | 是否已有 Session | `SqliteSessionMap.get` [shared.py:391](shared.py) | `key.as_str()` | 无则 `create_session` |
 | 7 | 附件上传 | `prepare_attachments` [shared.py](shared.py) | 所有文件类型统一上传；超 40 MB / 单轮 40 MB / 下载失败降级为 notice | 填 `file_id` 待挂载 |
@@ -174,7 +251,7 @@ flowchart TD
 
 | 维度 | 客户端串行 | 方舟原生队列 |
 |---|---|---|
-| 排序者 | 客户端 `KeyedQueue`（[gateway.py:28](../../arkagent/gateway.py)，按 key 串行） | 方舟服务端"运行中待处理队列" |
+| 排序者 | 客户端 `KeyedQueue`（[orchestrator.py:28](../../arkagent/gateway/orchestrator.py#L28)，按 key 串行） | 方舟服务端"运行中待处理队列" |
 | 是否合并 | 不会，每条独立成轮 | 会，同一可调度边界前堆积的多条被打包进一次模型请求 |
 | 每人单独回复 | 是 | 不保证 |
 | 回复路径 | `reply_in_thread(message_id)`，始终留在当前话题 | 事件流在 `idle` 时取最后一条 `agent.message`，`reply_in_thread` 到本回合最后一条触发消息 |
@@ -220,8 +297,8 @@ flowchart TD
 
 ### 7.1 长期记忆作用域
 
-- `memory_scopes` 保存 `(tenant_key, scope_type, scope_id) → store_id`。个人以租户级
-  `user_id` 为 `scope_id`，群以 `chat_id` 为 `scope_id`。首次同时收到 `user_id` 与旧
+- `memory_scopes` 保存 `(scope_type, scope_id) → store_id`（`tenant_key` 保留为归属列，不进主键）。个人以
+  `user_id` 为 `scope_id`，群以 `chat_id`（绑定项目后为 `project_id`）为 `scope_id`。首次同时收到 `user_id` 与旧
   `open_id` 时，会将旧映射原地关联到新键，不复制或删除实际 Memory Store。默认独立存放于
   `data/digital_employee_memory.db`，由 serial/native-queue 共用。
 - `session_memory_scopes` 保存 `session_id → scope + store_id`，是 Custom Tool 的鉴权依据；
@@ -422,7 +499,7 @@ flowchart TD
     RB --> TP[_text_to_post_content 带名册]
     E --> TP
     TP --> RS{正文含命中名册的 @名字?}
-    RS -- 是 --> MIX[混合：@段 structured + 其余段 native]
+    RS -- 是 --> MIX["混合：@段 structured + 其余段 native"]
     RS -- 否 --> NAT[纯 native md（同 §10 老路径）]
 ```
 
