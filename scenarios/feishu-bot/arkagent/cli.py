@@ -26,7 +26,10 @@ def main(argv: list[str] | None = None) -> int:
         elif command == "doctor":
             asyncio.run(_doctor())
         elif command == "init":
-            asyncio.run(_init())
+            if "--topic6" in argv[1:]:
+                asyncio.run(_init_topic6())
+            else:
+                asyncio.run(_init())
         elif command == "update-agent":
             asyncio.run(_update_agent(argv[1:]))
         else:
@@ -224,6 +227,52 @@ async def _init() -> None:
     print("初始化完成。运行 `arkagent run` 启动 Gateway。")
 
 
+async def _init_topic6() -> None:
+    """topic6 专用轻量初始化:只建飞书应用 + 写最小 config.env。
+
+    与默认 ``init`` 的区别:不创建 digital-employee Agent、不要求 mock 客户A MCP 公网地址。
+    topic6 的 MA 资源(Environment/Memory/Coordinator 等)由
+    ``cases/topic6/ma-resources/create_all.sh`` 单独创建,产出的 ID 再追加到 config.env。
+    """
+    if not sys.stdin.isatty():
+        raise RuntimeError("交互式 init 需要在终端中运行")
+
+    from .config import parse_env_text, serialize_env
+    from .init import _write_secure
+    from .node_helper import register_feishu_app
+
+    paths = get_arkagent_paths()
+
+    ark_api_key = read_masked_input("火山方舟 API Key（输入内容以 • 显示）: ").strip()
+    if not ark_api_key:
+        raise RuntimeError("方舟 API Key 不能为空")
+
+    print("接下来扫码创建飞书应用(topic6 将复用该 Bot)…")
+    feishu_app = await asyncio.get_event_loop().run_in_executor(None, register_feishu_app)
+
+    existing: dict[str, str] = {}
+    if os.path.exists(paths.config_path):
+        with open(paths.config_path, "r", encoding="utf-8") as fh:
+            existing = parse_env_text(fh.read())
+    existing.update(
+        {
+            "ARK_API_KEY": ark_api_key,
+            "FEISHU_APP_ID": feishu_app.app_id,
+            "FEISHU_APP_SECRET": feishu_app.app_secret,
+            "GATEWAY_DB_PATH": paths.database_path,
+        }
+    )
+    _write_secure(paths.config_path, serialize_env(existing))
+
+    print(f"飞书 Bot 已创建：{feishu_app.app_id}")
+    print(f"配置已写入 {paths.config_path}(仅含方舟 Key + 飞书凭据)。")
+    print("下一步：")
+    print("  1) cd cases/topic6 && export ARK_API_KEY HOT_TOPICS_MCP_URL")
+    print("  2) ./tools/pack_skills.sh && python3 tools/upload_skills.py")
+    print("  3) ./ma-resources/create_all.sh")
+    print("  4) 把输出的 TOPIC6_* ID 追加到 config.env,然后 arkagent run")
+
+
 async def _update_agent(args: list[str] | None = None) -> None:
     from .ark import ArkClient
     from .config import update_env_file
@@ -314,6 +363,7 @@ def _print_help() -> None:
     print(
         "arkagent [command]\n\n"
         "  init          交互式创建 客户A 销售助手 Agent + 飞书应用（扫码）+ static_bearer 凭据\n"
+        "  init --topic6 仅扫码创建飞书 Bot + 写最小配置(不建客户A Agent、不需要 MCP 地址)\n"
         "  update-agent  用最新的 system prompt/工具配置更新现有 Agent（不重扫码、不新建 bot）\n"
         "                加 --mcp-url <新地址> 可一并换 MCP 公网地址：重建 static_bearer 凭据 + 写回 config.env\n"
         "  doctor        检查配置并验证方舟 Agent\n"

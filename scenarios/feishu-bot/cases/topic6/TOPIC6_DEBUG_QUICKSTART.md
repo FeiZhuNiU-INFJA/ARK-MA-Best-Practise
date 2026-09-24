@@ -16,17 +16,20 @@
 
 ```bash
 cd scenarios/feishu-bot
-python3 -m arkagent init
+python3 -m arkagent init --topic6
 ```
 
-交互式扫码,自动建应用 + digital-employee Agent + 写 `~/.arkagent/config.env`。产出:
+topic6 专用轻量初始化:只问方舟 API Key + 扫码建飞书应用,写入 `~/.arkagent/config.env`。产出:
 
+- `ARK_API_KEY`
 - `FEISHU_APP_ID` / `FEISHU_APP_SECRET`
-- digital-employee 场景的 `ARK_AGENT_ID` / `ARK_ENVIRONMENT_ID` / `ARK_VAULT_ID` / `MCP_SERVER_URL` / `MCP_STATIC_BEARER`
 
-topic6 复用同一个飞书 Bot,不要单独建。
+**不会**创建 digital-employee Agent,也不要求 mock 客户A MCP 地址——那些是另一场景的东西。
+topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 
-已跑过就跳过这步。
+> 注意:不要跑不带参数的 `arkagent init`,那是 digital-employee 场景专用,会强制要求输入 mock 客户A MCP 公网地址。
+
+已建过 Bot 就跳过这步。
 
 ---
 
@@ -114,14 +117,14 @@ topic6 触发词：热点报告 / 热点周报(可加 test/full 指定模式)
 
 ## 6. 常见故障排查
 
-| 现象 | 排查方向 |
-|---|---|
-| 日志"topic6 场景:未启用" | 检查 `TOPIC6_COORDINATOR_AGENT_ID` 是否已写入 config.env、拼写是否正确 |
+| 现象                              | 排查方向                                                                                                                    |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| 日志"topic6 场景:未启用"          | 检查`TOPIC6_COORDINATOR_AGENT_ID` 是否已写入 config.env、拼写是否正确                                                     |
 | Coordinator 拉不到 hot-topics MCP | `HOT_TOPICS_MCP_URL` 未 export 就跑了 `create_all.sh`,MCP URL 被空值渲染进 Agent 定义;重新 export 后 `--update-agent` |
-| Skill 找不到 | `skill_ids.json` 有 null 项,重跑 `upload_skills.py` |
-| HC 卡片点击后无响应 | Feishu Bot 后台"事件订阅"里是否开启 `card.action.trigger` 权限 |
-| SSE 中断/超时 | 单会话默认 10 分钟,超长任务加大 `SESSION_TIMEOUT_MS`(毫秒) |
-| 图片抓取失败 | 已知风险点,飞书 `im.v1.images.get` 并发大图不稳定,重跑一次 Phase G 即可 |
+| Skill 找不到                      | `skill_ids.json` 有 null 项,重跑 `upload_skills.py`                                                                     |
+| HC 卡片点击后无响应               | Feishu Bot 后台"事件订阅"里是否开启`card.action.trigger` 权限                                                             |
+| SSE 中断/超时                     | 单会话默认 10 分钟,超长任务加大`SESSION_TIMEOUT_MS`(毫秒)                                                                 |
+| 图片抓取失败                      | 已知风险点,飞书`im.v1.images.get` 并发大图不稳定,重跑一次 Phase G 即可                                                    |
 
 ---
 
