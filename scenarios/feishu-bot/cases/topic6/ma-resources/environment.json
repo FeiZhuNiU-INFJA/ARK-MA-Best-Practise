@@ -1,0 +1,38 @@
+{
+  "name": "topic6-prod-env",
+  "description": "topic6 社媒热点周刊生产环境。承载 Producer 主线 14 步 pipeline。",
+  "type": "managed",
+  "networking": {
+    "type": "outbound",
+    "allowed_hosts": [
+      "bmc-data-hub.bluemediagroup.cn",
+      "open.feishu.cn",
+      "*.larkoffice.com",
+      "*.feishu.cn",
+      "*.aiforce.cloud"
+    ]
+  },
+  "pip_packages": [
+    "pandas>=2.0",
+    "openpyxl>=3.1",
+    "requests>=2.31",
+    "pyyaml>=6.0",
+    "numpy>=1.24",
+    "python-dateutil>=2.8"
+  ],
+  "env_vars": {
+    "TZ": "Asia/Shanghai",
+    "PYTHONUNBUFFERED": "1",
+    "DATAHUB_ENDPOINT": "${DATAHUB_ENDPOINT}",
+    "DATAHUB_API_KEY": "${DATAHUB_API_KEY}",
+    "LARK_APP_ID": "${LARK_APP_ID}",
+    "LARK_APP_SECRET": "${LARK_APP_SECRET}",
+    "MIAODA_TOKEN": "${MIAODA_TOKEN}"
+  },
+  "output_storage": {
+    "type": "tos",
+    "bucket": "${TOPIC6_TOS_BUCKET}",
+    "prefix": "topic6/outputs/",
+    "note": "自有 TOS Bucket,避免方舟公共 TOS 的 14 天 TTL 丢失中间产物"
+  }
+}

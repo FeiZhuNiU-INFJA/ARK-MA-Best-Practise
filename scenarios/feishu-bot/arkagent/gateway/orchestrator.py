@@ -20,6 +20,7 @@ from ..memory import MemoryManager
 from ..role import RoleInfo, RoleManager
 from ..store import ConversationKey, GatewayStore
 from ..timing import Stopwatch, time_block
+from .topic6_runner import Topic6Runner, Topic6RunnerError, parse_trigger
 
 Reply = Callable[[str, str], Awaitable[None]]
 DEFAULT_PROGRESS_DELAY_MS = 2_500
@@ -70,6 +71,8 @@ class Gateway:
         memory_manager: Optional[MemoryManager] = None,
         before_create_session: Optional[Callable[[], Awaitable[None]]] = None,
         loop: Optional[asyncio.AbstractEventLoop] = None,
+        topic6_runner: Optional[Topic6Runner] = None,
+        topic6_card_handler: Optional[Callable[[object], Awaitable[None]]] = None,
     ) -> None:
         self._store = store
         self._ark = ark
@@ -85,6 +88,8 @@ class Gateway:
         self._before_create_session = before_create_session
         self._loop = loop
         self._queue = KeyedQueue()
+        self._topic6_runner = topic6_runner
+        self._topic6_card_handler = topic6_card_handler
 
     def accept(self, message: IncomingMessage) -> bool:
         """同步入口（可能被 WS 线程调用）：去重后把处理协程调度到事件循环。"""
@@ -112,6 +117,35 @@ class Gateway:
             target.call_soon_threadsafe(_do_enqueue)
         return True
 
+    def on_card_action(self, action: object) -> bool:
+        """SDK 卡片按钮回调入口（可能被 WS 线程调用）。
+
+        与 :meth:`accept` 对称:同步返回,内部把协程 schedule 到事件循环。仅当构造时注入
+        了 ``topic6_card_handler``(通常是 ``Topic6Hitl.handle_card_action``)才处理。
+        start_feishu_gateway 通过 ``hasattr(gateway, 'on_card_action')`` 发现并注册。
+        """
+        handler = self._topic6_card_handler
+        if handler is None:
+            return False
+
+        running = None
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        target = self._loop or running
+        if target is None:
+            raise RuntimeError("Gateway.on_card_action 需要一个运行中的事件循环")
+
+        def _dispatch() -> None:
+            asyncio.ensure_future(handler(action))
+
+        if running is target:
+            _dispatch()
+        else:
+            target.call_soon_threadsafe(_dispatch)
+        return True
+
     async def _run_task(self, message: IncomingMessage, key: ConversationKey) -> None:
         try:
             await self._process(message, key)
@@ -130,6 +164,29 @@ class Gateway:
             return
 
         text = message.text.strip()
+
+        # topic6 触发词优先级最高：命中就绕过 digital-employee 主链路，直接交 Topic6Runner
+        # 起长任务；未命中或未启用 topic6 时才走原逻辑。触发词由 parse_trigger 精确匹配。
+        if self._topic6_runner is not None:
+            mode = parse_trigger(text)
+            if mode is not None:
+                try:
+                    job = await self._topic6_runner.start_job(
+                        chat_id=message.chat_id,
+                        thread_id=message.thread_id,
+                        user_open_id=message.user_open_id,
+                        mode=mode,
+                        user_message=message.text,
+                    )
+                except Topic6RunnerError as error:
+                    await self._reply(message.chat_id, str(error))
+                    return
+                await self._reply(
+                    message.chat_id,
+                    f"✅ topic6 pipeline 已启动(job={job.job_id}, mode={mode})，进度会陆续回帖。",
+                )
+                return
+
         if text == "/new":
             # 卡点 D：岗位调动开新 Session（下一条消息会挂同一 Memory Store）。
             self._store.reset_session(key)

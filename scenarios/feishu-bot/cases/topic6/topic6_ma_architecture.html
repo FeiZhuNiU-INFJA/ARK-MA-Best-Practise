@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>topic6 · MA 架构全景</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fafafa;
+    --card-bg: #fff;
+    --border: #e5e7eb;
+    --primary: #2563eb;
+    --secondary: #64748b;
+    --hc: #f97316;
+    --success: #10b981;
+    --code-bg: #f3f4f6;
+    --text: #1f2937;
+    --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  header {
+    padding: 12px 20px;
+    background: var(--card-bg);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 18px; margin: 0 0 4px 0; }
+  header .subtitle { font-size: 12px; color: var(--muted); }
+  .legend {
+    display: inline-flex;
+    gap: 10px;
+    margin-left: 16px;
+    font-size: 12px;
+    vertical-align: middle;
+  }
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--code-bg);
+    padding: 2px 8px;
+    border-radius: 3px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(360px, 34vw, 500px);
+    min-height: 0;
+  }
+  .diagram-pane {
+    min-width: 0;
+    overflow: auto;
+    padding: 20px;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+  }
+  .detail-pane {
+    min-width: 0;
+    overflow-y: auto;
+    padding: 20px 24px;
+    background: var(--card-bg);
+  }
+  .mermaid {
+    cursor: default;
+    min-width: 780px;
+    margin: 0;
+  }
+  .mermaid svg {
+    display: block;
+    margin: 0 auto;
+  }
+  .mermaid .node { cursor: pointer; transition: opacity 0.2s; }
+  .mermaid .node:hover { opacity: 0.75; }
+  .mermaid .node.selected rect,
+  .mermaid .node.selected polygon,
+  .mermaid .node.selected circle {
+    stroke-width: 3px !important;
+    stroke: #2563eb !important;
+    filter: drop-shadow(0 0 6px rgba(37,99,235,0.4));
+  }
+
+  .detail-pane h2 {
+    font-size: 18px;
+    margin: 0 0 4px 0;
+    color: var(--primary);
+  }
+  .detail-pane .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 500;
+    background: #dbeafe;
+    color: #1e40af;
+    margin-right: 6px;
+  }
+  .detail-pane .tag.agent { background: #ede9fe; color: #5b21b6; }
+  .detail-pane .tag.skill { background: #dcfce7; color: #166534; }
+  .detail-pane .tag.gateway { background: #fef3c7; color: #92400e; }
+  .detail-pane .tag.platform { background: #cffafe; color: #155e75; }
+  .detail-pane .tag.entry { background: #ffe4e6; color: #9f1239; }
+  .detail-pane h3 {
+    font-size: 13px;
+    margin: 18px 0 6px 0;
+    color: var(--secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 3px;
+  }
+  .detail-pane p, .detail-pane li { font-size: 13.5px; }
+  .detail-pane ul { padding-left: 22px; margin: 6px 0; }
+  .detail-pane .desc {
+    color: var(--secondary);
+    margin: 8px 0 12px 0;
+    font-size: 13px;
+  }
+  code {
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-family: "SF Mono", Menlo, monospace;
+    color: #be185d;
+  }
+  a { color: var(--primary); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .file-link {
+    display: inline-block;
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    margin: 2px 4px 2px 0;
+    color: var(--primary);
+  }
+  .file-link:hover { background: #e0e7ff; }
+  .file-link.ma { background: #eff6ff; color: #1d4ed8; }
+  .file-link.ma:hover { background: #dbeafe; }
+  .file-link.gw { background: #fef9c3; color: #854d0e; }
+  .file-link.gw:hover { background: #fef08a; }
+  .note {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 6px;
+    padding: 8px 10px;
+    background: #fef3c7;
+    border-left: 3px solid #f59e0b;
+    border-radius: 3px;
+  }
+  .note.ma {
+    background: #eff6ff;
+    border-left-color: #2563eb;
+    color: #1e3a8a;
+  }
+  .kv {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 4px 12px;
+    font-size: 13px;
+    margin: 6px 0;
+  }
+  .kv .k { color: var(--secondary); font-size: 12px; }
+  .kv .v { color: var(--text); font-family: "SF Mono", Menlo, monospace; font-size: 12px; }
+  .placeholder {
+    color: var(--muted);
+    font-size: 14px;
+    text-align: center;
+    margin-top: 40px;
+  }
+  .stream {
+    font-size: 12px;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 10px 12px;
+    border-radius: 4px;
+    font-family: "SF Mono", Menlo, monospace;
+    white-space: pre;
+    overflow-x: auto;
+    margin: 6px 0 10px 0;
+    line-height: 1.5;
+  }
+  .stream .k { color: #93c5fd; }
+  .stream .s { color: #86efac; }
+  .stream .c { color: #94a3b8; font-style: italic; }
+
+  @media (max-width: 1100px) {
+    .layout {
+      grid-template-columns: minmax(0, 1fr) 360px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>topic6 · 火山方舟 Managed Agents(MA)架构全景</h1>
+  <span class="subtitle">点击左侧任一节点,右侧显示该组件的类型、用到的 MA 能力、以及和其他组件的交互契约</span>
+  <span class="legend">
+    <span class="legend-item"><span class="dot" style="background:#ef4444"></span> 用户端 / 飞书</span>
+    <span class="legend-item"><span class="dot" style="background:#f59e0b"></span> Gateway(本仓库)</span>
+    <span class="legend-item"><span class="dot" style="background:#7c3aed"></span> MA Agent</span>
+    <span class="legend-item"><span class="dot" style="background:#059669"></span> Custom Skill</span>
+    <span class="legend-item"><span class="dot" style="background:#0891b2"></span> MA 平台资源</span>
+  </span>
+</header>
+
+<div class="layout">
+  <div class="diagram-pane">
+    <pre class="mermaid" id="diagram">
+flowchart LR
+    USER(["用户 · 飞书群/私聊"]):::entry
+    BOT(["飞书 Bot · Open Platform"]):::entry
+
+    subgraph GW ["Feishu Gateway · 本仓库"]
+      direction TB
+      FEISHU["feishu.py<br/>事件订阅入口"]:::gateway
+      ORCH["orchestrator.py<br/>触发路由 + 白名单"]:::gateway
+      RUNNER["topic6_runner.py<br/>起 job + SSE 消费"]:::gateway
+      HITL["topic6_hitl.py<br/>HC 卡片 + 回调"]:::gateway
+      STORE[("pipeline_store.py<br/>SQLite jobs")]:::gateway
+      CFG["config.py<br/>环境变量 / AUTHORIZED_OPEN_IDS"]:::gateway
+    end
+
+    subgraph MA ["火山方舟 MA · Multi-Agent 单会话"]
+      direction TB
+      COORD{{"topic6-coordinator<br/>主协调器"}}:::agent
+      ANNO{{"topic6-annotator<br/>×2 或 ×5 并发实例"}}:::agent
+      INSI{{"topic6-insighter<br/>×4 并发实例"}}:::agent
+    end
+
+    subgraph RES ["MA 平台资源"]
+      direction TB
+      S1["topic6-fetch-normalize"]:::skill
+      S2["topic6-annotation"]:::skill
+      S3["topic6-event-registry"]:::skill
+      S4["topic6-insight"]:::skill
+      S5["topic6-web-report"]:::skill
+      MEM["Memory Store<br/>memory/topic6/*.md"]:::platform
+      MCP["hot-topics MCP<br/>HOT_TOPICS_MCP_URL"]:::platform
+      WS["沙箱工作区<br/>/workspace + /mnt/session/outputs"]:::platform
+    end
+
+    USER -- "消息 / 卡片按钮" --> BOT
+    BOT -- "Webhook Event" --> FEISHU
+    FEISHU -- "message.receive" --> ORCH
+    FEISHU -- "card.action.trigger" --> HITL
+    ORCH -- "触发词命中" --> RUNNER
+    RUNNER <--> STORE
+    ORCH -.读.-> CFG
+    RUNNER -.读.-> CFG
+
+    RUNNER == "chat.completions.create · stream=true" ==> COORD
+    COORD -- "multiagent 委派" --> ANNO
+    COORD -- "multiagent 委派" --> INSI
+
+    COORD -.mount.-> S1
+    COORD -.mount.-> S2
+    COORD -.mount.-> S3
+    COORD -.mount.-> S4
+    COORD -.mount.-> S5
+    ANNO -.mount.-> S2
+    INSI -.mount.-> S4
+
+    COORD -- "MCP call" --> MCP
+    COORD -- "只读" --> MEM
+    COORD -->|"bash R/W"| WS
+    ANNO -->|"bash R/W"| WS
+    INSI -->|"bash R/W"| WS
+
+    COORD == "SSE agent.message.delta" ==> RUNNER
+    COORD == "HC1/HC2/HC3 JSON + end_turn" ==> RUNNER
+    RUNNER -- "payload" --> HITL
+    HITL -- "send_card · 独立 executor" --> BOT
+    HITL -- "HCx pass/reject/remark" --> RUNNER
+    RUNNER == "user.message resume" ==> COORD
+
+    classDef entry fill:#ffe4e6,stroke:#e11d48,color:#9f1239;
+    classDef gateway fill:#fef3c7,stroke:#d97706,color:#92400e;
+    classDef agent fill:#ede9fe,stroke:#7c3aed,color:#5b21b6;
+    classDef skill fill:#dcfce7,stroke:#16a34a,color:#166534;
+    classDef platform fill:#cffafe,stroke:#0891b2,color:#155e75;
+    </pre>
+  </div>
+
+  <div class="detail-pane" id="detail">
+    <p class="placeholder">← 点击左侧任一节点<br>查看组件详情与交互契约<br><br>建议阅读顺序:<br>USER → FEISHU → ORCH → RUNNER → COORD → ANNO/INSI → HITL</p>
+  </div>
+</div>
+
+<script>
+  const MA_BASE = "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources";
+  const GW_BASE = "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent";
+  const maLink = (p, label) => `<a class="file-link ma" href="${MA_BASE}/${p}">${label || p}</a>`;
+  const gwLink = (p, label) => `<a class="file-link gw" href="${GW_BASE}/${p}">${label || p}</a>`;
+
+  const DETAILS = {
+    USER: {
+      title: "用户 · 飞书群 / 私聊",
+      tags: ['<span class="tag entry">入口</span>'],
+      desc: "触发 topic6 pipeline 的自然人。所有交互都通过飞书完成,不需要单独登录 MA 平台。",
+      content: `
+        <h3>触发方式</h3>
+        <ul>
+          <li>在群里 @Bot 或私聊 Bot,发一句包含 <code>热点报告</code> / <code>热点周报</code> 的消息</li>
+          <li>可选参数:<code>mode=test</code>(500 抽样)或 <code>mode=full</code></li>
+          <li>后续 HC1 / HC2 / HC3 阶段,点击 Bot 发来的交互卡片按钮(通过 / 打回 / 备注)</li>
+        </ul>
+        <h3>权限</h3>
+        <ul>
+          <li>白名单校验在 ${gwLink('config.py')} 的 <code>AUTHORIZED_OPEN_IDS</code>,非白名单直接拒</li>
+          <li>妙搭发布(Phase H)需要操作人本人授权 <code>MIAODA_TOKEN</code>,无法后端预置</li>
+        </ul>
+      `
+    },
+    BOT: {
+      title: "飞书 Bot · Open Platform",
+      tags: ['<span class="tag entry">入口</span>'],
+      desc: "飞书应用后端,负责把用户消息推给我们,并把 Bot 的消息/卡片发给用户。",
+      content: `
+        <h3>接入方式</h3>
+        <ul>
+          <li>App ID / App Secret 配在 ${gwLink('config.py')}(FEISHU_APP_ID / FEISHU_APP_SECRET)</li>
+          <li>订阅两类事件:<code>im.message.receive_v1</code> 和 <code>card.action.trigger</code></li>
+        </ul>
+        <h3>Bot 向用户发的三种消息</h3>
+        <ul>
+          <li>文本进度消息(SSE agent.message.delta 累积)</li>
+          <li>HC1(蓝)/ HC2(绿)/ HC3(紫)交互卡片</li>
+          <li>最终 online_url 文本消息</li>
+        </ul>
+      `
+    },
+    FEISHU: {
+      title: "feishu.py · 事件订阅入口",
+      tags: ['<span class="tag gateway">Gateway</span>'],
+      desc: "接收飞书 webhook,做签名校验和事件分派。",
+      content: `
+        <h3>关键文件</h3>
+        <p>${gwLink('feishu.py')}</p>
+        <h3>职责</h3>
+        <ul>
+          <li>验证飞书 encrypt/challenge,解析 <code>im.message.receive_v1</code> 与 <code>card.action.trigger</code></li>
+          <li>把普通消息事件转给 ${gwLink('gateway/orchestrator.py', 'orchestrator')} 的 <code>dispatch_message</code></li>
+          <li>把卡片按钮事件转给 ${gwLink('gateway/topic6_hitl.py', 'topic6_hitl')} 的 <code>handle_card_action</code></li>
+        </ul>
+      `
+    },
+    ORCH: {
+      title: "orchestrator.py · 触发路由",
+      tags: ['<span class="tag gateway">Gateway</span>'],
+      desc: "根据用户消息内容决定走哪条 Agent 链路。",
+      content: `
+        <h3>关键文件</h3>
+        <p>${gwLink('gateway/orchestrator.py')}</p>
+        <h3>路由规则</h3>
+        <ul>
+          <li>命中 <code>热点报告</code> / <code>热点周报</code> → 调 <code>Topic6Runner.start_job(chat_id, open_id, text)</code></li>
+          <li>命中 <code>HCx pass/reject/remark</code> 前缀(用户手打)→ 转 <code>Topic6Runner.resume_job</code></li>
+          <li>其他文本 → 走默认对话 Agent(不在本文档范围)</li>
+        </ul>
+        <div class="note">白名单鉴权 <code>AUTHORIZED_OPEN_IDS</code> 在这一层做,非授权 open_id 直接返回"暂无权限"。</div>
+      `
+    },
+    RUNNER: {
+      title: "topic6_runner.py · SSE 消费 + Job 生命周期",
+      tags: ['<span class="tag gateway">Gateway</span>'],
+      desc: "起 MA 会话、消费 SSE 事件流、把 delta 累积成飞书消息、识别 HC JSON 并交给 HITL。",
+      content: `
+        <h3>关键文件</h3>
+        <p>${gwLink('gateway/topic6_runner.py')}</p>
+        <h3>核心方法</h3>
+        <ul>
+          <li><code>start_job(chat_id, open_id, text)</code>:生成 <code>job_id</code>,写 ${gwLink('gateway/pipeline_store.py', 'pipeline_store')},调 Ark <code>agents.chat.completions.create(agent_id=coordinator, stream=true)</code></li>
+          <li>SSE 循环 · 消费三类事件:
+            <ul>
+              <li><code>agent.message.delta</code> → 累积文本 → 飞书 update_message</li>
+              <li><code>agent.tool_call.*</code> → 记进度日志</li>
+              <li><code>agent.message.finish</code> → 提取正文,尝试 <code>json.loads</code>,若含 <code>hc</code> 字段则调 <code>dispatch_card(payload)</code></li>
+            </ul>
+          </li>
+          <li><code>resume_job(job_id, "HCx pass")</code>:把用户决策作为 <code>user.message</code> 追加到<b>同一会话</b>,MA 沙箱状态自动续跑</li>
+        </ul>
+        <h3>SSE 事件形态</h3>
+        <div class="stream">event: agent.message.delta
+data: {<span class="k">"content"</span>:<span class="s">"Phase C 第一批 ..."</span>}
+
+event: agent.message.finish
+data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ...}"</span>}
+
+<span class="c">// runner 解析 finish.content,识别 HC JSON</span></div>
+        <h3>关键约束</h3>
+        <div class="note ma">HC 卡片必须通过<b>独立 executor</b>发送(<code>dispatch_card</code> 走单独线程),避免阻塞 SSE 主消费循环。</div>
+      `
+    },
+    HITL: {
+      title: "topic6_hitl.py · HC 卡片与回调",
+      tags: ['<span class="tag gateway">Gateway</span>'],
+      desc: "构建 HC1/HC2/HC3 飞书交互卡片,并把用户点击结果按契约还原成 coordinator 能听懂的文本。",
+      content: `
+        <h3>关键文件</h3>
+        <p>${gwLink('gateway/topic6_hitl.py')}</p>
+        <h3>build_hc_card(hc, payload)</h3>
+        <ul>
+          <li>HC1 → 蓝底卡片,展示 <code>wide_table_path</code> + <code>distribution_summary</code></li>
+          <li>HC2 → 绿底卡片,展示全量分布</li>
+          <li>HC3 → 紫底卡片,附飞书文档 URL 按钮</li>
+          <li>每张卡片都有 3 个按钮:<b>通过</b> / <b>打回</b> / <b>备注</b></li>
+        </ul>
+        <h3>handle_card_action(event) · 回调契约</h3>
+        <ul>
+          <li>按钮 <code>action.value.decision</code> ∈ {pass, reject, remark}</li>
+          <li>拼成 <code>HC{n} {decision}[: note]</code>,严格匹配 coordinator prompt 契约</li>
+          <li>调 <code>topic6_runner.resume_job(job_id, text)</code></li>
+          <li><b>备注按钮无输入内容</b>时,只在 pipeline_store 里写 remark,<b>不 resume</b>,等用户后续消息</li>
+        </ul>
+        <div class="note ma">回调拼串必须严格 <code>HCx pass/reject/remark: 备注</code>——冒号/空格/大小写错一位,coordinator 就走不下去。</div>
+      `
+    },
+    STORE: {
+      title: "pipeline_store.py · SQLite 持久化",
+      tags: ['<span class="tag gateway">Gateway</span>'],
+      desc: "本地 SQLite,记录 job_id ↔ chat_id / open_id / current_phase / hc_remark 等。",
+      content: `
+        <h3>关键文件</h3>
+        <p>${gwLink('gateway/pipeline_store.py')}</p>
+        <h3>为什么用 SQLite</h3>
+        <ul>
+          <li>MA 侧沙箱状态由平台自动持久化,但<b>飞书 chat_id ↔ MA session_id 映射</b>要 gateway 自己维护</li>
+          <li>用户手打 <code>HC1 pass</code> 时,先查 store 找 job → 找 session_id → resume</li>
+          <li>断线重连也靠 store 里的 job.status = pending / waiting_hc / done</li>
+        </ul>
+        <h3>Schema 关键字段</h3>
+        <div class="kv">
+          <span class="k">job_id</span><span class="v">uuid,PK</span>
+          <span class="k">chat_id / open_id</span><span class="v">飞书标识</span>
+          <span class="k">session_id</span><span class="v">MA 会话 ID(sandbox 状态锚点)</span>
+          <span class="k">current_phase</span><span class="v">A / C1 / HC1 / E / ...</span>
+          <span class="k">hc_remark</span><span class="v">remark 按钮的暂存文本</span>
+          <span class="k">status</span><span class="v">pending / waiting_hc / done / failed</span>
+        </div>
+        <div class="note">忽略 <code>.db</code> / <code>.sqlite</code> / <code>.db-journal</code>(见 .gitignore)。</div>
+      `
+    },
+    CFG: {
+      title: "config.py · 环境变量",
+      tags: ['<span class="tag gateway">Gateway</span>'],
+      desc: "所有 Key/URL/白名单从 <code>~/.arkagent/config.env</code> 加载,禁止硬编码。",
+      content: `
+        <h3>关键文件</h3>
+        <p>${gwLink('config.py')}</p>
+        <h3>关键环境变量</h3>
+        <div class="kv">
+          <span class="k">ARK_API_KEY</span><span class="v">火山方舟主 Key</span>
+          <span class="k">ARK_BASE_URL</span><span class="v">Ark OpenAI 兼容接口 endpoint</span>
+          <span class="k">OPENAI_API_KEY / OPENAI_BASE_URL</span><span class="v">Insighter 回退通道</span>
+          <span class="k">FEISHU_APP_ID / SECRET</span><span class="v">飞书应用</span>
+          <span class="k">AUTHORIZED_OPEN_IDS</span><span class="v">白名单,逗号分隔</span>
+          <span class="k">HOT_TOPICS_MCP_URL</span><span class="v">MCP 服务器地址</span>
+          <span class="k">TOPIC6_COORDINATOR_AGENT_ID</span><span class="v">MA Agent ID,create_all.sh 注册后填入</span>
+          <span class="k">TOPIC6_ANNOTATOR_AGENT_ID</span><span class="v">同上</span>
+          <span class="k">TOPIC6_INSIGHTER_AGENT_ID</span><span class="v">同上</span>
+          <span class="k">TOPIC6_PIPELINE_DB_PATH</span><span class="v">SQLite 路径</span>
+          <span class="k">MIAODA_TOKEN</span><span class="v">操作人本人授权,Phase H 用</span>
+        </div>
+        <div class="note ma">GatewayConfig 里 topic6 相关字段支持从 <code>ARK_ENVIRONMENT_ID</code> 回退,便于多环境部署。</div>
+      `
+    },
+    COORD: {
+      title: "topic6-coordinator · MA 主协调器",
+      tags: ['<span class="tag agent">MA Agent</span>'],
+      desc: "整个 pipeline 的大脑。承载客户 topic6 原始 Producer 主线 14 步时序 + 子 Agent 委派。",
+      content: `
+        <h3>Agent 定义</h3>
+        <p>
+          ${maLink('agents/coordinator.json')}
+          ${maLink('agents/coordinator.system.md')}
+        </p>
+        <h3>模型</h3>
+        <p><code>doubao-seed-2-1-pro-260628</code></p>
+        <h3>用到的 MA 组件</h3>
+        <ul>
+          <li><b>Custom Skills(5 个,全挂载)</b>:${maLink('skills/topic6-fetch-normalize/', 'topic6-fetch-normalize')} · ${maLink('skills/topic6-annotation/', 'topic6-annotation')} · ${maLink('skills/topic6-event-registry/', 'topic6-event-registry')} · ${maLink('skills/topic6-insight/', 'topic6-insight')} · ${maLink('skills/topic6-web-report/', 'topic6-web-report')}</li>
+          <li><b>MCP Server</b>:${maLink('agents/coordinator.json', 'coordinator.json#mcp_servers')} 里注入 <code>hot-topics</code>,URL 由 <code>HOT_TOPICS_MCP_URL</code> 环境变量渲染 · <code>always_allow</code> 授权模式</li>
+          <li><b>MCP Toolset</b>:coordinator.json 的 <code>mcp_toolset</code> 段声明 <code>mcp_server_name: hot-topics</code>,把 MCP 工具直接挂到 Agent 工具集</li>
+          <li><b>原生工具</b>:<code>bash</code> / <code>read</code> / <code>write</code> / <code>edit</code>(顺序阶段直接跑脚本)</li>
+          <li><b>Memory Store</b>:${maLink('memory-store.json')} 挂载 memory/topic6/{MEMORY, _版本状态, 错误案例库}.md 到 <code>/mnt/memory/topic6/</code>(<b>只读</b>)</li>
+          <li><b>Multiagent 拓扑</b>:coordinator.json 的 <code>multiagent.type=coordinator</code>,可委派 annotator / insighter / self</li>
+          <li><b>沙箱工作区</b>:<code>/workspace/Projects/{PROJECT_DIR}/</code>(状态持久化)+ <code>/mnt/session/outputs/</code>(TOS 最终产物)</li>
+        </ul>
+        <h3>输出契约(对 gateway)</h3>
+        <ul>
+          <li>普通进度:SSE <code>agent.message.delta</code> 流(runner 累积成飞书消息)</li>
+          <li>HC1/HC2/HC3 关卡:结构化 JSON <code>{"hc":"HCx", ...}</code> + <code>end_turn</code>,gateway 抠出 payload 转卡片</li>
+          <li>最终:online_url 写回 run_config.yaml,SSE finish</li>
+        </ul>
+        <h3>下发契约(对子 Agent)</h3>
+        <div class="stream">multiagent.delegate(agent=topic6-annotator, message={
+  <span class="k">"task"</span>: <span class="s">"c0"</span>,
+  <span class="k">"mode"</span>: <span class="s">"test"</span>,
+  <span class="k">"project_dir"</span>: <span class="s">"W40..."</span>,
+  <span class="k">"input_path"</span>: <span class="s">"..."</span>,
+  <span class="k">"output_path"</span>: <span class="s">"..."</span>,
+  <span class="k">"prompt_version"</span>: <span class="s">"v1"</span>
+})</div>
+      `
+    },
+    ANNO: {
+      title: "topic6-annotator · 标注子 Agent(可并发实例化)",
+      tags: ['<span class="tag agent">MA Agent</span>'],
+      desc: "只做单路 DataHub 标注(c0 / c3 / r1..r5),不做筛选/合并/洞察。同一 Agent 定义,不同 task 参数,由 coordinator 并发调用多份。",
+      content: `
+        <h3>Agent 定义</h3>
+        <p>
+          ${maLink('agents/annotator.json')}
+          ${maLink('agents/annotator.system.md')}
+        </p>
+        <h3>并发形态</h3>
+        <ul>
+          <li>Phase C 第一批:coordinator 委派 <b>2 路并发</b>(task=c0 + task=c3)</li>
+          <li>Phase C 第二批:委派 <b>5 路并发</b>(task=r1..r5)</li>
+          <li>七路总计:c0 / c3 / r1 / r2 / r3 / r4 / r5(C2 不走 annotator,由 coordinator 自己 bash)</li>
+        </ul>
+        <h3>用到的 MA 组件</h3>
+        <ul>
+          <li><b>Custom Skill</b>:${maLink('skills/topic6-annotation/', 'topic6-annotation')} → 沙箱 <code>/mnt/skills/topic6-annotation/</code></li>
+          <li><b>原生工具</b>:<code>bash</code> / <code>read</code> / <code>write</code>(<b>没有 edit,没有 mcp,没有 multiagent</b>——比 coordinator 精简)</li>
+          <li><b>Memory Store</b>:间接读——Prompt 版本号由 coordinator 从 <code>_版本状态.md</code> 解析后传入,annotator 自己不读 memory</li>
+          <li><b>沙箱工作区</b>:只写 <code>/workspace/Projects/{PROJECT_DIR}/04_标注/{task}_raw.jsonl</code>,不允许写其他路径</li>
+        </ul>
+        <h3>输入契约(接 coordinator)</h3>
+        <p>见 ${maLink('agents/annotator.system.md', 'annotator.system.md §一')} — task/mode/project_dir/input_path/output_path/prompt_version 六字段</p>
+        <h3>输出契约(回 coordinator)</h3>
+        <div class="stream">{
+  <span class="k">"status"</span>: <span class="s">"ok"</span>,          <span class="c">// or partial / failed</span>
+  <span class="k">"task"</span>: <span class="s">"c0"</span>,
+  <span class="k">"output_path"</span>: <span class="s">"..."</span>,
+  <span class="k">"row_count"</span>: 500,
+  <span class="k">"valid_ratio"</span>: 0.986,
+  <span class="k">"cost_yuan"</span>: 0.42
+}</div>
+        <div class="note ma"><b>边界</b>:出错立即 end_turn 交回,不自作主张重试;JSON 有效率 &lt; 90% 时返回 partial,重试策略由 coordinator 决定。</div>
+      `
+    },
+    INSI: {
+      title: "topic6-insighter · 洞察子 Agent(可并发实例化)",
+      tags: ['<span class="tag agent">MA Agent</span>'],
+      desc: "只做单版块洞察(e1 / e2 / e3 / e4),Phase E 由 coordinator 4 路并发调用。",
+      content: `
+        <h3>Agent 定义</h3>
+        <p>
+          ${maLink('agents/insighter.json')}
+          ${maLink('agents/insighter.system.md')}
+        </p>
+        <h3>并发形态</h3>
+        <ul>
+          <li>Phase E 一次委派 <b>4 路并发</b>(section=e1..e4)</li>
+          <li>test 模式收到 → 直接返回 failed(抽样数据洞察不可信)</li>
+        </ul>
+        <h3>用到的 MA 组件</h3>
+        <ul>
+          <li><b>Custom Skill</b>:${maLink('skills/topic6-insight/', 'topic6-insight')} → 沙箱 <code>/mnt/skills/topic6-insight/</code></li>
+          <li><b>原生工具</b>:<code>bash</code> / <code>read</code> / <code>write</code></li>
+          <li><b>LLM 通道</b>:火山方舟 OpenAI 兼容接口(ARK_* 优先,回退 OPENAI_*),Insight skill 内所有 anthropic 引用已清理</li>
+          <li><b>沙箱工作区</b>:输出到 <code>/workspace/Projects/{PROJECT_DIR}/06_洞察/v{N}/e{N}_v{N}.md</code></li>
+        </ul>
+        <h3>输入契约</h3>
+        <p>section / project_dir / wide_table_path / publish_date / insight_version / prompt_version</p>
+        <h3>E2 特殊说明</h3>
+        <div class="note ma">E2 不再依赖已删除的 <code>marketing-node-tagging</code> 外部 skill,判断逻辑内置到 ${maLink('skills/topic6-insight/01_统计/e2_nodes.py', 'e2_nodes.py')},共享 annotation skill 的节点日历基线。</div>
+      `
+    },
+    S1: {
+      title: "Skill · topic6-fetch-normalize",
+      tags: ['<span class="tag skill">Custom Skill</span>'],
+      desc: "Phase A+B 取数与标准化,以及 test 模式抽样。",
+      content: `
+        <h3>Skill 目录</h3>
+        <p>${maLink('skills/topic6-fetch-normalize/SKILL.md')} → 沙箱 <code>/mnt/skills/topic6-fetch-normalize/</code></p>
+        <h3>脚本</h3>
+        <ul>
+          <li>${maLink('skills/topic6-fetch-normalize/scripts/fetch_hot_topics.py')} — 通过 hot-topics MCP 拉四平台上周热搜</li>
+          <li>${maLink('skills/topic6-fetch-normalize/scripts/log1p_p1p99_normalize.py')} — log1p 变换 + P1/P99 归一化</li>
+          <li>${maLink('skills/topic6-fetch-normalize/scripts/sample_500.py')} — Hamilton 分层抽样(seed=42)</li>
+        </ul>
+        <h3>参考数据</h3>
+        <p>${maLink('skills/topic6-fetch-normalize/references/平台热度基准_2026.json')}</p>
+        <h3>挂载在谁上</h3>
+        <ul>
+          <li>只挂 <b>Coordinator</b>(顺序阶段,子 Agent 不需要)</li>
+        </ul>
+      `
+    },
+    S2: {
+      title: "Skill · topic6-annotation",
+      tags: ['<span class="tag skill">Custom Skill</span>'],
+      desc: "客户核心资产,承载 C0/C3/R1~R5 七路标注 + 筛选/合并/成本记录。",
+      content: `
+        <h3>Skill 目录</h3>
+        <p>${maLink('skills/topic6-annotation/SKILL.md')} → 沙箱 <code>/mnt/skills/topic6-annotation/</code></p>
+        <h3>Prompt 目录(7 类,各版本存 v{N}.md)</h3>
+        <ul>
+          <li>${maLink('skills/topic6-annotation/prompts/C0_基础事实/v1.md')}</li>
+          <li>${maLink('skills/topic6-annotation/prompts/节点标注/v1.md')}(C3)</li>
+          <li>${maLink('skills/topic6-annotation/prompts/R1_平台借势/v1.md')} · R2_商业合作 · R3_风险预警 · R4_创意借鉴 · R5_消费者行为</li>
+        </ul>
+        <h3>核心脚本</h3>
+        <ul>
+          <li>${maLink('skills/topic6-annotation/scripts/datahub_annotate.py')} — <b>5 合 1</b>(submit/poll/expand/flatten/timewindow)</li>
+          <li>${maLink('skills/topic6-annotation/scripts/c0_merge_phase1.py')} · ${maLink('skills/topic6-annotation/scripts/c0_filter_usable.py')} — 筛选</li>
+          <li>${maLink('skills/topic6-annotation/scripts/merge_annotations.py')} — Phase D 合并七路</li>
+          <li>${maLink('skills/topic6-annotation/tool/cost-tracker/cost_tracker.py')} — 统一成本记录(与 coordinator 共享同一 cost-tracker)</li>
+        </ul>
+        <h3>知识库(ks/)与参考数据</h3>
+        <p>
+          ${maLink('skills/topic6-annotation/ks/_字段速查.md')} · ${maLink('skills/topic6-annotation/ks/02_营销可用判定.md')} · ${maLink('skills/topic6-annotation/ks/03_五维判定.md')} · ${maLink('skills/topic6-annotation/ks/04_节点判定.md')} · ${maLink('skills/topic6-annotation/ks/07_报告结构.md')}
+          ${maLink('skills/topic6-annotation/references/marketing_calendar/nodes_definition.csv', 'nodes_definition.csv')}
+        </p>
+        <h3>挂载在谁上</h3>
+        <ul>
+          <li><b>Coordinator</b>(顺序调 merge / filter)</li>
+          <li><b>Annotator</b>(7 路标注的执行者)</li>
+        </ul>
+      `
+    },
+    S3: {
+      title: "Skill · topic6-event-registry",
+      tags: ['<span class="tag skill">Custom Skill</span>'],
+      desc: "客户外部 skill v2.1.0 的复刻,Phase C 第二批 C2 事件合并(20 个脚本流水线)。",
+      content: `
+        <h3>Skill 目录</h3>
+        <p>${maLink('skills/topic6-event-registry/SKILL.md')} → 沙箱 <code>/mnt/skills/topic6-event-registry/</code></p>
+        <h3>脚本(20 个)</h3>
+        <ul>
+          <li>${maLink('skills/topic6-event-registry/scripts/', 'scripts/')} — <b>00 → 11 主线</b>(clean_titles / eventness / extract_frames / normalize / embeddings / recall / build_blocks / archive / rank / commit / calibration_sample / score_calibration)</li>
+          <li><b>x0 → x4 跨平台合并</b>(merge_platforms / presplit / confidence_filter / review_bidirectional / detail_table)</li>
+          <li>核心库 ${maLink('skills/topic6-event-registry/scripts/eventlib.py')} · relay 兜底 ${maLink('skills/topic6-event-registry/scripts/relay.py')}</li>
+        </ul>
+        <h3>参考文档</h3>
+        <p>
+          ${maLink('skills/topic6-event-registry/references/runbook.md')} · ${maLink('skills/topic6-event-registry/references/pipeline.md')} · ${maLink('skills/topic6-event-registry/references/prompts.md')} · ${maLink('skills/topic6-event-registry/references/identity.md')} · ${maLink('skills/topic6-event-registry/references/calibration.md')}
+        </p>
+        <h3>挂载在谁上</h3>
+        <ul>
+          <li>只挂 <b>Coordinator</b> · 由 coordinator bash 一键跑,不委派子 Agent(内部就是脚本流水线)</li>
+        </ul>
+        <div class="note ma">全量实测 56.1% 的多成员事件跨平台,x0~x4 跨平台合并层不能跳过。当前 3.5h 主要耗时之一,允许后期基于原始 skill 优化归类算法。</div>
+      `
+    },
+    S4: {
+      title: "Skill · topic6-insight",
+      tags: ['<span class="tag skill">Custom Skill</span>'],
+      desc: "Phase E 四版块洞察的统计脚本 + 洞察 Prompt。",
+      content: `
+        <h3>Skill 目录</h3>
+        <p>${maLink('skills/topic6-insight/SKILL.md')} → 沙箱 <code>/mnt/skills/topic6-insight/</code></p>
+        <h3>统计脚本(01_统计/)</h3>
+        <ul>
+          <li>${maLink('skills/topic6-insight/01_统计/e1_industry.py')} · ${maLink('skills/topic6-insight/01_统计/e2_nodes.py')} · ${maLink('skills/topic6-insight/01_统计/e3_platforms.py')} · ${maLink('skills/topic6-insight/01_统计/e4_marketing.py')}</li>
+          <li>共享:${maLink('skills/topic6-insight/01_统计/_common.py')}</li>
+        </ul>
+        <h3>洞察 Prompt(02_洞察/)</h3>
+        <p>
+          ${maLink('skills/topic6-insight/02_洞察/E1_行业话题/v1.md')} · E2_营销节点 · E3_平台新鲜事 · E4_营销发现
+          ${maLink('skills/topic6-insight/02_洞察/_shared/role_style.md', '_shared/role_style.md')}
+        </p>
+        <h3>Phase F pipeline</h3>
+        <p>${maLink('skills/topic6-insight/scripts/pipeline_f.py')}(coordinator 用,拼接四版块 md)</p>
+        <h3>挂载在谁上</h3>
+        <ul>
+          <li><b>Coordinator</b>(Phase F pipeline_f.py)</li>
+          <li><b>Insighter</b>(Phase E 四路洞察)</li>
+        </ul>
+      `
+    },
+    S5: {
+      title: "Skill · topic6-web-report",
+      tags: ['<span class="tag skill">Custom Skill</span>'],
+      desc: "客户外部 skill v1.1.0 的复刻,Phase G 把飞书文档转成自包含 index.html。",
+      content: `
+        <h3>Skill 目录</h3>
+        <p>${maLink('skills/topic6-web-report/SKILL.md')} → 沙箱 <code>/mnt/skills/topic6-web-report/</code></p>
+        <h3>渲染入口</h3>
+        <ul>
+          <li>${maLink('skills/topic6-web-report/assets/source/build-report.mjs', 'build-report.mjs')}(Node.js)</li>
+          <li>模板:${maLink('skills/topic6-web-report/assets/source/index.html')} + ${maLink('skills/topic6-web-report/assets/source/styles.css')} + ${maLink('skills/topic6-web-report/assets/source/app.js')}</li>
+          <li>Source schema:${maLink('skills/topic6-web-report/assets/source/source.example.json')}</li>
+        </ul>
+        <h3>Validator(3 个)</h3>
+        <p>
+          ${maLink('skills/topic6-web-report/scripts/validate-case-image-sources.mjs', 'validate-case-image-sources.mjs')}
+          ${maLink('skills/topic6-web-report/scripts/validate-rendered-content.mjs', 'validate-rendered-content.mjs')}
+          ${maLink('skills/topic6-web-report/scripts/validate-template-assets.mjs', 'validate-template-assets.mjs')}
+        </p>
+        <h3>参考</h3>
+        <p>
+          ${maLink('skills/topic6-web-report/references/document-image-extraction.md', 'document-image-extraction.md')}
+          ${maLink('skills/topic6-web-report/references/html-snapshot-upload.md', 'html-snapshot-upload.md')}
+        </p>
+        <h3>挂载在谁上</h3>
+        <ul>
+          <li>只挂 <b>Coordinator</b>(Phase G 单点执行)</li>
+        </ul>
+      `
+    },
+    MEM: {
+      title: "Memory Store · /mnt/memory/topic6/",
+      tags: ['<span class="tag platform">MA 平台资源</span>'],
+      desc: "MA 平台的 Memory 能力,把三份 markdown 挂到 sandbox 只读路径。",
+      content: `
+        <h3>定义文件</h3>
+        <p>${maLink('memory-store.json')}</p>
+        <h3>挂载文件</h3>
+        <ul>
+          <li>${maLink('memory/topic6/MEMORY.md')} → 全局必读清单</li>
+          <li>${maLink('memory/topic6/_版本状态.md')} → C0 / R1~R5 / C2 / C3 各任务权威 Prompt 版本</li>
+          <li>${maLink('memory/topic6/错误案例库.md')} → 历史踩坑</li>
+        </ul>
+        <h3>挂载路径</h3>
+        <ul>
+          <li>沙箱 <code>/mnt/memory/topic6/</code> · <b>只读</b></li>
+          <li>Coordinator 每次启动都读三个文件(system prompt §二 · 启动序列强制)</li>
+        </ul>
+        <div class="note ma">项目规则:<b>coordinator 只读 memory</b>,写 memory 走 gateway 侧 API(未来 Phase I 反思复盘写回时会用到)。</div>
+      `
+    },
+    MCP: {
+      title: "MCP Server · hot-topics",
+      tags: ['<span class="tag platform">MA 平台资源</span>'],
+      desc: "外部 MCP 服务器,提供四平台上周热搜数据抓取能力。",
+      content: `
+        <h3>接入方式</h3>
+        <ul>
+          <li>URL 由环境变量 <code>HOT_TOPICS_MCP_URL</code> 提供</li>
+          <li>${maLink('agents/coordinator.json', 'coordinator.json')} 的 <code>mcp_servers</code> + <code>mcp_toolset</code> 两段共同注入</li>
+          <li>${maLink('create_all.sh')} 在注册 coordinator 前<b>必须校验并渲染 <code>${'$'}{HOT_TOPICS_MCP_URL}</code></b> 占位符</li>
+          <li>授权模式 <code>always_allow</code> — coordinator 调 MCP 工具不需要每次确认</li>
+        </ul>
+        <h3>使用范围</h3>
+        <ul>
+          <li>只挂 <b>Coordinator</b>,Annotator/Insighter 都不需要</li>
+          <li>调用点:Phase A 取数(fetch_hot_topics.py 内部走 MCP)</li>
+        </ul>
+      `
+    },
+    WS: {
+      title: "沙箱工作区 · /workspace + /mnt/session/outputs",
+      tags: ['<span class="tag platform">MA 平台资源</span>'],
+      desc: "MA 沙箱内两个关键路径:工作区 + TOS 落盘。",
+      content: `
+        <h3>/workspace/Projects/{PROJECT_DIR}/</h3>
+        <ul>
+          <li>Coordinator / Annotator / Insighter 三方共享的持久化目录</li>
+          <li>子目录:<code>01_原始数据/</code> · <code>02_标准化/</code> · <code>03_抽样/</code> · <code>04_标注/</code> · <code>04_筛选/</code> · <code>05_合并/</code> · <code>06_洞察/</code> · <code>07_ui/</code> · <code>08_UI发布/</code> · <code>costs/</code></li>
+          <li>状态锚点:<code>run_config.yaml</code>(current_phase / online_url / cost / project_dir)</li>
+          <li><b>MA 沙箱状态自动持久化</b>,断点续跑时 coordinator 直接从 <code>run_config.yaml</code> 恢复</li>
+        </ul>
+        <h3>/mnt/session/outputs/</h3>
+        <ul>
+          <li><b>最终产物挂载点</b>:方舟平台自动落到自有 TOS,便于外部下载</li>
+          <li>典型内容:HC1/HC2 卡片引用的 wide_table_test/full_r{N}.xlsx · Phase G 的 index.html</li>
+        </ul>
+        <h3>项目目录命名</h3>
+        <p><code>W{周次}热点周报_{起日}-{止日}</code>(见 topic6-annotation/prompt/run_config契约.md)</p>
+      `
+    }
+  };
+
+  const detailEl = document.getElementById("detail");
+  function renderDetail(key) {
+    const d = DETAILS[key];
+    if (!d) {
+      detailEl.innerHTML = `<p class="placeholder">该组件暂无详细说明<br><code>${key}</code></p>`;
+      return;
+    }
+    detailEl.innerHTML = `
+      <h2>${d.title}</h2>
+      <div>${(d.tags||[]).join(" ")}</div>
+      <p class="desc">${d.desc || ""}</p>
+      ${d.content || ""}
+    `;
+    detailEl.scrollTop = 0;
+  }
+
+  mermaid.initialize({ startOnLoad: true, theme: "default", flowchart: { curve: "basis" } });
+
+  window.addEventListener("load", () => {
+    setTimeout(() => {
+      const svg = document.querySelector("#diagram svg");
+      if (!svg) return;
+      let currentSelected = null;
+      svg.querySelectorAll(".node").forEach(nodeEl => {
+        nodeEl.style.cursor = "pointer";
+        nodeEl.addEventListener("click", () => {
+          const rawId = nodeEl.id || "";
+          const match = rawId.match(/flowchart-(.+?)-\d+$/);
+          const key = match ? match[1] : rawId;
+          if (currentSelected) currentSelected.classList.remove("selected");
+          nodeEl.classList.add("selected");
+          currentSelected = nodeEl;
+          renderDetail(key);
+        });
+      });
+      svg.querySelectorAll(".cluster").forEach(cl => {
+        cl.style.cursor = "pointer";
+        cl.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const id = cl.id.replace(/^flowchart-/, "").replace(/-\d+$/, "");
+          if (currentSelected) currentSelected.classList.remove("selected");
+          renderDetail(id);
+        });
+      });
+    }, 400);
+  });
+</script>
+</body>
+</html>

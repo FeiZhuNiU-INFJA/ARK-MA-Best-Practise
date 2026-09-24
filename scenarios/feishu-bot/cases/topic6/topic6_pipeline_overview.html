@@ -1,0 +1,1496 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>topic6 Pipeline · 交互式全景</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fafafa;
+    --card-bg: #fff;
+    --border: #e5e7eb;
+    --primary: #2563eb;
+    --secondary: #64748b;
+    --hc: #f97316;
+    --success: #10b981;
+    --code-bg: #f3f4f6;
+    --text: #1f2937;
+    --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  header {
+    padding: 12px 20px;
+    background: var(--card-bg);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 18px; margin: 0 0 4px 0; }
+  header .subtitle { font-size: 12px; color: var(--muted); }
+  .legend {
+    display: inline-flex;
+    gap: 10px;
+    margin-left: 16px;
+    font-size: 12px;
+    vertical-align: middle;
+  }
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--code-bg);
+    padding: 2px 8px;
+    border-radius: 3px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(340px, 32vw, 460px);
+    min-height: 0;
+  }
+  .diagram-pane {
+    min-width: 0;
+    overflow: auto;
+    padding: 20px;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+  }
+  .detail-pane {
+    min-width: 0;
+    overflow-y: auto;
+    padding: 20px 24px;
+    background: var(--card-bg);
+  }
+  .mermaid {
+    cursor: default;
+    min-width: 700px;
+    margin: 0;
+  }
+  .mermaid svg {
+    display: block;
+    margin: 0 auto;
+  }
+  .mermaid .node { cursor: pointer; transition: opacity 0.2s; }
+  .mermaid .node:hover { opacity: 0.75; }
+  .mermaid .node.selected rect,
+  .mermaid .node.selected polygon,
+  .mermaid .node.selected circle {
+    stroke-width: 3px !important;
+    stroke: #2563eb !important;
+    filter: drop-shadow(0 0 6px rgba(37,99,235,0.4));
+  }
+
+  .detail-pane h2 {
+    font-size: 18px;
+    margin: 0 0 4px 0;
+    color: var(--primary);
+  }
+  .detail-pane .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 500;
+    background: #dbeafe;
+    color: #1e40af;
+    margin-right: 6px;
+  }
+  .detail-pane .tag.hc { background: #ffedd5; color: #9a3412; }
+  .detail-pane .tag.final { background: #d1fae5; color: #065f46; }
+  .detail-pane .tag.time { background: #f3f4f6; color: #4b5563; }
+  .detail-pane h3 {
+    font-size: 14px;
+    margin: 20px 0 6px 0;
+    color: var(--secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 3px;
+  }
+  .detail-pane p, .detail-pane li { font-size: 14px; }
+  .detail-pane ul { padding-left: 22px; margin: 6px 0; }
+  .detail-pane .desc {
+    color: var(--secondary);
+    margin: 8px 0 12px 0;
+    font-size: 13px;
+  }
+  code {
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-family: "SF Mono", Menlo, monospace;
+    color: #be185d;
+  }
+  a { color: var(--primary); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .file-link {
+    display: inline-block;
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    margin: 2px 4px 2px 0;
+    color: var(--primary);
+  }
+  .file-link:hover { background: #e0e7ff; }
+  .note {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 6px;
+    padding: 8px 10px;
+    background: #fef3c7;
+    border-left: 3px solid #f59e0b;
+    border-radius: 3px;
+  }
+  .note.ma {
+    background: #eff6ff;
+    border-left-color: #2563eb;
+    color: #1e3a8a;
+  }
+  .file-link.ma {
+    color: #1d4ed8;
+    background: #eff6ff;
+  }
+  .file-link.ma:hover { background: #dbeafe; }
+  .ma-block h4 {
+    font-size: 12px;
+    margin: 10px 0 4px 0;
+    color: #1e40af;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .ma-block ul { margin: 4px 0; }
+  .ma-block .path {
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11.5px;
+    color: #334155;
+  }
+  .sample {
+    font-size: 12px;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 10px 12px;
+    border-radius: 4px;
+    font-family: "SF Mono", Menlo, monospace;
+    white-space: pre;
+    overflow-x: auto;
+    margin: 6px 0 10px 0;
+    line-height: 1.5;
+  }
+  .sample .k { color: #93c5fd; }
+  .sample .s { color: #86efac; }
+  .sample .c { color: #94a3b8; font-style: italic; }
+  .sample-note {
+    font-size: 11px;
+    color: var(--muted);
+    margin: -6px 0 8px 2px;
+  }
+  .placeholder {
+    color: var(--muted);
+    font-size: 14px;
+    text-align: center;
+    margin-top: 40px;
+  }
+
+  @media (max-width: 1100px) {
+    .layout {
+      grid-template-columns: minmax(0, 1fr) 340px;
+    }
+    .diagram-pane {
+      padding: 16px;
+    }
+    .detail-pane {
+      padding: 18px;
+    }
+  }
+
+  @media (max-width: 960px) {
+    header {
+      padding: 10px 14px;
+    }
+    header .subtitle {
+      display: block;
+      margin-top: 2px;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 8px 0 0;
+    }
+    .layout {
+      grid-template-columns: minmax(600px, 1fr) minmax(280px, 32vw);
+      overflow-x: auto;
+    }
+    .diagram-pane {
+      padding: 12px;
+    }
+    .detail-pane {
+      padding: 16px;
+    }
+    .mermaid {
+      min-width: 680px;
+    }
+  }
+
+  @media (max-width: 480px) {
+    header h1 {
+      font-size: 16px;
+    }
+    .legend-item {
+      padding: 2px 6px;
+    }
+    .diagram-pane {
+      padding: 10px;
+    }
+    .detail-pane {
+      padding: 14px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>topic6 · 热点周报 Pipeline · 交互式全景</h1>
+  <span class="subtitle">点击左侧任一节点,右侧显示该节点的详细说明与文件索引</span>
+  <span class="legend">
+    <span class="legend-item"><span class="dot" style="background:#2563eb"></span> 自动阶段</span>
+    <span class="legend-item"><span class="dot" style="background:#f97316"></span> HC 人工关卡</span>
+    <span class="legend-item"><span class="dot" style="background:#10b981"></span> 最终交付</span>
+    <span class="legend-item"><span class="dot" style="background:#94a3b8"></span> DataHub 标注</span>
+  </span>
+</header>
+
+<div class="layout">
+  <div class="diagram-pane">
+    <pre class="mermaid" id="diagram">
+flowchart TD
+    START([用户消息 · 热点报告/周报<br/>· 定时任务触发 · 取数周期默认]):::entry --> INIT[启动序列<br/>读 MEMORY / 建项目]:::step
+    INIT --> A[Phase A+B<br/>取数 + 标准化]:::step
+    A --> SAMPLE{是否 test 模式}:::step
+    SAMPLE -- test --> S[抽样 500 条]:::step
+    SAMPLE -- full --> C1
+    S --> C1
+
+    subgraph C_BATCH1 [Phase C 第一批 · 并发]
+      C1[C0 基础事实层]:::datahub
+      C3[C3 节点标注]:::datahub
+    end
+
+    C1 --> FILTER
+    C3 --> FILTER
+    FILTER[筛选<br/>是否营销可用 = 是]:::step
+
+    subgraph C_BATCH2 [Phase C 第二批 · 并发 · 只跑筛选子集]
+      R1[R1 平台玩法]:::datahub
+      R2[R2 商业合作]:::datahub
+      R3[R3 风险预警]:::datahub
+      R4[R4 营销发现]:::datahub
+      R5[R5 消费者行为]:::datahub
+      C2[C2 事件合并<br/>external skill]:::step
+    end
+
+    FILTER --> R1
+    FILTER --> R2
+    FILTER --> R3
+    FILTER --> R4
+    FILTER --> R5
+    FILTER --> C2
+
+    R1 --> D
+    R2 --> D
+    R3 --> D
+    R4 --> D
+    R5 --> D
+    C2 --> D
+    D[Phase D · 合并<br/>row_id LEFT JOIN 七路]:::step
+
+    D --> HC1[HC1 小样本验收]:::hc
+    HC1 -- 通过 --> FULL[C→D 全量重跑]:::step
+    FULL --> HC2[HC2 全量验收]:::hc
+    HC2 -- 通过 --> E1
+    HC2 -- 通过 --> E2
+    HC2 -- 通过 --> E3
+    HC2 -- 通过 --> E4
+
+    subgraph E_BATCH [Phase E 四版块洞察 · 并发]
+      E1[E1 行业及热门话题]:::step
+      E2[E2 营销节点]:::step
+      E3[E3 平台新鲜事]:::step
+      E4[E4 营销发现]:::step
+    end
+
+    E1 --> F
+    E2 --> F
+    E3 --> F
+    E4 --> F
+    F[Phase F · 合并发布<br/>推飞书文档 + 授权]:::step
+
+    F --> HC3[HC3 报告审核]:::hc
+    HC3 -- 通过 --> G[Phase G · UI 网页发布]:::step
+    G --> H[Phase H · 妙搭发布]:::final
+    H --> END([公网链接]):::final
+
+    classDef step fill:#fff,stroke:#94a3b8,color:#1f2937;
+    classDef datahub fill:#f1f5f9,stroke:#94a3b8,color:#1f2937;
+    classDef hc fill:#ffedd5,stroke:#f97316,color:#9a3412;
+    classDef final fill:#d1fae5,stroke:#10b981,color:#065f46;
+    classDef entry fill:#dbeafe,stroke:#2563eb,color:#1e40af;
+    </pre>
+  </div>
+
+  <div class="detail-pane" id="detail">
+    <p class="placeholder">← 点击左侧任一节点<br>查看详细说明</p>
+  </div>
+</div>
+
+<script>
+  const BASE = "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/assets_from_customer/topic6";
+  const link = (path, label) => `<a class="file-link" href="${BASE}/${path}">${label || path}</a>`;
+
+  // MA 复刻资源根目录 · 指向本仓库 ma-resources/
+  const MA_BASE = "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources";
+  const maLink = (path, label) => `<a class="file-link ma" href="${MA_BASE}/${path}">${label || path}</a>`;
+  // gateway 侧代码
+  const GW_BASE = "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent/gateway";
+  const gwLink = (path, label) => `<a class="file-link ma" href="${GW_BASE}/${path}">${label || path}</a>`;
+
+  // 节点详情:key 必须与 mermaid 中节点 id 完全一致
+  const DETAILS = {
+    START: {
+      title: "触发入口",
+      tags: ['<span class="tag">自动</span>'],
+      desc: "用户在飞书里发一句包含 <code>热点报告</code> 或 <code>热点周报</code> 的消息,Agent 被激活。",
+      content: `
+        <h3>做了什么</h3>
+        <ul>
+          <li>匹配触发词,识别用户想跑的周次(默认上一个自然周)</li>
+          <li>解析可选参数:test 或 full 模式、指定周次等</li>
+        </ul>
+        <h3>关键文件</h3>
+        <p>${link('prompt/00_角色与触发.md')}</p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>入口链路</h4>
+          <ul>
+            <li>飞书用户 @Bot 或私聊发消息 → ${gwLink('../arkagent/feishu.py', 'feishu.py')} 收到 <code>im.message.receive_v1</code></li>
+            <li>${gwLink('orchestrator.py')} 里 <code>_dispatch_message</code> 命中触发词 <code>热点报告</code>/<code>热点周报</code> → 调 <code>Topic6Runner.start_job(chat_id, open_id, text)</code></li>
+            <li>${gwLink('topic6_runner.py')} 生成 <code>job_id</code>,写 pipeline_store,调 Ark <code>agents.chat.completions.create(stream=true)</code> 起 SSE 流</li>
+            <li>白名单鉴权:${gwLink('../arkagent/config.py', 'config.py')} 的 <code>AUTHORIZED_OPEN_IDS</code> 环境变量,非白名单直接拒</li>
+          </ul>
+          <h4>定时任务(backlog,尚未实现)</h4>
+          <ul>
+            <li>gateway 层挂 APScheduler,到点 <code>Topic6Runner.start_job(chat_id=<i>群 ID</i>, open_id=<i>SYSTEM</i>, text="热点周报")</code>,取数周期用默认值</li>
+          </ul>
+        </div>
+      `
+    },
+    INIT: {
+      title: "启动序列",
+      tags: ['<span class="tag">自动</span>'],
+      desc: "读记忆 / 检查项目目录 / 决定新建还是恢复中断。",
+      content: `
+        <h3>做了什么</h3>
+        <ul>
+          <li>读 <code>lm/MEMORY.md</code> 的必读清单,了解全局规则</li>
+          <li>读 <code>lm/错误案例库.md</code>,避免重复踩坑</li>
+          <li>读 <code>lm/_版本状态.md</code> 确认 C0/R1~R5/C2/C3 当前用哪个 Prompt 版本</li>
+          <li>如果项目目录已存在 → 从 <code>run_config.yaml</code> 的 <code>current_phase</code> 断点恢复;否则复制 <code>Projects/_项目模板/</code> 新建</li>
+        </ul>
+        <h3>关键文件</h3>
+        <p>
+          ${link('lm/MEMORY.md')}
+          ${link('lm/_版本状态.md')}
+          ${link('lm/错误案例库.md')}
+          ${link('prompt/运行前置.md')}
+          ${link('prompt/run_config契约.md')}
+        </p>
+        <h3>产物</h3>
+        <p><code>Projects/{PROJECT_DIR}/run_config.yaml</code> · 状态机文件,后续每步都会读写</p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>Agent · Coordinator</h4>
+          <ul>
+            <li>System Prompt:${maLink('agents/coordinator.system.md')}(§二 · 启动序列)</li>
+            <li>Agent 定义:${maLink('agents/coordinator.json')}</li>
+          </ul>
+          <h4>Memory 挂载(只读)</h4>
+          <ul>
+            <li>${maLink('memory/topic6/MEMORY.md')} → 沙箱 <code>/mnt/memory/topic6/MEMORY.md</code></li>
+            <li>${maLink('memory/topic6/_版本状态.md')} → <code>/mnt/memory/topic6/_版本状态.md</code>(权威 Prompt 版本表)</li>
+            <li>${maLink('memory/topic6/错误案例库.md')} → <code>/mnt/memory/topic6/错误案例库.md</code></li>
+            <li>Memory Store 定义:${maLink('memory-store.json')}(source_file 指向 ma-resources 隔离目录)</li>
+          </ul>
+          <h4>工作区</h4>
+          <ul>
+            <li><code>/workspace/Projects/{PROJECT_DIR}/run_config.yaml</code> — MA 沙箱自动持久化,支持断点续跑</li>
+            <li>gateway 侧 job 状态:${gwLink('pipeline_store.py')}(SQLite,job_id ↔ chat_id/open_id/phase)</li>
+          </ul>
+        </div>
+      `
+    },
+    A: {
+      title: "Phase A+B · 取数 + 标准化",
+      tags: ['<span class="tag">自动</span>', '<span class="tag time">脚本 · 无 LLM</span>'],
+      desc: "从 4 个平台拉上周热搜,把各家不同口径的热度值统一成 0~100 的可比较分。",
+      content: `
+        <h3>做了什么</h3>
+        <ul>
+          <li><b>取数(Phase A)</b>:通过 hot-topics MCP 拉微博 / 抖音 / B站 / 知乎上周热搜。每平台字段和量级都不一样。</li>
+          <li><b>log1p 变换(Phase B)</b>:对原始热度值取 <code>log(1+x)</code>,把长尾分布压平,避免头部把其他条压到 0。</li>
+          <li><b>P1/P99 百分位归一化</b>:按平台分组,第 1 百分位 → 0 分,第 99 百分位 → 100 分,线性映射到中间。比 min/max 更稳,不会被极端值拖飞。</li>
+        </ul>
+        <h3>输出</h3>
+        <p><code>02_标准化/hot_topics_normalized.xlsx</code> · 9 列基础表(row_id / platform / title / desc / hot_index / heat_score / time / url / thumbnail / week_num)</p>
+        <h3>输出示例(单行)</h3>
+        <div class="sample">row_id     : W37_weibo_001
+platform   : weibo
+title      : 杨紫官宣XX防晒衣品牌代言
+desc       : 官宣海报刷屏,粉丝热议合作调性
+hot_index  : 1284392        <span class="c">// 微博原始阅读+讨论综合值</span>
+heat_score : 87.4           <span class="c">// P1/P99 归一化后的 0~100 分</span>
+time       : 2026-09-10 14:22
+url        : https://...
+week_num   : W37</div>
+        <p class="sample-note">依据 <code>skill/fetch-normalize/pipeline_ab.py</code> 契约合成的示意,非真实产物。</p>
+        <h3>关卡</h3>
+        <p>行数 > 200 · 四平台均有数据 · 各平台最高分 > 90 · 无 NaN</p>
+        <h3>关键文件</h3>
+        <p>
+          ${link('prompt/02_阶段_A取数标准化.md')}
+          ${link('skill/fetch-normalize/pipeline_ab.py')}
+          ${link('tool/hot-topics-mcp', 'tool/hot-topics-mcp')}
+          ${link('skill/fetch-normalize/references', 'references/(热度基准+节点日历)')}
+          ${link('ks/01_热度度量口径.md')}
+        </p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>承担者</h4>
+          <ul>
+            <li><b>Coordinator 自己 bash</b>(顺序阶段,不委派子 Agent)</li>
+          </ul>
+          <h4>Skill · topic6-fetch-normalize</h4>
+          <ul>
+            <li>${maLink('skills/topic6-fetch-normalize/SKILL.md')} → 沙箱 <code>/mnt/skills/topic6-fetch-normalize/</code></li>
+            <li>取数:${maLink('skills/topic6-fetch-normalize/scripts/fetch_hot_topics.py')} + hot-topics MCP(注入至 coordinator,URL 由 <code>HOT_TOPICS_MCP_URL</code> 环境变量渲染)</li>
+            <li>log1p + P1/P99 归一化:${maLink('skills/topic6-fetch-normalize/scripts/log1p_p1p99_normalize.py')}</li>
+            <li>热度基准表:${maLink('skills/topic6-fetch-normalize/references/平台热度基准_2026.json')}</li>
+          </ul>
+          <h4>Coordinator 编排</h4>
+          <ul>
+            <li>System Prompt §四 · Phase A+B:${maLink('agents/coordinator.system.md', 'coordinator.system.md#Phase-A+B')}</li>
+            <li>MCP 服务器注入:见 ${maLink('agents/coordinator.json')} 的 <code>mcp_servers</code> 段</li>
+          </ul>
+          <h4>路径映射</h4>
+          <ul>
+            <li class="path">客户 <code>Projects/{PROJECT_DIR}/02_标准化/</code> → MA <code>/workspace/Projects/{PROJECT_DIR}/02_标准化/hot_topics_normalized.xlsx</code></li>
+          </ul>
+        </div>
+      `
+    },
+    SAMPLE: {
+      title: "分支 · test / full 模式判断",
+      tags: ['<span class="tag">路由</span>'],
+      desc: "决定接下来先跑小样本预演,还是直接跑全量。",
+      content: `
+        <h3>为什么要分两条路</h3>
+        <p>全量约 3500 条 × 7 路标注 = 3.5 小时 + ¥30~50 成本。直接全量跑,万一 Prompt 有 bug 就白烧。</p>
+        <p><b>test 模式</b>:抽 500 条先跑一遍 → HC1 快速验质量 → 通过再跑全量 → HC2 验收。<br><b>full 模式</b>:数据总量本来就少(≤ 500),直接跳过抽样。</p>
+        <h3>特殊情况</h3>
+        <div class="note">当数据总量 ≤ 500 时,test = full。但 HC1 和 HC2 <b>仍然都不能跳过</b>——它们检查的对象不同(HC1 看标注质量,HC2 看全量分布)。</div>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>决策位置</h4>
+          <ul>
+            <li>用户消息里带 <code>mode=test</code> 或 <code>mode=full</code>,${gwLink('topic6_runner.py')} 解析后写入 <code>run_config.yaml</code></li>
+            <li>Coordinator 在 System Prompt §四 · 抽样处读 <code>mode</code>,决定跑不跑 sample_500</li>
+          </ul>
+        </div>
+      `
+    },
+    S: {
+      title: "抽样 · 500 条(仅 test 模式)",
+      tags: ['<span class="tag">脚本</span>', '<span class="tag time">秒级</span>'],
+      desc: "按平台分层抽 500 条(seed=42),用于 HC1 小样本验收。",
+      content: `
+        <h3>做了什么</h3>
+        <ul>
+          <li>按 <code>platform</code> 列分层</li>
+          <li>各平台按行数占比 + 最大余数法(Hamilton)分配配额,总数恰好 500</li>
+          <li>平台行数不足配额时,取该平台全量,余量追加给最大平台</li>
+          <li>固定 seed=42,结果可复现</li>
+        </ul>
+        <p><b>为什么分层</b>:微博约占 54%,简单随机会让小平台在 500 里只剩个位数,HC1 无法判断该平台标注质量。</p>
+        <h3>输出</h3>
+        <p><code>03_抽样/sample_500.xlsx</code></p>
+        <h3>关键文件</h3>
+        <p>
+          ${link('prompt/03_阶段_抽样.md')}
+          ${link('skill/fetch-normalize/sample_500.py')}
+        </p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>承担者:Coordinator 自己 bash</h4>
+          <ul>
+            <li>脚本:${maLink('skills/topic6-fetch-normalize/scripts/sample_500.py')} → <code>/mnt/skills/topic6-fetch-normalize/scripts/sample_500.py</code></li>
+            <li>输入:<code>/workspace/Projects/{PROJECT_DIR}/02_标准化/hot_topics_normalized.xlsx</code></li>
+            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/03_抽样/sample_500.xlsx</code></li>
+            <li>关键参数:<code>--seed 42</code> · Hamilton 分层配额</li>
+          </ul>
+        </div>
+      `
+    },
+    C1: {
+      title: "C0 · 基础事实层标注",
+      tags: ['<span class="tag">DataHub</span>', '<span class="tag time">≈38min / 3517条</span>'],
+      desc: "对每条热搜抽取 9 个结构化字段,并判定「是否营销可用」。",
+      content: `
+        <h3>做了什么</h3>
+        <p>把每条热搜的 <code>平台|标题|描述</code> 提交给 DataHub,让 DeepSeek-V4-Flash 按 Step 1~9 顺序判断,输出单行 JSON。</p>
+        <ul>
+          <li>Step1 商业实体(品牌/明星/IP...)</li>
+          <li>Step2 热点驱动词</li>
+          <li>Step3 行业归属(26 项白名单)</li>
+          <li>Step4 营销触发方式</li>
+          <li>Step5 营销维度</li>
+          <li>Step6 平台原生形式(是/否)</li>
+          <li>Step7 不可用原因</li>
+          <li>Step8 <b>是否营销可用</b>(全局闸门字段,决定后续 R1~R5 要不要跑)</li>
+          <li>Step9 判断说明(40 字内)</li>
+        </ul>
+        <h3>输出</h3>
+        <p><code>04_标注/c0_raw.jsonl</code></p>
+        <h3>输出示例(单行 JSONL)</h3>
+        <div class="sample">{
+  <span class="k">"row_id"</span>: <span class="s">"W37_weibo_001"</span>,
+  <span class="k">"商业实体"</span>: <span class="s">"杨紫|XX防晒衣"</span>,
+  <span class="k">"热点驱动词"</span>: <span class="s">"杨紫|XX防晒衣"</span>,
+  <span class="k">"行业归属"</span>: <span class="s">"服饰鞋包"</span>,
+  <span class="k">"营销触发方式"</span>: <span class="s">"主动营销"</span>,
+  <span class="k">"营销维度"</span>: <span class="s">"品牌/产品相关|明星/IP相关"</span>,
+  <span class="k">"平台原生形式"</span>: <span class="s">"否"</span>,
+  <span class="k">"不可用原因"</span>: <span class="s">"无"</span>,
+  <span class="k">"是否营销可用"</span>: <span class="s">"是"</span>,
+  <span class="k">"判断说明"</span>: <span class="s">"明星×品牌代言官宣,涉商业合作和明星IP价值变动"</span>
+}</div>
+        <p class="sample-note">依据 <code>skill/annotation/prompts/C0_基础事实/v4.md</code> Step1~9 合成的示意。</p>
+        <h3>关键文件</h3>
+        <p>
+          ${link('prompt/04_阶段_C标注.md')}
+          ${link('skill/annotation/SKILL.md')}
+          ${link('skill/annotation/prompts/C0_基础事实', 'prompts/C0_基础事实/v4.md')}
+          ${link('skill/annotation/scripts/datahub_submit.py')}
+          ${link('skill/annotation/scripts/datahub_poll.py')}
+          ${link('tool/datahub', 'tool/datahub/')}
+          ${link('ks/02_营销可用判定.md')}
+        </p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>承担者:子 Agent · topic6-annotator(委派实例 #1,与 C3 并发)</h4>
+          <ul>
+            <li>Coordinator 通过 <code>multiagent</code> 委派,发 <code>{"task":"c0",...}</code> 给 annotator</li>
+            <li>Annotator System Prompt:${maLink('agents/annotator.system.md')} · §二 task=c0 分支</li>
+            <li>Annotator Agent 定义:${maLink('agents/annotator.json')}</li>
+          </ul>
+          <h4>Skill · topic6-annotation</h4>
+          <ul>
+            <li>SKILL:${maLink('skills/topic6-annotation/SKILL.md')} → <code>/mnt/skills/topic6-annotation/</code></li>
+            <li>Prompt:${maLink('skills/topic6-annotation/prompts/C0_基础事实/v1.md')}(v1 = 客户 v4 迁移版,权威版本由 <code>/mnt/memory/topic6/_版本状态.md</code> 指定)</li>
+            <li>标注脚本(5 合 1):${maLink('skills/topic6-annotation/scripts/datahub_annotate.py')}(合并 submit/poll/expand/flatten/timewindow)</li>
+            <li>字段速查:${maLink('skills/topic6-annotation/ks/_字段速查.md')} · 营销可用判定:${maLink('skills/topic6-annotation/ks/02_营销可用判定.md')}</li>
+            <li>成本记录:${maLink('skills/topic6-annotation/tool/cost-tracker/cost_tracker.py')}</li>
+          </ul>
+          <h4>路径改写</h4>
+          <ul>
+            <li class="path"><code>skill/annotation/</code> → <code>/mnt/skills/topic6-annotation/</code></li>
+            <li class="path"><code>Projects/{PROJECT_DIR}/04_标注/c0_raw.jsonl</code> → <code>/workspace/Projects/{PROJECT_DIR}/04_标注/c0_raw.jsonl</code></li>
+          </ul>
+        </div>
+      `
+    },
+    C3: {
+      title: "C3 · 节点标注",
+      tags: ['<span class="tag">DataHub</span>'],
+      desc: "标注每条热搜是否与营销节日/节气相关,以及是否在窗口期内。",
+      content: `
+        <h3>做了什么</h3>
+        <p>让 LLM 判断热搜与营销节点(节日、节气、大促)的关联:节点名 / 是否节日营销 / 是否窗口期内 / 关联说明。<br><b>与 C0 并发,不受 C0 筛选影响</b>——因为节点判断只看内容本身,和"营销可用"无关。</p>
+        <h3>输入规模(容易误解的点)</h3>
+        <div class="note">
+          C3 <b>不是"永远全量"</b>,而是"跟 C0 走同一份输入":<br>
+          · <b>test 模式</b>:输入 = sample_500(500 条),C3 也只跑 500 条<br>
+          · <b>full 模式</b>:输入 = 标准化全量表,C3 才跑全量<br>
+          白板图上的"独立全量"标签指的是<b>不被 C0 筛选切掉</b>,而不是"跨模式恒定全量"。依据:<code>prompt/03_阶段_抽样.md</code> 明确"仅 test 模式经过抽样,full 模式直接用标准化全量表作 C0/C3 输入"。
+        </div>
+        <h3>输出</h3>
+        <p><code>04_标注/c3_raw.jsonl</code></p>
+        <h3>输出示例(单行 JSONL)</h3>
+        <div class="sample">{
+  <span class="k">"row_id"</span>: <span class="s">"W37_douyin_042"</span>,
+  <span class="k">"关联节点"</span>: <span class="s">"中秋节"</span>,
+  <span class="k">"是否节日营销"</span>: <span class="s">"是"</span>,
+  <span class="k">"是否窗口期内"</span>: <span class="s">"是"</span>,
+  <span class="k">"节点说明"</span>: <span class="s">"月饼礼盒开箱内容,W37 处于中秋备货窗口"</span>
+}</div>
+        <p class="sample-note">依据 <code>skill/annotation/prompts/节点标注/</code> + <code>ks/04_节点判定.md</code> 合成。</p>
+        <h3>关键文件</h3>
+        <p>
+          ${link('skill/annotation/prompts/节点标注')}
+          ${link('skill/annotation/scripts/c3_postprocess.py')}
+          ${link('skill/annotation/scripts/c3_v6_flatten.py')}
+          ${link('skill/annotation/scripts/c3_v6_timewindow.py')}
+          ${link('ks/04_节点判定.md')}
+        </p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>承担者:子 Agent · topic6-annotator(委派实例 #2,与 C0 并发)</h4>
+          <ul>
+            <li>Coordinator 委派 <code>{"task":"c3",...}</code> 给 annotator(同一 Agent 定义,不同 task 分支)</li>
+            <li>Annotator System Prompt:${maLink('agents/annotator.system.md')} · §二 task=c3 行</li>
+          </ul>
+          <h4>Prompt 与脚本</h4>
+          <ul>
+            <li>Prompt:${maLink('skills/topic6-annotation/prompts/节点标注/v1.md')}(对应客户 v6 系列)</li>
+            <li>节点日历基线:${maLink('skills/topic6-annotation/references/marketing_calendar/nodes_definition.csv')} + ${maLink('skills/topic6-annotation/references/marketing_calendar/nodes_definition_supplement.csv')}</li>
+            <li>flatten + timewindow 已合并进 ${maLink('skills/topic6-annotation/scripts/datahub_annotate.py')}(--task c3 分支)</li>
+            <li>节点判定 ks:${maLink('skills/topic6-annotation/ks/04_节点判定.md')}</li>
+          </ul>
+        </div>
+      `
+    },
+    FILTER: {
+      title: "Phase C · 筛选(纯脚本)",
+      tags: ['<span class="tag">脚本</span>', '<span class="tag time">秒级 · 零成本</span>'],
+      desc: "合并 C0+C3,按「是否营销可用=是」筛出子集,只有子集进入第二批标注。",
+      content: `
+        <h3>做了什么</h3>
+        <ul>
+          <li>合并 C0 和 C3 到同一张宽表(<code>c0_merge_phase1.py</code>)</li>
+          <li>按 C0 的 "是否营销可用"=是 筛出子集(<code>c0_filter_usable.py</code>)</li>
+          <li>解析失败/缺失默认保留,但占比 > 5% 时熔断</li>
+          <li>触发补标注闭环 <code>c0_retry_missing.py --task c0</code>,最多重试 3 轮</li>
+        </ul>
+        <p><b>为什么要筛</b>:R1~R5 五路二分类每条也要过 LLM,如果对全量数据都跑,成本 × 5、时间 × 5。C0 已经判断出「这条根本没营销价值」就没必要再往下问。</p>
+        <h3>输出</h3>
+        <p><code>04_标注/c0_c3_merged.xlsx</code> + <code>usable_subset.xlsx</code></p>
+        <h3>输出示例(筛选后子集,单行)</h3>
+        <div class="sample">row_id       : W37_weibo_001
+是否营销可用 : 是
+关联节点     : 无
+<span class="c">// ...继续保留 C0/C3 全部字段,进入第二批标注</span></div>
+        <p class="sample-note">筛选只保留"是否营销可用=是"的行,列不变;子集大小通常 = 全量 × 40%~70%。</p>
+        <h3>关键文件</h3>
+        <p>
+          ${link('skill/annotation/scripts/c0_merge_phase1.py')}
+          ${link('skill/annotation/scripts/c0_filter_usable.py')}
+          ${link('skill/annotation/scripts/c0_retry_missing.py')}
+          ${link('skill/annotation/scripts/retry_missing.py')}
+        </p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>承担者:Coordinator 自己 bash(纯脚本,不委派)</h4>
+          <ul>
+            <li>合并:${maLink('skills/topic6-annotation/scripts/c0_merge_phase1.py')} → <code>04_标注/c0_c3_merged.xlsx</code></li>
+            <li>筛选:${maLink('skills/topic6-annotation/scripts/c0_filter_usable.py')} → <code>04_筛选/usable_subset.xlsx</code>(<b>已去冗余,移除手动干预参数</b>)</li>
+            <li>重试:客户原 <code>c0_retry_missing.py</code> / <code>retry_missing.py</code> 逻辑已被 ${maLink('skills/topic6-annotation/scripts/datahub_annotate.py')} 的自检+回填内建</li>
+          </ul>
+          <h4>Coordinator 触发点</h4>
+          <ul>
+            <li>System Prompt §四 · 筛选:${maLink('agents/coordinator.system.md', 'coordinator.system.md#筛选')}</li>
+            <li>C0+C3 两路 annotator 都返回 <code>{"status":"ok"}</code> 后,coordinator 触发本步</li>
+          </ul>
+        </div>
+      `
+    },
+    R1: {
+      title: "R1 · 平台玩法",
+      tags: ['<span class="tag">DataHub</span>'],
+      desc: "二分类:这条热搜是否代表某个平台的原生玩法(挑战/BGM/模板/拍摄手法等)。",
+      content: `
+        <h3>输出</h3>
+        <p>2 字段:是否平台玩法(是/否) + 平台玩法说明</p>
+        <h3>输出示例(R1 单行)</h3>
+        <div class="sample">{
+  <span class="k">"row_id"</span>: <span class="s">"W37_douyin_105"</span>,
+  <span class="k">"是否平台玩法"</span>: <span class="s">"是"</span>,
+  <span class="k">"平台玩法说明"</span>: <span class="s">"抖音原生 BGM #反差萌变装 挑战,已 32 万人参与"</span>
+}</div>
+        <p class="sample-note">R2~R5 结构相同,只是字段名换成"是否商业合作/风险预警/营销发现/消费者行为"。</p>
+        <h3>关键文件</h3>
+        <p>
+          ${link('skill/annotation/prompts/R1_平台借势')}
+          ${link('ks/03_五维判定.md')}
+        </p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>承担者:子 Agent · topic6-annotator(第二批 5 路并发之一)</h4>
+          <ul>
+            <li>Coordinator 委派 <code>{"task":"r1", "input_path":".../04_筛选/usable_subset.xlsx"}</code></li>
+            <li>Prompt:${maLink('skills/topic6-annotation/prompts/R1_平台借势/v1.md')}</li>
+            <li>脚本:${maLink('skills/topic6-annotation/scripts/datahub_annotate.py')} · <code>--task r1</code></li>
+            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/r1_raw.jsonl</code></li>
+            <li>五维判定 ks:${maLink('skills/topic6-annotation/ks/03_五维判定.md')}</li>
+          </ul>
+        </div>
+      `
+    },
+    R2: {
+      title: "R2 · 商业合作",
+      tags: ['<span class="tag">DataHub</span>'],
+      desc: "二分类:是否涉及品牌代言 / 联名 / 赞助等商业合作动态。",
+      content: `
+        <h3>输出</h3>
+        <p>2 字段:是否商业合作(是/否) + 合作动态说明</p>
+        <h3>关键文件</h3>
+        <p>${link('skill/annotation/prompts/R2_商业合作')}</p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <ul>
+            <li>子 Agent · topic6-annotator(第二批 5 路之一)· 委派 <code>{"task":"r2",...}</code></li>
+            <li>Prompt:${maLink('skills/topic6-annotation/prompts/R2_商业合作/v1.md')}</li>
+            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/r2_raw.jsonl</code></li>
+          </ul>
+        </div>
+      `
+    },
+    R3: {
+      title: "R3 · 风险预警",
+      tags: ['<span class="tag">DataHub</span>'],
+      desc: "二分类:是否包含品牌/明星塌房、产品质量、舆情危机等风险信号。",
+      content: `
+        <h3>输出</h3>
+        <p>2 字段:是否风险预警(是/否) + 风险判断说明</p>
+        <h3>关键文件</h3>
+        <p>${link('skill/annotation/prompts/R3_风险预警')}</p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <ul>
+            <li>子 Agent · topic6-annotator(第二批 5 路之一)· 委派 <code>{"task":"r3",...}</code></li>
+            <li>Prompt:${maLink('skills/topic6-annotation/prompts/R3_风险预警/v1.md')}</li>
+            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/r3_raw.jsonl</code></li>
+          </ul>
+        </div>
+      `
+    },
+    R4: {
+      title: "R4 · 营销发现",
+      tags: ['<span class="tag">DataHub</span>'],
+      desc: "二分类:是否是值得被同行学习的营销创意/案例(创意借鉴)。",
+      content: `
+        <h3>输出</h3>
+        <p>2 字段:是否营销发现(是/否) + 营销发现说明</p>
+        <h3>关键文件</h3>
+        <p>${link('skill/annotation/prompts/R4_创意借鉴')}</p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <ul>
+            <li>子 Agent · topic6-annotator(第二批 5 路之一)· 委派 <code>{"task":"r4",...}</code></li>
+            <li>Prompt:${maLink('skills/topic6-annotation/prompts/R4_创意借鉴/v1.md')}</li>
+            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/r4_raw.jsonl</code>(供 E4 洞察消费)</li>
+          </ul>
+        </div>
+      `
+    },
+    R5: {
+      title: "R5 · 消费者行为",
+      tags: ['<span class="tag">DataHub</span>'],
+      desc: "二分类:是否反映了消费者情绪/偏好/购买决策变化。",
+      content: `
+        <h3>输出</h3>
+        <p>2 字段:是否消费者行为(是/否) + 消费者行为说明</p>
+        <h3>关键文件</h3>
+        <p>${link('skill/annotation/prompts/R5_消费者行为')}</p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <ul>
+            <li>子 Agent · topic6-annotator(第二批 5 路之一)· 委派 <code>{"task":"r5",...}</code></li>
+            <li>Prompt:${maLink('skills/topic6-annotation/prompts/R5_消费者行为/v1.md')}</li>
+            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/r5_raw.jsonl</code></li>
+          </ul>
+        </div>
+      `
+    },
+    C2: {
+      title: "C2 · 事件合并",
+      tags: ['<span class="tag">external skill · v2.1.0 已到手</span>'],
+      desc: "把同一起真实事件的多条热搜标题聚成「事件簇」(如 iPhone17 发布相关的 20 条热搜聚成一簇)。",
+      content: `
+        <h3>做了什么</h3>
+        <p>调外部 skill <code>blueai-canonical-event-registry <b>v2.1.0</b></code>(客户已提供源码,位于 <code>assets_from_customer/blueai-canonical-event-registry/</code>),输入筛选后子集,输出每条热搜所属的事件簇名。</p>
+        <p>核心逻辑:「块内全景归档」—— embedding 召回候选块 → LLM 一次看完整块打事件划分 → 命名一级标准事件名 + 二级宣传角度。</p>
+        <h3>为什么要合并</h3>
+        <p>报告里如果 20 条都是"iPhone17 发布"的不同表述,视觉上会很冗余。聚簇后可以按事件维度做汇总。<b>全量实测 56.1% 的多成员事件跨平台</b>,所以要跑跨平台合并层(x0~x4),否则同一件事在四个平台上会留成四个事件。</p>
+        <h3>输出</h3>
+        <p>1 字段:事件簇名 · 存于 <code>04_标注/c2_raw.jsonl</code></p>
+        <h3>输出示例(3 条聚成 1 簇)</h3>
+        <div class="sample">{<span class="k">"row_id"</span>:<span class="s">"W37_weibo_012"</span>, <span class="k">"事件簇"</span>:<span class="s">"iPhone17 发布会"</span>}
+{<span class="k">"row_id"</span>:<span class="s">"W37_douyin_034"</span>, <span class="k">"事件簇"</span>:<span class="s">"iPhone17 发布会"</span>}
+{<span class="k">"row_id"</span>:<span class="s">"W37_bili_087"</span>,  <span class="k">"事件簇"</span>:<span class="s">"iPhone17 发布会"</span>}</div>
+        <p class="sample-note">同一起事件的多条热搜共享簇名,便于报告中按事件维度聚合展示。</p>
+        <div class="note"><b>MA 复刻策略</b>:首期原样复用 skill(20 个脚本),不要重写。客户明确允许后期基于原始 skill 优化归类算法——这是当前 3.5 小时耗时的主要瓶颈之一。</div>
+        <h3>关键文件</h3>
+        <p>
+          ${link('assets_from_customer/blueai-canonical-event-registry/SKILL.md', 'external · blueai-canonical-event-registry v2.1.0')}
+          ${link('skill/_external_event-registry.md')}
+          ${link('skill/annotation/scripts/c2_run_all_platforms.py')}
+        </p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>承担者:Coordinator 自己 bash(<b>不委派子 Agent</b>——skill 内部就是脚本流水线)</h4>
+          <ul>
+            <li>Coordinator 直接执行 <code>bash /mnt/skills/topic6-event-registry/scripts/00_run_all.sh</code>(封装 x0~x4 + 01~11 全流程)</li>
+            <li>与 R1~R5 五路 annotator 并发进行 · System Prompt §四 · Phase C 第二批</li>
+          </ul>
+          <h4>Skill · topic6-event-registry(v2.1.0 复刻,20 个脚本)</h4>
+          <ul>
+            <li>${maLink('skills/topic6-event-registry/SKILL.md')} → <code>/mnt/skills/topic6-event-registry/</code></li>
+            <li>脚本目录:${maLink('skills/topic6-event-registry/scripts/', 'scripts/')}(00~11 主线 + x0~x4 跨平台合并)</li>
+            <li>核心库:${maLink('skills/topic6-event-registry/scripts/eventlib.py')} · relay 兜底:${maLink('skills/topic6-event-registry/scripts/relay.py')}</li>
+            <li>Runbook:${maLink('skills/topic6-event-registry/references/runbook.md')} · Prompts:${maLink('skills/topic6-event-registry/references/prompts.md')}</li>
+          </ul>
+          <h4>路径改写</h4>
+          <ul>
+            <li class="path"><code>blueai-canonical-event-registry</code> → <code>/mnt/skills/topic6-event-registry/</code></li>
+            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/c2_raw.jsonl</code></li>
+          </ul>
+        </div>
+      `
+    },
+    D: {
+      title: "Phase D · 合并七路",
+      tags: ['<span class="tag">脚本</span>'],
+      desc: "把 C0/C3/R1/R2/R3/R4/R5/C2 七路结果按 row_id LEFT JOIN 成一张 28 列宽表。",
+      content: `
+        <h3>做了什么</h3>
+        <p>以标准化表的 <code>row_id</code> 为主键,把七路 JSONL 结果 LEFT JOIN 上去。R1~R5/C2 只覆盖筛选后子集,未命中行对应字段留空(不是缺陷)。</p>
+        <h3>输出</h3>
+        <p><code>05_合并/wide_table_{mode}_r{N}.xlsx</code> · 28 列宽表 = 9 基础 + 7 C0 + 1 C3 + 1 C2 + 10 R字段</p>
+        <h3>输出示例(单行 28 列的关键片段)</h3>
+        <div class="sample">row_id       : W37_weibo_001
+platform     : weibo
+title        : 杨紫官宣XX防晒衣品牌代言
+heat_score   : 87.4
+商业实体     : 杨紫|XX防晒衣
+行业归属     : 服饰鞋包
+是否营销可用 : 是
+关联节点     : 无         <span class="c">// C3</span>
+事件簇       : 杨紫代言    <span class="c">// C2</span>
+是否平台玩法 : 否         <span class="c">// R1</span>
+是否商业合作 : 是         <span class="c">// R2</span>
+是否风险预警 : 否         <span class="c">// R3</span>
+是否营销发现 : 是         <span class="c">// R4</span>
+是否消费者行为: 否        <span class="c">// R5</span></div>
+        <p class="sample-note">R1~R5 未命中的行(即 C0 判定营销不可用)对应 R 字段留空,不算异常。</p>
+        <h3>关卡</h3>
+        <p>输出行数 = 输入行数 · row_id 唯一</p>
+        <h3>关键文件</h3>
+        <p>
+          ${link('prompt/05_阶段_D合并.md')}
+          ${link('skill/annotation/scripts/merge_annotations.py')}
+          ${link('ks/_字段速查.md')}
+        </p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>承担者:Coordinator 自己 bash(纯脚本)</h4>
+          <ul>
+            <li>脚本:${maLink('skills/topic6-annotation/scripts/merge_annotations.py')} → <code>/mnt/skills/topic6-annotation/scripts/merge_annotations.py</code></li>
+            <li>输入:七路 <code>04_标注/{c0,c3,c2,r1..r5}_raw.jsonl</code></li>
+            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/05_合并/wide_table_{mode}_r{N}.xlsx</code></li>
+            <li>字段速查:${maLink('skills/topic6-annotation/ks/_字段速查.md')} · System Prompt §四 · Phase D</li>
+          </ul>
+        </div>
+      `
+    },
+    HC1: {
+      title: "HC1 · 小样本验收",
+      tags: ['<span class="tag hc">人工不可跳过</span>'],
+      desc: "用户看 500 条抽样的七路标注质量,决定是否通过。",
+      content: `
+        <h3>做了什么</h3>
+        <p>Agent 把 500 条的标注结果分布(各字段命中率、抽几条示例)展示给用户,用户判断:</p>
+        <ul>
+          <li>标注质量是否达标</li>
+          <li>是否需要调 Prompt 版本</li>
+          <li>是否需要跑补标注闭环</li>
+        </ul>
+        <p>用户选 <b>A(通过)/B(打回重跑)/C(改 Prompt)</b>。</p>
+        <h3>MA 复刻映射</h3>
+        <div class="note">首期改造为<b>飞书交互卡片</b>(HC1/HC2/HC3 均保留人工)——Coordinator 输出结构化 JSON 后 end_turn,gateway 侧渲染卡片,不再走 AskUserQuestion。</div>
+        <h3>关键文件</h3>
+        <p>${link('prompt/04_阶段_C标注.md')} · HC1 交互脚本</p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>协调器输出契约</h4>
+          <ul>
+            <li>Coordinator 完成 Phase D 后输出如下 JSON,立即 <code>end_turn</code>(见 System Prompt §四 · HC1):</li>
+          </ul>
+          <div class="sample">{
+  <span class="k">"hc"</span>: <span class="s">"HC1"</span>,
+  <span class="k">"mode"</span>: <span class="s">"test"</span>,
+  <span class="k">"project_dir"</span>: <span class="s">"W40..."</span>,
+  <span class="k">"wide_table_path"</span>: <span class="s">"/mnt/session/outputs/.../wide_table_test_r1.xlsx"</span>,
+  <span class="k">"distribution_summary"</span>: {...},
+  <span class="k">"issues_detected"</span>: []
+}</div>
+          <h4>Gateway 侧渲染 → 飞书卡片</h4>
+          <ul>
+            <li>${gwLink('topic6_runner.py')} SSE 消费循环里检测到 <code>{"hc":"HC1",...}</code> JSON</li>
+            <li>调 ${gwLink('topic6_hitl.py')} <code>build_hc_card("HC1", payload)</code> → 蓝色卡片,3 个按钮:通过/打回/备注</li>
+            <li>卡片通过 <b>独立 executor 发送</b>(避免阻塞 SSE 主流,见 topic6_runner.dispatch_card)</li>
+          </ul>
+          <h4>回调 → Coordinator</h4>
+          <ul>
+            <li>用户点按钮 → ${gwLink('topic6_hitl.py')} <code>handle_card_action</code> 收到 <code>card.action.trigger</code></li>
+            <li>拼接成 <code>HC1 pass</code> / <code>HC1 reject: 备注</code> / <code>HC1 remark: 备注</code>(严格匹配 coordinator prompt 契约)</li>
+            <li>调 ${gwLink('topic6_runner.py')} <code>resume_job(job_id, "HC1 pass")</code> 恢复 SSE 流</li>
+            <li><b>备注按钮无输入内容时仅记录 remark,不触发 resume_job</b>,等用户后续消息</li>
+          </ul>
+        </div>
+      `
+    },
+    FULL: {
+      title: "C→D 全量重跑",
+      tags: ['<span class="tag time">≈3.5h · 主要耗时瓶颈</span>'],
+      desc: "HC1 通过后,复用 Phase C 两批 + D 的所有脚本,对全量数据(约 3500 条)重跑一遍。",
+      content: `
+        <h3>做了什么</h3>
+        <p>输入换成 <code>02_标准化/hot_topics_normalized.xlsx</code>(全量),重复:</p>
+        <ol>
+          <li>C0 + C3 并发(约 38 min)</li>
+          <li>筛选出营销可用子集</li>
+          <li>R1~R5 + C2 并发(子集约 1500~2500 条,约 2 h)</li>
+          <li>D 合并七路输出</li>
+        </ol>
+        <div class="note"><b>耗时瓶颈</b>:DataHub RPM ≈ 16(串行排队)。同 Prompt 直连 DeepSeek-V4-Flash 可到 RPM ≈ 778,理论上把 3.5h 压到十分钟级。</div>
+        <div class="note"><b>客户答疑硬约束(重要)</b>:<br>
+          · <b>必须跑全量</b>——"数据量也是 Agent 处理能力的一部分"<br>
+          · <b>七路标注不建议精简</b><br>
+          · 允许优化的方向:① 内部服务协商提高并发或换标注通道;② 基于原始 C2 skill 优化归类算法(聚类是耗时难关)<br>
+          · <b>不允许</b>:只跑抽样版、精简标注路数
+        </div>
+        <h3>产物</h3>
+        <p><code>05_合并/wide_table_full_r{N}.xlsx</code></p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>循环复用同一套 Agent + Skill</h4>
+          <ul>
+            <li>Coordinator 收到"HC1 pass"后,把 <code>input_path</code> 从 <code>03_抽样/sample_500.xlsx</code> 换成 <code>02_标准化/hot_topics_normalized.xlsx</code></li>
+            <li>重跑 Phase C 第一批(2 路 annotator 并发)→ 筛选 → 第二批(5 路 annotator + coordinator 自跑 C2)→ Phase D</li>
+            <li>Prompt/Skill/Agent 完全同 test,只是输入换全量、输出目录 <code>wide_table_full_r{N}.xlsx</code></li>
+            <li>System Prompt §四 · C→D 全量段:${maLink('agents/coordinator.system.md', 'coordinator.system.md#C→D 全量')}</li>
+          </ul>
+        </div>
+      `
+    },
+    HC2: {
+      title: "HC2 · 全量验收",
+      tags: ['<span class="tag hc">人工不可跳过</span>'],
+      desc: "用户看全量标注的整体分布,决定是否进入洞察写作。",
+      content: `
+        <h3>做了什么</h3>
+        <p>展示:</p>
+        <ul>
+          <li>整体分布(行业占比、平台占比)</li>
+          <li>空值率</li>
+          <li>营销可用筛选占比</li>
+          <li>事件簇聚类规模</li>
+        </ul>
+        <p>HC1 看质量,HC2 看规模/覆盖率 —— 关注点不同,不能合并。</p>
+        <h3>MA 复刻映射</h3>
+        <div class="note">同 HC1 一样,首期改为<b>飞书交互卡片</b>(绿色),Coordinator 输出结构化 JSON 后 end_turn。</div>
+        <h3>关键文件</h3>
+        <p>${link('prompt/05_阶段_D合并.md')}</p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>协调器输出</h4>
+          <ul>
+            <li>Coordinator 完成全量 Phase D 后输出 <code>{"hc":"HC2", "distribution_summary":{...}, ...}</code>,立即 end_turn</li>
+            <li>Gateway 同 HC1 走 ${gwLink('topic6_hitl.py')} 卡片流程,颜色改绿(HC2 卡片,见 <code>build_hc_card("HC2", payload)</code>)</li>
+            <li>用户回复 <code>HC2 pass</code> → Coordinator 进 Phase E 4 路洞察</li>
+          </ul>
+        </div>
+      `
+    },
+    E1: {
+      title: "E1 · 行业及热门话题",
+      tags: ['<span class="tag">Anthropic LLM</span>'],
+      desc: "统计 explode 后的行业占比,写一段「本周哪些行业最热」的洞察。",
+      content: `
+        <h3>做了什么</h3>
+        <ol>
+          <li>统计脚本按"是否营销可用=是"过滤,行业归属 explode 聚合,产出行业 × 热度排行</li>
+          <li>把统计结果 + Prompt 交给 claude-sonnet-4-5,写一段行业洞察</li>
+        </ol>
+        <h3>输出</h3>
+        <p><code>06_洞察/v{N}/e1_v{N}.md</code></p>
+        <h3>输出示例(截段)</h3>
+        <div class="sample"><span class="c">## E1 · 行业及热门话题</span>
+
+本周热度 Top3 行业:<b>服饰鞋包</b> / <b>3C 数码</b> / <b>美妆个护</b>。
+
+- 服饰鞋包(28.4%):明星代言带动品牌声量,防晒衣品类持续走高
+- 3C 数码(19.2%):iPhone17 发布拉动全网讨论
+- 美妆个护(13.7%):双十一预热话题开始渗透</div>
+        <p class="sample-note">E2/E3/E4 结构类似,各版块 500~1500 字的中文段落 + 数据点。</p>
+        <h3>关键文件(口径权威)</h3>
+        <p>
+          ${link('skill/insight/01_统计/e1_industry.py')} · docstring 是唯一权威
+          ${link('skill/insight/02_洞察/E1_行业话题')}
+          ${link('ks/05_四版块统计口径.md')}
+        </p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>承担者:子 Agent · topic6-insighter(第 E 批 4 路并发之一)</h4>
+          <ul>
+            <li>Coordinator 通过 <code>multiagent</code> 委派 <code>{"section":"e1", "wide_table_path":".../wide_table_full_r{N}.xlsx", ...}</code></li>
+            <li>Insighter System Prompt:${maLink('agents/insighter.system.md')} · §二 section=e1 行</li>
+            <li>Insighter Agent 定义:${maLink('agents/insighter.json')}</li>
+          </ul>
+          <h4>Skill · topic6-insight</h4>
+          <ul>
+            <li>${maLink('skills/topic6-insight/SKILL.md')} → <code>/mnt/skills/topic6-insight/</code></li>
+            <li>统计脚本:${maLink('skills/topic6-insight/01_统计/e1_industry.py')}(docstring = 口径权威)</li>
+            <li>洞察 Prompt:${maLink('skills/topic6-insight/02_洞察/E1_行业话题/v1.md')}</li>
+            <li>共享风格:${maLink('skills/topic6-insight/02_洞察/_shared/role_style.md')}</li>
+            <li>综合热度算法说明:${maLink('skills/topic6-insight/references/综合热度指数算法说明.md')}</li>
+            <li>LLM 通道:<b>火山方舟 OpenAI 兼容接口</b>(ARK_* 优先,回退 OPENAI_*),已移除所有 anthropic 引用</li>
+          </ul>
+          <h4>输出</h4>
+          <ul>
+            <li class="path"><code>/workspace/Projects/{PROJECT_DIR}/06_洞察/v{N}/e1_v{N}.md</code> + <code>e1_data.md</code></li>
+          </ul>
+        </div>
+      `
+    },
+    E2: {
+      title: "E2 · 营销节点",
+      tags: ['<span class="tag">Anthropic LLM</span>'],
+      desc: "关联 C3 标注的营销节点(节日/节气/大促),写一段「本周哪些节点值得借势」的洞察。",
+      content: `
+        <h3>做了什么</h3>
+        <p>用节点日历基线 + C3 标注结果匹配窗口期内的营销节点,再让 LLM 写。</p>
+        <div class="note"><b>客户答疑更正</b>:原 <code>marketing-node-tagging</code> 外部 skill 是<b>历史残留,已删除</b>。E2 版块本身仍要输出,底层完全依赖 C3 标注结果 + 内置节点日历,不再依赖该外部 skill。</div>
+        <h3>输出</h3>
+        <p><code>06_洞察/v{N}/e2_v{N}.md</code></p>
+        <h3>关键文件</h3>
+        <p>
+          ${link('skill/insight/01_统计/e2_nodes.py')}
+          ${link('skill/insight/02_洞察/E2_营销节点')}
+        </p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>承担者:子 Agent · topic6-insighter(section=e2)</h4>
+          <ul>
+            <li>Coordinator 委派 <code>{"section":"e2", ...}</code></li>
+            <li>统计脚本:${maLink('skills/topic6-insight/01_统计/e2_nodes.py')} — <b>已内置 C3 标注 + 节点日历基线判断</b>,不再依赖已删除的外部 marketing-node-tagging skill</li>
+            <li>洞察 Prompt:${maLink('skills/topic6-insight/02_洞察/E2_营销节点/v1.md')}</li>
+            <li>节点日历(共享):${maLink('skills/topic6-annotation/references/marketing_calendar/nodes_definition.csv')}(Annotator 与 Insighter 都读同一份)</li>
+            <li>Insighter System Prompt §二 · section=e2 明确禁止调 node-tagging skill</li>
+          </ul>
+        </div>
+      `
+    },
+    E3: {
+      title: "E3 · 平台新鲜事",
+      tags: ['<span class="tag">Anthropic LLM</span>'],
+      desc: "按平台维度统计各家独特热点,突出平台差异。",
+      content: `
+        <h3>输出</h3>
+        <p><code>06_洞察/v{N}/e3_v{N}.md</code></p>
+        <h3>关键文件</h3>
+        <p>
+          ${link('skill/insight/01_统计/e3_platforms.py')}
+          ${link('skill/insight/02_洞察/E3_平台新鲜事')}
+        </p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <ul>
+            <li>子 Agent · topic6-insighter(section=e3)</li>
+            <li>统计脚本:${maLink('skills/topic6-insight/01_统计/e3_platforms.py')}</li>
+            <li>Prompt:${maLink('skills/topic6-insight/02_洞察/E3_平台新鲜事/v1.md')}</li>
+            <li>口径说明:${maLink('skills/topic6-insight/references/E3_统计口径说明.md')}</li>
+            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/06_洞察/v{N}/e3_v{N}.md</code></li>
+          </ul>
+        </div>
+      `
+    },
+    E4: {
+      title: "E4 · 营销发现",
+      tags: ['<span class="tag">Anthropic LLM</span>', '<span class="tag time">两次串行 LLM</span>'],
+      desc: "从 R4 命中的案例里挑最典型的,写一段「值得复用的营销手法」洞察。",
+      content: `
+        <h3>做了什么(内部两步)</h3>
+        <ol>
+          <li>打标 LLM:对候选案例做类型分类 + 取舍判断</li>
+          <li>撰写 LLM:对过滤后的案例写洞察</li>
+        </ol>
+        <p>只影响 E4 自己的耗时,不影响另外三路并发。</p>
+        <h3>输出</h3>
+        <p><code>06_洞察/v{N}/e4_v{N}.md</code></p>
+        <h3>关键文件</h3>
+        <p>
+          ${link('skill/insight/01_统计/e4_marketing.py')}
+          ${link('skill/insight/02_洞察/E4_营销发现')}
+        </p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <ul>
+            <li>子 Agent · topic6-insighter(section=e4)</li>
+            <li>统计脚本:${maLink('skills/topic6-insight/01_统计/e4_marketing.py')}</li>
+            <li>Prompt:${maLink('skills/topic6-insight/02_洞察/E4_营销发现/v1.md')}</li>
+            <li>输入依赖:R4 标注(<code>04_标注/r4_raw.jsonl</code>)+ wide_table 中的 <code>是否营销发现</code> 字段</li>
+            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/06_洞察/v{N}/e4_v{N}.md</code> + <code>e4_candidates.json</code> + <code>e4_tagging_audit.md</code></li>
+            <li>两次 LLM 串行(打标 + 撰写)都在 insighter 单会话内完成,不再拆子 Agent</li>
+          </ul>
+        </div>
+      `
+    },
+    F: {
+      title: "Phase F · 合并发布",
+      tags: ['<span class="tag">脚本 + lark-cli</span>', '<span class="tag time">20~30min</span>'],
+      desc: "拼接四版块 → 自校验 → 应用身份新建/合并项目文件夹 → 推飞书文档 → 转移所有权。",
+      content: `
+        <h3>做了什么</h3>
+        <ul>
+          <li>把 E1~E4 四份 md 按报告结构模板拼接</li>
+          <li>自校验(链接可达 / 段落齐全 / 数据一致)</li>
+          <li><b>应用身份</b>在操作者对应的用户分区中新建/合并项目文件夹</li>
+          <li>调 lark-cli 把 md 导入飞书云文档(落在上一步创建的文件夹)</li>
+          <li>通过权限接口把文件夹<b>所有权转移给发起人 + 默认 admin 人员</b>(以可管理权限)</li>
+          <li>把文档 URL 写入 run_config</li>
+        </ul>
+        <div class="note"><b>客户答疑关键调整</b>:<br>
+          · 授权口径以<b>"发起人 + 2 个 admin(赵修源 / 袁杰松)"</b>为准,老的"4 人邮箱清单"作废<br>
+          · <b>不使用固定 folder token</b>——为每个操作者动态创建独立分区文件夹<br>
+          · 这一步涉及后续数字员工产出文件分区管理,不可省
+        </div>
+        <h3>关键文件</h3>
+        <p>
+          ${link('prompt/07_阶段_F发布.md')}
+          ${link('skill/insight/pipeline_f.py')}
+          ${link('tool/lark-cli')}
+          ${link('ks/07_报告结构.md')}
+        </p>
+        <h3>输出示例(飞书文档头部)</h3>
+        <div class="sample"><span class="c"># W37 热点周报(2026-09-07 ~ 2026-09-13)</span>
+
+<b>本期概览</b>:采集 3517 条,营销可用 62.4%,共 8 起主要事件簇。
+
+## 一、行业及热门话题
+...E1 段...
+
+## 二、营销节点
+...E2 段...
+
+## 三、平台新鲜事
+...E3 段...
+
+## 四、营销发现
+...E4 段...
+
+<span class="c">// 文档 URL 写入 run_config.yaml 供 G 阶段读取</span></div>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>承担者:Coordinator 自己(bash + lark-cli / lark MCP)</h4>
+          <ul>
+            <li>System Prompt §四 · Phase F 段:${maLink('agents/coordinator.system.md', 'coordinator.system.md#Phase F')}</li>
+            <li>合并脚本:${maLink('skills/topic6-insight/scripts/pipeline_f.py')} → 拼接 e1/e2/e3/e4 四份 md</li>
+            <li>报告结构:${maLink('skills/topic6-annotation/ks/07_报告结构.md')}(Coordinator 直接 Read 引用)</li>
+            <li>推飞书:通过 lark-cli(或 lark MCP)完成新建文件夹 → 导入 md → 转移所有权(发起人 + 赵修源 + 袁杰松)</li>
+            <li>URL 写回 <code>/workspace/Projects/{PROJECT_DIR}/run_config.yaml</code> 供 HC3/G 阶段读</li>
+          </ul>
+          <div class="note ma"><b>授权口径</b>已固化到 System Prompt:"发起人 + 2 admin(赵修源 / 袁杰松)",老的 4 人邮箱清单不再使用。不使用固定 folder token,为每个操作者动态创建独立分区文件夹。</div>
+        </div>
+      `
+    },
+    HC3: {
+      title: "HC3 · 报告审核",
+      tags: ['<span class="tag hc">人工不可跳过</span>'],
+      desc: "人工在飞书文档审核 / 修改报告内容 + 截图。",
+      content: `
+        <h3>做了什么</h3>
+        <p>Validator 先做规则化预检(第 1~3 条),第 4~5 条靠人:</p>
+        <ol>
+          <li>版块合并完整性(Validator)</li>
+          <li>格式(Validator)</li>
+          <li>内容质量(Validator)</li>
+          <li>截图上传 · <b>人工</b></li>
+          <li>案例归类准确性 · <b>人工</b></li>
+        </ol>
+        <div class="note"><b>客户答疑明确</b>:HC3 <b>首期必须保留人工接入点</b>,不能砍。原因:HC3 涉及对原始文档的审核和图片上传,内容调整直接影响 Phase G 网页模板的填充效果——如果 F 阶段的文档没经过人工修订就直接进 G,产出网页会有问题。</div>
+        <h3>关键文件</h3>
+        <p>${link('prompt/07_阶段_F发布.md')} · HC3 段</p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>协调器输出契约</h4>
+          <div class="sample">{
+  <span class="k">"hc"</span>: <span class="s">"HC3"</span>,
+  <span class="k">"feishu_doc_url"</span>: <span class="s">"https://xxx.feishu.cn/docx/xxxxx"</span>,
+  <span class="k">"note"</span>: <span class="s">"请在飞书文档中审核并按需调整图片,完成后点击卡片按钮"</span>
+}</div>
+          <h4>Gateway 侧渲染</h4>
+          <ul>
+            <li>${gwLink('topic6_hitl.py')} <code>build_hc_card("HC3", payload)</code> → <b>紫色</b>卡片,附文档链接按钮</li>
+            <li>3 个按钮:通过(HC3 pass)/ 打回(HC3 reject) / 备注(HC3 remark)</li>
+            <li>用户在飞书文档端完成人工修改和截图上传后再点通过</li>
+          </ul>
+          <div class="note ma">HC3 阶段 Coordinator 保留飞书文档 URL,不缓存正文;Phase G 只能等 HC3 pass 之后<b>重新拉取</b>飞书文档最新版,因为 HC3 期间用户可能改了正文和图片。</div>
+        </div>
+      `
+    },
+    G: {
+      title: "Phase G · UI 网页发布",
+      tags: ['<span class="tag">external skill · 1.1.0 已到手</span>'],
+      desc: "把 HC3 通过后的飞书文档转成自包含的 index.html(离线可看的漂亮网页)。",
+      content: `
+        <h3>做了什么</h3>
+        <p>调外部模板 skill <code>artifact-template-bluefocus-hotspot-web-report 1.1.0</code>(客户已提供源码,位于 <code>assets_from_customer/artifact-template-bluefocus-hotspot-web-report/</code>),读取 <b>HC3 通过后的飞书文档正文与内嵌图片</b>,输出一个内嵌全部资源的单文件 HTML。</p>
+        <h3>核心步骤(来自 SKILL.md)</h3>
+        <ol>
+          <li>拷贝模板资产到工作目录(不改原始 retained source)</li>
+          <li><b>从飞书文档拉正文</b>(HC3 阶段人工修改后的最新版本),转成 <code>source.json</code>(schema 见 <code>source.example.json</code>)</li>
+          <li><b>从飞书文档抽取内嵌图片</b>——通过 <code>im.v1.images.get</code> 拉图片字节流,base64 内嵌进 HTML 模板;不生成占位图、不复用旧模板图、不留 blob URL</li>
+          <li>选 <code>title-weekly.png</code> 或 <code>title-monthly.png</code></li>
+          <li>跑 <code>build-report.mjs</code> 渲染 + 3 个 validator</li>
+        </ol>
+        <div class="note"><b>已知风险(客户反馈)</b>:现有脚本在「从飞书文档下载图片」环节 <b>不稳定</b>——图片走 <code>image_token</code>,并发或大图容易掉链。MA 复刻时要么忠实复用 skill(承认不稳定,加重试 / 单张兜底),要么在 MA 侧重写这段抽取逻辑。首期先跑通,埋点观察成功率。</div>
+        <h3>输出</h3>
+        <p><code>08_UI发布/index.html</code></p>
+        <h3>输出示例(HTML 头部片段)</h3>
+        <div class="sample">&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+  &lt;title&gt;W37 热点周报&lt;/title&gt;
+  &lt;style&gt;/* 全部 CSS 内嵌,无外链 */&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;section class="cover"&gt;...&lt;/section&gt;
+  &lt;section class="industry"&gt;...&lt;/section&gt;
+  &lt;!-- 图片全部 base64 内嵌 --&gt;
+&lt;/body&gt;
+&lt;/html&gt;</div>
+        <p class="sample-note">自包含单文件,拷走 index.html 就能离线打开。</p>
+        <div class="note"><b>MA 复刻策略</b>:首期原样复用 skill,只要 Node.js 环境和模板资产文件可以落到 MA 部署环境。核心逻辑是 JSON → HTML 模板渲染 + 一堆校验,不需要改写。</div>
+        <h3>关键文件</h3>
+        <p>
+          ${link('assets_from_customer/artifact-template-bluefocus-hotspot-web-report/SKILL.md', 'external · web-report skill v1.1.0')}
+          ${link('assets_from_customer/artifact-template-bluefocus-hotspot-web-report/assets/source/build-report.mjs', 'build-report.mjs')}
+          ${link('assets_from_customer/artifact-template-bluefocus-hotspot-web-report/assets/source/source.example.json', 'source.example.json')}
+          ${link('prompt/08_阶段_G网页.md')}
+          ${link('skill/_external_web-report.md')}
+        </p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>承担者:Coordinator 自己(bash + lark 拉取)</h4>
+          <ul>
+            <li>System Prompt §四 · Phase G 段:${maLink('agents/coordinator.system.md', 'coordinator.system.md#Phase G')}</li>
+          </ul>
+          <h4>Skill · topic6-web-report(v1.1.0 复刻)</h4>
+          <ul>
+            <li>${maLink('skills/topic6-web-report/SKILL.md')} → <code>/mnt/skills/topic6-web-report/</code></li>
+            <li>渲染入口:${maLink('skills/topic6-web-report/assets/source/build-report.mjs', 'build-report.mjs')}(node.js)</li>
+            <li>模板 HTML:${maLink('skills/topic6-web-report/assets/source/index.html')} + ${maLink('skills/topic6-web-report/assets/source/styles.css')} + ${maLink('skills/topic6-web-report/assets/source/app.js')}</li>
+            <li>Source schema:${maLink('skills/topic6-web-report/assets/source/source.example.json')}</li>
+            <li>3 个 validator:${maLink('skills/topic6-web-report/scripts/validate-case-image-sources.mjs')} · ${maLink('skills/topic6-web-report/scripts/validate-rendered-content.mjs')} · ${maLink('skills/topic6-web-report/scripts/validate-template-assets.mjs')}</li>
+            <li>飞书文档图片抽取参考:${maLink('skills/topic6-web-report/references/document-image-extraction.md')}</li>
+            <li>Design spec:${maLink('skills/topic6-web-report/assets/source/DESIGN_SPEC.md')}</li>
+          </ul>
+          <h4>关键步骤(Coordinator 执行)</h4>
+          <ol>
+            <li>用 lark-cli 拉飞书文档正文 → 转 <code>source.json</code></li>
+            <li>调 <code>im.v1.images.get</code> 拉每张图 <code>image_token</code> → base64 内嵌(<b>已知不稳定,埋点重试</b>)</li>
+            <li>选 <code>title-weekly.png</code> 或 <code>title-monthly.png</code>(周报/月报)</li>
+            <li>执行 <code>bash /mnt/skills/topic6-web-report/assets/source/build-report.mjs</code> 渲染 + 3 validator</li>
+            <li>产物 <code>index.html</code> 写到 <code>/workspace/Projects/{PROJECT_DIR}/08_UI发布/index.html</code>,同时挂 <code>/mnt/session/outputs/</code>(TOS)</li>
+          </ol>
+        </div>
+      `
+    },
+    H: {
+      title: "Phase H · 妙搭发布",
+      tags: ['<span class="tag final">最终交付 · 不可省</span>'],
+      desc: "把 index.html 发到妙搭平台,拿一个公网可分享的链接。",
+      content: `
+        <h3>做了什么</h3>
+        <p>调 <code>miaoda-web-publish</code> skill,把 G 产出的 index.html 上传托管,等待 <code>release_status=finished</code> 拿 <code>online_url</code>。</p>
+        <div class="note"><b>客户答疑更正(重要)</b>:<br>
+          · <b>最终交付形态</b>:分享到飞书群 + 可线上访问 + 支持月度数据统计的网页版报告<br>
+          · 飞书内嵌 HTML 效果差,所以<b>必须走公网托管(妙搭或等价方案)</b>,不能只发飞书文档链接<br>
+          · <b>妙搭凭据无法通用</b>:需要每个操作人本人授权才能发布,不能后端预置凭据
+        </div>
+        <h3>MA 复刻方案</h3>
+        <p>要么复用妙搭(每次让用户点授权),要么在 MA 侧自建等价的公网托管服务。<b>之前"分享飞书群就够了"的理解是错的</b>,请注意。</p>
+        <h3>输出示例(spawn 返回)</h3>
+        <div class="sample">{
+  <span class="k">"release_status"</span>: <span class="s">"finished"</span>,
+  <span class="k">"online_url"</span>: <span class="s">"https://spark-xxx.aiforce.cloud/w37"</span>,
+  <span class="k">"published_at"</span>: <span class="s">"2026-09-14T10:32:11+08:00"</span>
+}</div>
+        <h3>关键文件</h3>
+        <p>${link('prompt/09_阶段_H妙搭发布.md')}</p>
+        <h3>MA 复刻</h3>
+        <div class="ma-block">
+          <h4>承担者:Coordinator 自己(调外部 skill)</h4>
+          <ul>
+            <li>调 <code>miaoda-web-publish</code> — <b>外部 skill,不在本次 5 件套内</b>,首期由客户人工上传或复用平台已有资源</li>
+            <li>System Prompt §四 · Phase H:${maLink('agents/coordinator.system.md', 'coordinator.system.md#Phase H')}</li>
+            <li>Coordinator 传参:<code>index_html_path=/workspace/Projects/{PROJECT_DIR}/08_UI发布/index.html</code></li>
+            <li>轮询 <code>release_status=finished</code> 得 <code>online_url</code>,写回 <code>run_config.yaml</code></li>
+            <li><b>依赖 <code>MIAODA_TOKEN</code></b>:需要操作人本人授权,不能后端预置</li>
+          </ul>
+          <div class="note ma">妙搭发布 <b>不能省</b>——飞书内嵌 HTML 效果差,必须走公网托管;之前"分享飞书群就够了"的理解已作废。</div>
+        </div>
+      `
+    },
+    END: {
+      title: "交付完成",
+      tags: ['<span class="tag final">终点</span>'],
+      desc: "拿到公网链接,分享到飞书群,流程结束。",
+      content: `
+        <h3>关联文件</h3>
+        <p><code>run_config.yaml</code> 状态更新为 <code>done</code>,包含最终 URL。</p>
+        <div class="note"><b>后续 backlog(客户 2026-09-24 反馈)</b>:
+          <ul>
+            <li><b>定时任务触发</b>:除飞书 Bot 关键词外,再叠一个 scheduler,到点自动调 <code>Topic6Runner.start_job</code>,取数周期用默认值。放 gateway 层,等流程跑通再加。</li>
+            <li><b>Phase I · 反思复盘(新增)</b>:H 交付之后再跑一段「本次执行踩了什么坑 / 识别到用户偏好(背景 / 关注方向 / 内容取舍)/ 下次哪些参数该调」,coordinator 调 memory 写入工具回写到 <code>/mnt/memory</code> 的 topic6 Memory Store,下一轮 INIT 时自然读到。当前 pipeline 里 <b>还没有这个阶段</b>,属于新增能力,不是实现细节。</li>
+            <li><b>已覆盖(不再单列)</b>:System 提示词、白名单鉴权、文件存储位置 / 项目背景上下文传递——已在 coordinator+5 子 Agent system prompt、<code>AUTHORIZED_OPEN_IDS</code>、<code>/workspace/&lt;job&gt;/</code> 与 <code>/mnt/memory</code> 挂载方案里落地。</li>
+          </ul>
+        </div>
+        <h3>MA 复刻 · 交付回执</h3>
+        <div class="ma-block">
+          <ul>
+            <li>Coordinator 收到 <code>release_status=finished</code>,更新 <code>run_config.yaml</code>:<code>status.current_phase=done</code>, <code>online_url=...</code></li>
+            <li>${gwLink('topic6_runner.py')} SSE 消费到 <code>agent.message.finish</code>,把 online_url 用飞书文本消息发给用户,写 ${gwLink('pipeline_store.py')} 的 <code>job.status=done</code></li>
+            <li>Phase I 反思(待实现):Coordinator 输出反思段 → gateway 侧调 memory 写入 API,回写到 ${maLink('memory/topic6/错误案例库.md')} 或 <code>_版本状态.md</code>(注意 <b>项目规则:memory 只在 gateway 端有写权限,coordinator 只读</b>)</li>
+          </ul>
+        </div>
+      `
+    },
+    C_BATCH1: {
+      title: "Phase C · 第一批(并发)",
+      tags: ['<span class="tag">DataHub · 并发</span>'],
+      desc: "C0 和 C3 两路并发跑,互不依赖。",
+      content: `
+        <h3>为什么这样组织</h3>
+        <p>C0 是全局闸门(决定后续要不要跑),C3 是节点标注(只看内容不依赖 C0)。两路都对全量/全样本跑,并发能省一半时间。</p>
+        <p>点击图中 <b>C0</b> 或 <b>C3</b> 查看单路详情。</p>
+        <h3>MA 复刻拓扑</h3>
+        <div class="ma-block">
+          <ul>
+            <li>Coordinator 通过 <code>multiagent</code> 委派 <b>2 路 topic6-annotator 子 Agent 并发</b></li>
+            <li>#1: <code>{"task":"c0","input_path":".../sample_500.xlsx(或全量)"}</code></li>
+            <li>#2: <code>{"task":"c3","input_path":"(同上)"}</code></li>
+            <li>Coordinator 阻塞等两路都返回 <code>{"status":"ok"}</code> 后进筛选</li>
+            <li>并发规范:同批 ≥ 2 路失败 → RuntimeError 停批,0~1 失败 → 标记缺失继续</li>
+          </ul>
+        </div>
+      `
+    },
+    C_BATCH2: {
+      title: "Phase C · 第二批(并发)",
+      tags: ['<span class="tag">DataHub + external · 并发</span>'],
+      desc: "R1~R5 五路二分类 + C2 事件合并,六路并发,只跑筛选后子集。",
+      content: `
+        <h3>并发规范</h3>
+        <p>六路互不依赖,同批任一路失败不影响其余;同批 ≥ 2 路失败 → 熔断(假设有共同根因如 Key 失效)。</p>
+        <p>点击图中任一子节点查看单路详情。</p>
+        <h3>MA 复刻拓扑</h3>
+        <div class="ma-block">
+          <ul>
+            <li>Coordinator 通过 <code>multiagent</code> 委派 <b>5 路 topic6-annotator 子 Agent 并发</b>(task=r1..r5),input 统一为 <code>04_筛选/usable_subset.xlsx</code></li>
+            <li>同时 Coordinator <b>自己 bash</b> 跑 C2(<code>bash /mnt/skills/topic6-event-registry/scripts/00_run_all.sh</code>),不占子 Agent 名额</li>
+            <li>合计 6 路并发,coordinator 主线程只负责 C2 脚本 + 收 5 路 annotator 返回</li>
+            <li>Coordinator 定义引用:${maLink('agents/coordinator.json')} 的 <code>multiagent.agents</code> 列出可委派子 Agent</li>
+          </ul>
+        </div>
+      `
+    },
+    E_BATCH: {
+      title: "Phase E · 四版块洞察(并发)",
+      tags: ['<span class="tag">Anthropic LLM · 并发</span>', '<span class="tag time">15~30min</span>'],
+      desc: "E1~E4 四路并发写作,每路都是「统计脚本 → LLM 撰写」两步。",
+      content: `
+        <h3>并发规范</h3>
+        <p>四路完全独立,并发写作。E4 内部还有「打标 + 撰写」两次串行 LLM,只影响自己耗时。</p>
+        <p>点击图中任一子节点查看单路详情。</p>
+        <h3>MA 复刻拓扑</h3>
+        <div class="ma-block">
+          <ul>
+            <li>Coordinator 通过 <code>multiagent</code> 委派 <b>4 路 topic6-insighter 子 Agent 并发</b>(section=e1..e4),input 统一为 <code>05_合并/wide_table_full_r{N}.xlsx</code></li>
+            <li>Insighter 定义:${maLink('agents/insighter.json')} · System Prompt:${maLink('agents/insighter.system.md')}</li>
+            <li>test 模式禁跑(insighter 会直接返回 failed),必须在 HC2 通过全量后才进 E 批</li>
+            <li>四路全部返回后,Coordinator 进 Phase F</li>
+          </ul>
+        </div>
+      `
+    }
+  };
+
+  const detailEl = document.getElementById("detail");
+  function renderDetail(key) {
+    const d = DETAILS[key];
+    if (!d) {
+      detailEl.innerHTML = `<p class="placeholder">该节点暂无详细说明<br><code>${key}</code></p>`;
+      return;
+    }
+    detailEl.innerHTML = `
+      <h2>${d.title}</h2>
+      <div>${(d.tags||[]).join(" ")}</div>
+      <p class="desc">${d.desc || ""}</p>
+      ${d.content || ""}
+    `;
+    detailEl.scrollTop = 0;
+  }
+
+  mermaid.initialize({ startOnLoad: true, theme: "default", flowchart: { curve: "basis" } });
+
+  // 等 mermaid 渲染完再绑定点击
+  window.addEventListener("load", () => {
+    setTimeout(() => {
+      const svg = document.querySelector("#diagram svg");
+      if (!svg) return;
+      let currentSelected = null;
+      svg.querySelectorAll(".node").forEach(nodeEl => {
+        nodeEl.style.cursor = "pointer";
+        nodeEl.addEventListener("click", () => {
+          // mermaid 给每个节点的 id 类似 flowchart-C1-3, 取中间那段
+          const rawId = nodeEl.id || "";
+          const match = rawId.match(/flowchart-(.+?)-\d+$/);
+          const key = match ? match[1] : rawId;
+          if (currentSelected) currentSelected.classList.remove("selected");
+          nodeEl.classList.add("selected");
+          currentSelected = nodeEl;
+          renderDetail(key);
+        });
+      });
+      // 尝试点击 subgraph 标签也能触发
+      svg.querySelectorAll(".cluster").forEach(cl => {
+        cl.style.cursor = "pointer";
+        cl.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const id = cl.id.replace(/^flowchart-/, "").replace(/-\d+$/, "");
+          if (currentSelected) currentSelected.classList.remove("selected");
+          renderDetail(id);
+        });
+      });
+    }, 400);
+  });
+</script>
+</body>
+</html>

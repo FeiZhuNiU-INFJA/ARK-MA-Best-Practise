@@ -1,0 +1,42 @@
+{
+  "name": "topic6-coordinator",
+  "description": "topic6 社媒热点周刊主协调器。承载 Producer 主线 14 步时序 + 子 Agent 委派。",
+  "model": {
+    "id": "doubao-seed-2-1-pro-260628"
+  },
+  "system_file": "coordinator.system.md",
+  "skills": [
+    {"type": "custom", "skill_id": "${skill_id.topic6-fetch-normalize}", "version": "${version.topic6-fetch-normalize}"},
+    {"type": "custom", "skill_id": "${skill_id.topic6-annotation}", "version": "${version.topic6-annotation}"},
+    {"type": "custom", "skill_id": "${skill_id.topic6-insight}", "version": "${version.topic6-insight}"},
+    {"type": "custom", "skill_id": "${skill_id.topic6-event-registry}", "version": "${version.topic6-event-registry}"},
+    {"type": "custom", "skill_id": "${skill_id.topic6-web-report}", "version": "${version.topic6-web-report}"}
+  ],
+  "tools": [
+    {"type": "bash"},
+    {"type": "read"},
+    {"type": "write"},
+    {"type": "edit"}
+  ],
+  "mcp_servers": [
+    {
+      "name": "hot-topics",
+      "url": "${HOT_TOPICS_MCP_URL}"
+    }
+  ],
+  "mcp_toolset": [
+    {
+      "type": "mcp_toolset",
+      "mcp_server_name": "hot-topics",
+      "default_config": "always_allow"
+    }
+  ],
+  "multiagent": {
+    "type": "coordinator",
+    "agents": [
+      {"type": "agent", "id": "${agent_id.topic6-annotator}"},
+      {"type": "agent", "id": "${agent_id.topic6-insighter}"},
+      {"type": "self"}
+    ]
+  }
+}

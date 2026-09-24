@@ -559,6 +559,10 @@ class FeishuSender:
         )
 
     def _create_in_chat(self, chat_id: str, msg_type: str, content: str) -> None:
+        self._create_in_chat_raw(chat_id, msg_type, content)
+
+    def _create_in_chat_raw(self, chat_id: str, msg_type: str, content: str) -> Optional[str]:
+        """底层发送:返回创建成功后的 message_id。上层如果只需要发出去可以忽略。"""
         from lark_channel.api.im.v1.model.create_message_request import (
             CreateMessageRequest,
             CreateMessageRequestBody,
@@ -575,6 +579,18 @@ class FeishuSender:
         response = self._client.im.v1.message.create(request)
         if not response.success():
             raise RuntimeError(f"飞书发送失败 {response.code}: {response.msg}")
+        data = getattr(response, "data", None)
+        return getattr(data, "message_id", None) if data is not None else None
+
+    def send_interactive_card(self, chat_id: str, card: dict) -> Optional[str]:
+        """在群/单聊中发一张飞书交互卡片(schema 2.0 或旧 v1 dict),返回 message_id。
+
+        topic6 HITL 会用返回的 message_id 回写到 pipeline_hc_events,后续卡片按钮点击回调
+        时可以按 message_id 反查究竟对应哪一次 HC 卡点。
+        """
+        return self._create_in_chat_raw(
+            chat_id, "interactive", json.dumps(card, ensure_ascii=False)
+        )
 
     def list_messages(
         self,
@@ -956,6 +972,17 @@ def start_feishu_gateway(app_id: str, app_secret: str, gateway: GatewayLike) -> 
             gateway.accept(incoming)
 
     channel.on(Events.MESSAGE, _on_message)
+
+    # topic6 HITL：Gateway 若实现了 on_card_action(action) 就注册 CARD_ACTION 回调。
+    # 这是可选钩子——digital-employee 单场景不实现该方法时,SDK 不订阅卡片按钮事件,
+    # 与原行为完全一致。
+    if hasattr(gateway, "on_card_action"):
+        card_handler = gateway.on_card_action  # type: ignore[attr-defined]
+
+        def _on_card_action(action: object) -> None:
+            card_handler(action)
+
+        channel.on(Events.CARD_ACTION, _on_card_action)
 
     if sdk_debug:
         _sdk_log = logging.getLogger("feishu.sdk")

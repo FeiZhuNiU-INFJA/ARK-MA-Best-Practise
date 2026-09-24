@@ -20,3 +20,24 @@ scenarios/ma-replica/ma-cases/
 .DS_Store
 data/
 .dbg/
+scenarios/feishu-bot/cases/topic6/assets_from_customer
+
+# topic6 打包产物:pack_skills.sh 每次跑都会重新生成,不入库
+scenarios/feishu-bot/cases/topic6/tools/out/
+*.zip
+*.sha256
+
+# 本地 SQLite 数据库(gateway 存量表 / pipeline_store):运行期数据
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# 编辑器 / OS 杂物
+*.swp
+*.swo
+*~
+.idea/
+.vscode/

@@ -1,0 +1,10 @@
+{
+  "note": "由 upload_skills.py 上传成功后回填。key = 客户目录名,value = { skill_id, version, uploaded_at, source_sha256 }。",
+  "skills": {
+    "topic6-fetch-normalize": null,
+    "topic6-annotation": null,
+    "topic6-insight": null,
+    "topic6-event-registry": null,
+    "topic6-web-report": null
+  }
+}

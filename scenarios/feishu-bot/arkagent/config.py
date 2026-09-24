@@ -42,6 +42,11 @@ class GatewayConfig:
     role_ttl_ms: int
     authorized_open_ids: tuple[str, ...]
     team_store_enabled: bool
+    # topic6 场景(可选):不设 TOPIC6_COORDINATOR_AGENT_ID 时该场景不启用,飞书 Bot 只跑 digital-employee。
+    topic6_coordinator_agent_id: str
+    topic6_environment_id: str
+    topic6_memory_store_id: str
+    topic6_pipeline_db_path: str
 
 
 def parse_env_text(text: str) -> dict[str, str]:
@@ -100,6 +105,11 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> GatewayConfig:
         role_ttl_ms=role_ttl_ms,
         authorized_open_ids=_split_open_ids(environ.get("AUTHORIZED_OPEN_IDS") or ""),
         team_store_enabled=(environ.get("TEAM_STORE_ENABLED") or "").strip().lower() in ("1", "true", "yes"),
+        topic6_coordinator_agent_id=(environ.get("TOPIC6_COORDINATOR_AGENT_ID") or "").strip(),
+        # topic6 若不单独设置 environment/vault,复用 digital-employee 的:两个场景共存于同一租户即可。
+        topic6_environment_id=(environ.get("TOPIC6_ENVIRONMENT_ID") or environ.get("ARK_ENVIRONMENT_ID") or "").strip(),
+        topic6_memory_store_id=(environ.get("TOPIC6_MEMORY_STORE_ID") or "").strip(),
+        topic6_pipeline_db_path=(environ.get("TOPIC6_PIPELINE_DB_PATH") or "").strip(),
     )
 
 
