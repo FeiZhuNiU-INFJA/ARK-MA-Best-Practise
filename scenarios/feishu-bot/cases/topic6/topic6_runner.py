@@ -155,8 +155,7 @@ class Topic6Config:
 
     coordinator_agent_id: str
     environment_id: str
-    memory_store_id: str = ""  # 挂到 /mnt/memory/;为空则不挂
-    memory_mount_path: str = "/mnt/memory"
+    memory_store_id: str = ""  # 会被平台自动挂到沙箱 /mnt/memory/;为空则不挂
     vault_ids: tuple[str, ...] = ()
     # Session 首次消息发送后,SSE 消费的整体超时(秒)。给足 3.5h 主线 + 富余。
     session_timeout_sec: int = 6 * 3600
@@ -243,7 +242,7 @@ class Topic6Runner:
                 {
                     "type": "memory_store",
                     "memory_store_id": self._config.memory_store_id,
-                    "mount_path": self._config.memory_mount_path,
+                    "access": "read_only",
                 }
             )
         session_id = await self._ark.create_session(
