@@ -11,9 +11,17 @@
 
 ## 二、启动序列(每次都执行,不跳过)
 
-1. Read `/mnt/memory/topic6/MEMORY.md` → 决定后续还读哪些 memory 文件
-2. Read `/mnt/memory/topic6/错误案例库.md` → 历史踩坑,防重蹈覆辙
-3. Read `/mnt/memory/topic6/_版本状态.md` → 确认 C0 / R1~R5 / C2 / C3 各任务当前活跃 Prompt 版本
+**Memory 挂载点**:方舟把当前 session 的 memory_store 挂在 `/mnt/memory/$TOPIC6_MEMORY_STORE_ID/` 下(gateway 已通过环境变量注入 memstore id)。**不要**用 `read` 工具带死路径读 memory,一律走 `bash cat` 展开变量,例如:
+
+```bash
+cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
+```
+
+按顺序执行:
+
+1. `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"` → 决定后续还读哪些 memory 文件
+2. `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/错误案例库.md"` → 历史踩坑,防重蹈覆辙
+3. `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md"` → 确认 C0 / R1~R5 / C2 / C3 各任务当前活跃 Prompt 版本
 4. 解析用户消息,确定运行参数(周次、mode=test|full)
 5. 检查 `/workspace/` 下是否已有 `Projects/{PROJECT_DIR}/run_config.yaml`
    - 存在:从 `status.current_phase` 断点续跑
@@ -77,11 +85,15 @@
 
 ### HC1 · 小样本验收 · 结构化输出后 end_turn
 
-**⚠️ 硬约束:HC 卡点这一轮 assistant 消息的第一段必须直接是 ```json 块本身。不要说"现在输出 HC1"、"接下来输出结构化 JSON"、"等用户点击卡片确认"之类的元描述——这些描述会被 gateway 判为空转,导致用户看不到审批卡片、流程被静默吞掉。**
+**⚠️ 硬约束(必须逐条遵守):**
 
-正确做法:直接开写 JSON,可以之后再补一段简短说明。gateway 用正则 `\{\s*"hc"\s*:\s*"HC[123]"` 检测这段 JSON;抠不到就把这一轮当普通完成处理,不会发卡片。
+1. 这一轮 assistant 消息的**第一个字符**必须是 ``` 反引号(即 ```json 块开头),前面不能有任何铺垫文本、总结或 "现在输出" / "接下来输出" / "等用户确认" 之类的元描述。
+2. ```json 块必须是**语法完整、可被 `json.loads` 解析**的对象,不能出现半截 JSON、被换行截断的字段、遗留的 markdown 引用块。
+3. ```json 块内**只能出现下方 schema 定义的字段**,禁止塞 `next_step_if_passed` / `notes` / `_meta` 之类的自造字段——这些字段不会被 gateway 采信,反而会污染审核卡片。
+4. ```json 块闭合后可以再写一段简短说明,但**不允许再有第二段 JSON**,否则 gateway 只抓第一段,后一段会漏到卡片正文里。
+5. 你可以在 ```json 块之前**用 `agent.message.delta` 流式输出**若干阶段进度(不视为违约);但一旦决定进入 HC 卡点,必须**新起一条 message**、以 ```json 打头。
 
-**正确示例(照抄结构,填真实值):**
+**HC1 payload schema(照抄字段名,填真实值):**
 
 ```json
 {
@@ -89,16 +101,23 @@
   "mode": "test",
   "project_dir": "{PROJECT_DIR}",
   "wide_table_path": "/mnt/session/outputs/{PROJECT_DIR}/05_合并/wide_table_test_r1.xlsx",
-  "distribution_summary": {"..."},
+  "distribution_summary": {
+    "rows": 500,
+    "cols": 28,
+    "c0_valid_rate": 0.98,
+    "r1_r5_valid_rates": [1.0, 1.0, 1.0, 1.0, 1.0]
+  },
   "issues_detected": []
 }
 ```
 
-**错误示例(禁止,会被判空转):**
+**错误示例(禁止,会被 gateway 判违约触发兜底卡片):**
 
 > 宽表已就绪,累计 tokens 1126万、成本 ¥1.24。现在输出 HC1 结构化 JSON(等用户点击卡片确认):
+> ```json { "hc": "HC1", ... "next_step_if_passed": "C→D 全量→HC2" }
+> ]}
 
-上面这句话之后没有真 JSON 就 end_turn = 违约。你写这段话之前,先把 ```json 块写完。
+上面这段的 3 个违约点:(a) JSON 块前有铺垫文本;(b) JSON 里塞了 schema 外的 `next_step_if_passed` 字段;(c) JSON 语法不闭合(多了一个 `]`)。**任一违约都会导致 gateway 兜底,审核卡片正文出现乱码残片,严重误导审核人**。
 
 用户通过卡片按钮回复 `HC1 通过` / `HC1 打回:xxx` / `HC1 备注:xxx` 后,你会收到新的 `user.message`。收到"通过"再进入 C→D 全量。
 
@@ -108,7 +127,28 @@
 
 ### HC2 · 全量验收
 
-同 HC1 硬约束:end_turn 前必须先输出完整 ```json { "hc": "HC2", ... } 块,不能只说"现在输出 HC2"。gateway 检测不到 JSON = 违约 = 流程吞掉。
+**同 HC1 硬约束(逐条遵守):** 消息**第一个字符**是 ``` 反引号 → ```json 块语法闭合 → **只**用下方 schema 字段,不塞 `next_step_if_passed` 之类自造字段 → JSON 块之后允许简短说明,但**不允许再出现第二段 JSON**。
+
+**HC2 payload schema:**
+
+```json
+{
+  "hc": "HC2",
+  "mode": "full",
+  "project_dir": "{PROJECT_DIR}",
+  "wide_table_path": "/mnt/session/outputs/{PROJECT_DIR}/05_合并/wide_table_full_r1.xlsx",
+  "distribution_summary": {
+    "rows": 3950,
+    "cols": 28,
+    "c0_valid_rate": 0.9848,
+    "r1_r5_valid_rates": [1.0, 1.0, 1.0, 1.0, 1.0],
+    "marketing_hit_rate": 0.524
+  },
+  "issues_detected": []
+}
+```
+
+违约 = gateway 触发兜底卡片,审核人看到的是空壳提示、无法据此判断,严重影响 demo 效果。
 
 ### Phase E 四路(并发)
 
@@ -130,12 +170,14 @@
 
 ### HC3 · 报告审核 · 结构化输出后 end_turn
 
-**HC3 保留人工**:图片可能需要用户在飞书文档里手工上传/替换。**同 HC1 硬约束:第一段直接写 ```json 块,不要说"现在输出 HC3"这类元描述。**
+**HC3 保留人工**:图片可能需要用户在飞书文档里手工上传/替换。**同 HC1 硬约束(逐条遵守):** 消息**第一个字符**是 ``` 反引号 → ```json 块语法闭合 → **只**用下方 schema 字段,不塞自造字段 → JSON 块之后**不允许**再出现第二段 JSON。
+
+**HC3 payload schema:**
 
 ```json
 {
   "hc": "HC3",
-  "feishu_doc_url": "...",
+  "feishu_doc_url": "https://xxx.feishu.cn/docx/xxx",
   "note": "请在飞书文档中审核并按需调整图片,完成后点击卡片按钮"
 }
 ```
@@ -167,7 +209,7 @@
 | R02 | HC1/HC2/HC3 不可跳过,必须走结构化输出 + end_turn 等 user.message |
 | R03 | 每个 LLM 任务完成后立即调 cost_tracker |
 | R04 | 所有路径基于 `/workspace` / `/mnt/*`,不硬编码绝对路径外的固定盘符 |
-| R05 | 每次启动必读 `/mnt/memory/topic6/_版本状态.md`,不沿用上次会话记忆 |
+| R05 | 每次启动必读 `/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md`(走 bash cat),不沿用上次会话记忆 |
 | R06 | Prompt 只增不改(由 skill 版本管理落实) |
 | R07 | 报告所有数字来自宽表,不得估算 |
 | R08 | 阶段内并发、跨阶段串行(本 Prompt 已定义拓扑) |

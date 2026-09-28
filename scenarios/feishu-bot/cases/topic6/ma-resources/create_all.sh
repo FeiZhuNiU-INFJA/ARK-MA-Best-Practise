@@ -7,16 +7,19 @@
 #   - 3 个 Agent 每次都重建(prompt/skill 更新是主要驱动),同名旧 Agent 先删后建
 #
 # 使用:
-#   ./create_all.sh                # 幂等运行,首次全建、后续只重建 Agent
-#   ./create_all.sh --update-memory  # 已存在的 MemoryStore 也强制覆盖 memories(用于磁盘 md 改动后同步)
+#   ./create_all.sh                    # 幂等运行,首次全建、后续只重建 Agent
+#   ./create_all.sh --update-memory    # 已存在的 MemoryStore 也强制覆盖 memories(用于磁盘 md 改动后同步)
+#   ./create_all.sh --update-env       # 已存在的 Environment 也强制刷新 config(用于新增/改动沙箱环境变量)
 #
 # 前置: 先跑 tools/pack_skills.sh + tools/upload_skills.py,让 skill_ids.json 有值
 set -euo pipefail
 
 UPDATE_MEMORY=0
+UPDATE_ENV=0
 for arg in "$@"; do
   case "$arg" in
     --update-memory) UPDATE_MEMORY=1 ;;
+    --update-env) UPDATE_ENV=1 ;;
     -h|--help)
       sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
@@ -100,26 +103,33 @@ ark_delete() {
 }
 
 # ---- 1. Environment ----
-step "1) 创建 Environment(幂等:按 name 查找,存在复用)"
+step "1) 创建 Environment(幂等:按 name 查找,存在复用;--update-env 时原地更新 config)"
 env_name=$(jq -r '.name' "$ROOT/environment.json")
 ENVIRONMENT_ID=$(find_by_name "environments" "$env_name" || true)
+# environment.json 里 config.env 用 ${VAR} 字面占位,先展开一次。
+# 方舟不做二次插值,不展开就把 "${DATAHUB_ENDPOINT}" 死字符串灌进沙箱。
+# macOS 默认不带 envsubst,改用 jq 遍历字符串值做 ${VAR} 替换(未 export 的变量替成空串,与 envsubst 行为一致)。
+env_payload="$(
+  jq '
+    def subst:
+      if type == "string" then
+        gsub("\\$\\{(?<name>[A-Z_][A-Z0-9_]*)\\}"; env[.name] // "")
+      elif type == "object" then with_entries(.value |= subst)
+      elif type == "array"  then map(subst)
+      else . end;
+    subst
+  ' "$ROOT/environment.json"
+)"
 if [ -n "$ENVIRONMENT_ID" ]; then
-  echo "已存在: $env_name -> $ENVIRONMENT_ID(复用)"
+  if [ "$UPDATE_ENV" = "1" ]; then
+    # 原地更新 config;新配置只对后续 Session 生效。POST /environments/{id} body={"config": ...}
+    update_payload="$(jq '{config: .config}' <<<"$env_payload")"
+    ark_post "/environments/$ENVIRONMENT_ID" "$update_payload" >/dev/null
+    echo "已更新: $env_name -> $ENVIRONMENT_ID(--update-env,config 已刷新)"
+  else
+    echo "已存在: $env_name -> $ENVIRONMENT_ID(复用;如需刷新沙箱环境变量请加 --update-env)"
+  fi
 else
-  # environment.json 里 config.env 用 ${VAR} 字面占位,先展开一次。
-  # 方舟不做二次插值,不展开就把 "${DATAHUB_ENDPOINT}" 死字符串灌进沙箱。
-  # macOS 默认不带 envsubst,改用 jq 遍历字符串值做 ${VAR} 替换(未 export 的变量替成空串,与 envsubst 行为一致)。
-  env_payload="$(
-    jq '
-      def subst:
-        if type == "string" then
-          gsub("\\$\\{(?<name>[A-Z_][A-Z0-9_]*)\\}"; env[.name] // "")
-        elif type == "object" then with_entries(.value |= subst)
-        elif type == "array"  then map(subst)
-        else . end;
-      subst
-    ' "$ROOT/environment.json"
-  )"
   env_resp=$(ark_post "/environments" "$env_payload")
   ENVIRONMENT_ID=$(extract_id "$env_resp")
   echo "已创建: $env_name -> $ENVIRONMENT_ID"

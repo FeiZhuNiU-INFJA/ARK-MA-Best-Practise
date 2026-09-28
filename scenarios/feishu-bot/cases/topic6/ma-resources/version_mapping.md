@@ -36,5 +36,5 @@
 2. 运行 `tools/pack_skills.sh` → 生成新 zip 到 `tools/out/`
 3. 运行 `tools/upload_skills.py` → 更新 `skill_ids.json`
 4. 更新本表格 + `ma-resources/agents/coordinator.json` 的 `skills[].version` 字段
-5. 通过 `create_all.sh --update-agent` 推送协调器配置到 MA
+5. 直接重跑 `create_all.sh` 推送协调器配置到 MA(Agent 会自动重建)
 

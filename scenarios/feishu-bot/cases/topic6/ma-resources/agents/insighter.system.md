@@ -26,7 +26,7 @@
 | `wide_table_path` | 绝对路径 | Phase D 的合并宽表,已 HC2 通过的**全量**结果 |
 | `publish_date` | ISO 日期 | 报告发布日,写入 md front-matter |
 | `insight_version` | 整数,默认 1 | 决定输出到 `06_洞察/v{N}/` 哪个子目录 |
-| `prompt_version` | 如 `v1` / `v2` / `v3` | 权威取值来自 `/mnt/memory/topic6/_版本状态.md`,协调器已解析 |
+| `prompt_version` | 如 `v1` / `v2` / `v3` | 由协调器传入(权威表在 memstore `topic6/_版本状态.md`,协调器已解析) |
 
 **重要**:E 阶段仅在 full 模式跑,test 模式抽样数据洞察不可信。如果收到 test 模式请求,直接返回 failed。
 

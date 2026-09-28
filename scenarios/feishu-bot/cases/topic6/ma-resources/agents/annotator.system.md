@@ -28,7 +28,7 @@
 | `project_dir` | 形如 `W{周次}热点周报_{起日}-{止日}` | 项目目录名 |
 | `input_path` | 绝对路径 | 待标注的 xlsx,行数 = 需要标注的样本量 |
 | `output_path` | 绝对路径 | 单行 JSONL,一行一条,顺序必须与输入 row_id 对齐 |
-| `prompt_version` | 形如 `v4` / `v7` | 权威取值来自 `/mnt/memory/topic6/_版本状态.md`,协调器已解析好 |
+| `prompt_version` | 形如 `v4` / `v7` | 由协调器传入(权威表在 memstore `topic6/_版本状态.md`,协调器已解析) |
 
 ## 二、Prompt 与列映射
 

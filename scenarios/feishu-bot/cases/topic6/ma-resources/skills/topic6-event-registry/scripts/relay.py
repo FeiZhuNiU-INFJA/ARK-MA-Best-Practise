@@ -3,9 +3,15 @@
 
 所有阶段脚本都走这里，不要各自造轮子。
 凭据只从环境变量读取。鉴权按以下顺序取第一个非空值：
-  BASE_URL：ANTHROPIC_BASE_URL（指向 bmc 中转网关）
-  Key：ANTHROPIC_API_KEY → ANTHROPIC_AUTH_TOKEN
+  BASE_URL：ARK_BASE_URL → OPENAI_BASE_URL（火山方舟 OpenAI 兼容 endpoint）
+  Key：ARK_API_KEY → OPENAI_API_KEY
 Embedding 另需：EMBEDDING_BASE_URL / EMBEDDING_API_KEY（缺省沿用上面两个）
+
+2026-09-28 从 Anthropic 原生 /v1/messages 切到方舟 OpenAI 兼容
+/v1/chat/completions。system 从顶层字段挪到 messages[0]{role=system}，
+usage 字段从 input_tokens/output_tokens 换成 prompt_tokens/completion_tokens，
+停止原因从 stop_reason 换成 finish_reason。prompt caching 暂不支持，缓存
+相关 usage 字段保留为 0，避免上层聚合逻辑报错。
 """
 
 from __future__ import annotations
@@ -23,18 +29,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Sequence
 
-# 每百万 token 单价，仅用于成本台账的估算。换模型时在这里补。
+# 每百万 token 单价(USD 估算,仅用于成本台账。换模型时在这里补)。
+# doubao-seed-evolving 方舟原价 6/30 RMB per M token,按 7 汇率换算成 USD。
 PRICING = {
+    "doubao-seed-evolving": (0.857, 4.286),
     "claude-opus-4-7": (15.0, 75.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5-20251001": (1.0, 5.0),
     "text-embedding-3-small": (0.02, 0.0),
     "Doubao-embedding": (0.0, 0.0),
 }
-
-# Bedrock 后端对这些模型报 "`temperature` is deprecated for this model"，
-# 带上该字段会 400。这些模型只能跑默认温度。
-NO_TEMPERATURE = ("claude-opus-4-7",)
 
 
 def price_of(model: str) -> tuple[float, float]:
@@ -45,19 +49,19 @@ def price_of(model: str) -> tuple[float, float]:
 
 
 class Relay:
-    """Anthropic messages 接口客户端，线程安全累计用量。"""
+    """方舟 OpenAI 兼容 chat/completions 客户端，线程安全累计用量。"""
 
     def __init__(self, model: str, max_tokens: int, system: str,
                  temperature: float = 0.0, timeout: int = 600, retries: int = 3):
-        # Claude Code 环境通常只导出 ANTHROPIC_AUTH_TOKEN（指向 bmc 中转网关），
-        # 不导出 ANTHROPIC_API_KEY。两个都认，省掉每条命令手动加前缀。
-        self.base = (os.environ.get("ANTHROPIC_BASE_URL") or "").rstrip("/")
-        self.key = (os.environ.get("ANTHROPIC_API_KEY")
-                    or os.environ.get("ANTHROPIC_AUTH_TOKEN") or "")
+        self.base = (os.environ.get("ARK_BASE_URL")
+                     or os.environ.get("OPENAI_BASE_URL") or "").rstrip("/")
+        self.key = (os.environ.get("ARK_API_KEY")
+                    or os.environ.get("OPENAI_API_KEY") or "")
         if not self.base or not self.key:
             raise SystemExit(
-                "缺少凭据。需要 ANTHROPIC_BASE_URL，以及 ANTHROPIC_API_KEY 或 "
-                "ANTHROPIC_AUTH_TOKEN 之一。凭据只从环境变量读取，不要写进文件。")
+                "缺少凭据。需要 ARK_BASE_URL 或 OPENAI_BASE_URL，以及 "
+                "ARK_API_KEY 或 OPENAI_API_KEY。凭据只从环境变量读取，"
+                "不要写进文件。")
         self.model = model
         self.max_tokens = max_tokens
         self.system = system
@@ -65,6 +69,7 @@ class Relay:
         self.timeout = timeout
         self.retries = retries
         self.lock = threading.Lock()
+        # cache_read/cache_creation 保留字段以兼容上层聚合(方舟暂无对应能力,恒为 0)
         self.usage = {"input_tokens": 0, "output_tokens": 0,
                       "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
         self.calls = 0
@@ -74,16 +79,16 @@ class Relay:
         payload_body = {
             "model": self.model,
             "max_tokens": cap,
-            "system": [{"type": "text", "text": self.system,
-                        "cache_control": {"type": "ephemeral"}}],
-            "messages": [{"role": "user", "content": user_text + extra}],
+            "temperature": self.temperature,
+            "messages": [
+                {"role": "system", "content": self.system},
+                {"role": "user", "content": user_text + extra},
+            ],
         }
-        if not any(k in self.model for k in NO_TEMPERATURE):
-            payload_body["temperature"] = self.temperature
         body = json.dumps(payload_body, ensure_ascii=False).encode()
         req = urllib.request.Request(
-            self.base + "/v1/messages", data=body,
-            headers={"x-api-key": self.key, "anthropic-version": "2023-06-01",
+            self.base + "/v1/chat/completions", data=body,
+            headers={"Authorization": f"Bearer {self.key}",
                      "content-type": "application/json"})
         last = None
         for attempt in range(self.retries):
@@ -96,15 +101,22 @@ class Relay:
                 if attempt == self.retries - 1:
                     raise
                 time.sleep(2 ** attempt)
+        usage = payload.get("usage") or {}
         with self.lock:
             self.calls += 1
-            for key in self.usage:
-                self.usage[key] += payload.get("usage", {}).get(key, 0) or 0
+            # OpenAI 兼容协议字段名换算成上层聚合期望的 input/output_tokens
+            self.usage["input_tokens"] += usage.get("prompt_tokens", 0) or 0
+            self.usage["output_tokens"] += usage.get("completion_tokens", 0) or 0
+        choices = payload.get("choices") or []
+        if not choices:
+            raise ValueError("方舟返回 choices 为空")
+        choice = choices[0]
         # 截断必须显式报错。当成解析失败去重试，只会再截断一次。
-        if payload.get("stop_reason") == "max_tokens":
+        if choice.get("finish_reason") == "length":
             raise ValueError(f"输出被 max_tokens={cap} 截断，"
                              f"需调大 max_tokens 或减小批量")
-        return "".join(b.get("text", "") for b in payload.get("content", []))
+        message = choice.get("message") or {}
+        return message.get("content") or ""
 
     def cost(self) -> float:
         pin, pout = price_of(self.model)
@@ -151,14 +163,15 @@ class Embedder:
                  cache_path: Path | None = None, timeout: int = 600,
                  retries: int = 4):
         self.base = (os.environ.get("EMBEDDING_BASE_URL")
-                     or os.environ.get("ANTHROPIC_BASE_URL", "")).rstrip("/")
+                     or os.environ.get("ARK_BASE_URL")
+                     or os.environ.get("OPENAI_BASE_URL", "")).rstrip("/")
         self.key = (os.environ.get("EMBEDDING_API_KEY")
-                    or os.environ.get("ANTHROPIC_API_KEY")
-                    or os.environ.get("ANTHROPIC_AUTH_TOKEN", ""))
+                    or os.environ.get("ARK_API_KEY")
+                    or os.environ.get("OPENAI_API_KEY", ""))
         if not self.base or not self.key:
             raise SystemExit("缺少 embedding 凭据。需要 EMBEDDING_BASE_URL / "
-                             "EMBEDDING_API_KEY，或沿用 ANTHROPIC_BASE_URL 加 "
-                             "ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN 之一。")
+                             "EMBEDDING_API_KEY，或沿用 ARK_BASE_URL 加 "
+                             "ARK_API_KEY / OPENAI_API_KEY 之一。")
         self.model = model
         self.timeout = timeout
         self.retries = retries
@@ -484,10 +497,8 @@ def report(relay: Relay, stage: str, manifest: Path | None = None,
     usage = relay.usage
     cost = relay.cost()
     print(f"[{stage}] 调用 {relay.calls} 次 | in {usage['input_tokens']} "
-          f"out {usage['output_tokens']} | cache_read {usage['cache_read_input_tokens']} "
+          f"out {usage['output_tokens']} "
           f"| 估算 ${cost:.4f}", flush=True)
-    if usage["cache_read_input_tokens"] == 0 and relay.calls > 1:
-        print(f"[{stage}] 提示缓存未命中，system 块可能未达模型最小 token 门槛", flush=True)
     if manifest:
         log_run(manifest, {"stage": stage, "model": relay.model, "calls": relay.calls,
                            "cost_usd": round(cost, 5), **usage, **(extra or {})})

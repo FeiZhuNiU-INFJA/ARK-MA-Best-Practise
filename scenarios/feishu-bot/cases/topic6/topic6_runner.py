@@ -245,11 +245,16 @@ class Topic6Runner:
                     "access": "read_only",
                 }
             )
+        env_overrides = {"FEISHU_USER_OPEN_ID": user_open_id}
+        if self._config.memory_store_id:
+            # 方舟把每个 memstore 挂在 /mnt/memory/{memstore_id}/ 下(多 store 隔离),
+            # 注入 ID 供 Agent bash 展开路径,例如 cat /mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md
+            env_overrides["TOPIC6_MEMORY_STORE_ID"] = self._config.memory_store_id
         session_id = await self._ark.create_session(
             self._config.coordinator_agent_id,
             self._config.environment_id,
             vault_ids=list(self._config.vault_ids),
-            env_overrides={"FEISHU_USER_OPEN_ID": user_open_id},
+            env_overrides=env_overrides,
             resources=resources,
         )
         # project_dir 由 coordinator 自己创建,这里先占位;pipeline 落库时统一按

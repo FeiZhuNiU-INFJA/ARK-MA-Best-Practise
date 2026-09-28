@@ -146,7 +146,7 @@ python3 tools/upload_skills.py
 - `ANNOTATOR_AGENT_ID` / `INSIGHTER_AGENT_ID`
 - `COORDINATOR_AGENT_ID` ← 后面要写进 config.env
 
-后续只是改 Prompt / Skill,跑 `./ma-resources/create_all.sh --update-agent` 就地更新,不必再全量创建。
+后续只是改 Prompt / Skill,直接重跑 `./ma-resources/create_all.sh` 即可——3 个 Agent 每次都会强制重建,skill_id / prompt 都会一并生效。仅当 `environment.json` 或 memory md 文件也改过时,才分别加上 `--update-env` / `--update-memory`。
 
 ---
 
@@ -167,7 +167,7 @@ TOPIC6_PIPELINE_DB_PATH=./data/topic6_pipeline.db
 
 ```bash
 cd scenarios/feishu-bot
-python3 -m arkagent run
+python3 -m arkagent run --case topic6
 ```
 
 启动日志出现下面这行才算 topic6 装配成功:
@@ -177,7 +177,7 @@ python3 -m arkagent run
 topic6 触发词：热点报告 / 热点周报(可加 test/full 指定模式)
 ```
 
-想拉更详细日志:`ARKAGENT_LOG_LEVEL=DEBUG python3 -m arkagent run`。
+想拉更详细日志:`ARKAGENT_LOG_LEVEL=DEBUG python3 -m arkagent run --case topic6`。
 
 ---
 
@@ -201,14 +201,14 @@ topic6 触发词：热点报告 / 热点周报(可加 test/full 指定模式)
 
 ## 6. 常见故障排查
 
-| 现象                              | 排查方向                                                                                                                    |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| 日志"topic6 场景:未启用"          | 检查`TOPIC6_COORDINATOR_AGENT_ID` 是否已写入 config.env、拼写是否正确                                                     |
-| Coordinator 拉不到 hot-topics MCP | `HOT_TOPICS_MCP_URL` 未 export 就跑了 `create_all.sh`,MCP URL 被空值渲染进 Agent 定义;重新 export 后 `--update-agent` |
-| Skill 找不到                      | `skill_ids.json` 有 null 项,重跑 `upload_skills.py`                                                                     |
-| HC 卡片点击后无响应               | Feishu Bot 后台"事件订阅"里是否开启`card.action.trigger` 权限                                                             |
-| SSE 中断/超时                     | 单会话默认 10 分钟,超长任务加大`SESSION_TIMEOUT_MS`(毫秒)                                                                 |
-| 图片抓取失败                      | 已知风险点,飞书`im.v1.images.get` 并发大图不稳定,重跑一次 Phase G 即可                                                    |
+| 现象                              | 排查方向                                                                                                                                                             |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 日志"topic6 场景:未启用"          | 检查`TOPIC6_COORDINATOR_AGENT_ID` 是否已写入 config.env、拼写是否正确                                                                                              |
+| Coordinator 拉不到 hot-topics MCP | `HOT_TOPICS_MCP_URL` 未 export 就跑了 `create_all.sh`,MCP URL 被空值渲染进 Agent 定义;重新 export 后加 `--update-env` 重跑 `create_all.sh`(Agent 会自动重建) |
+| Skill 找不到                      | `skill_ids.json` 有 null 项,重跑 `upload_skills.py`                                                                                                              |
+| HC 卡片点击后无响应               | Feishu Bot 后台"事件订阅"里是否开启`card.action.trigger` 权限                                                                                                      |
+| SSE 中断/超时                     | 单会话默认 10 分钟,超长任务加大`SESSION_TIMEOUT_MS`(毫秒)                                                                                                          |
+| 图片抓取失败                      | 已知风险点,飞书`im.v1.images.get` 并发大图不稳定,重跑一次 Phase G 即可                                                                                             |
 
 ---
 

@@ -613,7 +613,9 @@ async def _error_result(sec: dict, err: str) -> dict:
 # ---------------------------------------------------------------------------
 
 # 每百万 token 单价(USD估算,MA 走火山方舟实际计价按平台账单为准,这里仅供 cost_tracker 台账估算)。
+# doubao-seed-evolving 方舟原价 6/30 RMB per M token,按 7 汇率换算成 USD。
 PRICING: dict[str, tuple[float, float]] = {
+    "doubao-seed-evolving":         (0.857, 4.286),
     "claude-opus-4-5":              (5.0, 25.0),
     "claude-opus-4-7":              (5.0, 25.0),
     "claude-opus-4-8":              (5.0, 25.0),
@@ -707,7 +709,7 @@ def main():
                         help="项目目录(绝对路径,或相对 /workspace)")
     parser.add_argument("--mode", choices=["test", "full"], default="full")
     parser.add_argument("--publish-date", default=None)
-    parser.add_argument("--model", default="claude-sonnet-4-5-20250929",
+    parser.add_argument("--model", default="doubao-seed-evolving",
                         help="LLM 模型 ID(MA 环境请传火山方舟 endpoint id)")
     parser.add_argument("--version", type=int, default=None)
     parser.add_argument("--skip-data-prep", action="store_true")
