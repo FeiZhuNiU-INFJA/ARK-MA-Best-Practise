@@ -22,7 +22,7 @@ from pipeline_store import (
 )
 
 # 卡片最多渲染的近期 tool 行数;超出用 "+N 条更早" 提示,防止 element 超过飞书上限。
-MAX_TOOL_LINES = 30
+MAX_TOOL_LINES = 10
 
 
 def _format_elapsed(seconds: int) -> str:

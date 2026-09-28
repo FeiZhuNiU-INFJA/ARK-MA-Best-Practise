@@ -266,6 +266,30 @@ class Topic6Runner:
         task = self._spawn_stream(job, first_user_message=decision_message)
         self._active_streams[job.ma_session_id] = task
 
+    async def cancel_active_job(
+        self, chat_id: str, thread_id: str, user_open_id: str
+    ) -> Optional[PipelineJob]:
+        """取消该会话键上的活跃 job(SSE task + status → failed),让 /new 可以马上开新任务。
+
+        - 无活跃 job → 返回 None(调用方给"当前没有可取消的任务"的提示)。
+        - 有活跃 job → cancel SSE task、mark_failed(reason=cancelled_by_user)、
+          刷一次进度卡片到失败终态,返回该 job。
+        """
+        job = self._store.get_active_job_by_session_key(chat_id, thread_id, user_open_id)
+        if job is None:
+            return None
+
+        task = self._active_streams.pop(job.ma_session_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+        reason = "cancelled_by_user"
+        self._store.mark_failed(job.job_id, reason)
+        await self._render_and_patch(
+            job.job_id, status=STATUS_FAILED, error=reason, force=True
+        )
+        return job
+
     # ---- SSE 消费 ----------------------------------------------------------
 
     def _spawn_stream(self, job: PipelineJob, first_user_message: str) -> asyncio.Task:

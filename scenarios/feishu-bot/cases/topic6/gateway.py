@@ -64,11 +64,31 @@ class Topic6Gateway:
                 return
 
             text = message.text.strip()
+
+            if text == "/new":
+                cancelled = await self._runner.cancel_active_job(
+                    chat_id=message.chat_id,
+                    thread_id=message.thread_id,
+                    user_open_id=message.user_open_id,
+                )
+                if cancelled is None:
+                    await self._reply(
+                        message.chat_id,
+                        "当前会话没有活跃任务,可直接发「热点周报 test」或「热点周报 full」开新一轮。",
+                    )
+                else:
+                    await self._reply(
+                        message.chat_id,
+                        f"已取消当前任务(job_id={cancelled.job_id})。可再发触发词开新一轮。",
+                    )
+                self._store.complete_event(message.event_id, "completed")
+                return
+
             mode = parse_trigger(text)
             if mode is None:
                 await self._reply(
                     message.chat_id,
-                    "当前 Bot 仅启用 topic6 场景。发送「热点周报 test」(冒烟)或「热点周报 full」(全量)触发。",
+                    "当前 Bot 仅启用 topic6 场景。发送「热点周报 test」(冒烟)或「热点周报 full」(全量)触发;发送 /new 可取消当前任务。",
                 )
                 self._store.complete_event(message.event_id, "completed")
                 return
