@@ -74,12 +74,12 @@ class Topic6Gateway:
                 if cancelled is None:
                     await self._reply(
                         message.chat_id,
-                        "当前会话没有活跃任务,可直接发「热点周报 test」或「热点周报 full」开新一轮。",
+                        "[/new] 收到。当前会话没有活跃任务,可直接发「热点周报 test」或「热点周报 full」开新一轮。",
                     )
                 else:
                     await self._reply(
                         message.chat_id,
-                        f"已取消当前任务(job_id={cancelled.job_id})。可再发触发词开新一轮。",
+                        f"[/new] 已取消当前任务 job_id={cancelled.job_id}(状态置为 failed:cancelled_by_user)。可再发触发词开新一轮。",
                     )
                 self._store.complete_event(message.event_id, "completed")
                 return

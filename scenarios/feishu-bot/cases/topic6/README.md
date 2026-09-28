@@ -1,6 +1,6 @@
-# Topic 6 · MA 迁移资源说明
+# Topic 6 · 资源说明
 
-本目录保存 Topic 6「社媒热点周刊」迁移到火山方舟 Managed Agents（MA）后的资源定义、Skill 源码和配套发布工具。
+本目录保存 Topic 6「社媒热点周刊」在火山方舟 Managed Agents（MA）上的资源定义、Skill 源码和配套发布工具。
 
 - `ma-resources/`：MA 运行所需的 Agent、Environment、Memory Store 和 Skill 源码，是部署资源的唯一源码目录。
 - `tools/`：在本地打包并上传自定义 Skill 的辅助工具。
@@ -84,7 +84,7 @@ Skill 在 MA 中挂载到 `/mnt/skills/<skill-name>/`，运行中间产物写入
 | `memory/topic6/错误案例库.md` | 保存历史错误模式和规避规则，供后续运行复用。 |
 | `memory-store.json` | 声明 Memory Store 及上述文件到 `/mnt/memory/topic6/` 的映射。 |
 
-Memory 源文件与 Skill 一样已和客户原始材料解耦。Agent 侧只读，更新由 Gateway 或 Memory Store API 完成。
+Memory 源文件与 Skill 一样保存在本仓库内。Agent 侧只读，更新由 Gateway 或 Memory Store API 完成。
 
 ### 部署与版本文件
 

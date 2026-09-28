@@ -7,10 +7,23 @@
 #   - 3 个 Agent 每次都重建(prompt/skill 更新是主要驱动),同名旧 Agent 先删后建
 #
 # 使用:
-#   ./create_all.sh              # 幂等运行,首次全建、后续只重建 Agent
+#   ./create_all.sh                # 幂等运行,首次全建、后续只重建 Agent
+#   ./create_all.sh --update-memory  # 已存在的 MemoryStore 也强制覆盖 memories(用于磁盘 md 改动后同步)
 #
 # 前置: 先跑 tools/pack_skills.sh + tools/upload_skills.py,让 skill_ids.json 有值
 set -euo pipefail
+
+UPDATE_MEMORY=0
+for arg in "$@"; do
+  case "$arg" in
+    --update-memory) UPDATE_MEMORY=1 ;;
+    -h|--help)
+      sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *) echo "未知参数: $arg" >&2; exit 2 ;;
+  esac
+done
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 _RAW_BASE="${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}"
@@ -117,7 +130,11 @@ step "2) 创建 Memory Store(幂等:按 name 查找,存在复用)"
 mem_name=$(jq -r '.name' "$ROOT/memory-store.json")
 MEMORY_STORE_ID=$(find_by_name "memory_stores" "$mem_name" || true)
 if [ -n "$MEMORY_STORE_ID" ]; then
-  echo "已存在: $mem_name -> $MEMORY_STORE_ID(复用,跳过预置内容避免重复覆盖)"
+  if [ "$UPDATE_MEMORY" = "1" ]; then
+    echo "已存在: $mem_name -> $MEMORY_STORE_ID(--update-memory,将强制覆盖 memories)"
+  else
+    echo "已存在: $mem_name -> $MEMORY_STORE_ID(复用,跳过预置内容避免重复覆盖)"
+  fi
   MEMORY_ALREADY_EXISTS=1
 else
   mem_payload=$(jq '{name, description}' "$ROOT/memory-store.json")
@@ -127,9 +144,13 @@ else
   MEMORY_ALREADY_EXISTS=0
 fi
 
-# 上传初始 memory 内容(仅首次创建时执行,复用时跳过避免用旧内容覆盖用户后来的修改)
-if [ "$MEMORY_ALREADY_EXISTS" = "0" ]; then
-  step "3) 预置 Memory 内容"
+# 上传初始 memory 内容(首次创建时执行;复用时默认跳过避免覆盖用户后来的修改,加 --update-memory 才强制覆盖)
+if [ "$MEMORY_ALREADY_EXISTS" = "0" ] || [ "$UPDATE_MEMORY" = "1" ]; then
+  if [ "$UPDATE_MEMORY" = "1" ] && [ "$MEMORY_ALREADY_EXISTS" = "1" ]; then
+    step "3) 覆盖 Memory 内容(--update-memory)"
+  else
+    step "3) 预置 Memory 内容"
+  fi
   jq -c '.memories[]' "$ROOT/memory-store.json" | while read -r mem; do
     path=$(jq -r '.path' <<<"$mem")
     # 方舟要求 memory path 必须以 / 开头,漏斜杠会 400 InvalidParameter
@@ -140,10 +161,10 @@ if [ "$MEMORY_ALREADY_EXISTS" = "0" ]; then
     content=$(jq -Rs '.' <"$src_abs")
     ark_post "/memory_stores/$MEMORY_STORE_ID/memories" \
       "{\"path\": \"$path\", \"content\": $content}" >/dev/null
-    echo "  预置 $path"
+    echo "  写入 $path"
   done
 else
-  step "3) 预置 Memory 内容(已存在,跳过)"
+  step "3) 预置 Memory 内容(已存在,跳过;加 --update-memory 可强制覆盖)"
 fi
 
 # ---- 4. 检查 skill_ids.json 是否已填 ----
@@ -242,3 +263,55 @@ cat >"$ROOT/created_ids.json" <<EOF
 }
 EOF
 echo -e "\n完成。ID 落盘: $ROOT/created_ids.json"
+
+# ---- 9. 回写 gateway 侧 config.env ----
+# 子 Agent 每次都"先删旧再建新",AGENT_ID 会漂移。这里把 coordinator/env/memory
+# 三个 gateway 必读的 ID 同步到 ~/.arkagent/cases/topic6/config.env,免得用户
+# 重跑本脚本后 gateway 还打着旧 ID(旧 Agent 已被删,调用会 404)。
+CASE_ENV_PATH="${ARKAGENT_HOME:-$HOME/.arkagent}/cases/topic6/config.env"
+if [ -f "$CASE_ENV_PATH" ]; then
+  step "9) 回写 gateway config: $CASE_ENV_PATH"
+  TOPIC6_COORDINATOR_AGENT_ID="$AGENT_COORDINATOR_ID" \
+  TOPIC6_ENVIRONMENT_ID="$ENVIRONMENT_ID" \
+  TOPIC6_MEMORY_STORE_ID="$MEMORY_STORE_ID" \
+  CASE_ENV_PATH="$CASE_ENV_PATH" \
+  python3 <<'PY'
+import os
+from pathlib import Path
+
+updates = {
+    "TOPIC6_COORDINATOR_AGENT_ID": os.environ["TOPIC6_COORDINATOR_AGENT_ID"],
+    "TOPIC6_ENVIRONMENT_ID": os.environ["TOPIC6_ENVIRONMENT_ID"],
+    "TOPIC6_MEMORY_STORE_ID": os.environ["TOPIC6_MEMORY_STORE_ID"],
+}
+path = Path(os.environ["CASE_ENV_PATH"])
+lines = path.read_text(encoding="utf-8").splitlines()
+seen: set[str] = set()
+out: list[str] = []
+for line in lines:
+    stripped = line.lstrip()
+    if not stripped or stripped.startswith("#") or "=" not in stripped:
+        out.append(line)
+        continue
+    key = stripped.split("=", 1)[0].strip()
+    if key in updates:
+        out.append(f'{key}="{updates[key]}"')
+        seen.add(key)
+    else:
+        out.append(line)
+for key, value in updates.items():
+    if key not in seen:
+        out.append(f'{key}="{value}"')
+path.write_text("\n".join(out) + "\n", encoding="utf-8")
+path.chmod(0o600)
+for key, value in updates.items():
+    print(f"  {key} -> {value}")
+PY
+  echo "已同步至 config.env(重启 gateway 后生效)"
+else
+  echo -e "\n⚠️  未找到 $CASE_ENV_PATH,跳过回写。"
+  echo "    首次部署请手动:"
+  echo "      mkdir -p \"\$(dirname $CASE_ENV_PATH)\""
+  echo "      cp env.example \"$CASE_ENV_PATH\""
+  echo "    然后再重跑本脚本让 ID 自动落库。"
+fi

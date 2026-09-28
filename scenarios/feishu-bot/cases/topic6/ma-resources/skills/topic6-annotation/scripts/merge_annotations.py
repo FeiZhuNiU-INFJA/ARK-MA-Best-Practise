@@ -2,11 +2,9 @@
 """
 merge_annotations.py — 七路标注宽表合并 (C0 + R1~R5 + C2 + C3)
 
-MA 精简版:
   1. 输出 28 列宽表 (基础字段 9 列 + C0 7 列 + [提取节点, 事件簇名] + R1~R5 各 2 列)
   2. C3 只保留过滤后的 "提取节点"; C2 只保留 "事件簇名"
   3. 单路缺失只告警不中断, 用 health_summary md 汇总
-  4. 去掉客户版对 patch/retry 相关字段的引用
 
 输入 (相对 project_dir):
   02_标准化/hot_topics_normalized.xlsx

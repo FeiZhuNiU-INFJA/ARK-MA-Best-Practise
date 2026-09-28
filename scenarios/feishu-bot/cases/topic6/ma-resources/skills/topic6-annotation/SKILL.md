@@ -4,23 +4,22 @@ version: 1.0.0
 description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础事实、R1~R5 五维借势/合作/风险/创意/舆情、C3 关键词收拢的多路标注，含提交、轮询、合并、筛选、时窗展平的一体化流水线。当用户需要对已归一化的热搜宽表做多维度打标、汇聚成可交付宽表时使用。
 ---
 
-# topic6-annotation — 热点标注 Skill (MA 版 v1)
+# topic6-annotation — 热点标注 Skill
 
-将客户端(Claude Code)版本的 `skill/annotation/` 迁移到火山方舟 Managed Agents。
-Prompt 业务口径保留客户版活跃版本；工具链、脚本、路径全部按 MA 环境重写。
+火山方舟 Managed Agents 的社媒热点周刊 Phase C 标注 skill,调用 DataHub 完成 C0/R1~R5/C3 多路标注。
 
 ## 挂载路径
 
 ```
 /mnt/skills/topic6-annotation/
-├── prompts/          # C0/R1~R5/C3 各任务活跃版本 fork (版本快照见 ma-resources/memory/topic6/_版本状态.md)
+├── prompts/          # C0/R1~R5/C3 各任务活跃版本 (版本历史见 ma-resources/memory/topic6/_版本状态.md)
 │   ├── C0_基础事实/v4.md      # 活跃版 v4 (v1~v3 归档保留)
 │   ├── R1_平台借势/v2.md      # 活跃版 v2 (v1 归档保留)
 │   ├── R2_商业合作/v1.md
 │   ├── R3_风险预警/v1.md
 │   ├── R4_创意借鉴/v2.md      # 活跃版 v2 (v1 归档保留)
 │   ├── R5_消费者行为/v2.md    # 活跃版 v2 (v1 归档保留)
-│   └── 节点标注/v1.md
+│   └── 节点标注/v7.md         # 活跃版 v7
 ├── scripts/          # 一体化脚本 (submit+poll+postprocess 合并)
 │   ├── datahub_annotate.py    # 单任务全流程 (C0/R1~R5/C3)
 │   ├── c0_merge_phase1.py     # C0 + C3 → 04_合并/phase1_merged
@@ -72,8 +71,8 @@ Prompt 业务口径保留客户版活跃版本；工具链、脚本、路径全�
 
 ## Prompt 版本
 
-所有 prompt 从 MA 环境重新计数为 **v1**, 内容对应客户版活跃版本 (C0 v4, R1 v2, R2 v1, R3 v1, R4 v2, R5 v2, 节点标注 v7)。
-未来在 MA 环境的迭代直接从 v1→v2→v3, 与客户版脱钩。
+各任务活跃版本: C0 v4, R1 v2, R2 v1, R3 v1, R4 v2, R5 v2, 节点标注 v7。
+未来迭代按各任务当前编号继续递增。
 
 ## 环境变量
 
@@ -81,6 +80,6 @@ Prompt 业务口径保留客户版活跃版本；工具链、脚本、路径全�
 
 ## 关键约束
 
-- 所有 prompt / 脚本内的路径全部走 `/mnt/skills/topic6-annotation/` 或 `/workspace/Projects/`, 不再引用客户版 `topic6/skill/annotation/`。
+- 所有 prompt / 脚本内的路径全部走 `/mnt/skills/topic6-annotation/` 或 `/workspace/Projects/`。
 - Prompt 上传给 DataHub 时通过 `--prompt-file` 显式传绝对路径, 不再靠脚本自动扫描 prompts 目录。
 - 子 Agent 若遇到 c0_filter_usable 抛 `unresolved_ratio > 5%`, 应由协调器决定是否重新委派 datahub_annotate (`--task c0`) 补一轮, 而不是脚本内部越权放行。

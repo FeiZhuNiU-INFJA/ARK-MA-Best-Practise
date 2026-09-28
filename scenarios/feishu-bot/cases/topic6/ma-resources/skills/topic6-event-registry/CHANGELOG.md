@@ -1,15 +1,5 @@
 # 变更记录
 
-## 2.1.0-ma-fork.1 — 2026-09-24 (MA fork)
-
-从 `blueai-canonical-event-registry` v2.1.0 fork,重命名为 `topic6-event-registry`。
-业务规则、判据、口径完全对齐原版,仅做以下 MA 适配改动:
-
-- 脚本安装路径口径:`~/.claude/skills/blueai-canonical-event-registry/scripts` →
-  `/mnt/skills/topic6-event-registry/scripts`(SKILL.md、references/runbook.md)。
-- 无代码逻辑改动、无参数/环境变量增减、无 prompt 调整。
-- 后续跟着 MA 版本上的实际问题演进,不再同步 upstream `blueai-canonical-event-registry`。
-
 ## 2.1.0 — 2026-09-21
 
 

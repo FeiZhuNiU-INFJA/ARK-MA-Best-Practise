@@ -499,7 +499,7 @@ week_num   : W37</div>
           </ul>
           <h4>路径映射</h4>
           <ul>
-            <li class="path">客户 <code>Projects/{PROJECT_DIR}/02_标准化/</code> → MA <code>/workspace/Projects/{PROJECT_DIR}/02_标准化/hot_topics_normalized.xlsx</code></li>
+            <li class="path">项目产物路径 <code>Projects/{PROJECT_DIR}/02_标准化/</code> → 沙箱 <code>/workspace/Projects/{PROJECT_DIR}/02_标准化/hot_topics_normalized.xlsx</code></li>
           </ul>
         </div>
       `
@@ -611,7 +611,7 @@ week_num   : W37</div>
           <h4>Skill · topic6-annotation</h4>
           <ul>
             <li>SKILL:${maLink('skills/topic6-annotation/SKILL.md')} → <code>/mnt/skills/topic6-annotation/</code></li>
-            <li>Prompt:${maLink('skills/topic6-annotation/prompts/C0_基础事实/v1.md')}(v1 = 客户 v4 迁移版,权威版本由 <code>/mnt/memory/topic6/_版本状态.md</code> 指定)</li>
+            <li>Prompt:${maLink('skills/topic6-annotation/prompts/C0_基础事实/v1.md')}(权威版本由 <code>/mnt/memory/topic6/_版本状态.md</code> 指定)</li>
             <li>标注脚本(5 合 1):${maLink('skills/topic6-annotation/scripts/datahub_annotate.py')}(合并 submit/poll/expand/flatten/timewindow)</li>
             <li>字段速查:${maLink('skills/topic6-annotation/ks/_字段速查.md')} · 营销可用判定:${maLink('skills/topic6-annotation/ks/02_营销可用判定.md')}</li>
             <li>成本记录:${maLink('skills/topic6-annotation/tool/cost-tracker/cost_tracker.py')}</li>
@@ -666,7 +666,7 @@ week_num   : W37</div>
           </ul>
           <h4>Prompt 与脚本</h4>
           <ul>
-            <li>Prompt:${maLink('skills/topic6-annotation/prompts/节点标注/v1.md')}(对应客户 v6 系列)</li>
+            <li>Prompt:${maLink('skills/topic6-annotation/prompts/节点标注/v7.md')}</li>
             <li>节点日历基线:${maLink('skills/topic6-annotation/references/marketing_calendar/nodes_definition.csv')} + ${maLink('skills/topic6-annotation/references/marketing_calendar/nodes_definition_supplement.csv')}</li>
             <li>flatten + timewindow 已合并进 ${maLink('skills/topic6-annotation/scripts/datahub_annotate.py')}(--task c3 分支)</li>
             <li>节点判定 ks:${maLink('skills/topic6-annotation/ks/04_节点判定.md')}</li>
@@ -708,7 +708,7 @@ week_num   : W37</div>
           <ul>
             <li>合并:${maLink('skills/topic6-annotation/scripts/c0_merge_phase1.py')} → <code>04_标注/c0_c3_merged.xlsx</code></li>
             <li>筛选:${maLink('skills/topic6-annotation/scripts/c0_filter_usable.py')} → <code>04_筛选/usable_subset.xlsx</code>(<b>已去冗余,移除手动干预参数</b>)</li>
-            <li>重试:客户原 <code>c0_retry_missing.py</code> / <code>retry_missing.py</code> 逻辑已被 ${maLink('skills/topic6-annotation/scripts/datahub_annotate.py')} 的自检+回填内建</li>
+            <li>重试:原 <code>c0_retry_missing.py</code> / <code>retry_missing.py</code> 逻辑已被 ${maLink('skills/topic6-annotation/scripts/datahub_annotate.py')} 的自检+回填内建</li>
           </ul>
           <h4>Coordinator 触发点</h4>
           <ul>
@@ -832,7 +832,7 @@ week_num   : W37</div>
       desc: "把同一起真实事件的多条热搜标题聚成「事件簇」(如 iPhone17 发布相关的 20 条热搜聚成一簇)。",
       content: `
         <h3>做了什么</h3>
-        <p>调外部 skill <code>blueai-canonical-event-registry <b>v2.1.0</b></code>(客户已提供源码,位于 <code>assets_from_customer/blueai-canonical-event-registry/</code>),输入筛选后子集,输出每条热搜所属的事件簇名。</p>
+        <p>调外部 skill <code>blueai-canonical-event-registry <b>v2.1.0</b></code>(源码位于 <code>assets_from_customer/blueai-canonical-event-registry/</code>),输入筛选后子集,输出每条热搜所属的事件簇名。</p>
         <p>核心逻辑:「块内全景归档」—— embedding 召回候选块 → LLM 一次看完整块打事件划分 → 命名一级标准事件名 + 二级宣传角度。</p>
         <h3>为什么要合并</h3>
         <p>报告里如果 20 条都是"iPhone17 发布"的不同表述,视觉上会很冗余。聚簇后可以按事件维度做汇总。<b>全量实测 56.1% 的多成员事件跨平台</b>,所以要跑跨平台合并层(x0~x4),否则同一件事在四个平台上会留成四个事件。</p>
@@ -843,7 +843,7 @@ week_num   : W37</div>
 {<span class="k">"row_id"</span>:<span class="s">"W37_douyin_034"</span>, <span class="k">"事件簇"</span>:<span class="s">"iPhone17 发布会"</span>}
 {<span class="k">"row_id"</span>:<span class="s">"W37_bili_087"</span>,  <span class="k">"事件簇"</span>:<span class="s">"iPhone17 发布会"</span>}</div>
         <p class="sample-note">同一起事件的多条热搜共享簇名,便于报告中按事件维度聚合展示。</p>
-        <div class="note"><b>MA 复刻策略</b>:首期原样复用 skill(20 个脚本),不要重写。客户明确允许后期基于原始 skill 优化归类算法——这是当前 3.5 小时耗时的主要瓶颈之一。</div>
+        <div class="note"><b>MA 复刻策略</b>:首期原样复用 skill(20 个脚本),不要重写。后期可基于原始 skill 优化归类算法——这是当前 3.5 小时耗时的主要瓶颈之一。</div>
         <h3>关键文件</h3>
         <p>
           ${link('assets_from_customer/blueai-canonical-event-registry/SKILL.md', 'external · blueai-canonical-event-registry v2.1.0')}
@@ -978,7 +978,7 @@ heat_score   : 87.4
           <li>D 合并七路输出</li>
         </ol>
         <div class="note"><b>耗时瓶颈</b>:DataHub RPM ≈ 16(串行排队)。同 Prompt 直连 DeepSeek-V4-Flash 可到 RPM ≈ 778,理论上把 3.5h 压到十分钟级。</div>
-        <div class="note"><b>客户答疑硬约束(重要)</b>:<br>
+        <div class="note"><b>硬约束(重要)</b>:<br>
           · <b>必须跑全量</b>——"数据量也是 Agent 处理能力的一部分"<br>
           · <b>七路标注不建议精简</b><br>
           · 允许优化的方向:① 内部服务协商提高并发或换标注通道;② 基于原始 C2 skill 优化归类算法(聚类是耗时难关)<br>
@@ -1085,7 +1085,7 @@ heat_score   : 87.4
       content: `
         <h3>做了什么</h3>
         <p>用节点日历基线 + C3 标注结果匹配窗口期内的营销节点,再让 LLM 写。</p>
-        <div class="note"><b>客户答疑更正</b>:原 <code>marketing-node-tagging</code> 外部 skill 是<b>历史残留,已删除</b>。E2 版块本身仍要输出,底层完全依赖 C3 标注结果 + 内置节点日历,不再依赖该外部 skill。</div>
+        <div class="note"><b>口径更正</b>:原 <code>marketing-node-tagging</code> 外部 skill 是<b>历史残留,已删除</b>。E2 版块本身仍要输出,底层完全依赖 C3 标注结果 + 内置节点日历,不再依赖该外部 skill。</div>
         <h3>输出</h3>
         <p><code>06_洞察/v{N}/e2_v{N}.md</code></p>
         <h3>关键文件</h3>
@@ -1099,7 +1099,7 @@ heat_score   : 87.4
           <ul>
             <li>Coordinator 委派 <code>{"section":"e2", ...}</code></li>
             <li>统计脚本:${maLink('skills/topic6-insight/01_统计/e2_nodes.py')} — <b>已内置 C3 标注 + 节点日历基线判断</b>,不再依赖已删除的外部 marketing-node-tagging skill</li>
-            <li>洞察 Prompt:${maLink('skills/topic6-insight/02_洞察/E2_营销节点/v1.md')}</li>
+            <li>洞察 Prompt:${maLink('skills/topic6-insight/02_洞察/E2_营销节点/v3.md')}</li>
             <li>节点日历(共享):${maLink('skills/topic6-annotation/references/marketing_calendar/nodes_definition.csv')}(Annotator 与 Insighter 都读同一份)</li>
             <li>Insighter System Prompt §二 · section=e2 明确禁止调 node-tagging skill</li>
           </ul>
@@ -1153,7 +1153,7 @@ heat_score   : 87.4
           <ul>
             <li>子 Agent · topic6-insighter(section=e4)</li>
             <li>统计脚本:${maLink('skills/topic6-insight/01_统计/e4_marketing.py')}</li>
-            <li>Prompt:${maLink('skills/topic6-insight/02_洞察/E4_营销发现/v1.md')}</li>
+            <li>Prompt:${maLink('skills/topic6-insight/02_洞察/E4_营销发现/v6.md')}</li>
             <li>输入依赖:R4 标注(<code>04_标注/r4_raw.jsonl</code>)+ wide_table 中的 <code>是否营销发现</code> 字段</li>
             <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/06_洞察/v{N}/e4_v{N}.md</code> + <code>e4_candidates.json</code> + <code>e4_tagging_audit.md</code></li>
             <li>两次 LLM 串行(打标 + 撰写)都在 insighter 单会话内完成,不再拆子 Agent</li>
@@ -1175,7 +1175,7 @@ heat_score   : 87.4
           <li>通过权限接口把文件夹<b>所有权转移给发起人 + 默认 admin 人员</b>(以可管理权限)</li>
           <li>把文档 URL 写入 run_config</li>
         </ul>
-        <div class="note"><b>客户答疑关键调整</b>:<br>
+        <div class="note"><b>关键调整</b>:<br>
           · 授权口径以<b>"发起人 + 2 个 admin(赵修源 / 袁杰松)"</b>为准,老的"4 人邮箱清单"作废<br>
           · <b>不使用固定 folder token</b>——为每个操作者动态创建独立分区文件夹<br>
           · 这一步涉及后续数字员工产出文件分区管理,不可省
@@ -1233,7 +1233,7 @@ heat_score   : 87.4
           <li>截图上传 · <b>人工</b></li>
           <li>案例归类准确性 · <b>人工</b></li>
         </ol>
-        <div class="note"><b>客户答疑明确</b>:HC3 <b>首期必须保留人工接入点</b>,不能砍。原因:HC3 涉及对原始文档的审核和图片上传,内容调整直接影响 Phase G 网页模板的填充效果——如果 F 阶段的文档没经过人工修订就直接进 G,产出网页会有问题。</div>
+        <div class="note"><b>硬约束</b>:HC3 <b>首期必须保留人工接入点</b>,不能砍。原因:HC3 涉及对原始文档的审核和图片上传,内容调整直接影响 Phase G 网页模板的填充效果——如果 F 阶段的文档没经过人工修订就直接进 G,产出网页会有问题。</div>
         <h3>关键文件</h3>
         <p>${link('prompt/07_阶段_F发布.md')} · HC3 段</p>
         <h3>MA 复刻</h3>
@@ -1260,7 +1260,7 @@ heat_score   : 87.4
       desc: "把 HC3 通过后的飞书文档转成自包含的 index.html(离线可看的漂亮网页)。",
       content: `
         <h3>做了什么</h3>
-        <p>调外部模板 skill <code>artifact-template-bluefocus-hotspot-web-report 1.1.0</code>(客户已提供源码,位于 <code>assets_from_customer/artifact-template-bluefocus-hotspot-web-report/</code>),读取 <b>HC3 通过后的飞书文档正文与内嵌图片</b>,输出一个内嵌全部资源的单文件 HTML。</p>
+        <p>调外部模板 skill <code>artifact-template-bluefocus-hotspot-web-report 1.1.0</code>(源码位于 <code>assets_from_customer/artifact-template-bluefocus-hotspot-web-report/</code>),读取 <b>HC3 通过后的飞书文档正文与内嵌图片</b>,输出一个内嵌全部资源的单文件 HTML。</p>
         <h3>核心步骤(来自 SKILL.md)</h3>
         <ol>
           <li>拷贝模板资产到工作目录(不改原始 retained source)</li>
@@ -1269,7 +1269,7 @@ heat_score   : 87.4
           <li>选 <code>title-weekly.png</code> 或 <code>title-monthly.png</code></li>
           <li>跑 <code>build-report.mjs</code> 渲染 + 3 个 validator</li>
         </ol>
-        <div class="note"><b>已知风险(客户反馈)</b>:现有脚本在「从飞书文档下载图片」环节 <b>不稳定</b>——图片走 <code>image_token</code>,并发或大图容易掉链。MA 复刻时要么忠实复用 skill(承认不稳定,加重试 / 单张兜底),要么在 MA 侧重写这段抽取逻辑。首期先跑通,埋点观察成功率。</div>
+        <div class="note"><b>已知风险</b>:现有脚本在「从飞书文档下载图片」环节 <b>不稳定</b>——图片走 <code>image_token</code>,并发或大图容易掉链。MA 复刻时要么忠实复用 skill(承认不稳定,加重试 / 单张兜底),要么单独重写这段抽取逻辑。首期先跑通,埋点观察成功率。</div>
         <h3>输出</h3>
         <p><code>08_UI发布/index.html</code></p>
         <h3>输出示例(HTML 头部片段)</h3>
@@ -1329,13 +1329,13 @@ heat_score   : 87.4
       content: `
         <h3>做了什么</h3>
         <p>调 <code>miaoda-web-publish</code> skill,把 G 产出的 index.html 上传托管,等待 <code>release_status=finished</code> 拿 <code>online_url</code>。</p>
-        <div class="note"><b>客户答疑更正(重要)</b>:<br>
+        <div class="note"><b>关键更正(重要)</b>:<br>
           · <b>最终交付形态</b>:分享到飞书群 + 可线上访问 + 支持月度数据统计的网页版报告<br>
           · 飞书内嵌 HTML 效果差,所以<b>必须走公网托管(妙搭或等价方案)</b>,不能只发飞书文档链接<br>
           · <b>妙搭凭据无法通用</b>:需要每个操作人本人授权才能发布,不能后端预置凭据
         </div>
         <h3>MA 复刻方案</h3>
-        <p>要么复用妙搭(每次让用户点授权),要么在 MA 侧自建等价的公网托管服务。<b>之前"分享飞书群就够了"的理解是错的</b>,请注意。</p>
+        <p>要么复用妙搭(每次让用户点授权),要么单独自建等价的公网托管服务。<b>之前"分享飞书群就够了"的理解是错的</b>,请注意。</p>
         <h3>输出示例(spawn 返回)</h3>
         <div class="sample">{
   <span class="k">"release_status"</span>: <span class="s">"finished"</span>,
@@ -1348,7 +1348,7 @@ heat_score   : 87.4
         <div class="ma-block">
           <h4>承担者:Coordinator 自己(调外部 skill)</h4>
           <ul>
-            <li>调 <code>miaoda-web-publish</code> — <b>外部 skill,不在本次 5 件套内</b>,首期由客户人工上传或复用平台已有资源</li>
+            <li>调 <code>miaoda-web-publish</code> — <b>外部 skill,不在本次 5 件套内</b>,首期人工上传或复用平台已有资源</li>
             <li>System Prompt §四 · Phase H:${maLink('agents/coordinator.system.md', 'coordinator.system.md#Phase H')}</li>
             <li>Coordinator 传参:<code>index_html_path=/workspace/Projects/{PROJECT_DIR}/08_UI发布/index.html</code></li>
             <li>轮询 <code>release_status=finished</code> 得 <code>online_url</code>,写回 <code>run_config.yaml</code></li>
@@ -1365,7 +1365,7 @@ heat_score   : 87.4
       content: `
         <h3>关联文件</h3>
         <p><code>run_config.yaml</code> 状态更新为 <code>done</code>,包含最终 URL。</p>
-        <div class="note"><b>后续 backlog(客户 2026-09-24 反馈)</b>:
+        <div class="note"><b>后续 backlog(2026-09-24 反馈)</b>:
           <ul>
             <li><b>定时任务触发</b>:除飞书 Bot 关键词外,再叠一个 scheduler,到点自动调 <code>Topic6Runner.start_job</code>,取数周期用默认值。放 gateway 层,等流程跑通再加。</li>
             <li><b>Phase I · 反思复盘(新增)</b>:H 交付之后再跑一段「本次执行踩了什么坑 / 识别到用户偏好(背景 / 关注方向 / 内容取舍)/ 下次哪些参数该调」,coordinator 调 memory 写入工具回写到 <code>/mnt/memory</code> 的 topic6 Memory Store,下一轮 INIT 时自然读到。当前 pipeline 里 <b>还没有这个阶段</b>,属于新增能力,不是实现细节。</li>

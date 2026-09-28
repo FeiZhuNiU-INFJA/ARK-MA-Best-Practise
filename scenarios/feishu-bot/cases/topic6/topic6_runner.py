@@ -71,6 +71,24 @@ def parse_trigger(text: str) -> Optional[str]:
 
 _HC_JSON_RE = re.compile(r"\{[^{}]*\"hc\"\s*:\s*\"(HC[123])\"[^{}]*\}", re.S)
 
+# 兜底"文本意图检测"用:如果 Agent 违约(说要输出 HC JSON 但没真输出),
+# 只要正文出现 HC 关键词 + 明确的"等确认"意图,就伪造一个占位 payload,
+# 免得 pipeline 被吞掉。关键词覆盖 coordinator.system.md 里禁止的元描述表达。
+_HC_INTENT_KEYWORDS = (
+    "等用户",
+    "等你审",
+    "请审核",
+    "请点击卡片",
+    "等待用户",
+    "等待确认",
+    "点击卡片确认",
+    "确认后继续",
+    "现在输出",
+    "接下来输出",
+    "输出结构化 JSON",
+    "输出 HC",
+)
+
 
 def extract_hc_payload(text: str) -> Optional[dict]:
     """从 agent.message 正文里抠出 HC 结构化 JSON;抠不到返回 None。
@@ -99,6 +117,33 @@ def extract_hc_payload(text: str) -> Optional[dict]:
     if hc_kind not in HC_KINDS:
         return None
     return value
+
+
+def detect_hc_intent(text: str) -> Optional[str]:
+    """兜底:Agent 违约时,从文本里嗅出它**想**触发的 HC 类型。
+
+    coordinator.system.md 严禁"现在输出 HC1..." 之类的元描述——但方舟 doubao 模型
+    在长上下文/多工具后偶发违约,只在文本里"讲"要输出 JSON、却没真输出。gateway
+    如果只认严格 JSON,就会把这一轮当普通 idle 收工,导致 HITL 卡片不发、用户
+    看不到审批入口、pipeline 静默停滞在 A phase(见 job_1f05e24cccdc 场景)。
+
+    检测规则:文本同时包含 HC1/HC2/HC3 之一 **和** 至少一个意图关键词(等用户 /
+    等你审 / 请审核 / 点击卡片 等),就认为 Agent 在**表达**要触发 HC 但未落 JSON,
+    返回它想触发的 HC 类型;调用方用一个空 payload 兜住,照走 mark_wait_hc + 发卡片。
+    没匹配到返回 None,保留原有"当普通完成"路径。
+    """
+    if not text:
+        return None
+    hc_kind: Optional[str] = None
+    for kind in HC_KINDS:
+        if kind in text:
+            hc_kind = kind
+            break
+    if hc_kind is None:
+        return None
+    if not any(kw in text for kw in _HC_INTENT_KEYWORDS):
+        return None
+    return hc_kind
 
 
 # ---- Runner ----------------------------------------------------------------
@@ -364,6 +409,24 @@ class Topic6Runner:
             return
         last = collected[-1] if collected else ""
         payload = extract_hc_payload(last)
+        if payload is None:
+            # 兜底:Agent 违约(只在文本里说"要输出 HC JSON"但没真输出),嗅出意图后
+            # 伪造一个占位 payload,防止流程被吞。占位标记 __fallback__=True 让 HC 卡片
+            # 渲染层能提示用户"AI 未输出结构化载荷,请照常审阅原始输出"。
+            intent_hc = detect_hc_intent(last)
+            if intent_hc is not None:
+                log.warning(
+                    "topic6 HC fallback triggered job=%s hc=%s (agent did not emit JSON, using intent detection)",
+                    job_id,
+                    intent_hc,
+                )
+                payload = {
+                    "hc": intent_hc,
+                    "mode": job.mode,
+                    "project_dir": job.project_dir,
+                    "__fallback__": True,
+                    "agent_message_tail": last[-400:],
+                }
         if payload:
             hc_kind = str(payload["hc"])
             event_id = self._store.append_hc_event(job_id, hc_kind, payload)

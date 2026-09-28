@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 01_统计 · E2 营销节点
-统计口径唯一权威。02_洞察/E2_营销节点/v1.md 不重复。
+统计口径唯一权威。02_洞察/E2_营销节点/v3.md 不重复。
 """
 
 from __future__ import annotations

@@ -110,6 +110,19 @@ def build_hc_card(job: PipelineJob, hc_kind: str, event_id: int, payload: dict) 
             ),
         },
     ]
+    if payload.get("__fallback__"):
+        # 兜底 payload:Agent 违约没输出真正的 HC JSON,gateway 用文本意图检测把
+        # 卡片补出来了。数据缺失,把 agent 最后几百字尾巴附上,让审核人凭它判断。
+        tail = str(payload.get("agent_message_tail") or "").strip()
+        elements.append(
+            {
+                "tag": "markdown",
+                "content": (
+                    "⚠️ **AI 未按契约输出 HC 结构化 JSON**,以下是它最后一段消息(尾部截取):\n\n"
+                    f"> {tail[:380] if tail else '(空)'}"
+                ),
+            }
+        )
     elements.extend(_payload_summary_elements(payload))
     elements.append({"tag": "hr"})
     elements.append(

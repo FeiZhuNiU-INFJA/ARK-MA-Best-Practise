@@ -24,10 +24,10 @@ topic6 专用轻量初始化:只问方舟 API Key + 扫码建飞书应用,写入
 - `ARK_API_KEY`
 - `FEISHU_APP_ID` / `FEISHU_APP_SECRET`
 
-**不会**创建 digital-employee Agent,也不要求 mock 客户A MCP 地址——那些是另一场景的东西。
+**不会**创建 digital-employee Agent,也不要求 mock MCP 地址——那些是另一场景的东西。
 topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 
-> 注意:不要跑不带参数的 `arkagent init`,那是 digital-employee 场景专用,会强制要求输入 mock 客户A MCP 公网地址。
+> 注意:不要跑不带参数的 `arkagent init`,那是 digital-employee 场景专用,会强制要求输入 mock MCP 公网地址。
 
 已建过 Bot 就跳过这步。
 
@@ -86,16 +86,16 @@ LARK_APP_ID=cli_xxx           # 与 FEISHU_APP_ID 同值,给沙箱脚本用
 LARK_APP_SECRET=xxx           # 与 FEISHU_APP_SECRET 同值
 ```
 
-### 2.2 客户方给的(问客户要)
+### 2.2 业务侧 API Key(向业务对接人获取)
 
 ```env
 # 热点 MCP——BlueView 的爬虫服务
 HOT_TOPICS_MCP_URL=https://smartai.blueviewai.com/mcp/crawler-hot-topics-server
-BLUEAI_API_KEY=<客户给的 Key>
+BLUEAI_API_KEY=<业务对接人给的 Key>
 
 # DataHub——Phase C 标注要用
 DATAHUB_ENDPOINT=https://bmc-data-hub.bluemediagroup.cn/...
-DATAHUB_API_KEY=<客户给的 Key>
+DATAHUB_API_KEY=<业务对接人给的 Key>
 ```
 
 ### 2.3 可选/延后

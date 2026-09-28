@@ -39,7 +39,7 @@
 | `e3` | `/mnt/skills/topic6-insight/02_洞察/E3_平台新鲜事/{prompt_version}.md` | `01_统计/e3_platform.py` | `06_洞察/v{N}/e3_v{N}.md` + `e3_data.md` |
 | `e4` | `/mnt/skills/topic6-insight/02_洞察/E4_营销发现/{prompt_version}.md` | `01_统计/e4_marketing.py` + 打标步骤 | `06_洞察/v{N}/e4_v{N}.md` + `e4_candidates.json` + `e4_tagging_audit.md` |
 
-**E2 特殊说明**:客户答疑明确删除对已停用的外部 skill `marketing-node-tagging` 的依赖,改为基于 C3 标注结果 + 节点日历基线判断,判断逻辑已内置进 `e2_marketing_node.py`。你**不需要**也**不允许**再调用任何 node-tagging skill。
+**E2 特殊说明**:明确删除对已停用的外部 skill `marketing-node-tagging` 的依赖,改为基于 C3 标注结果 + 节点日历基线判断,判断逻辑已内置进 `e2_marketing_node.py`。你**不需要**也**不允许**再调用任何 node-tagging skill。
 
 ## 三、执行流程
 

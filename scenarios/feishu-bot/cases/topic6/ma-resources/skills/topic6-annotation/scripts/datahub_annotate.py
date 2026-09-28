@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-datahub_annotate.py — MA 环境一体化标注脚本（C0/R1~R5/C3 单任务全流程）
+datahub_annotate.py — 一体化标注脚本(C0/R1~R5/C3 单任务全流程)
 
-将客户版的 datahub_submit + datahub_poll + annotation_postprocess + c3_flatten
-+ c3_timewindow 五个脚本合并为单入口,一次调用即可完成:
+datahub_submit + datahub_poll + annotation_postprocess + c3_flatten
++ c3_timewindow 合并为单入口,一次调用即可完成:
   上传 → 建任务 → 轮询 → 下载 → JSON 展开 → C3 时效窗口 → 写 postprocess 输出
 
-MA 挂载路径口径:
+挂载路径:
   Skill 目录: /mnt/skills/topic6-annotation/{prompts,scripts,references}
   项目目录  : /workspace/Projects/{project_dir}/
              ├── 04_标注/{C0_基础事实,R1_平台借势,...,C3_节点标注}/
@@ -23,7 +23,7 @@ CLI:
     --prompt-file /mnt/skills/topic6-annotation/prompts/C0_基础事实/v1.md
 
 Env:
-  DATAHUB_API_KEY  (必填,MA 环境注入)
+  DATAHUB_API_KEY  (必填,由平台注入)
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
-# MA Skill 版本对照表
+# Skill 版本对照表
 
-> 客户改 Prompt/脚本触发 pack_skills.sh + upload_skills.py,MA SkillHub 侧生成新 version 号,
+> 修改 Prompt/脚本 → 跑 `pack_skills.sh` + `upload_skills.py`,SkillHub 侧生成新 version 号,
 > 协调器 Prompt 里 pin 到明确 version,不使用 latest。
 >
 > 每次上传后,upload_skills.py 会往 skill_ids.json 追加 {skill_id, version, source_sha256}。
@@ -8,19 +8,17 @@
 
 ---
 
-## 当前映射(MA 迁移后 v1 基线)
+## 当前映射
 
-自 2026-09-24 起,所有 skill 从 `ma-resources/skills/topic6-*/` 打包,与 `assets_from_customer/`
-完全解耦;不再跟 upstream 同步。业务口径与客户原版一致(以下"内含活跃版本"记录 fork 时的
-客户版本快照,供追溯用)。
+所有 skill 从 `ma-resources/skills/topic6-*/` 打包。
 
-| MA skill 目录 | MA skill_id | MA version | 内含活跃 Prompt/脚本版本(fork 快照) | 上次更新 |
+| Skill 目录 | skill_id | version | 内含活跃 Prompt/脚本版本 | 上次更新 |
 |---|---|---|---|---|
 | ma-resources/skills/topic6-fetch-normalize/ | (未上传) | - | Phase A+B 归一化脚本 v1(热度基准 2026 内置 JSON) | 2026-09-24 |
-| ma-resources/skills/topic6-annotation/ | (未上传) | - | C0=v4, R1=v2, R2=v1, R3=v1, R4=v2, R5=v2;datahub_annotate.py 为 5 合 1 精简版 | 2026-09-24 |
-| ma-resources/skills/topic6-insight/ | (未上传) | - | 共享 role_style 拼接;E1=v1, E2=v1(取客户 v3), E3=v1, E4=v1(取客户 v6)+_tagging/v1 | 2026-09-24 |
-| ma-resources/skills/topic6-event-registry/ | (未上传) | - | fork 自 blueai-canonical-event-registry v2.1.0(MA fork.1) | 2026-09-24 |
-| ma-resources/skills/topic6-web-report/ | (未上传) | - | fork 自 artifact-template-bluefocus-hotspot-web-report v1.1.0(MA fork.1) | 2026-09-24 |
+| ma-resources/skills/topic6-annotation/ | (未上传) | - | C0=v4, R1=v2, R2=v1, R3=v1, R4=v2, R5=v2, 节点标注=v7;datahub_annotate.py 为 5 合 1 精简版 | 2026-09-24 |
+| ma-resources/skills/topic6-insight/ | (未上传) | - | 共享 role_style 拼接;E1=v1, E2=v3, E3=v1, E4=v6 + _tagging=v1 | 2026-09-24 |
+| ma-resources/skills/topic6-event-registry/ | (未上传) | - | v2.1.0 | 2026-09-24 |
+| ma-resources/skills/topic6-web-report/ | (未上传) | - | v1.1.0 | 2026-09-24 |
 
 ## 打包冒烟结果(2026-09-24 首轮)
 

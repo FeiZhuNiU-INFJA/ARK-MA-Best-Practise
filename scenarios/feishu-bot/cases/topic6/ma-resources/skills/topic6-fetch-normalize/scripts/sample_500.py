@@ -2,7 +2,6 @@
 """
 sample_500.py — 分层随机抽样 500 条(test 模式用)
 
-MA 口径 v1(2026-09-24):
   - --project-dir 支持绝对路径;相对路径以 /workspace 为根
   - 固定随机种子 42,结果可复现
   - 最大余数法按平台行数占比分配
@@ -87,7 +86,7 @@ def _project_path(project_dir: str) -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="分层随机抽样 500 条(MA 口径)")
+    parser = argparse.ArgumentParser(description="分层随机抽样 500 条")
     parser.add_argument("--project-dir", required=True,
                         help="项目目录,绝对路径或相对 /workspace")
     parser.add_argument("--size", type=int, default=SAMPLE_SIZE,
