@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
-from .pipeline_store import (
+from pipeline_store import (
     STATUS_DONE,
     STATUS_FAILED,
     STATUS_RUNNING,

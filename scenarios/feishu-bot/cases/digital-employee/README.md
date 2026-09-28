@@ -15,7 +15,7 @@
 ## 部署总览 / Quick Start
 
 **前置**：只需一个方舟 API Key（`ARK_API_KEY`，跑过一次主包 `arkagent init` 即写入
-`~/.arkagent/config.env`）。飞书应用、数字员工 Agent、装了 lark-cli 的 Environment、存
+`~/.arkagent/cases/digital-employee/config.env`）。飞书应用、数字员工 Agent、装了 lark-cli 的 Environment、存
 tenant token 的 Vault 全部由初始化脚本自动置备，无需手动准备。
 
 三步上线（① 一条命令置备，② 唯一的手动步骤，③ 启动）：
@@ -23,7 +23,7 @@ tenant token 的 Vault 全部由初始化脚本自动置备，无需手动准备
 ```bash
 # ① 一键初始化：扫码建飞书应用 + 建数字员工 Agent + 置备 lark-cli(Environment + Vault)，
 #    并把 FEISHU_APP_ID/SECRET、GROUP_BOT_AGENT_ID、GROUP_BOT_ENVIRONMENT_ID、
-#    GROUP_BOT_LARK_VAULT_ID 全部写回 ~/.arkagent/config.env（幂等，可重复跑不堆资源）
+#    GROUP_BOT_LARK_VAULT_ID 全部写回 ~/.arkagent/cases/digital-employee/config.env（幂等，可重复跑不堆资源）
 python scenarios/feishu-bot/cases/digital-employee/initialize_digital_employee.py
 
 # ② 唯一的手动步骤（脚本无法代劳）：去飞书开放平台 https://open.feishu.cn/app 打开该应用，
@@ -31,7 +31,7 @@ python scenarios/feishu-bot/cases/digital-employee/initialize_digital_employee.p
 #    具体权限清单见脚本运行结束时的打印，或下方「Agent 的飞书操作能力」一节。
 
 # ③ 载入配置并启动（serial 逐条独立回复；native-queue 允许服务端吸收/合并）
-set -a && source ~/.arkagent/config.env && set +a
+set -a && source ~/.arkagent/cases/digital-employee/config.env && set +a
 python scenarios/feishu-bot/cases/digital-employee/digital_employee.py --execution-mode serial
 ```
 
@@ -321,12 +321,12 @@ Agent 常在回复里点名群成员（「@张三 请跟进」）。若直接发
 
 ### 手动分步（已有飞书应用时）
 
-复用主包 `arkagent init` 写出的 `~/.arkagent/config.env` 里的
-`ARK_API_KEY / ARK_BASE_URL / FEISHU_APP_ID / FEISHU_APP_SECRET`，只补群聊 Agent：
+复用 `initialize_digital_employee.py` 写出的 `~/.arkagent/cases/digital-employee/config.env` 里的
+`ARK_API_KEY / ARK_BASE_URL / FEISHU_APP_ID / FEISHU_APP_SECRET`,只补群聊 Agent:
 
 ```bash
 # 1) 载入方舟 / 飞书配置（或自行 export 上述变量）
-set -a && source ~/.arkagent/config.env && set +a
+set -a && source ~/.arkagent/cases/digital-employee/config.env && set +a
 
 # 2) 创建群聊 Bot-only、单聊按需用户只读 OAuth 的 Agent，拿到 agent id
 python scenarios/feishu-bot/cases/digital-employee/create_digital_employee_agent.py
@@ -356,7 +356,7 @@ python scenarios/feishu-bot/cases/digital-employee/digital_employee.py --executi
 无需改任何环境变量：
 
 ```bash
-set -a && source ~/.arkagent/config.env && set +a   # 需 ARK_API_KEY + GROUP_BOT_AGENT_ID
+set -a && source ~/.arkagent/cases/digital-employee/config.env && set +a   # 需 ARK_API_KEY + GROUP_BOT_AGENT_ID
 GROUP_BOT_DISPLAY_NAME=数字员工阿J \
   python scenarios/feishu-bot/cases/digital-employee/update_digital_employee_agent.py
 # 打印「版本 N → N+1」后，重启正在跑的 bot 即可生效
@@ -396,7 +396,7 @@ serial/native-queue 共用，保证切换执行模式后仍复用原 Store）、
 **无绑定时回退现有 env 单员工模式**（向后兼容）。
 
 ```bash
-set -a && source ~/.arkagent/config.env && set +a   # 需要 ARK_API_KEY[/ARK_BASE_URL]
+set -a && source ~/.arkagent/cases/digital-employee/config.env && set +a   # 需要 ARK_API_KEY[/ARK_BASE_URL]
 python scenarios/feishu-bot/cases/digital-employee/admin/run_admin.py
 # 打开 http://127.0.0.1:8787  —— 建员工/项目/能力包 → 绑群 → 同步 → 编辑记忆
 ```

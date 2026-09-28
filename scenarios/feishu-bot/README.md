@@ -60,42 +60,35 @@ pytest -q                                                 # 确认环境就绪
 arkagent init
 arkagent doctor                                           # 检查配置
 
-# 3) 运行
-arkagent run
+# 3) 运行(必须显式指定 case)
+arkagent run --case topic6              # 或 --case digital-employee
 ```
 
-各案例可能需要先起自己的 MCP（如客户A案例的 mock）并暴露公网，再 `init`——以案例文档为准。
+各案例可能需要先起自己的 MCP(如客户A案例的 mock)并暴露公网,再 `init`——以案例文档为准。
+
+> **配置按 case 隔离**:每个 case 有独立的 env/db 目录 `~/.arkagent/cases/{case}/`,不再共享单一 `~/.arkagent/config.env`。样板见各 case 的 `env.example`(如 [cases/topic6/env.example](cases/topic6/env.example))。同一飞书 App 只允许一个 gateway 进程,锁按 `FEISHU_APP_ID` 分粒度(`~/.arkagent/feishu.{app_id}.lock`),不同 case 用不同 Bot 时可并行运行。
 
 ## `arkagent` CLI
 
 | 命令 | 作用 |
 | --- | --- |
-| `arkagent init` | 首次初始化：掩码输入 API Key → 建 Agent（挂 `mcp_servers` + `mcp_toolset`）→ 扫码建飞书应用（仅 tenant 身份，无用户 OAuth）→ 建/复用 Vault + 凭据 → 建/复用 Environment → 写 `~/.arkagent/config.env`（目录 `0700`、文件 `0600`）。 |
+| `arkagent init` | 首次初始化:掩码输入 API Key → 建 Agent(挂 `mcp_servers` + `mcp_toolset`)→ 扫码建飞书应用(仅 tenant 身份,无用户 OAuth)→ 建/复用 Vault + 凭据 → 建/复用 Environment → 写主 `~/.arkagent/config.env`(目录 `0700`、文件 `0600`;**仅旧客户 A demo 使用**,新 case 用 `--topic6` 或直接手写 `~/.arkagent/cases/{case}/config.env`)。 |
+| `arkagent init --topic6` | 轻量初始化:只扫码建飞书 Bot + 写 `~/.arkagent/cases/topic6/config.env`。 |
 | `arkagent doctor` | 检查配置完整性。 |
-| `arkagent run` | 启动 Gateway，连飞书 WebSocket 收发消息。 |
-| `arkagent update-agent` | **日常迭代**：改了 Agent 的 system prompt / 工具配置后，读 `config.env` 里现有 `ARK_AGENT_ID`，用最新配置原地更新（方舟 Agent 是版本化资源，更新生成新版本，**Agent ID 不变、飞书 Bot 不动**）。**不需要**重跑 `init` 重新扫码。 |
+| `arkagent run --case <name>` | 启动指定 case 的 Gateway,连飞书 WebSocket 收发消息。不带 `--case` 时列出可选项并退出。 |
+| `arkagent update-agent` | **日常迭代**:改了 Agent 的 system prompt / 工具配置后,读主 `config.env` 里现有 `ARK_AGENT_ID`,用最新配置原地更新(方舟 Agent 是版本化资源,更新生成新版本,**Agent ID 不变、飞书 Bot 不动**)。**不需要**重跑 `init` 重新扫码。 |
 
-> 只在**首次**、或**换了 MCP 公网地址**（需把新 URL 写进 Agent 定义）时才需 `init`。仅换地址也可先改 `config.env` 的 `MCP_SERVER_URL` 再 `update-agent`。
+> 只在**首次**、或**换了 MCP 公网地址**(需把新 URL 写进 Agent 定义)时才需 `init`。仅换地址也可先改 `config.env` 的 `MCP_SERVER_URL` 再 `update-agent`。
 
-## 配置项（`~/.arkagent/config.env`）
+## 配置项(按 case 隔离,`~/.arkagent/cases/{case}/config.env`)
 
-`init` 自动写入；也可参考 [.env.example](.env.example)。
+每个 case 有独立的 env 文件,样板见 case 目录下的 `env.example`(可直接 `cp` 后编辑真实值)。
+公共键(如 `ARK_API_KEY` / `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `ARK_BASE_URL`)在两个 case 中同时出现,case 独占键各自列于 `env.example`。
 
-| Key | 说明 |
-| --- | --- |
-| `ARK_API_KEY` | 方舟 API Key，Gateway 调用 MA API |
-| `ARK_AGENT_ID` / `ARK_ENVIRONMENT_ID` / `ARK_VAULT_ID` | init 创建的资源 ID |
-| `ARK_BASE_URL` | 方舟 API 基址（默认北京） |
-| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 扫码创建的飞书应用凭证（WebSocket 鉴权 + 发消息） |
-| `MCP_SERVER_URL` | MCP 公网地址（含 `/mcp`） |
-| `GATEWAY_DB_PATH` | SQLite 状态库（会话映射 / 事件去重 / 岗位缓存），默认 `./data/gateway.db` |
-| `SESSION_TIMEOUT_MS` | 单次运行超时，默认 600000 |
-| `ROLE_TTL_MS` | 岗位缓存 TTL，默认 86400000（24h） |
-| `AUTHORIZED_USER_IDS` | 允许对话的租户级 user_id 白名单（逗号分隔；**留空 = 不限制**） |
-| `AUTHORIZED_OPEN_IDS` | 旧 open_id 白名单兼容项；完成 user_id 迁移后移除 |
-| `TEAM_STORE_ENABLED` | 是否为同岗位挂载团队共享 Memory Store（可选） |
+- **topic6**:见 [cases/topic6/env.example](cases/topic6/env.example)——`TOPIC6_COORDINATOR_AGENT_ID` / `TOPIC6_ENVIRONMENT_ID` / `TOPIC6_MEMORY_STORE_ID` / `HOT_TOPICS_MCP_URL` / `BLUEAI_API_KEY` / `DATAHUB_*` 等。
+- **digital-employee**:见 [cases/digital-employee/env.example](cases/digital-employee/env.example)——`GROUP_BOT_AGENT_ID` / `GROUP_BOT_ENVIRONMENT_ID` / `GROUP_BOT_LARK_VAULT_ID` / `SESSION_TIMEOUT_MS` / `AUTHORIZED_*` 等。
 
-配置目录 `0700`、文件 `0600`；不要在 Agent prompt 或日志中打印凭证。
+主 `~/.arkagent/config.env` 仅为旧客户 A demo 保留(`ARK_AGENT_ID` / `MCP_SERVER_URL` / `MCP_STATIC_BEARER` / `ARK_VAULT_ID`),新 case **不要写入**此文件。配置目录 `0700`、文件 `0600`;不要在 Agent prompt 或日志中打印凭证。
 
 ## 消息与 Session 行为
 

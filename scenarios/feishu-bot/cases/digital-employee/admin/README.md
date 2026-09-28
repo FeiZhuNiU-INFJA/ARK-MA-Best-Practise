@@ -112,7 +112,7 @@
 ## 启动
 
 ```bash
-set -a && source ~/.arkagent/config.env && set +a   # 需要 ARK_API_KEY[/ARK_BASE_URL]
+set -a && source ~/.arkagent/cases/digital-employee/config.env && set +a   # 需要 ARK_API_KEY[/ARK_BASE_URL]
 python scenarios/feishu-bot/cases/digital-employee/admin/run_admin.py
 # 打开 http://127.0.0.1:8787
 ```

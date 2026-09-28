@@ -21,8 +21,8 @@ REQUIRED_KEYS_COMMON = [
     "FEISHU_APP_ID",
     "FEISHU_APP_SECRET",
 ]
-# digital-employee(客户A)场景专属:用 `arkagent init` 创建。
-# 仅装配 topic6(`init --topic6`)时这些键允许为空,触发词之外的消息由 orchestrator 直接兜底提示。
+# digital-employee(客户A)场景专属:用 `arkagent init` 创建。历史遗留,
+# 现在 case 分离后各自 case 有独立的 config.py,这里仅供 legacy 4 卡点 case 使用。
 REQUIRED_KEYS_DIGITAL_EMPLOYEE = [
     "ARK_AGENT_ID",
     "ARK_ENVIRONMENT_ID",
@@ -47,11 +47,6 @@ class GatewayConfig:
     role_ttl_ms: int
     authorized_open_ids: tuple[str, ...]
     team_store_enabled: bool
-    # topic6 场景(可选):不设 TOPIC6_COORDINATOR_AGENT_ID 时该场景不启用,飞书 Bot 只跑 digital-employee。
-    topic6_coordinator_agent_id: str
-    topic6_environment_id: str
-    topic6_memory_store_id: str
-    topic6_pipeline_db_path: str
 
 
 def parse_env_text(text: str) -> dict[str, str]:
@@ -87,12 +82,7 @@ def _split_open_ids(value: str) -> tuple[str, ...]:
 def load_config(env: Optional[Mapping[str, str]] = None) -> GatewayConfig:
     environ = os.environ if env is None else env
     missing = [key for key in REQUIRED_KEYS_COMMON if not (environ.get(key) or "").strip()]
-    # 已设置 TOPIC6_COORDINATOR_AGENT_ID 表示 topic6 场景启用;此时 digital-employee 的
-    # Agent/Environment/Vault/MCP 允许缺失(Bot 可只跑 topic6)。
-    if not (environ.get("TOPIC6_COORDINATOR_AGENT_ID") or "").strip():
-        missing += [
-            key for key in REQUIRED_KEYS_DIGITAL_EMPLOYEE if not (environ.get(key) or "").strip()
-        ]
+    missing += [key for key in REQUIRED_KEYS_DIGITAL_EMPLOYEE if not (environ.get(key) or "").strip()]
     if missing:
         raise RuntimeError(f"缺少环境变量：{', '.join(missing)}")
 
@@ -116,11 +106,6 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> GatewayConfig:
         role_ttl_ms=role_ttl_ms,
         authorized_open_ids=_split_open_ids(environ.get("AUTHORIZED_OPEN_IDS") or ""),
         team_store_enabled=(environ.get("TEAM_STORE_ENABLED") or "").strip().lower() in ("1", "true", "yes"),
-        topic6_coordinator_agent_id=(environ.get("TOPIC6_COORDINATOR_AGENT_ID") or "").strip(),
-        # topic6 若不单独设置 environment/vault,复用 digital-employee 的:两个场景共存于同一租户即可。
-        topic6_environment_id=(environ.get("TOPIC6_ENVIRONMENT_ID") or environ.get("ARK_ENVIRONMENT_ID") or "").strip(),
-        topic6_memory_store_id=(environ.get("TOPIC6_MEMORY_STORE_ID") or "").strip(),
-        topic6_pipeline_db_path=(environ.get("TOPIC6_PIPELINE_DB_PATH") or "").strip(),
     )
 
 

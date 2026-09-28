@@ -21,8 +21,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from .pipeline_store import HcEvent, PipelineJob, PipelineStore
-from .topic6_runner import Topic6CardSenderProtocol, Topic6Runner
+from pipeline_store import HcEvent, PipelineJob, PipelineStore
+from topic6_runner import Topic6CardSenderProtocol, Topic6Runner
 
 log = logging.getLogger("arkagent.topic6.hitl")
 

@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> int:
     command = argv[0] if argv else "run"
     try:
         if command == "run":
-            _run()
+            _run(argv[1:])
         elif command == "doctor":
             asyncio.run(_doctor())
         elif command == "init":
@@ -67,108 +67,78 @@ def _build_managers(config, ark, store):
     return role_manager, memory_manager
 
 
-def _run() -> None:
-    from .ark import ArkClient
-    from .feishu import FeishuSender, start_feishu_gateway
-    from .gateway import Gateway
-    from .store import GatewayStore
+def _run(args: list[str] | None = None) -> None:
+    """按 --case <name> 分派到对应的 cases/{case}/gateway.py。
 
-    # 配置日志：默认 INFO，输出 [timing] 打点等；可用 ARKAGENT_LOG_LEVEL 覆盖（如 DEBUG/WARNING）。
+    没传 --case 就列出可选项并退出。同一飞书 App(FEISHU_APP_ID)只允许一个 gateway 进程,
+    锁路径为 ~/.arkagent/feishu.{app_id}.lock;不同 Bot 的 case 可并行运行。
+    每个 case 的环境变量走 ~/.arkagent/cases/{case}/config.env。
+    """
+    from .ark import ArkClient
+    from .case_registry import GatewayLock, list_cases, load_case
+    from .config import load_config_file
+    from .feishu import FeishuSender, start_feishu_gateway
+    from .paths import get_case_paths, get_feishu_lock_path
+
     logging.basicConfig(
         level=os.environ.get("ARKAGENT_LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
 
-    _load_saved_environment()
-    config = load_config()
+    case_name = _parse_case_arg(args or [])
+    available = list_cases()
+    if not case_name:
+        _print_case_list(available)
+        raise RuntimeError("请通过 --case <name> 指定要运行的场景")
 
-    store = GatewayStore(config.database_path)
-    ark = ArkClient(config.ark_api_key, config.ark_base_url)
-    sender = FeishuSender(config.feishu_app_id, config.feishu_app_secret)
-    role_manager, memory_manager = _build_managers(config, ark, store)
+    case = load_case(case_name)
+    case_paths = get_case_paths(case_name)
+    os.makedirs(case_paths.case_dir, exist_ok=True)
 
-    # 后台线程跑事件循环，承载 Gateway 的异步任务。
-    loop = asyncio.new_event_loop()
+    if os.path.exists(case_paths.config_path):
+        load_config_file(case_paths.config_path)
+    config = case.config_module.load_case_config()
 
-    async def reply(chat_id: str, text: str) -> None:
-        # lark-oapi 发送是同步阻塞调用，放到 executor 避免卡住事件循环。
-        await loop.run_in_executor(None, sender.send_to_chat, chat_id, text)
+    # 锁按 FEISHU_APP_ID 分粒度:真正的互斥资源是「同一 Bot 的 WS 长连接」,
+    # 不同 case 使用不同 Bot 时可以并行运行。
+    lock_path = get_feishu_lock_path(config.feishu_app_id)
+    with GatewayLock(lock_path):
+        ark = ArkClient(config.ark_api_key, config.ark_base_url)
+        sender = FeishuSender(config.feishu_app_id, config.feishu_app_secret)
 
-    topic6_runner, topic6_card_handler = _build_topic6(config, ark, sender, loop)
+        loop = asyncio.new_event_loop()
+        gateway = case.gateway_module.build_gateway(config, ark, sender, loop)
 
-    gateway = Gateway(
-        store,
-        ark,
-        reply,
-        agent_id=config.ark_agent_id,
-        environment_id=config.ark_environment_id,
-        vault_id=config.ark_vault_id,
-        timeout_ms=config.session_timeout_ms,
-        authorized_open_ids=config.authorized_open_ids,
-        role_manager=role_manager,
-        memory_manager=memory_manager,
-        loop=loop,
-        topic6_runner=topic6_runner,
-        topic6_card_handler=topic6_card_handler,
-    )
+        thread = threading.Thread(target=loop.run_forever, name="gateway-loop", daemon=True)
+        thread.start()
 
-    thread = threading.Thread(target=loop.run_forever, name="gateway-loop", daemon=True)
-    thread.start()
+        print(f"Gateway 配置(case={case_name}):")
+        print(f"- 飞书 App ID:{config.feishu_app_id}")
+        print(f"- 环境变量文件:{case_paths.config_path}")
+        print(f"- 锁文件:{lock_path}(pid={os.getpid()};按 App ID 分粒度)")
+        print("正在连接飞书 WebSocket;请在该 Bot 会话中发送消息。")
+        start_feishu_gateway(config.feishu_app_id, config.feishu_app_secret, gateway)
 
-    print("Gateway 配置：")
-    print(f"- 飞书 App ID：{config.feishu_app_id}")
-    print(f"- 方舟 Agent ID：{config.ark_agent_id}")
-    print(f"- 方舟 Environment ID：{config.ark_environment_id}")
-    print(f"- MCP Server：{config.mcp_server_url}")
-    if topic6_runner is not None:
-        print(
-            f"- topic6 场景：已启用(coordinator={config.topic6_coordinator_agent_id}, "
-            f"env={config.topic6_environment_id})"
-        )
+
+def _parse_case_arg(args: list[str]) -> str | None:
+    for i, arg in enumerate(args):
+        if arg == "--case":
+            if i + 1 >= len(args):
+                raise RuntimeError("--case 需要一个 case 名参数")
+            return args[i + 1].strip() or None
+        if arg.startswith("--case="):
+            return arg.split("=", 1)[1].strip() or None
+    return None
+
+
+def _print_case_list(available: list[str]) -> None:
+    if available:
+        print("可选 case:")
+        for name in available:
+            print(f"  - {name}")
+        print("用法:arkagent run --case <name>")
     else:
-        print("- topic6 场景：未启用(设置 TOPIC6_COORDINATOR_AGENT_ID 启用)")
-    if config.authorized_open_ids:
-        masked = ", ".join(_mask_identity(o) for o in config.authorized_open_ids)
-        print(f"- 授权用户白名单：{masked}")
-    else:
-        print("- 授权用户白名单：未设置（对话鉴权交给 MCP 白名单）")
-    print("聊天指令：/new 开新会话 · /remember <内容> 记入长期记忆 · /role <岗位>[/门店] 模拟岗位调动 · /whoami 查看当前岗位")
-    if topic6_runner is not None:
-        print("topic6 触发词：热点报告 / 热点周报(可加 test/full 指定模式)")
-    print("正在连接飞书 WebSocket；请在该 Bot 会话中发送消息。")
-    # 阻塞运行 WS 客户端（主线程）。回调里 gateway.accept 会投递到后台事件循环。
-    start_feishu_gateway(config.feishu_app_id, config.feishu_app_secret, gateway)
-
-
-def _build_topic6(config, ark, sender, loop):
-    """按 config 决定是否装配 topic6 场景。
-
-    未设置 ``TOPIC6_COORDINATOR_AGENT_ID`` 时直接返回 ``(None, None)``,Gateway 侧的
-    topic6 分派与 SDK 侧 CARD_ACTION 订阅都不会启用,行为与迁移前完全一致。
-    """
-    if not config.topic6_coordinator_agent_id:
-        return None, None
-
-    from .gateway.pipeline_store import PipelineStore
-    from .gateway.topic6_hitl import Topic6Hitl, Topic6HitlDeps
-    from .gateway.topic6_runner import Topic6Config, Topic6Runner
-
-    pipeline_store = PipelineStore(config.topic6_pipeline_db_path or None)
-    topic6_runner = Topic6Runner(
-        ark,
-        sender,
-        pipeline_store,
-        Topic6Config(
-            coordinator_agent_id=config.topic6_coordinator_agent_id,
-            environment_id=config.topic6_environment_id,
-            memory_store_id=config.topic6_memory_store_id,
-            vault_ids=(config.ark_vault_id,) if config.ark_vault_id else (),
-        ),
-        loop=loop,
-    )
-    topic6_hitl = Topic6Hitl(Topic6HitlDeps(store=pipeline_store, runner=topic6_runner))
-    topic6_runner.bind_card_sender(topic6_hitl)
-    return topic6_runner, topic6_hitl.handle_card_action
+        print("未发现任何 case(cases/ 下需包含 gateway.py 与 config.py)")
 
 
 async def _doctor() -> None:
@@ -228,11 +198,11 @@ async def _init() -> None:
 
 
 async def _init_topic6() -> None:
-    """topic6 专用轻量初始化:只建飞书应用 + 写最小 config.env。
+    """topic6 专用轻量初始化:只建飞书应用 + 写 case 私有 config.env。
 
     与默认 ``init`` 的区别:不创建 digital-employee Agent、不要求 mock 客户A MCP 公网地址。
     topic6 的 MA 资源(Environment/Memory/Coordinator 等)由
-    ``cases/topic6/ma-resources/create_all.sh`` 单独创建,产出的 ID 再追加到 config.env。
+    ``cases/topic6/ma-resources/create_all.sh`` 单独创建,产出的 ID 再追加到 case 的 config.env。
     """
     if not sys.stdin.isatty():
         raise RuntimeError("交互式 init 需要在终端中运行")
@@ -240,10 +210,11 @@ async def _init_topic6() -> None:
     from .config import parse_env_text, serialize_env
     from .init import _write_secure
     from .node_helper import register_feishu_app
+    from .paths import get_case_paths
 
-    paths = get_arkagent_paths()
+    case_paths = get_case_paths("topic6")
 
-    ark_api_key = read_masked_input("火山方舟 API Key（输入内容以 • 显示）: ").strip()
+    ark_api_key = read_masked_input("火山方舟 API Key(输入内容以 • 显示): ").strip()
     if not ark_api_key:
         raise RuntimeError("方舟 API Key 不能为空")
 
@@ -251,26 +222,24 @@ async def _init_topic6() -> None:
     feishu_app = await asyncio.get_event_loop().run_in_executor(None, register_feishu_app)
 
     existing: dict[str, str] = {}
-    if os.path.exists(paths.config_path):
-        with open(paths.config_path, "r", encoding="utf-8") as fh:
+    if os.path.exists(case_paths.config_path):
+        with open(case_paths.config_path, "r", encoding="utf-8") as fh:
             existing = parse_env_text(fh.read())
     existing.update(
         {
             "ARK_API_KEY": ark_api_key,
             "FEISHU_APP_ID": feishu_app.app_id,
             "FEISHU_APP_SECRET": feishu_app.app_secret,
-            "GATEWAY_DB_PATH": paths.database_path,
         }
     )
-    _write_secure(paths.config_path, serialize_env(existing))
+    _write_secure(case_paths.config_path, serialize_env(existing))
 
-    print(f"飞书 Bot 已创建：{feishu_app.app_id}")
-    print(f"配置已写入 {paths.config_path}(仅含方舟 Key + 飞书凭据)。")
-    print("下一步：")
-    print("  1) cd cases/topic6 && export ARK_API_KEY HOT_TOPICS_MCP_URL")
-    print("  2) ./tools/pack_skills.sh && python3 tools/upload_skills.py")
-    print("  3) ./ma-resources/create_all.sh")
-    print("  4) 把输出的 TOPIC6_* ID 追加到 config.env,然后 arkagent run")
+    print(f"飞书 Bot 已创建:{feishu_app.app_id}")
+    print(f"配置已写入 {case_paths.config_path}(仅含方舟 Key + 飞书凭据)。")
+    print("下一步:")
+    print("  1) cd cases/topic6 && ./tools/pack_skills.sh && python3 tools/upload_skills.py")
+    print("  2) ./ma-resources/create_all.sh")
+    print(f"  3) 把输出的 TOPIC6_* ID 追加到 {case_paths.config_path},然后 `arkagent run --case topic6`")
 
 
 async def _update_agent(args: list[str] | None = None) -> None:

@@ -28,9 +28,9 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
 
-from ..ark import ArkClient, event_error, event_progress, event_requires_action, event_text
-from ..feishu import FeishuSender
-from .pipeline_store import (
+from arkagent.ark import ArkClient, event_error, event_progress, event_requires_action, event_text
+from arkagent.feishu import FeishuSender
+from pipeline_store import (
     HC_KINDS,
     STATUS_DONE,
     STATUS_FAILED,
@@ -39,7 +39,7 @@ from .pipeline_store import (
     PipelineJob,
     PipelineStore,
 )
-from .topic6_progress_card import MAX_TOOL_LINES, build_progress_card
+from topic6_progress_card import MAX_TOOL_LINES, build_progress_card
 
 log = logging.getLogger("arkagent.topic6.runner")
 
