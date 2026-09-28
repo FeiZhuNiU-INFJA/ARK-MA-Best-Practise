@@ -1,6 +1,8 @@
 # MA 迁移 Demo · 飞书 Bot → 火山方舟 Managed Agents
 
-> 一份「喂到嘴边」的可运行 Demo：把 FDE 建议清单里的四个客户卡点，直接在飞书对话界面里演示出来。
+> **⚠️ 关于配置路径的历史说明**:本文档写于 case 化重构之前,文内所有 `~/.arkagent/config.env` 均指主目录的旧 config 文件——这是仅为**客户 A 四卡点 demo**保留的历史遗留位置(`arkagent init` / `arkagent update-agent` 仍写它)。新 case (topic6 / digital-employee)已迁移到独立目录 `~/.arkagent/cases/{case}/config.env`,启动改为 `arkagent run --case <name>`。若你只跑客户 A 四卡点 demo,可继续按下文操作;若同时启用其他 case,注意各自的配置分别位于不同路径。
+
+> 一份「喂到嘴边」的可运行 Demo:把 FDE 建议清单里的四个客户卡点,直接在飞书对话界面里演示出来。
 
 飞书用户 @ Bot → 本地 Gateway → 火山方舟 Managed Agents Session → mock 客户A MCP Server。四个卡点全程在**与 Bot 的飞书会话**中演示，无需额外前端。
 

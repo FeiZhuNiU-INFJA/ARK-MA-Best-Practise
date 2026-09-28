@@ -61,6 +61,27 @@ def test_looks_like_placeholder_token():
     assert cli._looks_like_placeholder_token("sk-abc123") is False
 
 
+def test_run_without_case_lists_options_and_exits(monkeypatch, tmp_path):
+    monkeypatch.setenv("ARKAGENT_HOME", str(tmp_path))
+    out = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        code = cli.main(["run"])
+    assert code == 1
+    text = out.getvalue()
+    assert "可选 case:" in text
+    assert "topic6" in text and "digital-employee" in text
+    assert "--case <name>" in err.getvalue()
+
+
+def test_parse_case_arg_variants():
+    assert cli._parse_case_arg([]) is None
+    assert cli._parse_case_arg(["--case", "topic6"]) == "topic6"
+    assert cli._parse_case_arg(["--case=digital-employee"]) == "digital-employee"
+    with pytest.raises(RuntimeError, match="--case"):
+        cli._parse_case_arg(["--case"])
+
+
 class _FakeUpdateArk:
     """update-agent --mcp-url 编排用的假 ArkClient。"""
 

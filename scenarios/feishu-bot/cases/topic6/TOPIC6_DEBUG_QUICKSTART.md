@@ -19,7 +19,7 @@ cd scenarios/feishu-bot
 python3 -m arkagent init --topic6
 ```
 
-topic6 专用轻量初始化:只问方舟 API Key + 扫码建飞书应用,写入 `~/.arkagent/config.env`。产出:
+topic6 专用轻量初始化:只问方舟 API Key + 扫码建飞书应用,写入 `~/.arkagent/cases/topic6/config.env`。产出:
 
 - `ARK_API_KEY`
 - `FEISHU_APP_ID` / `FEISHU_APP_SECRET`
@@ -71,7 +71,7 @@ topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 
 ## 2. 环境变量清单(跑 create_all.sh 前必须齐)
 
-**全部写到 `~/.arkagent/config.env`**(该文件已在 §1 由 `init --topic6` 生成,追加即可,不会入库)。
+**全部写到 `~/.arkagent/cases/topic6/config.env`**(该文件已在 §1 由 `init --topic6` 生成,追加即可,不会入库)。
 
 ### 2.1 通用(方舟 + 飞书)
 
@@ -117,7 +117,7 @@ AUTHORIZED_OPEN_IDS=ou_xxx ou_yyy   # 空格或逗号分隔
 ### 加载到 shell(每次开新终端都要跑)
 
 ```bash
-set -a; source ~/.arkagent/config.env; set +a
+set -a; source ~/.arkagent/cases/topic6/config.env; set +a
 ```
 
 `set -a` 让 source 出来的所有变量自动 export,省去挨个 export。跑 `pack_skills.sh` / `upload_skills.py` / `create_all.sh` 都依赖这一步。
@@ -152,7 +152,7 @@ python3 tools/upload_skills.py
 
 ## 4. 回填 topic6 资源 ID
 
-`create_all.sh` 打印的 ID 追加到 `~/.arkagent/config.env`:
+`create_all.sh` 打印的 ID 追加到 `~/.arkagent/cases/topic6/config.env`:
 
 ```env
 TOPIC6_COORDINATOR_AGENT_ID=<create_all.sh 输出>   # 开关:不填则 topic6 不装配
