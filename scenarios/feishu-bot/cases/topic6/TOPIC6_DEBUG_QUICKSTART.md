@@ -83,9 +83,11 @@ ARK_API_KEY=xxx
 # 飞书——init --topic6 已自动写入
 FEISHU_APP_ID=cli_xxx
 FEISHU_APP_SECRET=xxx
-LARK_APP_ID=cli_xxx           # 与 FEISHU_APP_ID 同值,给沙箱脚本用
-LARK_APP_SECRET=xxx           # 与 FEISHU_APP_SECRET 同值
 ```
+
+`create_all.sh` 会默认将 `FEISHU_APP_ID/FEISHU_APP_SECRET` 复用为沙箱使用的
+`LARK_APP_ID/LARK_APP_SECRET`。只有 Gateway 与沙箱需要使用不同飞书应用时，
+才在配置中显式设置 `LARK_APP_ID` 和 `LARK_APP_SECRET`。
 
 ### 2.2 业务侧 API Key(向业务对接人获取)
 
@@ -144,23 +146,96 @@ python3 tools/upload_skills.py
 
 - `ENVIRONMENT_ID`
 - `MEMORY_STORE_ID`
-- `ANNOTATOR_AGENT_ID` / `INSIGHTER_AGENT_ID`
-- `COORDINATOR_AGENT_ID` ← 后面要写进 config.env
+- `AGENT_ANNOTATOR_ID` / `AGENT_INSIGHTER_ID`
+- `AGENT_COORDINATOR_ID`（脚本会自动回写 config.env）
 
 后续只是改 Prompt / Skill,直接重跑 `./ma-resources/create_all.sh` 即可——3 个 Agent 每次都会强制重建,skill_id / prompt 都会一并生效。仅当 `environment.json` 或 memory md 文件也改过时,才分别加上 `--update-env` / `--update-memory`。
 
+### 3.4 全量更新所有 Topic 6 资源
+
+以下流程会:
+
+- 运行完整测试
+- 重新打包并强制上传全部 5 个 Skills
+- 原地更新 Environment
+- 更新已有 Memory 内容
+- 删除并重建 Annotator、Insighter、Coordinator
+- 自动回写新的资源 ID
+- 重新启动 Gateway
+
+执行前先停止正在运行的 Gateway:
+
+```bash
+# 1. 进入项目并激活环境
+cd /Users/bytedance/workspace/ark-agent-feishu-bot
+conda activate nio-ma-demo
+
+# 2. 加载配置
+set -a
+source ~/.arkagent/cases/topic6/config.env
+set +a
+
+# 3. 检查必填变量,不输出密钥
+: "${ARK_API_KEY:?缺少 ARK_API_KEY}"
+: "${FEISHU_APP_ID:?缺少 FEISHU_APP_ID}"
+: "${FEISHU_APP_SECRET:?缺少 FEISHU_APP_SECRET}"
+: "${HOT_TOPICS_MCP_URL:?缺少 HOT_TOPICS_MCP_URL}"
+: "${BLUEAI_API_KEY:?缺少 BLUEAI_API_KEY}"
+: "${DATAHUB_ENDPOINT:?缺少 DATAHUB_ENDPOINT}"
+: "${DATAHUB_API_KEY:?缺少 DATAHUB_API_KEY}"
+
+# 4. 完整回归测试
+cd scenarios/feishu-bot
+python3 -m pytest -q
+
+# 5. 进入 Topic 6
+cd cases/topic6
+
+# 6. 重新打包全部 5 个 Skills
+./tools/pack_skills.sh
+
+# 7. 强制上传全部 Skills
+python3 tools/upload_skills.py --force
+
+# 8. 全量更新 Environment、Memory,并重建全部 Agent
+./ma-resources/create_all.sh --update-env --update-memory
+
+# 9. 检查新资源 ID
+jq . ma-resources/created_ids.json
+grep -E '^TOPIC6_(COORDINATOR_AGENT_ID|ENVIRONMENT_ID|MEMORY_STORE_ID)=' \
+  ~/.arkagent/cases/topic6/config.env
+
+# 10. 重新加载 create_all.sh 自动回写后的资源 ID
+set -a
+source ~/.arkagent/cases/topic6/config.env
+set +a
+
+# 11. 返回服务目录并启动 Gateway
+cd ../..
+python3 -m arkagent run --case topic6
+```
+
 ---
 
-## 4. 回填 topic6 资源 ID
+## 4. 确认 topic6 资源 ID
 
-`create_all.sh` 打印的 ID 追加到 `~/.arkagent/cases/topic6/config.env`:
+`create_all.sh` 会打印以下 ID:
+
+- `ENVIRONMENT_ID`
+- `MEMORY_STORE_ID`
+- `AGENT_ANNOTATOR_ID`
+- `AGENT_INSIGHTER_ID`
+- `AGENT_COORDINATOR_ID`
+
+如果 `~/.arkagent/cases/topic6/config.env` 已存在,脚本会自动更新:
 
 ```env
-TOPIC6_COORDINATOR_AGENT_ID=<create_all.sh 输出>   # 开关:不填则 topic6 不装配
-TOPIC6_ENVIRONMENT_ID=<create_all.sh 输出>         # 可省略,回退 ARK_ENVIRONMENT_ID
-TOPIC6_MEMORY_STORE_ID=<create_all.sh 输出>
-TOPIC6_PIPELINE_DB_PATH=./data/topic6_pipeline.db
+TOPIC6_COORDINATOR_AGENT_ID=<AGENT_COORDINATOR_ID>
+TOPIC6_ENVIRONMENT_ID=<ENVIRONMENT_ID>
+TOPIC6_MEMORY_STORE_ID=<MEMORY_STORE_ID>
 ```
+
+更新完成后重新加载配置,或重启 Gateway 使新 ID 生效。
 
 ---
 

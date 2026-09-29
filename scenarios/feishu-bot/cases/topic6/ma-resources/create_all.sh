@@ -36,10 +36,18 @@ if [[ "$_RAW_BASE" != */api/v3 ]]; then
 else
   BASE_URL="$_RAW_BASE"
 fi
+
+# 沙箱脚本使用 LARK_*，Gateway 使用 FEISHU_*。默认复用同一套应用凭据，
+# 仅在确实需要不同应用时才显式配置 LARK_APP_ID / LARK_APP_SECRET。
+export LARK_APP_ID="${LARK_APP_ID:-${FEISHU_APP_ID:-}}"
+export LARK_APP_SECRET="${LARK_APP_SECRET:-${FEISHU_APP_SECRET:-}}"
+
 # 方舟 MA 属 agentic beta 面,skills/environments/agents/sessions/memory_stores 都要求这个 header,不带就 404
 ARK_BETA_HEADER="X-Ark-Beta: agentic-2026-06-01"
 : "${ARK_API_KEY:?please export ARK_API_KEY}"
 : "${HOT_TOPICS_MCP_URL:?please export HOT_TOPICS_MCP_URL(topic6 数据源 MCP endpoint)}"
+: "${LARK_APP_ID:?please export LARK_APP_ID or FEISHU_APP_ID}"
+: "${LARK_APP_SECRET:?please export LARK_APP_SECRET or FEISHU_APP_SECRET}"
 
 require() { command -v "$1" >/dev/null || { echo "缺少 $1"; exit 1; }; }
 require curl

@@ -497,7 +497,7 @@ class Topic6Runner:
         if state is None:
             return
         ts = time.strftime("%H:%M:%S", time.localtime())
-        state.push_tool_line(f"`{ts}` · {progress}")
+        state.push_tool_line(f"{ts} · {progress}")
 
     async def _render_and_patch(
         self,

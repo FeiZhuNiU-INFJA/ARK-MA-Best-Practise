@@ -836,10 +836,25 @@ def drain_event_buffer(input_text: str) -> tuple[list[dict], str]:
     return events, rest
 
 
+# 结果内容按行数判定"异常"：空结果或过长（Agent 一次拿回一堆条目往往说明检索没收敛）都值得
+# 让用户看一眼；正常范围（1~RESULT_ROWS_ABNORMAL 行）不上卡，避免刷屏。
+RESULT_ROWS_ABNORMAL = 30
+
+
 def event_progress(event: dict) -> Optional[str]:
-    if event.get("type") == "agent.tool_result" and event.get("is_error") is True:
-        return "工具执行未成功，Agent 正在尝试恢复"
-    if event.get("type") != "agent.tool_use":
+    etype = event.get("type")
+    if etype == "agent.tool_result":
+        if event.get("is_error") is True:
+            return "工具执行未成功，Agent 正在尝试恢复"
+        rows = _count_result_rows(event_text(event))
+        if rows == 0:
+            return "↳ 结果：空"
+        if rows >= RESULT_ROWS_ABNORMAL:
+            return f"↳ 结果：{rows} 行（偏多）"
+        return None
+    if etype == "agent.message":
+        return _summarize_agent_message(event_text(event))
+    if etype != "agent.tool_use":
         return None
     name = event.get("name") if isinstance(event.get("name"), str) else "未知工具"
     payload_input = event.get("input") if isinstance(event.get("input"), dict) else {}
@@ -849,6 +864,23 @@ def event_progress(event: dict) -> Optional[str]:
     if description:
         return f"正在执行：{description[:120]}"
     return f"正在调用工具：{str(name)[:80]}"
+
+
+def _count_result_rows(text: str) -> int:
+    stripped = text.strip()
+    if not stripped:
+        return 0
+    return stripped.count("\n") + 1
+
+
+def _summarize_agent_message(body: str) -> Optional[str]:
+    # 跳过 `[phase] X` 标记行（phase 切换 runner 另有强制刷卡逻辑，不重复展示）。
+    for raw in body.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("[phase]"):
+            continue
+        return f"Agent 说：{line[:80]}"
+    return None
 
 
 def event_custom_tool_call(event: dict) -> Optional[dict]:

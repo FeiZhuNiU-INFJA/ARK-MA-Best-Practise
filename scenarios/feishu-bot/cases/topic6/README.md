@@ -4,6 +4,7 @@
 
 - `ma-resources/`：MA 运行所需的 Agent、Environment、Memory Store 和 Skill 源码，是部署资源的唯一源码目录。
 - `tools/`：在本地打包并上传自定义 Skill 的辅助工具。
+- `CUSTOMER_TO_MA_FILE_MAPPING.md`：客户原始文件到 MA Skill、Agent、Memory 和接入脚本的对应关系。
 - `topic6_ma_architecture.html`：MA 分层架构、Agent 组成及交互关系。
 - `topic6_pipeline_overview.html`：从取数、标注、审核到报告发布的完整流水线。
 

@@ -68,6 +68,31 @@ def test_event_progress_hides_raw_commands():
     assert event_progress({"type": "agent.thinking"}) is None
 
 
+def test_event_progress_summarizes_agent_message_first_line():
+    body = "先扫一遍 memory\n再决定下一步"
+    got = event_progress({"type": "agent.message", "content": [{"type": "text", "text": body}]})
+    assert got == "Agent 说：先扫一遍 memory"
+
+
+def test_event_progress_skips_phase_marker_lines():
+    body = "[phase] C1\n实际正文才是重点"
+    got = event_progress({"type": "agent.message", "content": [{"type": "text", "text": body}]})
+    assert got == "Agent 说：实际正文才是重点"
+
+
+def test_event_progress_flags_empty_and_bloated_tool_results():
+    empty = event_progress({"type": "agent.tool_result", "content": [{"type": "text", "text": "   "}]})
+    assert empty == "↳ 结果：空"
+
+    huge = event_progress(
+        {"type": "agent.tool_result", "content": [{"type": "text", "text": "\n".join(f"row-{i}" for i in range(30))}]}
+    )
+    assert huge == "↳ 结果：30 行（偏多）"
+
+    normal = event_progress({"type": "agent.tool_result", "content": [{"type": "text", "text": "ok"}]})
+    assert normal is None
+
+
 def test_custom_tool_event_parsing_and_requires_action():
     call = event_custom_tool_call(
         {
