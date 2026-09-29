@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import httpx
@@ -576,6 +577,44 @@ async def test_run_opens_stream_before_sending_message():
     assert order == ["stream", "events"]
     assert result.terminal == "idle"
     assert result.messages == ["完成"]
+
+
+@respx.mock
+async def test_run_accepts_ready_line_without_trailing_blank_line():
+    message_sent = asyncio.Event()
+
+    class DelayedEventStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b": ready\n"
+            await message_sent.wait()
+            yield (
+                b'data: {"type":"agent.message","content":[{"type":"text","text":"done"}]}\n\n'
+                b'data: {"type":"session.status_idle"}\n\n'
+            )
+
+    respx.get(f"{BASE}/sessions/session-1/events/stream").mock(
+        return_value=httpx.Response(
+            200,
+            stream=DelayedEventStream(),
+            headers={"Content-Type": "text/event-stream"},
+        )
+    )
+
+    def events_responder(request):
+        message_sent.set()
+        return httpx.Response(200, json={"data": []})
+
+    events_route = respx.post(f"{BASE}/sessions/session-1/events").mock(
+        side_effect=events_responder
+    )
+
+    client = _client()
+    result = await client.run("session-1", "hello", 5_000)
+    await client.aclose()
+
+    assert events_route.called
+    assert result.terminal == "idle"
+    assert result.messages == ["done"]
 
 
 @respx.mock

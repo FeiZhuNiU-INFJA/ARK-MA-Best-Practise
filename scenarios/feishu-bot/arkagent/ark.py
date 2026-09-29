@@ -794,6 +794,16 @@ class _EventStream:
         assert self._chunks is not None
         async for chunk in self._chunks:
             self._buffer += chunk.replace("\r\n", "\n").replace("\r", "\n")
+            # MA may flush ``: ready\n`` without the SSE block's trailing blank
+            # line. Waiting only for ``\n\n`` would deadlock: the caller cannot
+            # POST its first message, so no subsequent event arrives.
+            offset = 0
+            for line in self._buffer.splitlines(keepends=True):
+                next_offset = offset + len(line)
+                if line.endswith("\n") and line.strip() == ": ready":
+                    self._buffer = self._buffer[:offset] + self._buffer[next_offset:]
+                    return
+                offset = next_offset
             while "\n\n" in self._buffer:
                 block, self._buffer = self._buffer.split("\n\n", 1)
                 lines = [line.strip() for line in block.split("\n")]
