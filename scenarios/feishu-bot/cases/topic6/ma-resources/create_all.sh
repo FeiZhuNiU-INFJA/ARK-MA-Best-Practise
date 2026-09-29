@@ -94,6 +94,18 @@ find_by_name() {
   ' <<<"$body" | head -1
 }
 
+find_memory_id_by_path() {
+  local store_id="$1" path="$2"
+  local body
+  body=$(ark_get "/memory_stores/$store_id/memories?path_prefix=%2F&order_by=path&depth=10&page_size=2000")
+  jq -r --arg p "$path" '
+    (.data // .items // .) as $arr
+    | if ($arr | type) == "array" then
+        ($arr[] | select(.path == $p and .id != null) | .id) // empty
+      else empty end
+  ' <<<"$body" | head -1
+}
+
 # 带 beta header 的 DELETE
 ark_delete() {
   local path="$1"
@@ -169,9 +181,19 @@ if [ "$MEMORY_ALREADY_EXISTS" = "0" ] || [ "$UPDATE_MEMORY" = "1" ]; then
     src_abs="$ROOT/../$src"
     [ -f "$src_abs" ] || { echo "  [跳过] $src_abs 不存在"; continue; }
     content=$(jq -Rs '.' <"$src_abs")
-    ark_post "/memory_stores/$MEMORY_STORE_ID/memories" \
-      "{\"path\": \"$path\", \"content\": $content}" >/dev/null
-    echo "  写入 $path"
+    memory_id=""
+    if [ "$MEMORY_ALREADY_EXISTS" = "1" ]; then
+      memory_id=$(find_memory_id_by_path "$MEMORY_STORE_ID" "$path" || true)
+    fi
+    if [ -n "$memory_id" ]; then
+      ark_post "/memory_stores/$MEMORY_STORE_ID/memories/$memory_id" \
+        "{\"path\": \"$path\", \"content\": $content}" >/dev/null
+      echo "  更新 $path"
+    else
+      ark_post "/memory_stores/$MEMORY_STORE_ID/memories" \
+        "{\"path\": \"$path\", \"content\": $content}" >/dev/null
+      echo "  写入 $path"
+    fi
   done
 else
   step "3) 预置 Memory 内容(已存在,跳过;加 --update-memory 可强制覆盖)"

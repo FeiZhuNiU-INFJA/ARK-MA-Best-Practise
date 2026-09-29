@@ -673,9 +673,18 @@ class ArkClient:
                         progress = event_progress(event)
                         if progress and on_progress:
                             await on_progress(progress)
-                        if event.get("type") in ("session.error", "session.status_failed"):
+                        event_type = event.get("type")
+                        if event_type in (
+                            "session.error",
+                            "session.status_failed",
+                            "session.status_terminated",
+                        ):
                             sw.mark("ark.run.to_terminal", session=session_id, terminal="failed")
-                            error = event_error(event)
+                            error = event_error(event) or (
+                                "session_terminated"
+                                if event_type == "session.status_terminated"
+                                else "session_failed"
+                            )
                             # 把方舟给的失败原因落到日志：否则上层只看到「执行失败」，排查得手动拉 events。
                             log.warning(
                                 "方舟 Session 执行失败 session=%s：%s",
@@ -727,6 +736,9 @@ class _EventStream:
         self._session_id = session_id
         self._ctx = None
         self._response: Optional[httpx.Response] = None
+        self._chunks: Optional[AsyncIterator[str]] = None
+        self._buffer = ""
+        self._pending_events: list[dict] = []
 
     async def __aenter__(self) -> AsyncIterator[dict]:
         url = f"{self._client.base_url}/sessions/{quote(self._session_id, safe='')}/events/stream"
@@ -749,6 +761,8 @@ class _EventStream:
                 status_code=self._response.status_code,
                 body=body,
             )
+        self._chunks = self._response.aiter_text()
+        await self._wait_until_ready()
         return self._iterate()
 
     async def __aexit__(self, *exc) -> None:
@@ -756,16 +770,38 @@ class _EventStream:
             await self._ctx.__aexit__(*exc)
 
     async def _iterate(self) -> AsyncIterator[dict]:
-        buffer = ""
-        async for chunk in self._response.aiter_text():
-            buffer += chunk.replace("\r\n", "\n")
-            events, buffer = drain_event_buffer(buffer)
+        for event in self._pending_events:
+            yield event
+        self._pending_events.clear()
+
+        events, self._buffer = drain_event_buffer(self._buffer)
+        for event in events:
+            yield event
+
+        assert self._chunks is not None
+        async for chunk in self._chunks:
+            self._buffer += chunk.replace("\r\n", "\n").replace("\r", "\n")
+            events, self._buffer = drain_event_buffer(self._buffer)
             for event in events:
                 yield event
-        tail = buffer.strip()
+        tail = self._buffer.strip()
         if tail:
             for event in parse_event_block(tail):
                 yield event
+
+    async def _wait_until_ready(self) -> None:
+        """Consume the SSE ready comment before callers are allowed to send events."""
+        assert self._chunks is not None
+        async for chunk in self._chunks:
+            self._buffer += chunk.replace("\r\n", "\n").replace("\r", "\n")
+            while "\n\n" in self._buffer:
+                block, self._buffer = self._buffer.split("\n\n", 1)
+                lines = [line.strip() for line in block.split("\n")]
+                ready = any(line == ": ready" for line in lines)
+                self._pending_events.extend(parse_event_block(block))
+                if ready:
+                    return
+        raise ArkError("方舟事件流在发送 ready 信号前已关闭")
 
 
 # ---- SSE helpers（与原 TS 等价，模块级便于单测）----
@@ -858,7 +894,12 @@ def result_from_events(events: list[dict], started_at: int) -> Optional[RunResul
         return parsed is not None and parsed >= started_at
 
     current = [event for event in events if _after(event)]
-    failed_events = [event for event in current if event.get("type") in ("session.error", "session.status_failed")]
+    failed_events = [
+        event
+        for event in current
+        if event.get("type")
+        in ("session.error", "session.status_failed", "session.status_terminated")
+    ]
     failed = bool(failed_events)
     idle = any(
         event.get("type") == "session.status_idle"
@@ -878,7 +919,13 @@ def result_from_events(events: list[dict], started_at: int) -> Optional[RunResul
             or event_user_authorization_required(event, tool_domains)
         )
     # 与实时路径一致：失败时把方舟给的错误摘要一并带出（取第一条失败事件的 error）。
-    error = event_error(failed_events[0]) if failed_events else ""
+    error = ""
+    if failed_events:
+        error = event_error(failed_events[0]) or (
+            "session_terminated"
+            if failed_events[0].get("type") == "session.status_terminated"
+            else "session_failed"
+        )
     return RunResult(
         terminal="failed" if failed else "idle",
         messages=messages,

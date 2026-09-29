@@ -11,6 +11,17 @@
 
 ---
 
+## 2026-09-29
+
+### 对齐 2026-09-29 Managed Agents 文档更新
+
+- **MCP Toolset**：`mcp_toolset` 必须作为 `tools[]` 条目，并通过 `mcp_server_name` 与 `mcp_servers[]` 一一对应；权限策略形状为 `default_config.permission_policy.type`。已修正 `agents/coordinator.json`，继续对只读热点数据 MCP 显式使用 `always_allow`。
+- **SSE 启动顺序**：打开事件流后必须等到 `: ready`，再发送首个 `user.message`。已由共享 `_EventStream` 在进入上下文前消费 ready 信号，Topic 6 runner 无需自行解析 SSE 注释。
+- **Session 终态**：`session.status_terminated` 是不可继续发送事件的终态，已按失败处理；正常轮次完成仍以 `session.status_idle` 为准。
+- **Skill 上传限制**：上传 ZIP 不超过 30 MiB；解压后单文件不超过 30 MiB、总大小不超过 120 MiB、最多 500 个文件；统一顶层目录下直接包含唯一 `SKILL.md`。`tools/pack_skills.sh` 已同步全部门禁。
+- **Memory 更新**：创建同路径 Memory 不会覆盖原内容。`create_all.sh --update-memory` 现在先按 path 查找 Memory ID，存在则调用更新接口，不存在才创建。
+- **无需修改**：Topic 6 仅挂载 5 个 Skills，未触及单 Agent 50 个上限；Memory 继续使用 `read_only`，不启用本次新增明确化的 `read_write` 能力；Multi Agent 仍是一层协调器到子 Agent，符合嵌套限制。
+
 ## 2026-09-24
 
 ### Agent Prompt 静态路径与 skill 挂载目录逐字符对齐
@@ -78,16 +89,16 @@
   - [ma-resources/create_all.sh](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources/create_all.sh)(POST 前兜底补 `/`,防未来漏改)
 - **应对规约**:后续任何 memory-store.json 新增条目,path 必须写 `/topic6/...`。Agent prompt 里引用时,挂载点是 `/mnt/memory` + path,即 `/mnt/memory/topic6/MEMORY.md`,与旧口径完全一致。
 
-### Agent `tools` 只认 `agent_toolset_20260701` / `custom` / `evolution` 三种 type
+### 内置工具必须通过 `agent_toolset_20260701` 配置
 
 - **现象**:`POST /api/v3/agents` 返回 `400 InvalidParameter: tools[0].type: unsupported tool type "bash"`。
-- **根因**:方舟 MA 把 `bash` / `read` / `write` / `edit` / `glob` / `grep` / `web_fetch` / `web_search` **聚合成一个内置工具集**,type 只写一个 `agent_toolset_20260701` 就默认全开(见 [MA 文档 L1881-L1898](file:///Users/bytedance/workspace/ark-agent-feishu-bot/common/docs/火山方舟_ManagedAgents_docs.md#L1881))。真正合法的 tool type 只有三种:`agent_toolset_20260701`(内置)、`custom`(业务侧回调)、`evolution`(演进能力,含 advisor)。
+- **根因**:方舟 MA 把 `bash` / `read` / `write` / `edit` / `glob` / `grep` / `web_fetch` / `web_search` **聚合成一个内置工具集**,type 只写一个 `agent_toolset_20260701` 就默认全开(见 [MA 文档 L1881-L1898](file:///Users/bytedance/workspace/ark-agent-feishu-bot/common/docs/火山方舟_ManagedAgents_docs.md#L1881))。除内置工具集外，`tools[]` 还可包含 `custom`、`evolution` 和 `mcp_toolset`；不能把 `bash`、`read` 等单个内置工具名直接写成 type。
 - **影响文件**:
   - [agents/annotator.json](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources/agents/annotator.json)
   - [agents/insighter.json](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources/agents/insighter.json)
   - [agents/coordinator.json](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources/agents/coordinator.json)
   - 全部改为 `[{"type": "agent_toolset_20260701"}]`
-- **应对规约**:后续新增 Agent 定义,`tools` 只允许出现上述三种 type。如果要精细化开关内置工具中的某几个(比如禁 web_search 省钱),用 `permission_policy` 而不是删条目;权限模型默认 `always_allow`。
+- **应对规约**:后续新增 Agent 定义，内置工具统一使用 `agent_toolset_20260701`；通过 `configs[].enabled` 控制单个工具启停，通过 `default_config.permission_policy` 或 `configs[].permission_policy` 控制执行前是否确认。
 
 ### Agent `mcp_servers[].type` 必填,当前仅支持 `"url"`
 

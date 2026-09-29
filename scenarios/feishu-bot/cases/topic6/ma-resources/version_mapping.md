@@ -28,7 +28,7 @@
 | topic6-annotation.zip | 99 KB | 5 合 1 datahub_annotate + cost-tracker + 7 prompts + 3 references |
 | topic6-insight.zip | 66 KB | pipeline_e/f + 6 统计脚本 + 4+1 prompts + 2 references |
 | topic6-event-registry.zip | 177 KB | 21 脚本 + references 全套 |
-| topic6-web-report.zip | 4.1 MB | 含模板资产、图片、字体(仍远低于 50MB 上限) |
+| topic6-web-report.zip | 4.1 MB | 含模板资产、图片、字体(仍远低于 30 MiB 上传上限) |
 
 ## 更新流程
 
@@ -37,4 +37,3 @@
 3. 运行 `tools/upload_skills.py` → 更新 `skill_ids.json`
 4. 更新本表格 + `ma-resources/agents/coordinator.json` 的 `skills[].version` 字段
 5. 直接重跑 `create_all.sh` 推送协调器配置到 MA(Agent 会自动重建)
-

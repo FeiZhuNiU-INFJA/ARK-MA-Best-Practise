@@ -54,6 +54,7 @@ topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 **可选**
 
 - [ ] `contact:user.id:readonly` — open_id ↔ user_id 反查(若白名单只用 open_id 可省)
+- [ ] `contact:user.base:readonly` — 反查 open_id 对应真名,用于 HC 卡片"XXX 已通过/驳回"回显操作人姓名(未开时回退为 open_id 后 6 位短标识,不影响流转)
 
 ### 事件订阅(事件与回调 → 事件订阅)
 

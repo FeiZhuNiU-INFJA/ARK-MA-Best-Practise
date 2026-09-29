@@ -238,6 +238,22 @@ def test_result_from_events_only_recovers_current_run():
     assert result.messages == ["新回复"]
 
 
+def test_result_from_events_treats_terminated_as_failure():
+    since = int(__import__("datetime").datetime.fromisoformat("2026-07-21T17:00:00+08:00").timestamp() * 1000)
+    result = result_from_events(
+        [
+            {
+                "type": "session.status_terminated",
+                "processed_at": "2026-07-21T17:00:01+08:00",
+            }
+        ],
+        since,
+    )
+    assert result is not None
+    assert result.terminal == "failed"
+    assert result.error == "session_terminated"
+
+
 # ---- session binding (卡点 B) ----
 @respx.mock
 async def test_create_session_injects_openid_via_environment_overrides():
@@ -513,6 +529,8 @@ async def test_run_opens_stream_before_sending_message():
     def stream_responder(request):
         order.append("stream")
         body = "\n".join([
+            ": ready",
+            "",
             'data: {"type":"agent.message","content":[{"type":"text","text":"完成"}]}',
             "",
             'data: {"type":"session.status_idle"}',
@@ -539,6 +557,8 @@ async def test_run_opens_stream_before_sending_message():
 async def test_run_executes_custom_tool_and_ignores_requires_action_idle():
     body = "\n".join(
         [
+            ": ready",
+            "",
             (
                 'data: {"type":"agent.custom_tool_use","id":"custom-1",'
                 '"name":"memory_get","input":{"category":"facts","key":"owner"}}'
@@ -582,6 +602,27 @@ async def test_run_executes_custom_tool_and_ignores_requires_action_idle():
 
     tool_result = json.loads(events_route.calls[1].request.content)["events"][0]
     assert tool_result["custom_tool_use_id"] == "custom-1"
+
+
+@respx.mock
+async def test_run_does_not_send_message_before_stream_ready():
+    respx.get(f"{BASE}/sessions/session-1/events/stream").mock(
+        return_value=httpx.Response(
+            200,
+            text='data: {"type":"session.status_idle"}\n\n',
+            headers={"Content-Type": "text/event-stream"},
+        )
+    )
+    events_route = respx.post(f"{BASE}/sessions/session-1/events").mock(
+        return_value=httpx.Response(200, json={})
+    )
+
+    client = _client()
+    with pytest.raises(Exception, match="ready"):
+        await client.run("session-1", "你好", 5_000)
+    await client.aclose()
+
+    assert not events_route.called
 
 
 # ---- files & session resources (多模态：上传文件 + 挂载到 Session 文件系统) ----

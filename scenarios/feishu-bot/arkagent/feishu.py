@@ -28,6 +28,10 @@ MAX_QUOTE_DEPTH = 5
 # <at> 要用它。名册变动不频繁（进退群），60s 内复用同一份，避免每条回复都拉一次成员列表。
 CHAT_ROSTER_TTL_SECONDS = 60.0
 
+# open_id → 真名 的反查缓存有效期（秒）：卡片按钮回调只带 open_id，要给"操作人"回显真名必须
+# 反查一次（群里走 chat_roster，单聊走 contact.v3.user.get）。改名不频繁，缓存 10 分钟。
+OPERATOR_NAME_TTL_SECONDS = 600.0
+
 
 @dataclass(frozen=True)
 class ResourceRef:
@@ -291,6 +295,8 @@ class FeishuSender:
         self._bot_open_id: Optional[str] = None
         # chat_id → (到期时间戳, {显示名: open_id}) 的名册缓存。出站 @名字 重写用；见 chat_roster。
         self._roster_cache: dict[str, tuple[float, dict[str, str]]] = {}
+        # open_id → (到期时间戳, 真名) 的反查缓存。卡片"操作人"回显用；见 resolve_operator_name。
+        self._operator_name_cache: dict[str, tuple[float, str]] = {}
 
     def bot_open_id(self) -> str:
         """当前 Bot 自己的 open_id（缓存）。窗口规则要用它判断历史里哪条是「@ 到 bot」，
@@ -385,6 +391,84 @@ class FeishuSender:
         roster = _build_roster(pairs)
         self._roster_cache[chat_id] = (now + CHAT_ROSTER_TTL_SECONDS, roster)
         return roster
+
+    def _fetch_user_name(self, open_id: str) -> str:
+        """走原生 `GET /open-apis/contact/v3/users/:user_id?user_id_type=open_id` 反查真名。
+
+        飞书卡片按钮回调只带 open_id，没有 name 字段（见 P2CardActionTrigger.operator）；卡片
+        终态想显示真名就得单发一次 contact API。SDK 无对应 typed model，用 BaseRequest 直发，
+        与 bot_open_id / list_chat_members 同款。同步调用，失败抛异常由 resolve_operator_name
+        兜底。需要 `contact:user.base:readonly` scope。
+        """
+        from lark_channel import AccessTokenType, BaseRequest, HttpMethod
+
+        request = (
+            BaseRequest.builder()
+            .http_method(HttpMethod.GET)
+            .uri("/open-apis/contact/v3/users/:user_id")
+            .paths({"user_id": open_id})
+            .queries([("user_id_type", "open_id")])
+            .token_types({AccessTokenType.TENANT})
+            .build()
+        )
+        response = self._client.request(request)
+        if not response.success():
+            raise RuntimeError(f"读取用户信息失败 {response.code}: {response.msg}")
+        raw = response.raw.content if response.raw else None
+        try:
+            payload = json.loads(raw) if raw else {}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = {}
+        data = payload.get("data") if isinstance(payload, dict) else None
+        user = (data or {}).get("user") if isinstance(data, dict) else None
+        return str((user or {}).get("name") or "")
+
+    def resolve_operator_name(
+        self, open_id: str, chat_id: Optional[str] = None
+    ) -> str:
+        """把卡片回调里的 open_id 解析成可读的真名，带 10 分钟 TTL 缓存。
+
+        飞书卡片按钮回调只带 open_id（见 lark_oapi.event.callback.model.p2_card_action_trigger
+        的 CallBackOperator），SDK 层也没做名字解析（channel.py 里 EventOperator 只填了
+        open_id）。要在"已处理"卡片上显示"XXX 已通过/驳回"必须自己反查一次：
+
+        1. 群聊场景优先走 chat_roster：本就为 @人名重写维护了名册缓存（CHAT_ROSTER_TTL_SECONDS），
+           命中即返；
+        2. 名册没命中 / 单聊 / 无 chat_id：退回 contact.v3.user.get 单发；
+        3. 两条路都失败或拿到空名：返回空串，由上层兜底成 open_id 后缀。
+
+        `open_id` 为空直接返回空串；成功命中都进 _operator_name_cache 缓存
+        OPERATOR_NAME_TTL_SECONDS 秒，避免同一用户短时间连点按钮反复请求 contact API。
+        """
+        if not open_id:
+            return ""
+        now = time.monotonic()
+        cached = self._operator_name_cache.get(open_id)
+        if cached is not None and cached[0] > now:
+            return cached[1]
+
+        name = ""
+        if chat_id:
+            try:
+                for display_name, oid in self.chat_roster(chat_id).items():
+                    if oid == open_id:
+                        name = display_name
+                        break
+            except Exception:  # noqa: BLE001 - 名册反查失败退回 contacts 路径
+                name = ""
+
+        if not name:
+            try:
+                name = self._fetch_user_name(open_id)
+            except Exception:  # noqa: BLE001 - 单发失败由上层兜底成 open_id 后缀
+                name = ""
+
+        if name:
+            self._operator_name_cache[open_id] = (
+                now + OPERATOR_NAME_TTL_SECONDS,
+                name,
+            )
+        return name
 
     def reply(self, message_id: str, text: str, roster: "Optional[dict[str, str]]" = None) -> None:
         """回复某条消息。默认转 post 富文本渲染 Markdown；转换或发送失败则降级为纯文本再发一次。

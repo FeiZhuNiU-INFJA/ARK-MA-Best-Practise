@@ -392,8 +392,16 @@ class Topic6Runner:
                 await self._render_and_patch(job_id, status=STATUS_RUNNING, force=phase_changed)
 
             # 失败终态。
-            if etype in ("session.error", "session.status_failed"):
-                error = event_error(event) or "session_failed"
+            if etype in (
+                "session.error",
+                "session.status_failed",
+                "session.status_terminated",
+            ):
+                error = event_error(event) or (
+                    "session_terminated"
+                    if etype == "session.status_terminated"
+                    else "session_failed"
+                )
                 self._store.mark_failed(job_id, error[:400])
                 await self._render_and_patch(
                     job_id, status=STATUS_FAILED, error=error[:400], force=True

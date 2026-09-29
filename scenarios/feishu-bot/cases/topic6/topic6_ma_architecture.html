@@ -497,7 +497,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         <ul>
           <li><b>Custom Skills(5 个,全挂载)</b>:${maLink('skills/topic6-fetch-normalize/', 'topic6-fetch-normalize')} · ${maLink('skills/topic6-annotation/', 'topic6-annotation')} · ${maLink('skills/topic6-event-registry/', 'topic6-event-registry')} · ${maLink('skills/topic6-insight/', 'topic6-insight')} · ${maLink('skills/topic6-web-report/', 'topic6-web-report')}</li>
           <li><b>MCP Server</b>:${maLink('agents/coordinator.json', 'coordinator.json#mcp_servers')} 里注入 <code>hot-topics</code>,URL 由 <code>HOT_TOPICS_MCP_URL</code> 环境变量渲染 · <code>always_allow</code> 授权模式</li>
-          <li><b>MCP Toolset</b>:coordinator.json 的 <code>mcp_toolset</code> 段声明 <code>mcp_server_name: hot-topics</code>,把 MCP 工具直接挂到 Agent 工具集</li>
+          <li><b>MCP Toolset</b>:coordinator.json 的 <code>tools[]</code> 中以 <code>type: mcp_toolset</code> 声明 <code>mcp_server_name: hot-topics</code>,把 MCP 工具直接挂到 Agent 工具集</li>
           <li><b>原生工具</b>:<code>bash</code> / <code>read</code> / <code>write</code> / <code>edit</code>(顺序阶段直接跑脚本)</li>
           <li><b>Memory Store</b>:${maLink('memory-store.json')} 挂载 memory/topic6/{MEMORY, _版本状态, 错误案例库}.md 到 <code>/mnt/memory/topic6/</code>(<b>只读</b>)</li>
           <li><b>Multiagent 拓扑</b>:coordinator.json 的 <code>multiagent.type=coordinator</code>,可委派 annotator / insighter / self</li>
@@ -747,7 +747,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         <h3>接入方式</h3>
         <ul>
           <li>URL 由环境变量 <code>HOT_TOPICS_MCP_URL</code> 提供</li>
-          <li>${maLink('agents/coordinator.json', 'coordinator.json')} 的 <code>mcp_servers</code> + <code>mcp_toolset</code> 两段共同注入</li>
+          <li>${maLink('agents/coordinator.json', 'coordinator.json')} 的 <code>mcp_servers[]</code> 与 <code>tools[]</code> 中的 <code>mcp_toolset</code> 条目共同注入</li>
           <li>${maLink('create_all.sh')} 在注册 coordinator 前<b>必须校验并渲染 <code>${'$'}{HOT_TOPICS_MCP_URL}</code></b> 占位符</li>
           <li>授权模式 <code>always_allow</code> — coordinator 调 MCP 工具不需要每次确认</li>
         </ul>

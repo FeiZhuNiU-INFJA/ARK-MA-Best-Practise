@@ -479,7 +479,15 @@ class Topic6Hitl(Topic6CardSenderProtocol):
         job = self._store.get_job(hc_event.job_id)
         if job is None:
             return
-        operator_label = _extract_operator_label(action)
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+        operator_label = await loop.run_in_executor(
+            None,
+            lambda: _resolve_operator_label(
+                action, self._runner._feishu  # noqa: SLF001
+            ),
+        )
         resolved_card = build_hc_resolved_card(
             job=job,
             hc_kind=hc_event.hc_kind,
@@ -488,9 +496,6 @@ class Topic6Hitl(Topic6CardSenderProtocol):
             note=hc_event.user_note or "",
             operator_label=operator_label,
         )
-        import asyncio
-
-        loop = asyncio.get_event_loop()
         try:
             await loop.run_in_executor(
                 None,
@@ -546,19 +551,45 @@ def _extract_action_note(action: Any) -> Optional[str]:
     return None
 
 
-def _extract_operator_label(action: Any) -> str:
-    """从 lark_oapi Card 对象里抠出操作人的可读标签,拿不到就返回"未知操作人"。
+def _extract_operator_open_id(action: Any) -> tuple[str, str]:
+    """从 lark_channel CardActionEvent / dict 里抠出 (open_id, chat_id)。
 
-    Card 顶层有 open_id / user_id,没有原生显示名——飞书 SDK 不会把姓名塞进事件,
-    需要另调 contacts API 才能拿到。这里做最小可用:优先用 open_id 的后 6 位当短标识,
-    完全没有再兜底成"未知操作人"。上层 patch 卡片只需要"谁点的"的粗指纹,不追求真名。
+    lark_channel 归一后的 CardActionEvent 结构:顶层 chat_id / message_id,operator 子对象
+    携带 open_id(见 lark_oapi.channel.types.EventOperator)。同时兼容纯 dict 形态,便于测试。
+    open_id 为空时返回 ("", chat_id) 由上层兜底。
     """
-    open_id = getattr(action, "open_id", "") or ""
+    operator = getattr(action, "operator", None)
+    if operator is None and isinstance(action, dict):
+        operator = action.get("operator") or {}
+    open_id = getattr(operator, "open_id", "") if operator is not None else ""
+    if isinstance(operator, dict):
+        open_id = open_id or str(operator.get("open_id") or "")
+    chat_id = getattr(action, "chat_id", "") or ""
     if isinstance(action, dict):
-        open_id = open_id or str(action.get("open_id") or "")
-    if open_id:
-        return f"操作人 ...{open_id[-6:]}"
-    return "未知操作人"
+        chat_id = chat_id or str(action.get("chat_id") or "")
+    return str(open_id or ""), str(chat_id or "")
+
+
+def _resolve_operator_label(action: Any, feishu: Any) -> str:
+    """把卡片回调转成"已处理"卡片上的操作人标签,优先展示真名。
+
+    飞书卡片按钮事件 payload 里只带 open_id(见 P2CardActionTrigger.operator),SDK 也没
+    做姓名解析。走 feishu.resolve_operator_name 反查:群里命中 chat_roster 缓存零额外 API,
+    单聊/名册 miss 单发 contact.v3.user.get。反查拿到真名就直接用;拿不到(权限没开 /
+    contact API 失败)退回 open_id 后 6 位短标识;完全没 open_id 才落到"未知操作人"。
+    """
+    open_id, chat_id = _extract_operator_open_id(action)
+    if not open_id:
+        return "未知操作人"
+    name = ""
+    if feishu is not None:
+        try:
+            name = feishu.resolve_operator_name(open_id, chat_id=chat_id or None)
+        except Exception:  # noqa: BLE001 - 反查失败退回 open_id 短标识
+            name = ""
+    if name:
+        return name
+    return f"操作人 ...{open_id[-6:]}"
 
 
 def _build_decision_message(hc_kind: str, decision: str, note: str) -> str:
