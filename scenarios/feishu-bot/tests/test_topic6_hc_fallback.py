@@ -31,6 +31,7 @@ hitl_mod = _load("topic6_hitl", "topic6_hitl.py")
 detect_hc_intent = runner_mod.detect_hc_intent
 extract_hc_payload = runner_mod.extract_hc_payload
 parse_trigger = runner_mod.parse_trigger
+normalize_user_text = runner_mod.normalize_user_text
 validate_hc_payload = runner_mod.validate_hc_payload
 
 
@@ -39,6 +40,14 @@ def test_parse_trigger_supports_distinct_demo_mode():
     assert parse_trigger("热点报告 演示") == "demo"
     assert parse_trigger("热点周报 test") == "test"
     assert parse_trigger("热点周报 full") == "full"
+
+
+def test_group_mention_is_removed_before_command_and_trigger_parsing():
+    assert normalize_user_text("@热点周报助手 /new", mentioned_bot=True) == "/new"
+    assert normalize_user_text(
+        "@热点周报助手 热点周报 demo", mentioned_bot=True
+    ) == "热点周报 demo"
+    assert parse_trigger(normalize_user_text("@热点周报助手 /new", True)) is None
 
 
 def test_progress_header_hides_running_phase_but_keeps_hc_phase():

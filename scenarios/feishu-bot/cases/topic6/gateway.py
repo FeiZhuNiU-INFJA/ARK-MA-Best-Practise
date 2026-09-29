@@ -13,7 +13,13 @@ from arkagent.store import GatewayStore
 
 from pipeline_store import PipelineStore
 from topic6_hitl import Topic6Hitl, Topic6HitlDeps
-from topic6_runner import Topic6Config as RunnerConfig, Topic6Runner, Topic6RunnerError, parse_trigger
+from topic6_runner import (
+    Topic6Config as RunnerConfig,
+    Topic6Runner,
+    Topic6RunnerError,
+    normalize_user_text,
+    parse_trigger,
+)
 
 from config import Topic6Config
 
@@ -63,7 +69,7 @@ class Topic6Gateway:
                 self._store.complete_event(message.event_id, "completed")
                 return
 
-            text = message.text.strip()
+            text = normalize_user_text(message.text, message.mentioned_bot)
 
             if text == "/new":
                 cancelled = await self._runner.cancel_active_job(
@@ -108,7 +114,7 @@ class Topic6Gateway:
                     thread_id=message.thread_id,
                     user_open_id=message.user_open_id,
                     mode=mode,
-                    user_message=message.text,
+                    user_message=text,
                 )
             except Topic6RunnerError as error:
                 await self._reply(message.chat_id, str(error))

@@ -124,8 +124,8 @@ cat <<EOF
 
 Topic 6 MA 资源更新完成。
 ID 变化:Skills 和 3 个 Agents 已更新为新 ID；Environment 和 Memory Store 保持原 ID。
-Coordinator 新 ID 已回写 $CONFIG_FILE。
+Coordinator 新 ID 已回写 ${CONFIG_FILE}。
 Gateway 未重启。请在另一个终端手动重启:
-  cd "$FEISHU_BOT_DIR"
+  cd "${FEISHU_BOT_DIR}"
   python -m arkagent run --case topic6
 EOF

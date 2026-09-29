@@ -55,6 +55,14 @@ MODE_FULL_KEYWORDS = ("full", "全量", "正式")
 PROGRESS_MIN_INTERVAL_SEC = 4.0
 
 
+def normalize_user_text(text: str, mentioned_bot: bool = False) -> str:
+    """群聊入站先去掉开头的 @机器人，避免机器人名称参与命令/触发词判断。"""
+    normalized = text.strip()
+    if mentioned_bot:
+        normalized = re.sub(r"^(?:@\S+\s*)+", "", normalized).strip()
+    return normalized
+
+
 def parse_trigger(text: str) -> Optional[str]:
     """返回 mode(test|demo|full),不是触发消息返回 None。"""
     if not text:
