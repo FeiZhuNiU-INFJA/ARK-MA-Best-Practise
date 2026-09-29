@@ -42,6 +42,7 @@ topic6_runner = _load("topic6_runner", "topic6_runner.py")
 
 PipelineStore = pipeline_store.PipelineStore
 STATUS_FAILED = pipeline_store.STATUS_FAILED
+STATUS_STOPPED = pipeline_store.STATUS_STOPPED
 Topic6Runner = topic6_runner.Topic6Runner
 RunnerConfig = topic6_runner.Topic6Config
 
@@ -141,3 +142,46 @@ def test_cancel_frees_session_key_for_next_start(loop, tmp_path):
         runner.cancel_active_job(chat_id="c1", thread_id="", user_open_id="u1")
     )
     assert store.get_active_job_by_session_key("c1", "", "u1") is None
+
+
+def test_backend_user_interrupt_marks_job_stopped(loop, tmp_path):
+    runner, store = _make_runner(tmp_path, loop)
+    job = store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="test",
+        project_dir="/workspace/x",
+    )
+
+    async def _events():
+        yield {"type": "user.interrupt"}
+        yield {
+            "type": "session.status_idle",
+            "stop_reason": {"type": "end_turn"},
+        }
+
+    loop.run_until_complete(runner._consume_events(job.job_id, _events()))
+
+    reloaded = store.get_job(job.job_id)
+    assert reloaded.status == STATUS_STOPPED
+    assert reloaded.last_error == "用户在方舟后台手动停止了 Session"
+
+
+def test_idle_without_hc_or_final_url_is_not_marked_done(loop, tmp_path):
+    runner, store = _make_runner(tmp_path, loop)
+    job = store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="demo",
+        project_dir="/workspace/x",
+    )
+
+    loop.run_until_complete(runner._handle_idle(job.job_id, []))
+
+    reloaded = store.get_job(job.job_id)
+    assert reloaded.status == STATUS_STOPPED
+    assert reloaded.last_error == "Session 已结束，但未产生 HC 卡点或最终发布 URL"

@@ -19,6 +19,7 @@
 - **备注补充消息未续跑**：点击“备注”后再 @bot 的正文此前会落入默认帮助回复。Gateway 现优先识别等待补充说明的 HC，将正文作为 `HCx remark` 注入原 Session 并继续执行。
 - **备注交互改为卡片内完成**：HC 卡片增加必填多行备注输入框和“提交备注并继续”按钮，表单提交后直接携带 `form_value.remark_note` 续跑，不再要求用户二次 @bot；文本补充入口仍作为兼容兜底保留。
 - **群聊 `/new` 误触发 test**：入站文本保留了 `@热点周报助手`，导致机器人名称中的“热点周报”命中触发词。Gateway 现先剥离开头的机器人 mention，再解析 `/new` 和运行模式。
+- **后台停止误显示完成**：方舟人工停止会发送 `user.interrupt`，随后仍发送 `session.status_idle(end_turn)`；旧逻辑忽略 interrupt 并把 idle 当完成。Gateway 现将其落为 `stopped` 并显示“已停止”；无 HC 且无最终发布 URL 的提前结束也不再标记完成。
 - **无效 HC3 拦截**：`feishu_doc_url` 为空说明 Phase F 未发布成功，Gateway 现在将其标记为失败，不再生成可误点“通过”的 HC3 卡片；Coordinator 同步禁止用本地 Markdown 路径替代飞书文档。
 - **飞书权限说明**：创建报告目录使用应用身份权限 `space:folder:create`（“创建云空间文件夹”）；旧文档中的 `drive:drive` 表述已移除，明确不得误选 `drive:drive:version`。
 - **Phase E 依赖**：Environment 增加 `openai>=1.0`，避免沙箱运行时临时安装。

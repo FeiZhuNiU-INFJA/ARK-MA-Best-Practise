@@ -53,9 +53,11 @@ def test_group_mention_is_removed_before_command_and_trigger_parsing():
 def test_progress_header_hides_running_phase_but_keeps_hc_phase():
     running = progress_card_mod._header("running", "A")
     waiting = progress_card_mod._header("wait_hc", "HC1")
+    stopped = progress_card_mod._header("stopped", "A")
 
     assert running["title"]["content"] == "🚀 Topic6 Pipeline · 运行中"
     assert waiting["title"]["content"] == "⏸️ Topic6 Pipeline · 等待审核 HC1"
+    assert stopped["title"]["content"] == "⏹️ Topic6 Pipeline · 已停止"
 
 
 def test_hc_card_uses_payload_hc_kind_instead_of_stale_job_phase():

@@ -35,6 +35,7 @@ from pipeline_store import (
     STATUS_DONE,
     STATUS_FAILED,
     STATUS_RUNNING,
+    STATUS_STOPPED,
     STATUS_WAIT_HC,
     PipelineJob,
     PipelineStore,
@@ -114,9 +115,7 @@ def extract_hc_payload(text: str) -> Optional[dict]:
         return None
     decoder = json.JSONDecoder()
     payload: Optional[dict] = None
-    candidates = 0
     for start in (match.start() for match in re.finditer(r"\{", text)):
-        candidates += 1
         try:
             value, _ = decoder.raw_decode(text[start:])
         except json.JSONDecodeError:
@@ -124,34 +123,6 @@ def extract_hc_payload(text: str) -> Optional[dict]:
         if isinstance(value, dict) and value.get("hc") in HC_KINDS:
             payload = value
             break
-
-    # #region debug-point B:hc-regex-match
-    import contextlib as _debug_contextlib
-    import urllib.request as _debug_urllib
-    with _debug_contextlib.suppress(Exception):
-        _debug_urllib.urlopen(
-            _debug_urllib.Request(
-                "http://127.0.0.1:7777/event",
-                data=json.dumps({
-                    "sessionId": "hc-card-not-sent",
-                    "runId": "post-fix",
-                    "hypothesisId": "B",
-                    "location": "topic6_runner.py:extract_hc_payload",
-                    "msg": "[DEBUG] HC JSON decoding evaluated",
-                    "data": {
-                        "text_length": len(text),
-                        "open_braces": text.count("{"),
-                        "close_braces": text.count("}"),
-                        "candidate_count": candidates,
-                        "matched": payload is not None,
-                        "hc": payload.get("hc") if payload else None,
-                    },
-                }).encode(),
-                headers={"Content-Type": "application/json"},
-            ),
-            timeout=0.2,
-        ).read()
-    # #endregion
     return payload
 
 
@@ -434,6 +405,14 @@ class Topic6Runner:
                 # phase 切换是低频关键事件,强制立即刷,避免用户看到过时 phase。
                 await self._render_and_patch(job_id, status=STATUS_RUNNING, force=phase_changed)
 
+            if etype == "user.interrupt":
+                reason = "用户在方舟后台手动停止了 Session"
+                self._store.mark_stopped(job_id, reason)
+                await self._render_and_patch(
+                    job_id, status=STATUS_STOPPED, error=reason, force=True
+                )
+                return
+
             # 失败终态。
             if etype in (
                 "session.error",
@@ -528,8 +507,15 @@ class Topic6Runner:
                 )
             return
 
-        # 无 HC → 视为最终完成。拿最后一条消息里的链接当 online_url。
+        # 无 HC 时只有最终发布 URL 非空才算完成；否则属于提前结束/人工中断。
         online_url = _extract_first_url(last)
+        if not online_url:
+            reason = "Session 已结束，但未产生 HC 卡点或最终发布 URL"
+            self._store.mark_stopped(job_id, reason)
+            await self._render_and_patch(
+                job_id, status=STATUS_STOPPED, error=reason, force=True
+            )
+            return
         self._store.mark_done(job_id, online_url=online_url)
         await self._render_and_patch(
             job_id, status=STATUS_DONE, online_url=online_url, force=True
