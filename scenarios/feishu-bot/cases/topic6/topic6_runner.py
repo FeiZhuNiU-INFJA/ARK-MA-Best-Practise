@@ -48,6 +48,7 @@ TRIGGER_KEYWORDS = ("热点报告", "热点周报")
 
 # 模式关键词(用户消息里带就用,不带默认 test)。
 MODE_TEST_KEYWORDS = ("test", "小样本", "试跑")
+MODE_DEMO_KEYWORDS = ("demo", "演示")
 MODE_FULL_KEYWORDS = ("full", "全量", "正式")
 
 # 进度卡片 patch 节流:同一卡片至少间隔多少秒才发一次 patch,避免飞书频控。
@@ -55,7 +56,7 @@ PROGRESS_MIN_INTERVAL_SEC = 4.0
 
 
 def parse_trigger(text: str) -> Optional[str]:
-    """返回 mode(test|full),不是触发消息返回 None。"""
+    """返回 mode(test|demo|full),不是触发消息返回 None。"""
     if not text:
         return None
     lower = text.strip().lower()
@@ -63,6 +64,8 @@ def parse_trigger(text: str) -> Optional[str]:
         return None
     if any(kw in lower for kw in MODE_FULL_KEYWORDS):
         return "full"
+    if any(kw in lower for kw in MODE_DEMO_KEYWORDS):
+        return "demo"
     return "test"
 
 

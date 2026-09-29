@@ -77,7 +77,7 @@ python /mnt/skills/topic6-insight/scripts/pipeline_f.py \
   - `ARK_API_KEY`(fallback `OPENAI_API_KEY`)
   - `ARK_BASE_URL`(fallback `OPENAI_BASE_URL`) — MA 环境请指向火山方舟 endpoint
   - `MARKETING_CALENDAR_PATH`(可选,默认 `/mnt/skills/topic6-annotation/references/marketing_calendar/marketing_calendar.md`)
-- 上游数据: `{project_dir}/05_合并/wide_table_full_r{N}.xlsx`(来自 topic6-annotation)
+- 上游数据:正式模式使用 `{project_dir}/05_合并/wide_table_full_r{N}.xlsx`,演示模式使用 `wide_table_demo_r{N}.xlsx`
 - 跨 skill 依赖: cost-tracker 调用 `/mnt/skills/topic6-annotation/tool/cost-tracker/cost_tracker.py`
 
 ## 架构要点
@@ -89,6 +89,8 @@ python /mnt/skills/topic6-insight/scripts/pipeline_f.py \
 
 ## 前置约束
 
-- 只支持 `--mode full`,test 模式(500 条抽样)直接拒绝生成洞察。
+- 支持 `--mode full` 正式交付和 `--mode demo` 500 条样本演示。
+- `--mode test` 仅用于标注校准,直接拒绝生成洞察。
+- demo 产出的所有报告必须注明“基于 500 条分层样本,仅供流程演示,不可作为正式全量结论”。
 - 同一项目按 v1、v2... 迭代,每轮独立子目录,不覆盖历史。
-- 上游 `05_合并/wide_table_full_r{N}.xlsx` 必须存在,来源 topic6-annotation。
+- 对应模式的上游宽表 `05_合并/wide_table_{full|demo}_r{N}.xlsx` 必须存在,来源 topic6-annotation。

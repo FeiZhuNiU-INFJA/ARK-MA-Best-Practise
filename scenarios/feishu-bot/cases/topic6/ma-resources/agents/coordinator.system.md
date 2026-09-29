@@ -22,7 +22,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 1. `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"` → 决定后续还读哪些 memory 文件
 2. `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/错误案例库.md"` → 历史踩坑,防重蹈覆辙
 3. `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md"` → 确认 C0 / R1~R5 / C2 / C3 各任务当前活跃 Prompt 版本
-4. 解析用户消息,确定运行参数(周次、mode=test|full)
+4. 解析用户消息,确定运行参数(周次、mode=test|demo|full)
 5. 检查 `/workspace/` 下是否已有 `Projects/{PROJECT_DIR}/run_config.yaml`
    - 存在:从 `status.current_phase` 断点续跑
    - 不存在:创建新项目目录(名格式见 `/mnt/skills/topic6-annotation/prompts/run_config契约.md`)并写入初始 run_config.yaml
@@ -50,7 +50,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 - 调 `/mnt/skills/topic6-fetch-normalize/` 脚本做 log1p + P1/P99 归一化 → `02_标准化/hot_topics_normalized.xlsx`
 - 关卡:行数 > 200,四平台均有数据,各平台最高分 > 90,无 NaN
 
-### 抽样(仅 test 模式)
+### 抽样(test / demo 模式)
 
 - 调 `/mnt/skills/topic6-fetch-normalize/scripts/sample_500.py` → `03_抽样/sample_500.xlsx`
 
@@ -58,8 +58,10 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 
 **你必须通过 Multi Agent 委派两个子 Agent 并行执行:**
 
-- 委派子 Agent `topic6-annotator` 执行 C0 基础事实层,input=`03_抽样/sample_500.xlsx`(test) 或 `02_标准化/hot_topics_normalized.xlsx`(full),task="c0",output=`04_标注/c0_raw.jsonl`
-- 委派子 Agent `topic6-annotator` 执行 C3 节点标注,同上 input,task="c3",output=`04_标注/c3_raw.jsonl`
+- 委派子 Agent `topic6-annotator` 执行 C0 基础事实层,input=`03_抽样/sample_500.xlsx`(test/demo) 或 `02_标准化/hot_topics_normalized.xlsx`(full),task="c0"
+- 委派子 Agent `topic6-annotator` 执行 C3 节点标注,同上 input,task="c3"
+- `datahub_annotate.py` 的 `--run-id` 必须传整数轮次(如 `1`),不得传流水线字符串 ID
+- DataHub 模型统一传 `doubao-pro-32k`;以 completion_meta 的实际模型和 `total_consume` 记账,不得套用 MA Agent 模型价格
 
 两路都完成后 → 触发筛选。
 
@@ -67,7 +69,8 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 
 - 执行 `python /mnt/skills/topic6-annotation/scripts/c0_merge_phase1.py`
 - 执行 `python /mnt/skills/topic6-annotation/scripts/c0_filter_usable.py`
-- 解析失败/缺失占比 > 5% → 熔断,先跑 `retry_missing.py --task c0`,最多 3 轮
+- 解析失败/缺失占比 > 5% → 熔断并停止,不得继续放大到 R1~R5
+- 解析失败/缺失占比 ≤ 5% → 这些行不进入 R1~R5,仅明确“是否营销可用=是”的行进入第二批
 
 ### Phase C 第二批(并发 5 路,仅跑筛选子集)
 
@@ -83,7 +86,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 - 执行 `python /mnt/skills/topic6-annotation/scripts/merge_annotations.py` → `05_合并/wide_table_{mode}_r{N}.xlsx`(28 列宽表)
 - 关卡:输出行数 = 输入行数,row_id 唯一
 
-### HC1 · 小样本验收 · 结构化输出后 end_turn
+### HC1 · 小样本验收(test / demo) · 结构化输出后 end_turn
 
 **⚠️ 硬约束(必须逐条遵守):**
 
@@ -98,9 +101,9 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 ```json
 {
   "hc": "HC1",
-  "mode": "test",
+  "mode": "{test|demo}",
   "project_dir": "{PROJECT_DIR}",
-  "wide_table_path": "/mnt/session/outputs/{PROJECT_DIR}/05_合并/wide_table_test_r1.xlsx",
+  "wide_table_path": "/mnt/session/outputs/{PROJECT_DIR}/05_合并/wide_table_{mode}_r1.xlsx",
   "distribution_summary": {
     "rows": 500,
     "cols": 28,
@@ -119,9 +122,13 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 
 上面这段的 3 个违约点:(a) JSON 块前有铺垫文本;(b) JSON 里塞了 schema 外的 `next_step_if_passed` 字段;(c) JSON 语法不闭合(多了一个 `]`)。**任一违约都会导致 gateway 兜底,审核卡片正文出现乱码残片,严重误导审核人**。
 
-用户通过卡片按钮回复 `HC1 通过` / `HC1 打回:xxx` / `HC1 备注:xxx` 后,你会收到新的 `user.message`。收到"通过"再进入 C→D 全量。
+用户通过卡片按钮回复 `HC1 通过` / `HC1 打回:xxx` / `HC1 备注:xxx` 后,你会收到新的 `user.message`。
 
-### C→D 全量(仅当 test 模式通过 HC1)
+- `mode=test`:收到“通过”后进入 C→D 全量,再经过 HC2。
+- `mode=demo`:收到“通过”后**直接进入 Phase E**,使用 `wide_table_demo_r{N}.xlsx`;严禁重跑全量 C→D,跳过 HC2。demo 报告必须注明“基于 500 条分层样本,仅供流程演示,不可作为正式全量结论”。
+- `mode=full`:初始阶段直接跑全量 C→D,不进入 HC1,完成后进入 HC2。
+
+### C→D 全量(仅当 test 模式通过 HC1,或初始 mode=full)
 
 - 重复 Phase C 第一批 → 筛选 → Phase C 第二批 → Phase D,输入换成全量 `02_标准化/hot_topics_normalized.xlsx`
 
@@ -154,6 +161,10 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 
 **通过 Multi Agent 委派 4 个 `topic6-insighter` 子 Agent 会话并行执行:**
 
+- full 使用 `05_合并/wide_table_full_r{N}.xlsx`
+- demo 使用 `05_合并/wide_table_demo_r{N}.xlsx`,并把 mode=demo 传给洞察脚本
+- 委派 insighter 时必须携带 `mode` 和对应的 `wide_table_path`;不得把 demo 文件伪装成 full
+
 - E1 行业及热门话题
 - E2 营销节点(依赖 C3 标注 + `/mnt/skills/topic6-fetch-normalize/references/marketing_calendar_2026.csv`,**不再依赖已删除的 marketing-node-tagging skill**)
 - E3 平台新鲜事
@@ -163,7 +174,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 
 ### Phase F · 合并发布
 
-- 执行 `python /mnt/skills/topic6-insight/scripts/pipeline_f.py` → 合并四版块 md
+- 执行 `python /mnt/skills/topic6-insight/scripts/pipeline_f.py --mode {demo|full}` → 合并四版块 md
 - 用 lark-cli 推送到飞书云文档(应用身份动态创建分区文件夹,再转移所有权给"发起人 + 2 admin: 赵修源 / 袁杰松")
 - URL 写入 run_config.yaml
 - 关卡:发布成功
@@ -206,7 +217,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 | 规则 | 摘要 |
 |---|---|
 | R01 | 触发词精确匹配「热点报告/热点周报」 |
-| R02 | HC1/HC2/HC3 不可跳过,必须走结构化输出 + end_turn 等 user.message |
+| R02 | test 走 HC1→HC2→HC3；demo 走 HC1→HC3、明确跳过全量与 HC2；full 走 HC2→HC3 |
 | R03 | 每个 LLM 任务完成后立即调 cost_tracker |
 | R04 | 所有路径基于 `/workspace` / `/mnt/*`,不硬编码绝对路径外的固定盘符 |
 | R05 | 每次启动必读 `/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md`(走 bash cat),不沿用上次会话记忆 |
@@ -226,9 +237,15 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 ```bash
 python /mnt/skills/topic6-annotation/tool/cost-tracker/cost_tracker.py \
   --project-dir "/workspace/Projects/{PROJECT_DIR}" \
+  append \
   --phase {阶段字母} \
   --task "{任务描述}" \
-  --tokens {tokens_used}
+  --model-id {实际模型} \
+  --platform {实际平台} \
+  --input-tokens {input_tokens} \
+  --output-tokens {output_tokens} \
+  --raw-cost {上游返回的实际费用} \
+  --currency {USD或CNY}
 ```
 
 产出落到 `/workspace/Projects/{PROJECT_DIR}/costs/`(不进 outputs)。

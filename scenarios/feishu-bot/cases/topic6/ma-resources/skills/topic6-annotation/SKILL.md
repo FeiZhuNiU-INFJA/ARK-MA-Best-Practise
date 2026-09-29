@@ -40,7 +40,7 @@ description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础
 ```
 {project_dir}/
 ├── 02_标准化/hot_topics_normalized.xlsx    # (topic6-fetch-normalize 产出, 本 skill 读取)
-├── 03_抽样/sample_500.xlsx                 # (topic6-fetch-normalize 产出, test 模式用)
+├── 03_抽样/sample_500.xlsx                 # (topic6-fetch-normalize 产出, test/demo 模式用)
 ├── 04_标注/
 │   ├── C0_基础事实/
 │   │   ├── c0_submit_meta.json         # datahub_annotate 上传+建任务后写
@@ -82,4 +82,5 @@ description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础
 
 - 所有 prompt / 脚本内的路径全部走 `/mnt/skills/topic6-annotation/` 或 `/workspace/Projects/`。
 - Prompt 上传给 DataHub 时通过 `--prompt-file` 显式传绝对路径, 不再靠脚本自动扫描 prompts 目录。
-- 子 Agent 若遇到 c0_filter_usable 抛 `unresolved_ratio > 5%`, 应由协调器决定是否重新委派 datahub_annotate (`--task c0`) 补一轮, 而不是脚本内部越权放行。
+- `c0_filter_usable.py` 只把 C0 明确判定为“是”的记录送入 R1~R5；解析失败/缺失记录不进入五路下游。失败占比超过 5% 时熔断。
+- DataHub 成功态没有 `result_url` 时,`datahub_annotate.py` 自动分页读取 `result_list`,不需要子 Agent 手工下载。

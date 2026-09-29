@@ -72,7 +72,7 @@ class PipelineJob:
     thread_id: str
     user_open_id: str
     ma_session_id: str
-    mode: str  # test | full
+    mode: str  # test | demo | full
     project_dir: str
     current_phase: str = "A"  # A / B / C1 / C2 / D / HC1 / FULL / HC2 / E / F / HC3 / G / H
     status: str = STATUS_RUNNING

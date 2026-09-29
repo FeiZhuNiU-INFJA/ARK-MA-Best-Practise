@@ -39,7 +39,7 @@ _HC_META = {
         "template": "blue",
         "icon": "checkbox-checked_outlined",
         "title": "HC1 · 小样本人工审核",
-        "subtitle": "test 模式跑完前 500 条,需要人工确认标注质量",
+        "subtitle": "test/demo 模式完成 500 条样本,需要人工确认标注质量",
     },
     "HC2": {
         "template": "green",

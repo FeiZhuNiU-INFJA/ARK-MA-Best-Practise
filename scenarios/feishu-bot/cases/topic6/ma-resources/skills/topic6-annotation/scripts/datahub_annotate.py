@@ -170,10 +170,21 @@ def _create_task(api_key: str, data_source_id: str, prompt_text: str,
     return data["data"]["task_id"]
 
 
-def _get_task(api_key: str, task_id: int) -> dict:
+def _get_task(
+    api_key: str,
+    task_id: int,
+    *,
+    page: int | None = None,
+    page_size: int | None = None,
+) -> dict:
+    params = {}
+    if page is not None:
+        params["page"] = page
+    if page_size is not None:
+        params["page_size"] = page_size
     resp = requests.get(
         f"{DATAHUB_BASE}/api/v1/task/{task_id}",
-        headers=_headers(api_key), timeout=30,
+        headers=_headers(api_key), params=params or None, timeout=30,
     )
     resp.raise_for_status()
     body = resp.json()
@@ -205,6 +216,90 @@ def _download_result(url: str, out_path: Path) -> None:
             for chunk in r.iter_content(chunk_size=65536):
                 if chunk:
                     f.write(chunk)
+
+
+def _extract_result_rows(task_data: dict) -> list[dict]:
+    """Extract and flatten DataHub's inline ``result_list`` response."""
+    value = task_data.get("result_list")
+    if isinstance(value, dict):
+        for key in ("items", "records", "results", "list"):
+            if isinstance(value.get(key), list):
+                value = value[key]
+                break
+    if not isinstance(value, list):
+        return []
+
+    rows: list[dict] = []
+    nested_keys = ("source_data", "input_data", "original_data", "row", "data")
+    result_aliases = ("result", "output", "llm_output", "answer")
+    for item in value:
+        if not isinstance(item, dict):
+            rows.append({"llm_result": item})
+            continue
+
+        row: dict = {}
+        for key in nested_keys:
+            nested = item.get(key)
+            if isinstance(nested, str):
+                try:
+                    nested = json.loads(nested)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    nested = None
+            if isinstance(nested, dict):
+                row.update(nested)
+        row.update({k: v for k, v in item.items() if k not in nested_keys})
+
+        if "llm_result" not in row:
+            for key in result_aliases:
+                if key in row:
+                    value = row[key]
+                    row["llm_result"] = (
+                        json.dumps(value, ensure_ascii=False)
+                        if isinstance(value, (dict, list))
+                        else value
+                    )
+                    break
+        rows.append(row)
+    return rows
+
+
+def _download_inline_results(
+    api_key: str,
+    task_id: int,
+    task_data: dict,
+    out_path: Path,
+    expected_rows: int,
+) -> None:
+    """Persist inline/paginated DataHub results when no result URL is returned."""
+    rows = _extract_result_rows(task_data)
+    if len(rows) < expected_rows:
+        rows = []
+        page_size = min(max(expected_rows, 100), 1000)
+        previous_page: str | None = None
+        for page in range(1, 10_001):
+            page_data = _get_task(
+                api_key, task_id, page=page, page_size=page_size
+            )
+            page_rows = _extract_result_rows(page_data)
+            if not page_rows:
+                break
+            signature = json.dumps(page_rows, ensure_ascii=False, sort_keys=True, default=str)
+            if signature == previous_page:
+                break
+            previous_page = signature
+            rows.extend(page_rows)
+            if len(rows) >= expected_rows:
+                break
+
+    if len(rows) != expected_rows:
+        raise RuntimeError(
+            f"任务 {task_id} result_list 行数异常: expected={expected_rows}, actual={len(rows)}"
+        )
+    df = pd.DataFrame(rows)
+    if "llm_result" not in df.columns:
+        raise RuntimeError(f"任务 {task_id} result_list 缺少 llm_result 字段")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_excel(out_path, index=False)
 
 
 def _poll_until_done(api_key: str, task_id: int) -> dict:
@@ -461,7 +556,14 @@ def annotate(task: str, project_dir: str, input_file: str, prompt_file: str,
         print(f"[annotate] 下载: {result_url}", flush=True)
         _download_result(result_url, raw_out)
     else:
-        raise RuntimeError(f"任务 {task_id} 完成但无 result_url")
+        print(
+            f"[annotate] result_url 为空,改用 result_list: task={task_id}",
+            flush=True,
+        )
+        expected_rows = len(pd.read_excel(upload_path))
+        _download_inline_results(
+            api_key, task_id, task_data, raw_out, expected_rows
+        )
 
     df = pd.read_excel(raw_out)
     df_post, stats = _postprocess(df, task)

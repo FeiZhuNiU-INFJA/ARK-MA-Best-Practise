@@ -68,7 +68,7 @@ def main():
     parser = argparse.ArgumentParser(description="01_统计：宽表 → 4 版块数据预处理")
     parser.add_argument("--project-dir", required=True,
                         help="项目目录（绝对路径，或相对 /workspace）")
-    parser.add_argument("--mode", choices=["test", "full"], default="full")
+    parser.add_argument("--mode", choices=["test", "demo", "full"], default="full")
     parser.add_argument("--publish-date", default=None,
                         help="报告发布日 YYYY-MM-DD（默认今天）")
     parser.add_argument("--run-id", type=int, default=None,

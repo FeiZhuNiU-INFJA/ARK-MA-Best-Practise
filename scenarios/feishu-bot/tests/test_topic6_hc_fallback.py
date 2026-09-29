@@ -28,6 +28,14 @@ def _load(name: str, file: str):
 runner_mod = _load("topic6_runner", "topic6_runner.py")
 detect_hc_intent = runner_mod.detect_hc_intent
 extract_hc_payload = runner_mod.extract_hc_payload
+parse_trigger = runner_mod.parse_trigger
+
+
+def test_parse_trigger_supports_distinct_demo_mode():
+    assert parse_trigger("热点周报 demo") == "demo"
+    assert parse_trigger("热点报告 演示") == "demo"
+    assert parse_trigger("热点周报 test") == "test"
+    assert parse_trigger("热点周报 full") == "full"
 
 
 def test_valid_json_takes_priority_over_fallback():

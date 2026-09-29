@@ -64,7 +64,7 @@ init → ab → sample → c0_sample → c0_filter_sample → c_route_sample →
 |---|---|---|
 | `init` | — | 项目目录刚建，run_config 已写入 period |
 | `ab` | `prompt/02` | 取数 + 清洗 + 标准化（一条命令完成） |
-| `sample` | `prompt/03` | 分层抽样 500 条，**仅 test 模式经过** |
+| `sample` | `prompt/03` | 分层抽样 500 条，test/demo 模式经过 |
 | `c0_sample` / `c0_full` | `prompt/04` | 第一批：C0 + C3 并发 |
 | `c0_filter_sample` / `c0_filter_full` | `prompt/04` | 筛选「营销可用」子集（纯脚本零成本） |
 | `c_route_sample` / `c_route_full` | `prompt/04` | 第二批：R1~R5 + C2 并发，只吃子集 |
@@ -85,6 +85,9 @@ init → ab → sample → c0_sample → c0_filter_sample → c_route_sample →
 > **2026-09-22 补入 `h_miaoda_publish`** —— G 产出的 index.html 此前止步于本地文件，
 > 用户明确要求把「发到妙搭拿公网链接」纳入固定流程（不是按需触发的额外动作）。
 > `done` 现在在 H 完成后才达到，不再在 G 完成后就置位。
+>
+> **demo 模式复用 sample 状态链** —— `d_merge_sample` 完成并通过 HC1 后直接进入 `e`，
+> 不进入 `c0_full`～`hc2_wait`。其宽表文件名使用 `wide_table_demo_r{N}.xlsx`。
 
 架构说明：C0 与 C3 并行跑全量/全样本；C0 完成后触发 `c0_filter` 筛选「营销可用」子集；
 R1~R5 与 C2 只处理这个子集（不是全量），C3 不受此筛选影响，独立并行。

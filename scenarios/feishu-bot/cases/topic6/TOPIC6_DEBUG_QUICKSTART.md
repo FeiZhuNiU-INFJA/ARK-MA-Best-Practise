@@ -250,7 +250,7 @@ python3 -m arkagent run --case topic6
 
 ```
 - topic6 场景：已启用(coordinator=xxx, env=xxx)
-topic6 触发词：热点报告 / 热点周报(可加 test/full 指定模式)
+topic6 触发词：热点报告 / 热点周报(可加 test/demo/full 指定模式)
 ```
 
 想拉更详细日志:`ARKAGENT_LOG_LEVEL=DEBUG python3 -m arkagent run --case topic6`。
@@ -264,6 +264,14 @@ topic6 触发词：热点报告 / 热点周报(可加 test/full 指定模式)
 ```
 热点周报 test
 ```
+
+需要只跑 500 条样本并继续生成演示报告时发送：
+
+```text
+热点周报 demo
+```
+
+demo 在 HC1 通过后直接进入洞察与报告阶段,不会触发全量标注和 HC2。
 
 正常应该看到:
 

@@ -11,7 +11,8 @@ MA 适配要点：
   - cost-tracker 从 topic6-annotation skill 挂载路径调用（annotation/insight 共用同一份）
 
 设计原则：
-  - 只允许 full 模式运行（test 模式基于抽样数据，洞察结论不可信，直接拒绝）
+  - full 模式用于正式交付；demo 模式允许基于 500 条抽样数据生成演示报告
+  - test 模式只用于标注校准，不生成洞察
   - 同一项目洞察按版本迭代（v1、v2...），每轮单独一个子目录
 
 用法：
@@ -635,7 +636,7 @@ def _price_of(model: str) -> tuple[float, float]:
     return (0.0, 0.0)
 
 
-def record_costs(project_dir: Path, results: list, model: str) -> None:
+def record_costs(project_dir: Path, results: list, model: str, mode: str) -> None:
     if not COST_TRACKER.exists():
         print(f"[pipeline_e] ⚠️ cost_tracker.py 不存在({COST_TRACKER}),跳过成本记录")
         return
@@ -654,7 +655,7 @@ def record_costs(project_dir: Path, results: list, model: str) -> None:
             "append",
             "--phase", "E",
             "--task", f"{r['id']}_{r['name']}",
-            "--mode", "full",
+            "--mode", mode,
             "--model-id", r["model"],
             "--platform", "Ark",
             "--input-tokens", str(r["input_tokens"]),
@@ -702,12 +703,12 @@ def _strip_markdown_fence(text: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="E 阶段洞察生成 pipeline(仅支持 full 模式)",
+        description="E 阶段洞察生成 pipeline(full 正式交付 / demo 抽样演示)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--project-dir", required=True,
                         help="项目目录(绝对路径,或相对 /workspace)")
-    parser.add_argument("--mode", choices=["test", "full"], default="full")
+    parser.add_argument("--mode", choices=["test", "demo", "full"], default="full")
     parser.add_argument("--publish-date", default=None)
     parser.add_argument("--model", default="doubao-seed-evolving",
                         help="LLM 模型 ID(MA 环境请传火山方舟 endpoint id)")
@@ -720,7 +721,7 @@ def main():
     if args.mode == "test":
         print(
             "[pipeline_e] ❌ 不允许在 test 模式下生成洞察。\n"
-            "  原因：test 模式基于抽样数据,洞察结论存在抽样偏差,不可交付。",
+            "  test 仅用于标注校准；如需基于 500 条样本生成演示报告,请使用 --mode demo。",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -746,8 +747,8 @@ def main():
 
     if not wide_full.exists() and not args.skip_data_prep:
         print(
-            f"[pipeline_e] ❌ 全量宽表不存在：{wide_full}\n"
-            "  请先完成全量标注并运行 merge_annotations.py --mode full --run-id {N},再执行本脚本。",
+            f"[pipeline_e] ❌ {args.mode} 宽表不存在：{wide_full}\n"
+            f"  请先运行 merge_annotations.py --mode {args.mode} --run-id {{N}}。",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -809,7 +810,7 @@ def main():
         cmd = [
             sys.executable, str(E_DATA_SCRIPT),
             "--project-dir", str(proj),
-            "--mode", "full",
+            "--mode", args.mode,
             "--out-dir", str(round_dir),
         ]
         if args.publish_date:
@@ -852,7 +853,7 @@ def main():
         "pipeline": "pipeline_e",
         "version": version_tag,
         "project_dir": _rel_to_proj(proj, proj),
-        "mode": "full",
+        "mode": args.mode,
         "data_run_id": data_run_id,
         "model": args.model,
         "total_elapsed_s": round(total_elapsed, 1),
@@ -867,7 +868,7 @@ def main():
     print(f"\n[pipeline_e] 执行报告：{report_path.relative_to(proj)}")
 
     print("[pipeline_e] Step 5：记录成本...")
-    record_costs(proj, results, args.model)
+    record_costs(proj, results, args.model, args.mode)
 
     truncated = [r["id"] for r in results if r.get("stop_reason") == "length"]
 

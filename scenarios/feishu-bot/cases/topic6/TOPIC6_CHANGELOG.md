@@ -1,6 +1,6 @@
-# topic6 · 平台约束变更日志
+# topic6 · 变更日志
 
-只记录 **因方舟 Managed Agents 的限制/机制** 引发的改动。纯代码 bug、口径微调、文案润色一律不进。
+记录影响 Topic6 运行流程、交付行为和方舟 Managed Agents 适配的变更。纯文案润色不进。
 
 每条至少包含:
 - 触发现象(报错/异常表现)
@@ -12,6 +12,37 @@
 ---
 
 ## 2026-09-29
+
+### Phase C 性能与稳定性优化，新增 500 条演示模式
+
+- **触发现象**：一次 test 轨迹中，C0/C3 虽于 `10:35:24` 并发启动，但 500 条数据分别耗时约 41/42 分钟；C0 使用约 572 万 tokens，C3 使用约 258 万 tokens。两路 DataHub 任务成功后均未返回 `result_url`，导致统一脚本报错，子 Agent 被迫手工从 `result_list` 分页恢复结果。
+- **根因**：
+  - DataHub 单任务吞吐约 12 行/分钟，是本轮墙钟时间的主要瓶颈；C0/C3 Prompt 较长则进一步放大 token 成本。
+  - DataHub 成功响应存在两种结果形态：下载链接 `result_url`，或内联/分页 `result_list`；原脚本只支持前者。
+  - 子 Agent 契约包含不存在的 `--output`、字符串 `--run-id` 和错误的成本命令，造成启动前纠错与手工兜底。
+  - C0 解析失败行此前仍会进入 R1~R5，一条失败最多放大为五路无效调用。
+- **实现**：
+  - `datahub_annotate.py` 在 `result_url` 缺失时自动解析并分页拉取 `result_list`，兼容嵌套输入字段和结果字段别名，严格校验最终行数及 `llm_result`。
+  - C0 筛选改为只有明确判定“是否营销可用=是”的记录进入 R1~R5；解析失败/缺失占比超过 5% 仍熔断。
+  - 修正 Annotator/Coordinator 契约：Prompt 由脚本直接读取，不再先灌入 Agent 上下文；`run_id` 使用整数；成本按 completion metadata 的实际模型、平台、token 和 `total_consume` 记录。
+  - Environment 增加 `lunardate>=0.2.2`，避免 C3 后处理临时安装依赖。
+- **demo 模式**：
+  - 新增触发词 `热点周报 demo`，固定使用 500 条分层样本。
+  - 流程为 `A/B → 抽样 → C/D → HC1 → E/F → HC3 → G/H`；HC1 通过后明确跳过全量 C/D 和 HC2。
+  - demo 使用独立的 `wide_table_demo_r{N}.xlsx`，不伪装成 full；最终报告自动标注“基于 500 条分层样本，仅供流程演示，不可作为正式全量结论”。
+  - 原 `test` 保持“样本校准后继续全量”的语义，`full` 保持直接跑全量。
+- **未默认启用**：Prompt 大幅裁剪、模型切换和 DataHub 多分片并发仍需先做质量、限流与重复计费基准，避免以未经验证的方式影响生产结果。
+- **验证与发布**：完整测试集 `382 passed`；5 个 Skill 打包校验通过；已更新 Environment 并重建 Annotator、Insighter、Coordinator。
+- **影响文件**：
+  - [topic6_runner.py](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/topic6_runner.py)
+  - [agents/coordinator.system.md](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources/agents/coordinator.system.md)
+  - [agents/annotator.system.md](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources/agents/annotator.system.md)
+  - [agents/insighter.system.md](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources/agents/insighter.system.md)
+  - [datahub_annotate.py](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources/skills/topic6-annotation/scripts/datahub_annotate.py)
+  - [c0_filter_usable.py](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources/skills/topic6-annotation/scripts/c0_filter_usable.py)
+  - [pipeline_e.py](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources/skills/topic6-insight/scripts/pipeline_e.py)
+  - [pipeline_f.py](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources/skills/topic6-insight/scripts/pipeline_f.py)
+  - [environment.json](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources/environment.json)
 
 ### 对齐 2026-09-29 Managed Agents 文档更新
 
