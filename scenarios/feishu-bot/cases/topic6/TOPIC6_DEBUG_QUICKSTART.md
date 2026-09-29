@@ -50,6 +50,8 @@ topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 - [ ] `docx:document` — 读写飞书文档正文(Phase F 拉草稿、Phase H 写回)
 - [ ] `docx:document.content:read` — 仅读文档内容(部分租户单独开)
 - [ ] `space:folder:create` — 创建云空间文件夹；在“应用身份权限”中搜索“创建云空间文件夹”。不要误选 `drive:drive:version` 等文档版本权限
+- [ ] `docs:document.media:upload` — 上传 Phase F 导入所需的 Markdown 临时素材
+- [ ] `docs:document:import` — 创建并查询云文档导入任务
 
 **可选**
 

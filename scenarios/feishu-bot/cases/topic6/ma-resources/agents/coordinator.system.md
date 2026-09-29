@@ -11,6 +11,11 @@
 
 ## 二、启动序列(每次都执行,不跳过)
 
+**凭证安全硬约束**:禁止用 `env`、`printenv`、`set`、`export -p` 或
+`echo "$...SECRET"` / `echo "$...TOKEN"` 探测环境；这些命令会把凭证明文写入 Session
+轨迹。只允许用 `[ -n "${VAR:-}" ]` 判断变量是否存在，传递凭证时只在命令参数中引用
+变量名，禁止打印变量值，禁止开启 `set -x`。
+
 **Memory 挂载点**:方舟把当前 session 的 memory_store 挂在 `/mnt/memory/$TOPIC6_MEMORY_STORE_ID/` 下(gateway 已通过环境变量注入 memstore id)。**不要**用 `read` 工具带死路径读 memory,一律走 `bash cat` 展开变量,例如:
 
 ```bash
@@ -189,9 +194,11 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 
 - 执行 `python /mnt/skills/topic6-insight/scripts/pipeline_f.py --mode {demo|full}` → 合并四版块 md
 - 用 lark-cli 推送到飞书云文档(应用身份动态创建分区文件夹,再转移所有权给"发起人 + 2 admin: 赵修源 / 袁杰松")
-- URL 写入 run_config.yaml
+- 发起人读取 gateway 注入的 `$FEISHU_USER_OPEN_ID`;不得依赖未注入的 `CC_SESSION_KEY`
+- 飞书文档 URL 必须读取 lark-cli 导入响应中的 `data.url`;禁止硬编码租户域名
+- URL 写入 run_config.yaml；飞书会话通知由 Gateway 的 HC3 卡片负责,不得在沙箱内重复发消息
 - 关卡:发布成功
-- `FEISHU_HOTREPORT_FOLDER_TOKEN` 缺失、lark-cli 未配置、应用缺 scope、导入失败或 URL 为空时，Phase F 均视为失败；严禁用本地 Markdown 路径代替飞书文档并进入 HC3。
+- lark-cli 未配置、应用缺 scope、导入失败或 URL 为空时，Phase F 均视为失败；严禁用本地 Markdown 路径代替飞书文档并进入 HC3。
 
 ### HC3 · 报告审核 · 结构化输出后 end_turn
 

@@ -146,6 +146,46 @@ def test_extracts_remark_form_submission_from_card_callback():
     assert _extract_action_note(action) == "请重新执行 Phase F"
 
 
+def test_hc_reuses_progress_card_instead_of_sending_new_message(tmp_path):
+    store = pipeline_store_mod.PipelineStore(str(tmp_path / "topic6.db"))
+    job = store.create_job(
+        chat_id="chat-1",
+        thread_id="",
+        user_open_id="user-1",
+        ma_session_id="session-1",
+        mode="demo",
+        project_dir="/workspace/demo",
+    )
+    store.set_progress_card_message_id(job.job_id, "message-progress")
+    job = store.get_job(job.job_id)
+
+    class _Feishu:
+        def send_interactive_card(self, *_args, **_kwargs):
+            raise AssertionError("HC must not create a second card")
+
+    class _Runner:
+        _feishu = _Feishu()
+
+        def __init__(self):
+            self.patches = []
+
+        async def patch_job_card(self, job_id, card):
+            self.patches.append((job_id, card))
+            return "message-progress"
+
+    runner = _Runner()
+    hitl = hitl_mod.Topic6Hitl(hitl_mod.Topic6HitlDeps(store=store, runner=runner))
+    message_id = asyncio.run(
+        hitl.send_hc_card(job, "HC1", 7, {"hc": "HC1", "mode": "demo"})
+    )
+
+    assert message_id == "message-progress"
+    assert len(runner.patches) == 1
+    assert runner.patches[0][0] == job.job_id
+    assert runner.patches[0][1]["header"]["title"]["content"].startswith("HC1")
+    store.close()
+
+
 def test_followup_message_resolves_pending_remark_and_resumes_job(tmp_path):
     store = pipeline_store_mod.PipelineStore(str(tmp_path / "topic6.db"))
     job = store.create_job(

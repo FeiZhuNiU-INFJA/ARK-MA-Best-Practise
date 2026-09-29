@@ -5,7 +5,7 @@
 
 生命周期:一次 pipeline 全程复用同一张卡片(patch 覆写):
   - running  ⇒ 🚀 header + tool_lines
-  - wait_hc  ⇒ ⏸️ header,提示"请在下方 HCx 卡片操作"
+  - wait_hc  ⇒ ⏸️ header,在同一张卡片中展示 HCx 操作
   - done     ⇒ ✅ header,底部加"打开报告"链接(若有 online_url)
   - failed   ⇒ ❌ header,末尾附错误摘要
 """
@@ -108,7 +108,7 @@ def build_progress_card(
                 "tag": "div",
                 "text": {
                     "tag": "lark_md",
-                    "content": f"👉 请在下方 **{job.current_phase}** 卡片进行审核(通过/打回/备注)。",
+                    "content": f"👉 请在当前卡片完成 **{job.current_phase}** 审核(通过/打回/备注)。",
                 },
             }
         )

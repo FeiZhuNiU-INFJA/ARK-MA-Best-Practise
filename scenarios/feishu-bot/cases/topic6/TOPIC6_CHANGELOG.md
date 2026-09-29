@@ -13,6 +13,21 @@
 
 ## 2026-09-29
 
+### 单任务单卡片与 Phase F 发布契约修复
+
+- **卡片合并**：进度与 HC1/HC2/HC3 审核态复用同一条飞书消息；HC 到来时 patch
+  主卡，回调处理后继续把该卡更新为运行或终态。按 job 串行 card patch，避免 SSE
+  进度与审核回调相互覆盖；主卡初始化失败时才降级补发一张。
+- **Phase F 目录与身份**：统一由应用身份动态创建报告目录，不再依赖
+  `FEISHU_HOTREPORT_FOLDER_TOKEN`；操作人改读 Gateway 注入的
+  `FEISHU_USER_OPEN_ID`，沙箱不再依赖 `CC_SESSION_KEY` 自行发送重复通知。
+- **URL 与结果判断**：文档 URL 直接读取 `drive +import` 响应，不再硬编码租户域名；
+  同时强制检查 JSON `ok == true`，避免把“退出码为 0 的业务失败”误判为成功。
+- **权限与凭证安全**：补充 `docs:document.media:upload`、
+  `docs:document:import` 权限要求；Coordinator 禁止枚举环境或打印 Secret、Token、
+  API Key，避免敏感值进入 Session 轨迹。
+- **验证**：Topic6 / Gateway 完整测试集 `411 passed`。
+
 ### C2 单入口、并发状态与 C0 成本优化
 
 - **触发现象**：最新轨迹中 C2 占 71 次模型请求里的 48 次、产生 47 次 bash 调度，

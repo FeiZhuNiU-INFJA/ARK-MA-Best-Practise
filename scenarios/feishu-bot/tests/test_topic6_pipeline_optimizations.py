@@ -30,6 +30,14 @@ PIPELINE_F_SCRIPT = (
 COORDINATOR_PROMPT = (
     TOPIC6_DIR / "ma-resources" / "agents" / "coordinator.system.md"
 )
+PHASE_F_PROMPT = (
+    TOPIC6_DIR
+    / "ma-resources"
+    / "skills"
+    / "topic6-annotation"
+    / "prompts"
+    / "07_阶段_F发布.md"
+)
 ANNOTATOR_PROMPT = (
     TOPIC6_DIR / "ma-resources" / "agents" / "annotator.system.md"
 )
@@ -518,6 +526,21 @@ def test_coordinator_uses_cross_platform_c2_flow_and_merge_contract():
     assert "`feishu_doc_url` 必须是非空的飞书 `/docx/` URL" in coordinator
     assert "严禁用本地 Markdown 路径代替飞书文档并进入 HC3" in coordinator
     assert "output=`04_标注/c2_raw.jsonl`" not in coordinator
+
+
+def test_phase_f_uses_runtime_identity_and_response_url_without_secret_output():
+    coordinator = COORDINATOR_PROMPT.read_text(encoding="utf-8")
+    prompt = PHASE_F_PROMPT.read_text(encoding="utf-8")
+
+    assert 'OPERATOR_OID="${FEISHU_USER_OPEN_ID:-}"' in prompt
+    assert 'x.get("url") or x.get("data", {}).get("url")' in prompt
+    assert "docs:document.media:upload" in prompt
+    assert "docs:document:import" in prompt
+    assert "FEISHU_HOTREPORT_FOLDER_TOKEN" not in prompt
+    assert "CC_SESSION_KEY" not in prompt
+    assert "bluefocus.feishu.cn" not in prompt
+    assert "禁止用 `env`、`printenv`、`set`、`export -p`" in coordinator
+    assert "禁止开启 `set -x`" in prompt
 
 
 def test_environment_preinstalls_openai_for_insight_pipeline():

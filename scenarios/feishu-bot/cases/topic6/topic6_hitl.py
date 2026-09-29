@@ -3,8 +3,8 @@
 配合 :mod:`topic6_runner` 用:
 
   - Runner 在 Session 进入 idle 且末尾消息带 ``{"hc":"HCx", ...}`` 时,调
-    ``Topic6Hitl.send_hc_card`` 把审核卡片发到当前 job 的 chat_id 里,并把返回的
-    飞书 ``message_id`` 记到 ``pipeline_hc_events.card_message_id``。
+    ``Topic6Hitl.send_hc_card`` 把任务主卡 patch 成审核卡,并把复用的飞书
+    ``message_id`` 记到 ``pipeline_hc_events.card_message_id``。
   - 用户点卡片按钮后,飞书 SDK 通过 ``Events.CARD_ACTION`` 触发 gateway 侧回调;
     orchestrator 会把 payload 转交给 :meth:`Topic6Hitl.handle_card_action`。这里
     解出 ``action.value`` 里携带的 job_id / event_id / decision,反查 pipeline_hc_events,
@@ -333,7 +333,7 @@ class Topic6Hitl(Topic6CardSenderProtocol):
     """topic6 的 HITL 门面:发卡片 + 收回调。
 
     - ``send_hc_card`` 由 runner 主动调用(见 :meth:`Topic6Runner._handle_idle`),
-      同步走 FeishuSender.send_interactive_card,拿 message_id 返回给 runner。
+      优先把任务主卡 patch 成审核态；仅在主卡初始化失败时降级新发一张。
     - ``handle_card_action`` 由 orchestrator 在 SDK 的 ``cardAction`` 回调里调用,
       异步在事件循环内完成:反查 → resolve_hc_event → resume_job。
     """
@@ -354,15 +354,20 @@ class Topic6Hitl(Topic6CardSenderProtocol):
         card = build_hc_card(_job, _hc_kind, _event_id, _payload)
         import asyncio
 
-        loop = asyncio.get_event_loop()
-        # FeishuSender 是同步 SDK;放到 executor 里,避免堵住 SSE 消费循环。
+        # 正常路径复用任务启动时创建的主卡，整个 job 在会话里始终只有一张卡片。
         try:
-            message_id = await loop.run_in_executor(
-                None,
-                lambda: self._runner._feishu.send_interactive_card(  # noqa: SLF001 - 网关内包
-                    _job.chat_id, card
-                ),
-            )
+            message_id = await self._runner.patch_job_card(_job.job_id, card)
+            if message_id is None:
+                loop = asyncio.get_event_loop()
+                message_id = await loop.run_in_executor(
+                    None,
+                    lambda: self._runner._feishu.send_interactive_card(  # noqa: SLF001 - 网关内包
+                        _job.chat_id, card
+                    ),
+                )
+                if message_id:
+                    self._store.set_progress_card_message_id(_job.job_id, message_id)
+                    _job.progress_card_message_id = message_id
         except Exception as error:  # noqa: BLE001 - 卡片失败让 runner 兜底
             log.exception(
                 "topic6 send_hc_card failed job=%s hc=%s: %s",
@@ -370,7 +375,7 @@ class Topic6Hitl(Topic6CardSenderProtocol):
             )
             raise
         log.info(
-            "topic6 hc card sent job=%s hc=%s message_id=%s",
+            "topic6 hc card shown job=%s hc=%s message_id=%s",
             _job.job_id, _hc_kind, message_id,
         )
         return message_id
@@ -562,12 +567,7 @@ class Topic6Hitl(Topic6CardSenderProtocol):
             operator_label=operator_label,
         )
         try:
-            await loop.run_in_executor(
-                None,
-                lambda: self._runner._feishu.patch_interactive_card(  # noqa: SLF001
-                    card_message_id, resolved_card
-                ),
-            )
+            await self._runner.patch_job_card(hc_event.job_id, resolved_card)
         except Exception as error:  # noqa: BLE001 - patch 失败退化成一条文本
             log.warning(
                 "topic6 patch resolved card failed job=%s hc=%s message=%s: %s",
