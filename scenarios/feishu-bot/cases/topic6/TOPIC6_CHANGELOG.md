@@ -13,8 +13,37 @@
 
 ## 2026-09-29
 
+### C2 单入口、并发状态与 C0 成本优化
+
+- **触发现象**：最新轨迹中 C2 占 71 次模型请求里的 48 次、产生 47 次 bash 调度，
+  且运行二十多分钟仍未完成；原文档还把 01~04 放在 x0 前按平台执行，与
+  `x0_merge_platforms.py` 实际只合并 `clean_titles.jsonl` 的契约冲突。
+- **C2 拓扑与入口**：新增 `run_topic6_c2.py`，固定为四平台并行 00 → x0 →
+  merged 目录统一执行 01~07 → x2 → x3 → x4，并直接产出
+  `c2_event_result_r{N}.xlsx`。Coordinator 只启动一次后台入口，不再临场编排十多个命令。
+- **可靠恢复**：入口用 `c2_status.json` 记录阶段；输入、Chat 模型、Embedding 模型和
+  x2 策略组成运行签名。签名不变时续跑，变化时清理旧阶段产物重跑；项目级进程锁阻止
+  重复 runner 并发写缓存。
+- **真正并发**：R1~R5 五个委派发出后立即后台启动 C2，六路同时运行；不再等待五路
+  DataHub 任务结束后才开始 C2。
+- **模型隔离**：Environment 分设 `DATAHUB_MODEL_ID=Doubao-Seed-Evolving`、
+  `C2_CHAT_MODEL_ID=doubao-seed-evolving` 和
+  `EMBEDDING_MODEL_ID=doubao-embedding-vision-251215`，避免跨 API 混用模型 ID。
+- **状态一致性**：新增 `run_config_state.py`，通过文件锁、YAML 深合并和
+  `os.replace` 原子更新并发任务状态；DataHub、C0 合并/筛选、C2 和宽表合并均写入成功
+  或失败状态，不再由多个 Agent 直接覆盖 `run_config.yaml`。
+- **C0 Prompt**：活跃版升级为 v5，在保留 9 字段输出契约和关键边界的前提下，从
+  44,649 字符压缩到 11,263 字符（减少 74.8%）。该项只完成静态契约校验，仍需用真实
+  DataHub 结果在 HC1 与 v4 对比后确认质量。
+- **验证**：Topic6 聚焦测试 `20 passed`，加入 Gateway 全局单任务测试后仓库全量
+  `409 passed`。
+
 ### HC3 状态一致性与轨迹问题收口
 
+- **Gateway 全局单任务**：此前只按 `(chat_id, thread_id, user_open_id)` 防止同一用户重复
+  触发，不同用户仍会并行创建 Session。现在整个 Topic6 Gateway 只允许一个
+  `running` / `wait_hc` Job；新触发在创建方舟 Session 前即被拒绝，并提示等待前一任务
+  结束。启动检查使用异步锁串行化，避免同时到达的消息穿透检查。
 - **HC3 卡片错显 HC1**：Gateway 先把数据库阶段更新为 HC3，但发送审核卡时复用了更新前的 Job 快照。审核卡现直接以 `hc_kind` 渲染阶段，Runner 在写库后也会重新读取 Job。
 - **备注补充消息未续跑**：点击“备注”后再 @bot 的正文此前会落入默认帮助回复。Gateway 现优先识别等待补充说明的 HC，将正文作为 `HCx remark` 注入原 Session 并继续执行。
 - **备注交互改为卡片内完成**：HC 卡片增加必填多行备注输入框和“提交备注并继续”按钮，表单提交后直接携带 `form_value.remark_note` 续跑，不再要求用户二次 @bot；文本补充入口仍作为兼容兜底保留。

@@ -41,6 +41,9 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from run_config_state import update_run_config
+
 DATAHUB_BASE = "https://bmc-data-hub.bluemediagroup.cn"
 DONE_STATUSES = {"TASK_STATUS_GENERATED_RESULT", "TASK_STATUS_SUCCESS"}
 FAILED_STATUSES = {"TASK_STATUS_FAILED", "TASK_STATUS_CANCELED"}
@@ -56,6 +59,15 @@ TASK_META: dict[str, dict] = {
     "r4": {"label": "创意借鉴判断", "subdir": "R4_创意借鉴"},
     "r5": {"label": "消费者行为判断", "subdir": "R5_消费者行为"},
     "c3": {"label": "节点标注", "subdir": "C3_节点标注"},
+}
+TASK_STATUS_KEYS = {
+    "c0": "c0_base",
+    "c3": "c3_node",
+    "r1": "r1_platform",
+    "r2": "r2_commercial",
+    "r3": "r3_risk",
+    "r4": "r4_creative",
+    "r5": "r5_consumer",
 }
 
 TASK_SCHEMAS: dict[str, dict] = {
@@ -542,6 +554,16 @@ def annotate(task: str, project_dir: str, input_file: str, prompt_file: str,
     if run_id is None:
         run_id = _next_run_id(task_dir, f"{task}_result_raw_r*.xlsx")
     print(f"[annotate] task={task} project={proj} run_id=r{run_id}", flush=True)
+    status_key = TASK_STATUS_KEYS[task]
+    update_run_config(
+        proj,
+        {status_key: {
+            "status": "running",
+            "run_id": run_id,
+            "model_id": model_id,
+            "started_at": datetime.now().astimezone().isoformat(),
+        }},
+    )
 
     input_path = Path(input_file)
     if not input_path.is_absolute():
@@ -618,6 +640,19 @@ def annotate(task: str, project_dir: str, input_file: str, prompt_file: str,
     }
     (task_dir / f"{task}_completion_meta.json").write_text(
         json.dumps(completion_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    update_run_config(
+        proj,
+        {status_key: {
+            "status": "done",
+            "run_id": run_id,
+            "datahub_task_id": task_id,
+            "model_id": model_id,
+            "row_count": stats["total"],
+            "valid_rate": stats["valid_rate"],
+            "output_file": str(post_out),
+            "completed_at": completion_meta["completed_at"],
+        }},
+    )
 
     print(f"\n[annotate] ✅ {task} 完成: {stats}", flush=True)
     print(f"[annotate] 后处理: {post_out}", flush=True)
@@ -641,6 +676,18 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:
+        try:
+            update_run_config(
+                args.project_dir,
+                {TASK_STATUS_KEYS[args.task]: {
+                    "status": "failed",
+                    "run_id": args.run_id,
+                    "error": str(exc),
+                    "failed_at": datetime.now().astimezone().isoformat(),
+                }},
+            )
+        except Exception as status_error:
+            print(f"[WARN] 写入失败状态失败: {status_error}", file=sys.stderr)
         print(f"\n[ERROR] {exc}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)

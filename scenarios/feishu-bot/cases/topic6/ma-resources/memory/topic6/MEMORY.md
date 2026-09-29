@@ -33,9 +33,9 @@
 |---|---|---|---|
 | 主编排 | — | 协调器 system prompt(`ma-resources/agents/coordinator.system.md` 的运行时投影 `/workspace/AGENTS.md`) | 本 topic 执行时序的唯一权威 |
 | `topic6-fetch-normalize` | v1 | `/mnt/skills/topic6-fetch-normalize/` | Phase A+B 取数标准化 + 抽样;通过挂载的 hot-topics MCP 直连 |
-| `topic6-annotation` | v1(内含 C0=v4 / R1=v2 / R2=v1 / R3=v1 / R4=v2 / R5=v2 / C3=v7) | `/mnt/skills/topic6-annotation/` | Phase C:C0+R1~R5+C3 七路标注;`datahub_annotate.py` 5 合 1 精简版(提交+轮询+合并+筛选+时窗) |
+| `topic6-annotation` | v1(内含 C0=v5 / R1=v2 / R2=v1 / R3=v1 / R4=v2 / R5=v2 / C3=v7) | `/mnt/skills/topic6-annotation/` | Phase C:C0+R1~R5+C3 七路标注;`datahub_annotate.py` 5 合 1 精简版(提交+轮询+合并+筛选+时窗) |
 | `topic6-insight` | v1(内含 E1=v1 / E2=v3 / E3=v1 / E4=v6 + _tagging=v1) | `/mnt/skills/topic6-insight/` | Phase E:E1~E4 四版块洞察;Ark(OpenAI 兼容)接口 |
-| `topic6-event-registry` | v2.1.0 | `/mnt/skills/topic6-event-registry/` | Phase C:C2 事件合并 |
+| `topic6-event-registry` | v2.2.0 | `/mnt/skills/topic6-event-registry/` | Phase C:C2 事件合并；跨平台单入口、断点续跑与运行签名 |
 | `topic6-web-report` | v1.1.0 | `/mnt/skills/topic6-web-report/` | Phase G:UI 网页版报告 |
 
 ---

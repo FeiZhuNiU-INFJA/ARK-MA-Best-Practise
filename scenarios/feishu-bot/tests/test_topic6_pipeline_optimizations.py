@@ -37,7 +37,26 @@ EVENT_REGISTRY_DIR = (
     TOPIC6_DIR / "ma-resources" / "skills" / "topic6-event-registry"
 )
 RELAY_SCRIPT = EVENT_REGISTRY_DIR / "scripts" / "relay.py"
+C2_RUNNER_SCRIPT = EVENT_REGISTRY_DIR / "scripts" / "run_topic6_c2.py"
+RUN_CONFIG_STATE_SCRIPT = (
+    TOPIC6_DIR
+    / "ma-resources"
+    / "skills"
+    / "topic6-annotation"
+    / "scripts"
+    / "run_config_state.py"
+)
 ENVIRONMENT_CONFIG = TOPIC6_DIR / "ma-resources" / "environment.json"
+C0_V4_PROMPT = (
+    TOPIC6_DIR
+    / "ma-resources"
+    / "skills"
+    / "topic6-annotation"
+    / "prompts"
+    / "C0_基础事实"
+    / "v4.md"
+)
+C0_V5_PROMPT = C0_V4_PROMPT.with_name("v5.md")
 MARKETING_CALENDAR = (
     TOPIC6_DIR
     / "ma-resources"
@@ -68,6 +87,26 @@ def _load_annotate_module():
 
 def _load_relay_module():
     spec = importlib.util.spec_from_file_location("topic6_event_registry_relay", RELAY_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_c2_runner_module():
+    spec = importlib.util.spec_from_file_location(
+        "topic6_event_registry_runner", C2_RUNNER_SCRIPT
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_run_config_state_module():
+    spec = importlib.util.spec_from_file_location(
+        "topic6_run_config_state", RUN_CONFIG_STATE_SCRIPT
+    )
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -303,10 +342,155 @@ def test_agent_prompts_use_canonical_model_id_and_allow_one_retry():
     annotator = ANNOTATOR_PROMPT.read_text(encoding="utf-8")
 
     assert "`Doubao-Seed-Evolving`" in coordinator
-    assert "--model-id Doubao-Seed-Evolving" in annotator
+    assert '--model-id "$DATAHUB_MODEL_ID"' in annotator
+    assert "C2_CHAT_MODEL_ID" in coordinator
+    assert "`doubao-seed-evolving`" in coordinator
     assert "最多重试 1 次" in annotator
     assert "`Doubao-pro-32k`" not in coordinator
     assert "--model-id Doubao-pro-32k" not in annotator
+
+
+def test_c2_runner_uses_platform_00_then_merged_remaining_stages(tmp_path):
+    module = _load_c2_runner_module()
+    plan = module.build_stage_plan(
+        tmp_path / "run",
+        tmp_path / "input.csv",
+        "doubao-seed-evolving",
+        "doubao-embedding-vision-251215",
+    )
+
+    assert [stage for stage, _commands in plan] == [
+        "00_platforms",
+        "x0_merge",
+        "01_eventness",
+        "02_frames",
+        "03_entities",
+        "04_embeddings",
+        "05_recall",
+        "06_blocks",
+        "07_archive",
+        "x2_confidence",
+        "x3_review",
+        "x4_detail",
+    ]
+    assert len(plan[0][1]) == 4
+    platform_commands = " ".join(" ".join(command) for command in plan[0][1])
+    assert "01_eventness.py" not in platform_commands
+    merged_commands = " ".join(
+        " ".join(command) for _stage, commands in plan[2:] for command in commands
+    )
+    assert "doubao-seed-evolving" in merged_commands
+    assert "Doubao-Seed-Evolving" not in merged_commands
+
+
+def test_c2_runner_resumes_and_invalidates_outputs_when_model_changes(
+    tmp_path, monkeypatch
+):
+    module = _load_c2_runner_module()
+    project = tmp_path / "project"
+    source = project / "input.xlsx"
+    source.parent.mkdir(parents=True)
+    source.write_text("source", encoding="utf-8")
+    (project / "run_config.yaml").write_text(
+        "status:\n  current_phase: c_route_sample\n",
+        encoding="utf-8",
+    )
+
+    executed = []
+    def prepare_input(_source, destination):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text("normalized-input", encoding="utf-8")
+        return 1
+
+    monkeypatch.setattr(module, "_prepare_input", prepare_input)
+    monkeypatch.setattr(
+        module,
+        "build_stage_plan",
+        lambda *_args, **_kwargs: [
+            ("stage_a", [["stage-a"]]),
+            ("stage_b", [["stage-b"]]),
+        ],
+    )
+    monkeypatch.setattr(
+        module,
+        "_run_stage",
+        lambda stage, _commands, _log_dir: executed.append(stage),
+    )
+    monkeypatch.setattr(
+        module,
+        "_write_result",
+        lambda _run_dir, destination, _rows: destination.write_text(
+            "result", encoding="utf-8"
+        ),
+    )
+
+    def args(chat_model):
+        return module.argparse.Namespace(
+            project_dir=str(project),
+            mode="demo",
+            run_id=1,
+            input=str(source),
+            chat_model=chat_model,
+            embedding_model="embedding-v1",
+            x2_verdict="sonnet",
+        )
+
+    module.run(args("chat-v1"))
+    assert executed == ["stage_a", "stage_b"]
+
+    module.run(args("chat-v1"))
+    assert executed == ["stage_a", "stage_b"]
+
+    stale = project / "04_标注" / "C2_事件归档" / "c2_run" / "merged" / "stale"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("old", encoding="utf-8")
+    module.run(args("chat-v2"))
+
+    assert executed == ["stage_a", "stage_b", "stage_a", "stage_b"]
+    assert not stale.exists()
+
+
+def test_c0_v5_is_compact_and_keeps_output_contract():
+    old_prompt = C0_V4_PROMPT.read_text(encoding="utf-8")
+    prompt = C0_V5_PROMPT.read_text(encoding="utf-8")
+
+    assert len(prompt) < len(old_prompt) * 0.4
+    for field in (
+        "商业实体",
+        "热点驱动词",
+        "行业归属",
+        "营销触发方式",
+        "营销维度",
+        "平台原生形式",
+        "不可用原因",
+        "是否营销可用",
+        "判断说明",
+    ):
+        assert field in prompt
+
+
+def test_run_config_state_deep_merges_parallel_task_results(tmp_path):
+    module = _load_run_config_state_module()
+    config_path = tmp_path / "run_config.yaml"
+    config_path.write_text(
+        "mode: demo\nstatus:\n  current_phase: c_route_sample\n"
+        "  c0_base:\n    status: done\n",
+        encoding="utf-8",
+    )
+
+    module.update_run_config(
+        tmp_path,
+        {"r1_platform": {"status": "done", "row_count": 18}},
+    )
+    config = module.update_run_config(
+        tmp_path,
+        {"c2_cluster": {"status": "running", "stage": "01_eventness"}},
+    )
+
+    assert config["status"]["current_phase"] == "c_route_sample"
+    assert config["status"]["c0_base"]["status"] == "done"
+    assert config["status"]["r1_platform"]["row_count"] == 18
+    assert config["status"]["c2_cluster"]["stage"] == "01_eventness"
 
 
 def test_coordinator_uses_50_rows_for_demo_and_500_for_test():
@@ -322,17 +506,14 @@ def test_coordinator_uses_cross_platform_c2_flow_and_merge_contract():
     coordinator = COORDINATOR_PROMPT.read_text(encoding="utf-8")
 
     required_steps = [
-        "00_clean_titles.py",
-        "04_build_embeddings.py --model doubao-embedding-vision-251215",
-        "x0_merge_platforms.py",
-        "05_recall_candidates.py --top-k 60",
-        "x2_confidence_filter.py",
-        "x3_review_bidirectional.py",
-        "x4_detail_table.py",
+        "run_topic6_c2.py",
+        "四平台并行 `00_clean_titles.py`",
+        "`x0_merge_platforms.py`",
+        "merged 目录统一执行 `01→02→03→04→05→06→07→x2→x3→x4`",
         "c2_event_result_r{N}.xlsx",
     ]
     assert all(step in coordinator for step in required_steps)
-    assert "不得使用已失效的 `Doubao-embedding` 模型名" in coordinator
+    assert "严禁在 x0 前按平台执行 01~04" in coordinator
     assert "禁止把 `00_seed_from_registry.py` 当成 C2 起点" in coordinator
     assert "`feishu_doc_url` 必须是非空的飞书 `/docx/` URL" in coordinator
     assert "严禁用本地 Markdown 路径代替飞书文档并进入 HC3" in coordinator
@@ -343,6 +524,12 @@ def test_environment_preinstalls_openai_for_insight_pipeline():
     environment = json.loads(ENVIRONMENT_CONFIG.read_text(encoding="utf-8"))
 
     assert "openai>=1.0" in environment["config"]["packages"]["pip"]
+    assert environment["config"]["env"]["DATAHUB_MODEL_ID"] == "Doubao-Seed-Evolving"
+    assert environment["config"]["env"]["C2_CHAT_MODEL_ID"] == "doubao-seed-evolving"
+    assert (
+        environment["config"]["env"]["EMBEDDING_MODEL_ID"]
+        == "doubao-embedding-vision-251215"
+    )
 
 
 def test_pipeline_f_does_not_duplicate_date_range_in_period_label():

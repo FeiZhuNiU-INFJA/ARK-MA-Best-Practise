@@ -19,9 +19,13 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from run_config_state import update_run_config
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -108,7 +112,7 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
     print("\n[merge_p1] === 是否营销可用 分布 ===")
     print(df["是否营销可用"].value_counts(dropna=False).to_string())
 
-    return {
+    result = {
         "mode": mode, "run_id": run_id,
         "total_rows": total, "output_rows": len(df),
         "row_match": len(df) == total,
@@ -118,6 +122,18 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
         "usable_no": int((df["是否营销可用"] == "否").sum()),
         "out_file": str(out_file),
     }
+    update_run_config(
+        proj,
+        {"c0_merge": {
+            "status": "done",
+            "run_id": run_id,
+            "row_count": len(df),
+            "missing_c0_rows": missing_c0_rows,
+            "missing_c3": missing_c3,
+            "output_file": str(out_file),
+        }},
+    )
+    return result
 
 
 def main() -> int:
@@ -132,6 +148,18 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:
+        try:
+            update_run_config(
+                args.project_dir,
+                {"c0_merge": {
+                    "status": "failed",
+                    "run_id": args.run_id,
+                    "error": str(exc),
+                    "failed_at": datetime.now().astimezone().isoformat(),
+                }},
+            )
+        except Exception as status_error:
+            print(f"[WARN] 写入失败状态失败: {status_error}", file=sys.stderr)
         print(f"\n[ERROR] {exc}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)

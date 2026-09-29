@@ -28,7 +28,10 @@
       "BLUEAI_API_KEY": "${BLUEAI_API_KEY}",
       "MIAODA_TOKEN": "${MIAODA_TOKEN}",
       "ARK_API_KEY": "${ARK_API_KEY}",
-      "ARK_BASE_URL": "${ARK_BASE_URL}"
+      "ARK_BASE_URL": "${ARK_BASE_URL}",
+      "DATAHUB_MODEL_ID": "Doubao-Seed-Evolving",
+      "C2_CHAT_MODEL_ID": "doubao-seed-evolving",
+      "EMBEDDING_MODEL_ID": "doubao-embedding-vision-251215"
     }
   }
 }

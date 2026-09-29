@@ -255,6 +255,19 @@ class PipelineStore:
             ).fetchone()
         return self._row_to_job(row) if row else None
 
+    def get_active_job(self) -> Optional[PipelineJob]:
+        """返回整个 Topic6 Gateway 最新的活跃任务。"""
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT * FROM pipeline_jobs
+                WHERE status IN (?, ?)
+                ORDER BY started_at DESC LIMIT 1
+                """,
+                (STATUS_RUNNING, STATUS_WAIT_HC),
+            ).fetchone()
+        return self._row_to_job(row) if row else None
+
     def get_job_by_ma_session(self, ma_session_id: str) -> Optional[PipelineJob]:
         with self._lock:
             row = self._conn.execute(

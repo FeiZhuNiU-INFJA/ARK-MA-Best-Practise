@@ -215,6 +215,9 @@ def main() -> int:
                     help="不低于此分直接保留。实测 75 以上样本 40 条全对")
     ap.add_argument("--verdict", choices=["off", "opus", "sonnet"], default="off",
                     help="边界带交谁裁定。off = 只出待裁定表给人工")
+    ap.add_argument("--model", default=None,
+                    help="覆盖 --verdict 对应的默认模型。MA 环境应显式传入 "
+                         "C2_CHAT_MODEL_ID，避免使用未开通的 Claude 模型")
     ap.add_argument("--apply-verdict", action="store_true",
                     help="读回已填好人工裁定的表并落地")
     ap.add_argument("--concurrency", type=int, default=4)
@@ -260,7 +263,9 @@ def main() -> int:
 
     # 边界带交强模型裁定
     if args.verdict != "off" and band_rows:
-        model = "claude-opus-4-7" if args.verdict == "opus" else "claude-sonnet-4-6"
+        model = args.model or (
+            "claude-opus-4-7" if args.verdict == "opus" else "claude-sonnet-4-6"
+        )
         v = ask_verdict(band_rows, events, model, rd, args.concurrency)
         for row in band_rows:
             row["你的判断（属于/不属于）"] = v.get(row["record_id"], {}).get("verdict", "")

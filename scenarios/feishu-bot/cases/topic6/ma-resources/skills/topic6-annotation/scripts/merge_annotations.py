@@ -26,9 +26,13 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from run_config_state import update_run_config
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -256,7 +260,7 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
     print(f"\n[merge] 健康度摘要: {summary_file}")
     print(summary_text)
 
-    return {
+    result = {
         "base_rows": base_rows, "output_rows": output_rows,
         "row_match": row_match, "columns": len(df.columns),
         "missing": missing, "valid_rates": valid_rates,
@@ -265,6 +269,20 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
         "out_file": str(out_file),
         "health_summary_file": str(summary_file),
     }
+    status_key = "d_full" if mode == "full" else "d_test"
+    update_run_config(
+        proj,
+        {status_key: {
+            "completed": True,
+            "mode": mode,
+            "run_id": run_id,
+            "row_count": output_rows,
+            "row_match": row_match,
+            "output_file": str(out_file),
+            "health_summary_file": str(summary_file),
+        }},
+    )
+    return result
 
 
 def main() -> int:
@@ -279,6 +297,21 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:
+        status_key = "d_full" if args.mode == "full" else "d_test"
+        try:
+            update_run_config(
+                args.project_dir,
+                {status_key: {
+                    "completed": False,
+                    "status": "failed",
+                    "mode": args.mode,
+                    "run_id": args.run_id,
+                    "error": str(exc),
+                    "failed_at": datetime.now().astimezone().isoformat(),
+                }},
+            )
+        except Exception as status_error:
+            print(f"[WARN] 写入失败状态失败: {status_error}", file=sys.stderr)
         print(f"\n[ERROR] {exc}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)

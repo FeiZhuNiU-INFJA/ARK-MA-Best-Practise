@@ -63,7 +63,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 - 委派子 Agent `topic6-annotator` 执行 C0 基础事实层,input=`03_抽样/sample_500.xlsx`(test/demo) 或 `02_标准化/hot_topics_normalized.xlsx`(full),task="c0"
 - 委派子 Agent `topic6-annotator` 执行 C3 节点标注,同上 input,task="c3"
 - `datahub_annotate.py` 的 `--run-id` 必须传整数轮次(如 `1`),不得传流水线字符串 ID
-- DataHub 模型默认传大小写敏感的准确 ID `Doubao-Seed-Evolving`;以 completion_meta 的实际模型和 `total_consume` 记账,不得套用 MA Agent 模型价格
+- DataHub 模型使用 `$DATAHUB_MODEL_ID`（默认且大小写敏感的准确 ID 为 `Doubao-Seed-Evolving`）；这是 DataHub 的模型名，不得传给方舟 Chat API。以 completion_meta 的实际模型和 `total_consume` 记账,不得套用 MA Agent 模型价格
 
 两路都完成后 → 触发筛选。
 
@@ -76,14 +76,20 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 
 ### Phase C 第二批(5 个子 Agent + C2 并发,仅跑筛选子集)
 
-**并发启动 6 条执行分支:5 个 `topic6-annotator` 子 Agent + Coordinator 后台执行 C2。**
+**并发启动 6 条执行分支:5 个 `topic6-annotator` 子 Agent + Coordinator 后台执行 C2。必须先发出 5 个委派，再立刻启动 C2；禁止等 R1~R5 返回后才启动 C2。**
 
 - `topic6-annotator` × 5 (task=r1..r5),input=`04_标注/_可用子集/usable_subset_{mode}_r{N}.xlsx`
-- C2 事件合并不用子 Agent,严格按 `topic6-event-registry/references/pipeline.md` 的跨平台流程执行:
-  1. 将同一份可用子集转成带 `record_id/title/platform/heat` 的 CSV。
-  2. 四个平台并行执行 `00_clean_titles.py → 01_eventness.py → 02_extract_frames.py → 03_normalize_entities.py → 04_build_embeddings.py --model doubao-embedding-vision-251215`；不得使用已失效的 `Doubao-embedding` 模型名。
-  3. 执行 `x0_merge_platforms.py` 合库；在 merged 目录依次执行 `05_recall_candidates.py --top-k 60 → 06_build_blocks.py → 07_block_archive.py → x2_confidence_filter.py → x3_review_bidirectional.py → x4_detail_table.py`。
-  4. 将 x4 的 `out/热点明细_含事件归属.csv` 转为 `04_标注/C2_事件归档/c2_event_result_r{N}.xlsx`，保留 `record_id`（或改名为 `row_id`）和 `一级事件名`，供 `merge_annotations.py` 消费。
+- C2 不再临场拼 shell 或逐阶段调脚本。只启动一次可恢复入口:
+  ```bash
+  nohup python /mnt/skills/topic6-event-registry/scripts/run_topic6_c2.py \
+    --project-dir "{project_dir}" --mode {mode} --run-id {N} \
+    > "{project_dir}/04_标注/C2_事件归档/c2_runner.log" 2>&1 &
+  echo $! > "{project_dir}/04_标注/C2_事件归档/c2_runner.pid"
+  ```
+- 单入口内部固定执行正确的跨平台拓扑：四平台并行 `00_clean_titles.py` → `x0_merge_platforms.py` → merged 目录统一执行 `01→02→03→04→05→06→07→x2→x3→x4`。严禁在 x0 前按平台执行 01~04；x0 只读取阶段 00 的 `clean_titles.jsonl`，提前执行的 01~04 不会被合库。
+- C2 Chat 模型读取 `$C2_CHAT_MODEL_ID`，默认 `doubao-seed-evolving`；Embedding 模型读取 `$EMBEDDING_MODEL_ID`，默认 `doubao-embedding-vision-251215`。二者都不是 DataHub 的 `Doubao-Seed-Evolving`。
+- 等待 R1~R5 时可读取 `c2_status.json` 查看进度。若状态为 `running`，只轮询，禁止重复启动；若 Session 恢复，可再次调用同一入口，它会按 `completed_stages` 续跑。
+- 入口完成后直接产出 `04_标注/C2_事件归档/c2_event_result_r{N}.xlsx`，供 `merge_annotations.py` 消费。
 - 禁止把 `00_seed_from_registry.py` 当成 C2 起点；它只用于有上一窗口 Registry 的跨窗口增量场景。禁止四个平台各自跑完 05~08 后再拼接，那会漏掉跨平台事件合并。
 
 六路全部完成后 → 进入 Phase D。
@@ -239,6 +245,15 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 | R11 | API Key 从环境变量读取,禁止硬编码 |
 | R12 | 会话隔离键由 gateway 侧管理,你不需要解析 |
 | R13 | 写入 memory 走 gateway 侧 API,你只读不写 |
+
+### run_config 状态推进
+
+- 所有脚本会通过 `run_config_state.py` 原子更新各自状态块；并发子 Agent 不得用 `edit`/`write` 直接改 `run_config.yaml`。
+- 协调器只在阶段边界更新 `status.current_phase`：
+  `c0_sample|c0_full → c0_filter_sample|c0_filter_full → c_route_sample|c_route_full → d_merge_sample|d_merge_full → hc1_wait|hc2_wait`。
+- 更新命令：
+  `python /mnt/skills/topic6-annotation/scripts/run_config_state.py --project-dir "{project_dir}" --phase {phase}`。
+- 恢复时先检查各状态块和产物；状态已为 `done` 的 DataHub/C2 分支不得重新提交。
 
 ## 七、成本记录规范
 

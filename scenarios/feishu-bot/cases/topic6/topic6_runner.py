@@ -216,6 +216,9 @@ class Topic6Runner:
         self._config = config
         self._loop = loop
         self._card_sender = card_sender  # 由 topic6_hitl 注入
+        # 串行化“检查活跃任务 → 创建 Session → 落 Job”，避免两个同时到达的触发
+        # 都在落库前通过检查并各自创建一条长任务。
+        self._start_lock = asyncio.Lock()
         # ma_session_id → 正在消费的 SSE 任务;续跑前 cancel 前一个。
         self._active_streams: dict[str, asyncio.Task] = {}
         # job_id → 进度卡片本地状态(tool 环形缓冲 + 上次 patch 时间)。
@@ -235,19 +238,39 @@ class Topic6Runner:
         mode: str,
         user_message: str,
     ) -> PipelineJob:
-        """创建 MA Session 并启动 SSE 消费任务;返回落库后的 PipelineJob。
+        """全局串行检查并启动任务；同一 Gateway 只允许一个活跃 Job。"""
+        async with self._start_lock:
+            return await self._start_job_locked(
+                chat_id=chat_id,
+                thread_id=thread_id,
+                user_open_id=user_open_id,
+                mode=mode,
+                user_message=user_message,
+            )
 
-        - 会话隔离键:``(chat_id, thread_id, user_open_id)``。若已有活跃任务直接抛错,
-          避免同一用户在同群同话题重复触发跑两遍。
+    async def _start_job_locked(
+        self,
+        *,
+        chat_id: str,
+        thread_id: str,
+        user_open_id: str,
+        mode: str,
+        user_message: str,
+    ) -> PipelineJob:
+        """创建 MA Session、落库并启动 SSE 消费任务。
+
+        - 整个 Gateway 任意 ``running`` / ``wait_hc`` Job 都会阻止新建任务。
         - Session 挂载 Memory Store(``/mnt/memory``)承载 topic6 的 lm/ 内容。
         - 首个 user.message 拼「触发词 + 模式 + 用户原始消息」,由 coordinator 解析并按
           system prompt 的 14 步执行。
         """
-        existing = self._store.get_active_job_by_session_key(chat_id, thread_id, user_open_id)
+        existing = self._store.get_active_job()
         if existing:
+            state = "等待审核" if existing.status == STATUS_WAIT_HC else "运行中"
             raise Topic6RunnerError(
-                f"该会话已有活跃 pipeline(job_id={existing.job_id}, status={existing.status}),"
-                "请等它跑完或先 /topic6 cancel。"
+                f"当前已有热点周报任务{state}"
+                f"（mode={existing.mode}，phase={existing.current_phase}）。"
+                "请等待前一个任务结束后再发起。"
             )
 
         resources = []

@@ -59,7 +59,8 @@
 
 | MA 文件 | 客户原始文件 | 状态 | 说明 |
 |---|---|---|---|
-| `prompts/C0_基础事实/v1.md`～`v4.md` | `topic6/skill/annotation/prompts/C0_基础事实/` 下同名文件 | 原样迁入 | 4 个版本全部保留 |
+| `prompts/C0_基础事实/v1.md`～`v4.md` | `topic6/skill/annotation/prompts/C0_基础事实/` 下同名文件 | 原样迁入 | 4 个客户版本全部保留 |
+| `prompts/C0_基础事实/v5.md` | 基于客户 `v4.md` 精简 | MA 优化新增 | 保留 9 字段契约和关键边界，待真实 HC1 对比 |
 | `prompts/R1_平台借势/v1.md`～`v2.md` | 客户侧同路径文件 | 原样迁入 | 2 个版本全部保留 |
 | `prompts/R2_商业合作/v1.md` | 客户侧同路径文件 | 原样迁入 | SHA-256 一致 |
 | `prompts/R3_风险预警/v1.md` | 客户侧同路径文件 | 原样迁入 | SHA-256 一致 |

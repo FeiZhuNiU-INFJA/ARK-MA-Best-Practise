@@ -13,7 +13,7 @@ description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础
 ```
 /mnt/skills/topic6-annotation/
 ├── prompts/          # C0/R1~R5/C3 各任务活跃版本 (版本历史见 ma-resources/memory/topic6/_版本状态.md)
-│   ├── C0_基础事实/v4.md      # 活跃版 v4 (v1~v3 归档保留)
+│   ├── C0_基础事实/v5.md      # 活跃版 v5 (v1~v4 归档保留)
 │   ├── R1_平台借势/v2.md      # 活跃版 v2 (v1 归档保留)
 │   ├── R2_商业合作/v1.md
 │   ├── R3_风险预警/v1.md
@@ -71,7 +71,7 @@ description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础
 
 ## Prompt 版本
 
-各任务活跃版本: C0 v4, R1 v2, R2 v1, R3 v1, R4 v2, R5 v2, 节点标注 v7。
+各任务活跃版本: C0 v5, R1 v2, R2 v1, R3 v1, R4 v2, R5 v2, 节点标注 v7。
 未来迭代按各任务当前编号继续递增。
 
 ## 环境变量

@@ -35,7 +35,7 @@ SKILLS = [
     ("topic6-fetch-normalize", "topic6-fetch-normalize.zip", "topic6 · Phase A+B 取数标准化"),
     ("topic6-annotation", "topic6-annotation.zip", "topic6 · C0/R1~R5/C3 标注与 DataHub 轮询"),
     ("topic6-insight", "topic6-insight.zip", "topic6 · E1~E4 分版块洞察"),
-    ("topic6-event-registry", "topic6-event-registry.zip", "topic6 · C2 事件合并 (blueai-canonical-event-registry v2.1.0)"),
+    ("topic6-event-registry", "topic6-event-registry.zip", "topic6 · C2 事件合并 (blueai-canonical-event-registry v2.2.0)"),
     ("topic6-web-report", "topic6-web-report.zip", "topic6 · Phase G 网页生成 (v1.1.0)"),
 ]
 
