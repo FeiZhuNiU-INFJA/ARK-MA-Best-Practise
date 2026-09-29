@@ -289,6 +289,12 @@ def test_resume_immediately_restores_single_card_to_running(loop, tmp_path):
         project_dir="/workspace/x",
     )
     store.set_progress_card_message_id(job.job_id, "message-progress")
+    event_id = store.append_hc_event(job.job_id, "HC1", {"hc": "HC1"})
+    store.resolve_hc_event(
+        event_id,
+        "pass",
+        operator_label="俞麟",
+    )
     store.mark_wait_hc(job.job_id, "HC1")
     job = store.get_job(job.job_id)
     sender = _Sender()
@@ -304,7 +310,12 @@ def test_resume_immediately_restores_single_card_to_running(loop, tmp_path):
 
     assert sender.patches[0][0] == "message-progress"
     card = sender.patches[0][1]
+    assert card["schema"] == "2.0"
     assert card["header"]["title"]["content"] == "🚀 Topic6 Pipeline · 运行中"
-    assert "Phase D merge" in card["elements"][2]["text"]["content"]
+    contents = [
+        element.get("content", "") for element in card["body"]["elements"]
+    ]
+    assert any("HC1 · ✅ 通过 · 俞麟" in content for content in contents)
+    assert any("Phase D merge" in content for content in contents)
     assert runner._active_streams[job.ma_session_id] is spawned
     store.close()

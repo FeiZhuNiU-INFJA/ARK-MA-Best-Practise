@@ -13,12 +13,35 @@
 
 ## 2026-09-29
 
+### Demo 第二批与洞察阶段提速
+
+- **轨迹证据**：线上 Session `sesn-20260929115416-cgepu` 共 315 个事件。
+  R1~R5 只处理 14 行仍各耗时 10.0~11.6 分钟；完整 C2 与其并发但耗时约
+  12.6 分钟，成为 Phase C 第二批关键路径。E1~E4 子线程耗时 2.4~5.3 分钟，
+  且每个子线程都重复调用一次 `pipeline_e.py` 和全量统计预处理。
+- **R1~R5 demo 快速入口**：新增 `run_demo_routes.py`，复用正式 R1~R5 Prompt，
+  将每路 14 次逐行 DataHub 推理改为每路一次 Ark 批量推理，五路并发并产出原有
+  raw/postprocess/completion_meta 文件与 run_config 状态。test/full 继续走 DataHub。
+- **C2 demo 快速入口**：`run_topic6_c2.py --demo-fast` 用一次批量模型调用完成小样本
+  事件归并，直接产出原契约 `row_id + 一级事件名`；完整 00→x4 链仍用于 test/full。
+- **Phase E 去重**：整轮改为只调用一次 `pipeline_e.py`，复用其内部 E1~E4 并发，
+  避免四次 `run_stats.py`、四个子 Agent 冷启动和重复自检。
+- **附带修复**：修正 C2 四平台并发时 `_run_command` 参数重复传递，并统一 Coordinator
+  读取真实状态路径 `C2_事件归档/c2_run/c2_status.json`。
+
 ### 单任务单卡片与 Phase F 发布契约修复
 
 - **卡片合并**：进度与 HC1/HC2/HC3 审核态复用同一条飞书消息；HC 到来时 patch
   主卡，回调处理后继续把该卡更新为运行或终态。按 job 串行 card patch，避免 SSE
   进度与审核回调相互覆盖；主卡初始化失败时才降级补发一张。审核通过或提交备注后
   会在启动下一段 SSE 前立即恢复运行卡和已有工具进度，不等待下一条 progress 事件。
+- **卡片协议统一**：运行卡此前使用 schema v1，审核卡使用 schema v2；进入审核态后
+  再恢复运行卡会被飞书以 `230099 / schemaV2 card can not change schemaV1` 拒绝。
+  现已将运行、等待审核和最终状态全部统一为 schema v2，保证同一消息可双向切换状态。
+- **审核记录保留**：HC 回调除审核结果、备注和时间外，新增持久化审核人显示名；恢复
+  运行后在独立“审核记录”区展示 `HC1 · ✅ 通过 · 审核人 · 时间`，后续 HC2/HC3
+  按发生顺序追加，不占用最近工具调用行数。旧记录因历史上未保存审核人会明确显示
+  “审核人未记录”，不做不可靠推断。
 - **Phase F 目录与身份**：统一由应用身份动态创建报告目录，不再依赖
   `FEISHU_HOTREPORT_FOLDER_TOKEN`；操作人改读 Gateway 注入的
   `FEISHU_USER_OPEN_ID`，沙箱不再依赖 `CC_SESSION_KEY` 自行发送重复通知。
@@ -27,7 +50,13 @@
 - **权限与凭证安全**：补充 `docs:document.media:upload`、
   `docs:document:import` 权限要求；Coordinator 禁止枚举环境或打印 Secret、Token、
   API Key，避免敏感值进入 Session 轨迹。
-- **验证**：Topic6 / Gateway 完整测试集 `412 passed`。
+- **文档可访问性**：补充 `docs:permission.member:create`、
+  `docs:permission.member:transfer`、`docs:permission.member:retrieve`。Phase F 只允许
+  Bot 身份发布，禁止缺 scope 时降级 Device Flow；导入后先给任务发起人 `edit`，再转移
+  owner，并逐项校验授权 JSON，任一步失败均不得进入 HC3。
+- **目录响应解析**：`drive +create-folder` 的 token 位于 `data.folder_token`；旧 Prompt
+  误读 `data.token`，导致目录创建成功后仍被判空并触发临场 OAuth 降级，现已修正。
+- **验证**：Topic6 / Gateway 完整测试集 `413 passed`。
 
 ### C2 单入口、并发状态与 C0 成本优化
 

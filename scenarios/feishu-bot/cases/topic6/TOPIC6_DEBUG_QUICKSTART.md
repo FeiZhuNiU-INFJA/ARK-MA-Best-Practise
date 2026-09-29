@@ -52,6 +52,9 @@ topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 - [ ] `space:folder:create` — 创建云空间文件夹；在“应用身份权限”中搜索“创建云空间文件夹”。不要误选 `drive:drive:version` 等文档版本权限
 - [ ] `docs:document.media:upload` — 上传 Phase F 导入所需的 Markdown 临时素材
 - [ ] `docs:document:import` — 创建并查询云文档导入任务
+- [ ] `docs:permission.member:create` — 把报告发起人和管理员添加为文档协作者
+- [ ] `docs:permission.member:transfer` — 将报告所有权转给任务发起人
+- [ ] `docs:permission.member:retrieve` — 授权后查询协作者列表做结果复核
 
 **可选**
 

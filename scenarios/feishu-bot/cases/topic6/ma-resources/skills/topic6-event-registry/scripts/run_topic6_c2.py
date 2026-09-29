@@ -19,6 +19,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +27,9 @@ from pathlib import Path
 import pandas as pd
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+from relay import Relay  # noqa: E402
+
 ANNOTATION_SCRIPT_DIR = (
     SCRIPT_DIR.parent.parent / "topic6-annotation" / "scripts"
 )
@@ -39,6 +43,16 @@ PLATFORMS = {
     "zhihu": "知乎",
 }
 RUNNER_SCHEMA_VERSION = 1
+DEMO_FAST_SYSTEM = """你是社媒热点事件归并器。给定少量热点标题，把描述同一现实事件的记录归入同一事件簇。
+
+规则：
+1. 每个输入 row_id 必须恰好返回一次，不得增删或修改 row_id。
+2. 同一人物/品牌不代表同一事件；只有核心动作、对象和时间语境一致才合并。
+3. 一级事件名使用简洁、可读的中文事实短语，不写平台名、热度和评价。
+4. 信息不足时宁可保持独立，不要过度合并。
+5. 只输出 JSON 对象，不要 markdown：
+{"results":[{"row_id":"原样返回","一级事件名":"事件簇名"}]}
+"""
 
 
 def resolve_project_dir(project_dir: str | Path) -> Path:
@@ -285,6 +299,182 @@ def _write_result(run_dir: Path, destination: Path, expected_rows: int) -> None:
     os.replace(temp, destination)
 
 
+def _normalize_demo_fast_results(
+    records: list[dict], payload: dict
+) -> list[dict]:
+    results = payload.get("results")
+    if not isinstance(results, list):
+        raise ValueError("C2 demo fast output missing results list")
+    expected = [str(record["record_id"]) for record in records]
+    by_id: dict[str, str] = {}
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        row_id = str(item.get("row_id") or "")
+        event_name = str(item.get("一级事件名") or "").strip()
+        if row_id in by_id:
+            raise ValueError(f"C2 demo fast duplicate row_id: {row_id}")
+        if row_id in expected and event_name:
+            by_id[row_id] = event_name
+    missing = [row_id for row_id in expected if row_id not in by_id]
+    if missing:
+        raise ValueError(f"C2 demo fast missing row_ids: {missing}")
+    return [
+        {"row_id": row_id, "一级事件名": by_id[row_id]}
+        for row_id in expected
+    ]
+
+
+def _run_fast_demo(args: argparse.Namespace) -> Path:
+    project = resolve_project_dir(args.project_dir)
+    source = Path(args.input) if args.input else (
+        project / "04_标注" / "_可用子集"
+        / f"usable_subset_{args.mode}_r{args.run_id}.xlsx"
+    )
+    run_dir = project / "04_标注" / "C2_事件归档" / "c2_run"
+    status_path = run_dir / "c2_status.json"
+    result_path = (
+        project / "04_标注" / "C2_事件归档"
+        / f"c2_event_result_r{args.run_id}.xlsx"
+    )
+    run_dir.mkdir(parents=True, exist_ok=True)
+    input_csv = run_dir / "input.csv"
+    rows = _prepare_input(source, input_csv)
+    frame = pd.read_csv(input_csv)
+    records = [
+        {
+            "record_id": str(row["record_id"]),
+            "platform": "" if pd.isna(row["platform"]) else str(row["platform"]),
+            "title": "" if pd.isna(row["title"]) else str(row["title"]),
+        }
+        for _, row in frame.iterrows()
+    ]
+    signature = _run_signature(
+        _file_sha256(input_csv),
+        args.chat_model,
+        "demo-fast-no-embedding",
+        "demo-fast-v1",
+    )
+    status = _load_status(status_path)
+    if (
+        status.get("status") == "done"
+        and status.get("run_signature") == signature
+        and result_path.exists()
+    ):
+        print(f"[c2] demo fast cache hit: {result_path}", flush=True)
+        return result_path
+
+    started_at = datetime.now().astimezone().isoformat()
+    status = {
+        "status": "running",
+        "current_stage": "demo_fast_cluster",
+        "mode": "demo",
+        "strategy": "single_llm_cluster",
+        "run_id": args.run_id,
+        "input_file": str(source),
+        "input_rows": rows,
+        "run_signature": signature,
+        "chat_model": args.chat_model,
+        "started_at": started_at,
+        "updated_at": started_at,
+    }
+    _atomic_json(status_path, status)
+    update_run_config(
+        project,
+        {
+            "c2_cluster": {
+                "status": "running",
+                "stage": "demo_fast_cluster",
+                "strategy": "single_llm_cluster",
+                "input_file": str(source),
+                "row_count": rows,
+                "run_id": args.run_id,
+            }
+        },
+    )
+    try:
+        relay = Relay(args.chat_model, 6000, DEMO_FAST_SYSTEM)
+        prompt = json.dumps({"records": records}, ensure_ascii=False)
+        last_error: Exception | None = None
+        normalized: list[dict] = []
+        for attempt in range(3):
+            try:
+                payload = relay.call_json(prompt, attempts=1)
+                normalized = _normalize_demo_fast_results(records, payload)
+                break
+            except (RuntimeError, ValueError) as error:
+                last_error = error
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+        if not normalized:
+            raise RuntimeError(
+                f"C2 demo fast failed after 3 attempts: {last_error}"
+            )
+        result = pd.DataFrame(normalized)
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        temp = result_path.with_name(
+            f".{result_path.stem}.{os.getpid()}.tmp.xlsx"
+        )
+        result.to_excel(temp, index=False)
+        os.replace(temp, result_path)
+
+        completed_at = datetime.now().astimezone().isoformat()
+        status.update(
+            {
+                "status": "done",
+                "current_stage": "done",
+                "output_file": str(result_path),
+                "input_tokens": relay.usage["input_tokens"],
+                "output_tokens": relay.usage["output_tokens"],
+                "cost_usd": relay.cost(),
+                "completed_at": completed_at,
+                "updated_at": completed_at,
+            }
+        )
+        _atomic_json(status_path, status)
+        update_run_config(
+            project,
+            {
+                "c2_cluster": {
+                    "status": "done",
+                    "stage": "done",
+                    "strategy": "single_llm_cluster",
+                    "run_id": args.run_id,
+                    "row_count": rows,
+                    "output_file": str(result_path),
+                    "chat_model": args.chat_model,
+                    "completed_at": completed_at,
+                }
+            },
+        )
+        print(json.dumps(status, ensure_ascii=False, indent=2))
+        return result_path
+    except Exception as error:
+        failed_at = datetime.now().astimezone().isoformat()
+        status.update(
+            {
+                "status": "failed",
+                "error": str(error),
+                "failed_at": failed_at,
+                "updated_at": failed_at,
+            }
+        )
+        _atomic_json(status_path, status)
+        update_run_config(
+            project,
+            {
+                "c2_cluster": {
+                    "status": "failed",
+                    "stage": "demo_fast_cluster",
+                    "strategy": "single_llm_cluster",
+                    "error": str(error),
+                    "failed_at": failed_at,
+                }
+            },
+        )
+        raise
+
+
 def _run_unlocked(args: argparse.Namespace) -> Path:
     project = resolve_project_dir(args.project_dir)
     source = Path(args.input) if args.input else (
@@ -403,6 +593,8 @@ def _run_unlocked(args: argparse.Namespace) -> Path:
 
 
 def run(args: argparse.Namespace) -> Path:
+    if getattr(args, "demo_fast", False) and args.mode != "demo":
+        raise ValueError("--demo-fast is only valid with --mode demo")
     project = resolve_project_dir(args.project_dir)
     lock_path = project / "04_标注" / "C2_事件归档" / ".c2_runner.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -412,6 +604,8 @@ def run(args: argparse.Namespace) -> Path:
         except BlockingIOError as error:
             raise RuntimeError("another C2 runner is already active") from error
         try:
+            if args.mode == "demo" and getattr(args, "demo_fast", False):
+                return _run_fast_demo(args)
             return _run_unlocked(args)
         finally:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
@@ -436,6 +630,11 @@ def main() -> int:
         "--x2-verdict",
         choices=["off", "opus", "sonnet"],
         default="sonnet",
+    )
+    parser.add_argument(
+        "--demo-fast",
+        action="store_true",
+        help="demo only: replace the production multi-stage pipeline with one batch clustering call",
     )
     args = parser.parse_args()
     try:

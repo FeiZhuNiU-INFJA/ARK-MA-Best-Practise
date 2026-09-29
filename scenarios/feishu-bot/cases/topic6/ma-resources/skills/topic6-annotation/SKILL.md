@@ -22,6 +22,7 @@ description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础
 │   └── 节点标注/v7.md         # 活跃版 v7
 ├── scripts/          # 一体化脚本 (submit+poll+postprocess 合并)
 │   ├── datahub_annotate.py    # 单任务全流程 (C0/R1~R5/C3)
+│   ├── run_demo_routes.py     # demo: R1~R5 五路 Ark 批量请求并发
 │   ├── c0_merge_phase1.py     # C0 + C3 → 04_合并/phase1_merged
 │   ├── c0_filter_usable.py    # 筛选营销可用子集
 │   └── merge_annotations.py   # 七路 → 05_合并/wide_table 28 列宽表
@@ -65,7 +66,9 @@ description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础
 1. **第一批 (全量并行)**: C0 + C3 独立跑 `datahub_annotate.py` 各拿一次 `--task`
 2. `c0_merge_phase1.py`: LEFT JOIN 到基础表 → phase1_merged
 3. `c0_filter_usable.py`: 按"是否营销可用"筛出 R1~R5 输入子集
-4. **第二批 (可用子集并行)**: R1~R5 各跑一次 `datahub_annotate.py --task rN --input 04_标注/_可用子集/...`
+4. **第二批 (可用子集并行)**:
+   - test/full: R1~R5 各跑一次 `datahub_annotate.py --task rN --input 04_标注/_可用子集/...`
+   - demo: 单次运行 `run_demo_routes.py`,脚本内部并发 5 个 Ark 批量请求并保持相同输出列
 5. C2 事件归档 (由 topic6-event-registry skill 完成, 不在本 skill 内)
 6. `merge_annotations.py`: 七路合并到 28 列宽表 + 健康度摘要
 
@@ -84,3 +87,5 @@ description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础
 - Prompt 上传给 DataHub 时通过 `--prompt-file` 显式传绝对路径, 不再靠脚本自动扫描 prompts 目录。
 - `c0_filter_usable.py` 只把 C0 明确判定为“是”的记录送入 R1~R5；解析失败/缺失记录不进入五路下游。失败占比超过 5% 时熔断。
 - DataHub 成功态没有 `result_url` 时,`datahub_annotate.py` 自动分页读取 `result_list`,不需要子 Agent 手工下载。
+- `run_demo_routes.py` 只允许用于 50 条样本的 demo 流程；test/full 必须继续走
+  DataHub 单行标注，以保持正式质量口径。

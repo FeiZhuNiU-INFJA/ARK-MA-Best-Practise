@@ -44,9 +44,14 @@ topic6-insight/
 ```bash
 python /mnt/skills/topic6-insight/scripts/pipeline_e.py \
   --project-dir /workspace/Projects/W35_20260824-20260830 \
+  --mode full \
   --publish-date 2026-08-31 \
   --model ep-your-endpoint-id
 ```
+
+该入口一次完成数据预处理，并在进程内并发 E1~E4。正常整轮不得拆成四次
+`--sections eN` 调用，否则会重复执行统计预处理和 Agent 编排；`--sections` 只用于
+审核打回后的单版块重跑。
 
 关键参数:
 - `--project-dir`: 项目目录(绝对路径,或相对 `/workspace`)

@@ -576,6 +576,28 @@ class Topic6Runner:
         ts = time.strftime("%H:%M:%S", time.localtime())
         state.push_tool_line(f"{ts} · {progress}")
 
+    def _review_lines(self, job_id: str) -> list[str]:
+        """格式化已落库的 HC 审核轨迹，供后续运行态和终态持续展示。"""
+        decision_meta = {
+            "pass": ("✅", "通过"),
+            "reject": ("❌", "打回"),
+            "remark": ("📝", "备注通过"),
+        }
+        lines: list[str] = []
+        for event in self._store.list_resolved_hc_for_job(job_id):
+            emoji, label = decision_meta.get(
+                event.user_decision, ("•", event.user_decision or "已处理")
+            )
+            operator = event.operator_label or "审核人未记录"
+            resolved_at = time.strftime(
+                "%H:%M",
+                time.localtime(event.resolved_at or event.created_at),
+            )
+            lines.append(
+                f"{event.hc_kind} · {emoji} {label} · {operator} · {resolved_at}"
+            )
+        return lines
+
     async def _render_and_patch(
         self,
         job_id: str,
@@ -602,6 +624,7 @@ class Topic6Runner:
             status=status,
             elapsed_sec=elapsed_sec,
             tool_lines=list(state.tool_lines),
+            review_lines=self._review_lines(job_id),
             overflow=state.overflow,
             error=error,
             online_url=online_url,

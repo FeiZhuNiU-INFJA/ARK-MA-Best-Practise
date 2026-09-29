@@ -30,6 +30,7 @@ PIPELINE_F_SCRIPT = (
 COORDINATOR_PROMPT = (
     TOPIC6_DIR / "ma-resources" / "agents" / "coordinator.system.md"
 )
+PIPELINE_OVERVIEW = TOPIC6_DIR / "topic6_pipeline_overview.html"
 PHASE_F_PROMPT = (
     TOPIC6_DIR
     / "ma-resources"
@@ -46,6 +47,14 @@ EVENT_REGISTRY_DIR = (
 )
 RELAY_SCRIPT = EVENT_REGISTRY_DIR / "scripts" / "relay.py"
 C2_RUNNER_SCRIPT = EVENT_REGISTRY_DIR / "scripts" / "run_topic6_c2.py"
+DEMO_ROUTES_SCRIPT = (
+    TOPIC6_DIR
+    / "ma-resources"
+    / "skills"
+    / "topic6-annotation"
+    / "scripts"
+    / "run_demo_routes.py"
+)
 RUN_CONFIG_STATE_SCRIPT = (
     TOPIC6_DIR
     / "ma-resources"
@@ -104,6 +113,16 @@ def _load_relay_module():
 def _load_c2_runner_module():
     spec = importlib.util.spec_from_file_location(
         "topic6_event_registry_runner", C2_RUNNER_SCRIPT
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_demo_routes_module():
+    spec = importlib.util.spec_from_file_location(
+        "topic6_demo_routes", DEMO_ROUTES_SCRIPT
     )
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -391,6 +410,99 @@ def test_c2_runner_uses_platform_00_then_merged_remaining_stages(tmp_path):
     assert "Doubao-Seed-Evolving" not in merged_commands
 
 
+def test_c2_runner_parallel_stage_passes_command_and_log_path(tmp_path, monkeypatch):
+    module = _load_c2_runner_module()
+    calls = []
+    monkeypatch.setattr(
+        module,
+        "_run_command",
+        lambda command, log_path: calls.append((command, log_path)),
+    )
+
+    module._run_stage(
+        "00_platforms",
+        [["python", "weibo"], ["python", "douyin"]],
+        tmp_path,
+    )
+
+    assert sorted(command[-1] for command, _path in calls) == ["douyin", "weibo"]
+    assert {path.name for _command, path in calls} == {
+        "00_platforms_weibo.log",
+        "00_platforms_douyin.log",
+    }
+
+
+def test_c2_demo_fast_normalizes_merge_compatible_result():
+    module = _load_c2_runner_module()
+    records = [
+        {"record_id": "a", "platform": "微博", "title": "事件A"},
+        {"record_id": "b", "platform": "抖音", "title": "事件A视频"},
+    ]
+
+    result = module._normalize_demo_fast_results(
+        records,
+        {
+            "results": [
+                {"row_id": "a", "一级事件名": "事件A"},
+                {"row_id": "b", "一级事件名": "事件A"},
+            ]
+        },
+    )
+    assert result == [
+        {"row_id": "a", "一级事件名": "事件A"},
+        {"row_id": "b", "一级事件名": "事件A"},
+    ]
+
+    with pytest.raises(ValueError, match="missing row_ids"):
+        module._normalize_demo_fast_results(
+            [
+                {"record_id": "a", "platform": "微博", "title": "事件A"},
+                {"record_id": "b", "platform": "抖音", "title": "事件B"},
+            ],
+            {"results": [{"row_id": "a", "一级事件名": "事件A"}]},
+        )
+
+
+def test_c2_demo_fast_rejects_non_demo_mode():
+    module = _load_c2_runner_module()
+    args = module.argparse.Namespace(mode="full", demo_fast=True)
+
+    with pytest.raises(ValueError, match="only valid with --mode demo"):
+        module.run(args)
+
+
+def test_demo_routes_require_complete_unique_results():
+    module = _load_demo_routes_module()
+    rows = [{"row_id": "a"}, {"row_id": "b"}]
+
+    normalized = module._normalize_results(
+        "r2",
+        rows,
+        [
+            {"row_id": "a", "是否商业合作": "是", "判断说明": "存在合作"},
+            {"row_id": "b", "是否商业合作": "否", "判断说明": "无双边关系"},
+        ],
+    )
+    assert [row["r2_是否商业合作"] for row in normalized] == ["是", "否"]
+
+    with pytest.raises(ValueError, match="missing or invalid row_ids"):
+        module._normalize_results(
+            "r2",
+            rows,
+            [{"row_id": "a", "是否商业合作": "是", "判断说明": "存在合作"}],
+        )
+
+    with pytest.raises(ValueError, match="duplicate row_id"):
+        module._normalize_results(
+            "r2",
+            rows,
+            [
+                {"row_id": "a", "是否商业合作": "是", "判断说明": "存在合作"},
+                {"row_id": "a", "是否商业合作": "否", "判断说明": "重复"},
+            ],
+        )
+
+
 def test_c2_runner_resumes_and_invalidates_outputs_when_model_changes(
     tmp_path, monkeypatch
 ):
@@ -528,14 +640,46 @@ def test_coordinator_uses_cross_platform_c2_flow_and_merge_contract():
     assert "output=`04_标注/c2_raw.jsonl`" not in coordinator
 
 
+def test_coordinator_uses_demo_fast_paths_and_single_insight_entry():
+    coordinator = COORDINATOR_PROMPT.read_text(encoding="utf-8")
+
+    assert "run_demo_routes.py" in coordinator
+    assert "--mode demo --run-id {N} --demo-fast" in coordinator
+    assert "C2_事件归档/c2_run/c2_status.json" in coordinator
+    assert "不再委派 4 个 `topic6-insighter`" in coordinator
+    assert "--publish-date \"{publish_date}\" --version {N}" in coordinator
+
+
+def test_pipeline_overview_documents_demo_execution_differences():
+    overview = PIPELINE_OVERVIEW.read_text(encoding="utf-8")
+
+    assert "test / demo / full 模式" in overview
+    assert "分层抽样 50 条" in overview
+    assert "R1~R5 Ark 批量 + C2 单次归并" in overview
+    assert "跳过全量与 HC2" in overview
+    assert "run_demo_routes.py" in overview
+    assert "run_topic6_c2.py --mode demo --demo-fast" in overview
+    assert "Phase E · 单入口调度" in overview
+    assert "不再委派 4 个 Insighter" in overview
+
+
 def test_phase_f_uses_runtime_identity_and_response_url_without_secret_output():
     coordinator = COORDINATOR_PROMPT.read_text(encoding="utf-8")
     prompt = PHASE_F_PROMPT.read_text(encoding="utf-8")
 
     assert 'OPERATOR_OID="${FEISHU_USER_OPEN_ID:-}"' in prompt
+    assert 'x.get("data", {}).get("folder_token")' in prompt
     assert 'x.get("url") or x.get("data", {}).get("url")' in prompt
     assert "docs:document.media:upload" in prompt
     assert "docs:document:import" in prompt
+    assert "docs:permission.member:create" in prompt
+    assert "docs:permission.member:transfer" in prompt
+    assert "docs:permission.member:retrieve" in prompt
+    assert "--member-type openid --member-id \"$OPERATOR_OID\"" in prompt
+    assert "--perm edit --as bot --yes" in prompt
+    assert "严禁执行 `lark-cli auth login`" in prompt
+    assert "降级为 `--as user`" in prompt
+    assert "任一步失败不得输出 HC3" in coordinator
     assert "FEISHU_HOTREPORT_FOLDER_TOKEN" not in prompt
     assert "CC_SESSION_KEY" not in prompt
     assert "bluefocus.feishu.cn" not in prompt

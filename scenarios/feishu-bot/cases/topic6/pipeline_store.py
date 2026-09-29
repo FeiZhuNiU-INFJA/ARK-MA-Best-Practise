@@ -96,6 +96,7 @@ class HcEvent:
     card_message_id: str = ""  # 飞书卡片 message_id,便于事后 patch
     user_decision: str = ""  # pass | reject | remark
     user_note: str = ""
+    operator_label: str = ""
     created_at: int = 0
     resolved_at: Optional[int] = None
 
@@ -155,6 +156,7 @@ class PipelineStore:
                 card_message_id TEXT NOT NULL DEFAULT '',
                 user_decision TEXT NOT NULL DEFAULT '',
                 user_note TEXT NOT NULL DEFAULT '',
+                operator_label TEXT NOT NULL DEFAULT '',
                 created_at INTEGER NOT NULL,
                 resolved_at INTEGER,
                 FOREIGN KEY (job_id) REFERENCES pipeline_jobs(job_id) ON DELETE CASCADE
@@ -172,6 +174,13 @@ class PipelineStore:
         if "progress_card_message_id" not in cols:
             self._conn.execute(
                 "ALTER TABLE pipeline_jobs ADD COLUMN progress_card_message_id TEXT NOT NULL DEFAULT ''"
+            )
+        hc_cols = {
+            r[1] for r in self._conn.execute("PRAGMA table_info(pipeline_hc_events)").fetchall()
+        }
+        if "operator_label" not in hc_cols:
+            self._conn.execute(
+                "ALTER TABLE pipeline_hc_events ADD COLUMN operator_label TEXT NOT NULL DEFAULT ''"
             )
 
     def _protect_files(self) -> None:
@@ -378,15 +387,16 @@ class PipelineStore:
         event_id: int,
         user_decision: str,
         user_note: str = "",
+        operator_label: str = "",
     ) -> None:
         with self._lock:
             self._conn.execute(
                 """
                 UPDATE pipeline_hc_events
-                SET user_decision = ?, user_note = ?, resolved_at = ?
+                SET user_decision = ?, user_note = ?, operator_label = ?, resolved_at = ?
                 WHERE id = ?
                 """,
-                (user_decision, user_note, _now(), event_id),
+                (user_decision, user_note, operator_label, _now(), event_id),
             )
 
     def get_hc_event(self, event_id: int) -> Optional[HcEvent]:
@@ -430,6 +440,19 @@ class PipelineStore:
             ).fetchone()
         return self._row_to_hc(row) if row else None
 
+    def list_resolved_hc_for_job(self, job_id: str) -> list[HcEvent]:
+        """按发生顺序返回任务已完成的审核记录，供运行卡持续展示。"""
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM pipeline_hc_events
+                WHERE job_id = ? AND resolved_at IS NOT NULL
+                ORDER BY created_at ASC, id ASC
+                """,
+                (job_id,),
+            ).fetchall()
+        return [self._row_to_hc(row) for row in rows]
+
     # ---- row -> dataclass --------------------------------------------------
 
     @staticmethod
@@ -466,6 +489,9 @@ class PipelineStore:
             card_message_id=row["card_message_id"],
             user_decision=row["user_decision"],
             user_note=row["user_note"],
+            operator_label=(
+                row["operator_label"] if "operator_label" in row.keys() else ""
+            ),
             created_at=row["created_at"],
             resolved_at=row["resolved_at"],
         )

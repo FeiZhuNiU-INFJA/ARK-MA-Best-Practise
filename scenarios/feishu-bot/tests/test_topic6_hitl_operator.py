@@ -227,5 +227,6 @@ def test_followup_message_resolves_pending_remark_and_resumes_job(tmp_path):
     resolved = store.get_hc_event(event_id)
     assert resolved.user_decision == "remark"
     assert resolved.user_note == "权限已发布，请重新执行 Phase F 飞书发布"
+    assert resolved.operator_label == "操作人 ...user-1"
     assert resolved.resolved_at is not None
     store.close()

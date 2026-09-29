@@ -69,11 +69,18 @@ def _tool_lines_block(tool_lines: list[str], overflow: int) -> Optional[dict]:
         body_lines.append(f"_(更早 {overflow} 条已省略)_")
     body_lines.extend(tool_lines)
     return {
-        "tag": "div",
-        "text": {
-            "tag": "lark_md",
-            "content": "**最近工具调用**\n" + "\n".join(body_lines),
-        },
+        "tag": "markdown",
+        "content": "**最近工具调用**\n" + "\n".join(body_lines),
+    }
+
+
+def _review_lines_block(review_lines: list[str]) -> Optional[dict]:
+    """把已完成 HC 审核压成固定区块，避免与实时工具日志混在一起。"""
+    if not review_lines:
+        return None
+    return {
+        "tag": "markdown",
+        "content": "**审核记录**\n" + "\n".join(f"- {line}" for line in review_lines),
     }
 
 
@@ -83,6 +90,7 @@ def build_progress_card(
     status: str,
     elapsed_sec: int,
     tool_lines: Iterable[str],
+    review_lines: Iterable[str] = (),
     overflow: int = 0,
     error: str = "",
     online_url: str = "",
@@ -90,14 +98,18 @@ def build_progress_card(
     """组装一张进度卡片 dict。参数只吃"当前快照",不做状态推断。
 
     - ``tool_lines``: 升序的最近若干条 tool 行(格式建议 ``HH:MM:SS · name · desc``)。
+    - ``review_lines``: 已完成 HC 的审核人、结果和时间，最多三条。
     - ``overflow``: buffer 已淘汰但未展示的条数,>0 时卡片顶部提示。
     - ``error`` / ``online_url``: 仅终态生效。
     """
     tool_snapshot = list(tool_lines)[-MAX_TOOL_LINES:]
     elements: list[dict] = [
-        {"tag": "div", "text": {"tag": "lark_md", "content": _meta_line(job, elapsed_sec)}},
-        {"tag": "hr"},
+        {"tag": "markdown", "content": _meta_line(job, elapsed_sec)},
     ]
+    review_block = _review_lines_block(list(review_lines)[-3:])
+    if review_block is not None:
+        elements.append(review_block)
+    elements.append({"tag": "hr"})
     tool_block = _tool_lines_block(tool_snapshot, overflow)
     if tool_block is not None:
         elements.append(tool_block)
@@ -105,46 +117,37 @@ def build_progress_card(
     if status == STATUS_WAIT_HC:
         elements.append(
             {
-                "tag": "div",
-                "text": {
-                    "tag": "lark_md",
-                    "content": f"👉 请在当前卡片完成 **{job.current_phase}** 审核(通过/打回/备注)。",
-                },
+                "tag": "markdown",
+                "content": f"👉 请在当前卡片完成 **{job.current_phase}** 审核(通过/打回/备注)。",
             }
         )
     elif status in (STATUS_FAILED, STATUS_STOPPED) and error:
         elements.append(
             {
-                "tag": "div",
-                "text": {
-                    "tag": "lark_md",
-                    "content": (
-                        f"**停止原因**\n{error[:400]}"
-                        if status == STATUS_STOPPED
-                        else f"**错误摘要**\n{error[:400]}"
-                    ),
-                },
+                "tag": "markdown",
+                "content": (
+                    f"**停止原因**\n{error[:400]}"
+                    if status == STATUS_STOPPED
+                    else f"**错误摘要**\n{error[:400]}"
+                ),
             }
         )
     elif status == STATUS_DONE and online_url:
         elements.append(
             {
-                "tag": "action",
-                "actions": [
-                    {
-                        "tag": "button",
-                        "text": {"tag": "plain_text", "content": "打开报告"},
-                        "type": "primary",
-                        "url": online_url,
-                    }
-                ],
+                "tag": "button",
+                "text": {"tag": "plain_text", "content": "打开报告"},
+                "type": "primary_filled",
+                "width": "fill",
+                "behaviors": [{"type": "open_url", "default_url": online_url}],
             }
         )
 
     return {
-        "config": {"wide_screen_mode": True, "update_multi": True},
+        "schema": "2.0",
+        "config": {"width_mode": "default"},
         "header": _header(status, job.current_phase),
-        "elements": elements,
+        "body": {"elements": elements},
     }
 
 

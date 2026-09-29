@@ -205,6 +205,13 @@ Base URL 必须包含版本前缀（方舟示例：`https://ark.cn-beijing.volce
 python3 $S/run_topic6_c2.py \
   --project-dir <项目目录> --mode demo --run-id 1
 
+# 仅限 50 条样本的流程演示:一次批量归并直接产出同契约 XLSX
+python3 $S/run_topic6_c2.py \
+  --project-dir <项目目录> --mode demo --run-id 1 --demo-fast
+
+
+`--demo-fast` 跳过完整 00→x4 质量链，只用于 demo；test/full 不得启用。
+C2 进度文件位于 `04_标注/C2_事件归档/c2_run/c2_status.json`。
 # 手工执行时：四平台并行完成 00 后立即合库
 python3 $S/x0_merge_platforms.py --out-dir merged --from 微博 抖音 B站 知乎
 cd merged
