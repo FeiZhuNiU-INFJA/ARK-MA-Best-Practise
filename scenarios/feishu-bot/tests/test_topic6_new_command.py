@@ -46,6 +46,7 @@ STATUS_STOPPED = pipeline_store.STATUS_STOPPED
 Topic6Runner = topic6_runner.Topic6Runner
 Topic6RunnerError = topic6_runner.Topic6RunnerError
 RunnerConfig = topic6_runner.Topic6Config
+extract_final_online_url = topic6_runner.extract_final_online_url
 
 
 class _StubArk:
@@ -268,7 +269,61 @@ def test_idle_without_hc_or_final_url_is_not_marked_done(loop, tmp_path):
 
     reloaded = store.get_job(job.job_id)
     assert reloaded.status == STATUS_STOPPED
-    assert reloaded.last_error == "Session 已结束，但未产生 HC 卡点或最终发布 URL"
+    assert reloaded.last_error == "Session 已结束，但 Phase H 未返回有效的妙搭 online_url"
+
+
+def test_idle_does_not_treat_feishu_doc_url_as_phase_h_result(loop, tmp_path):
+    runner, store = _make_runner(tmp_path, loop)
+    job = store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="demo",
+        project_dir="/workspace/x",
+    )
+    message = """```json
+{"phase_g_complete": true,
+ "feishu_doc_url": "https://bytedance.larkoffice.com/docx/V0VBtoken",
+ "phase_h_miaoda": "blocked"}
+```"""
+
+    loop.run_until_complete(runner._handle_idle(job.job_id, [message]))
+
+    reloaded = store.get_job(job.job_id)
+    assert reloaded.status == STATUS_STOPPED
+    assert reloaded.online_url == ""
+
+
+def test_idle_marks_done_only_for_structured_miaoda_online_url(loop, tmp_path):
+    runner, store = _make_runner(tmp_path, loop)
+    job = store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="demo",
+        project_dir="/workspace/x",
+    )
+    message = """```json
+{"phase": "H", "release_status": "finished",
+ "online_url": "https://topic6-demo.aiforce.cloud/report"}
+```"""
+
+    loop.run_until_complete(runner._handle_idle(job.job_id, [message]))
+
+    reloaded = store.get_job(job.job_id)
+    assert reloaded.status == pipeline_store.STATUS_DONE
+    assert reloaded.online_url == "https://topic6-demo.aiforce.cloud/report"
+
+
+def test_final_online_url_rejects_malformed_doc_url():
+    text = (
+        '{"feishu_doc_url": '
+        '"https://bytedance.larkoffice.com/docx/V0VBtoken\\",", '
+        '"phase_h_miaoda": "blocked"}'
+    )
+    assert extract_final_online_url(text) == ""
 
 
 def test_resume_immediately_restores_single_card_to_running(loop, tmp_path):

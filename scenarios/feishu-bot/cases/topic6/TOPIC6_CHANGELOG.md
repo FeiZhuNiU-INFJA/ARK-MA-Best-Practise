@@ -13,6 +13,21 @@
 
 ## 2026-09-29
 
+### Phase H 终态校验与报告链接修复
+
+- **轨迹证据**：Session `sesn-20260929132115-ol7cr` 共 412 个事件。Phase G 的 HTML
+  snapshot 上传因缺少 API Key 失败，Agent 将 `status.h.completed=false` 写入配置后仍
+  宣称流程完成；Gateway 又从自由文本中抓取首个飞书文档 URL，并连同 JSON 尾部的
+  `",` 标点写入卡片，飞书打开时进一步附加一次性登录参数。
+- **终态收紧**：Gateway 不再抓取任意 URL，只接受 Phase H 结构化结果中的
+  `online_url`，并校验为 HTTPS `*.aiforce.cloud`；否则任务进入 `stopped`，不显示
+  “打开报告”完成按钮。
+- **编排收口**：Phase G 只负责构建、校验和落盘 HTML，禁止把 snapshot 上传视为妙搭
+  发布。客户交付只引用、未包含 `miaoda-web-publish` Skill，且原始环境变量清单不存在
+  `MIAODA_TOKEN`；MA 改为使用用户 OAuth + `lark-cli apps +html-publish`。OAuth 未完成
+  或发布失败时不得宣称完成。
+- **验证**：完整测试集 `422 passed`。
+
 ### Demo 第二批与洞察阶段提速
 
 - **轨迹证据**：线上 Session `sesn-20260929115416-cgepu` 共 315 个事件。

@@ -111,10 +111,9 @@ DATAHUB_API_KEY=<业务对接人给的 Key>
 
 ### 2.3 可选/延后
 
-```env
-# Phase H 妙搭发布,当前未启用,留空即可
-MIAODA_TOKEN=
-
+```text
+# Phase H 不使用环境变量 Token。
+# 首次发布由操作人执行 lark-cli auth login --domain apps 完成用户 OAuth。
 # 自有 TOS Bucket——调试期不必配,environment.json 里已禁用 output_storage
 # TOPIC6_TOS_BUCKET=
 ```

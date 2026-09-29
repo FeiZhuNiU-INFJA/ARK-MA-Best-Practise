@@ -195,6 +195,7 @@ MA 根目录：`ma-resources/skills/topic6-web-report/`
 | `topic6/tool/hot-topics-mcp/契约.md` | 未直接迁入 | MCP 定义落实在 `coordinator.json` |
 | `topic6/tool/lark-cli/契约.md` | 未直接迁入 | 发布职责由 Coordinator 与飞书接入层承担 |
 | `topic6/tool/web-report/md2source.py`、`README.md` | 未迁移 | MA 网页 Skill 直接按 `source.example.json` 构造 `source.json` |
+| `Agent.Producer/.claude/skills/miaoda-web-publish/` | 客户包未包含，仅在 `prompt/09` 被引用 | MA 直接使用用户 OAuth + `lark-cli apps +html-publish` |
 | `topic6/其他相关引用/authorized_users.json`、`permission_registry.json`、`permission-model.md`、`topic_registry.json`、`根_CLAUDE.md` | 未迁移 | 权限、Topic 路由和会话隔离由 Gateway/MA 资源配置承担 |
 | 所有 `.DS_Store`、`__pycache__/` | 未迁移/忽略 | 本地系统或解释器缓存，不属于源码 |
 

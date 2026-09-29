@@ -324,7 +324,7 @@ flowchart LR
         <h3>权限</h3>
         <ul>
           <li>白名单校验在 ${gwLink('config.py')} 的 <code>AUTHORIZED_OPEN_IDS</code>,非白名单直接拒</li>
-          <li>妙搭发布(Phase H)需要操作人本人授权 <code>MIAODA_TOKEN</code>,无法后端预置</li>
+          <li>妙搭发布(Phase H)属于用户资产操作,需要操作人通过 <code>lark-cli auth login --domain apps</code> 完成 OAuth</li>
         </ul>
       `
     },
@@ -476,7 +476,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
           <span class="k">TOPIC6_ANNOTATOR_AGENT_ID</span><span class="v">同上</span>
           <span class="k">TOPIC6_INSIGHTER_AGENT_ID</span><span class="v">同上</span>
           <span class="k">TOPIC6_PIPELINE_DB_PATH</span><span class="v">SQLite 路径</span>
-          <span class="k">MIAODA_TOKEN</span><span class="v">操作人本人授权,Phase H 用</span>
+          <span class="k">apps user OAuth</span><span class="v">操作人本人授权,Phase H 用；不是环境变量 Token</span>
         </div>
         <div class="note ma">GatewayConfig 里 topic6 相关字段支持从 <code>ARK_ENVIRONMENT_ID</code> 回退,便于多环境部署。</div>
       `

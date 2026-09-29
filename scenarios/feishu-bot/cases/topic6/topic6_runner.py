@@ -27,6 +27,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
+from urllib.parse import urlsplit
 
 from arkagent.ark import ArkClient, event_error, event_progress, event_requires_action, event_text
 from arkagent.feishu import FeishuSender
@@ -537,10 +538,11 @@ class Topic6Runner:
                 )
             return
 
-        # 无 HC 时只有最终发布 URL 非空才算完成；否则属于提前结束/人工中断。
-        online_url = _extract_first_url(last)
+        # 只有 Phase H 的结构化结果和妙搭域名同时有效才算完成。不能从自由文本里
+        # 抓第一个 URL，否则飞书文档链接或错误信息中的排障链接会被误当成发布结果。
+        online_url = extract_final_online_url(last)
         if not online_url:
-            reason = "Session 已结束，但未产生 HC 卡点或最终发布 URL"
+            reason = "Session 已结束，但 Phase H 未返回有效的妙搭 online_url"
             self._store.mark_stopped(job_id, reason)
             await self._render_and_patch(
                 job_id, status=STATUS_STOPPED, error=reason, force=True
@@ -703,11 +705,33 @@ class Topic6CardSenderProtocol:
         raise NotImplementedError
 
 
-_URL_RE = re.compile(r"https?://[^\s)】]+", re.I)
+def extract_final_online_url(text: str) -> str:
+    """读取 Phase H 结构化结果中的妙搭线上 URL。
 
-
-def _extract_first_url(text: str) -> str:
+    自由文本中的 URL 不可信：报告正文通常先出现飞书 docx 链接，而且 Markdown /
+    JSON 标点会被宽松正则一并吞入。这里只接受显式 ``online_url`` 字段，并校验
+    HTTPS 与妙搭发布域名。
+    """
     if not text:
         return ""
-    match = _URL_RE.search(text)
-    return match.group(0) if match else ""
+    decoder = json.JSONDecoder()
+    for start in (match.start() for match in re.finditer(r"\{", text)):
+        try:
+            value, _ = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(value, dict):
+            continue
+        candidate = str(value.get("online_url") or "").strip()
+        if not candidate:
+            continue
+        parsed = urlsplit(candidate)
+        hostname = (parsed.hostname or "").lower()
+        if (
+            parsed.scheme == "https"
+            and parsed.query == ""
+            and parsed.fragment == ""
+            and (hostname == "aiforce.cloud" or hostname.endswith(".aiforce.cloud"))
+        ):
+            return candidate
+    return ""

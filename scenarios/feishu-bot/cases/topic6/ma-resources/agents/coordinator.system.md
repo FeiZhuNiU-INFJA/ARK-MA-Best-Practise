@@ -250,13 +250,23 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 ### Phase G · UI 网页发布
 
 - 收到 HC3 通过后,重新读取飞书文档最终版(含用户手工替换的图)
-- 调 `node /mnt/skills/topic6-web-report/scripts/upload-html.mjs`(node.js)→ `07_ui/index.html`
+- 调 `topic6-web-report` 构建并校验自包含 `index.html`,复制到 `/mnt/session/outputs/`
+- 本阶段只负责生成网页产物,不得把 HTML snapshot 上传当成妙搭发布,也不得在这里结束流程
+- 写回 `status.g.completed=true`、`status.current_phase=h_miaoda_publish`,然后立即进入 Phase H
 
 ### Phase H · 妙搭发布
 
-- 调 miaoda-web-publish(依赖 `MIAODA_TOKEN`,需操作人本人授权,首期由业务对接人人工准备)
-- 拿 online_url,写入 run_config.yaml
+- 使用 `lark-cli apps` 的 HTML 托管链路；妙搭是用户资产，全程 `--as user`
+- 首次使用需要操作人完成 `lark-cli auth login --domain apps` OAuth 授权；不存在
+  `MIAODA_TOKEN` 这种需从后台复制的长期凭据
+- `status.h.app_id` 为空时先 `apps +create --app-type html`，非空时复用；随后执行
+  `apps +html-publish --app-id <app_id> --path <index.html>`，从响应 `data.url` 取 online_url
 - release_status=finished 且 online_url 非空 → 流程结束
+- 用户 OAuth 未完成、发布失败或超时时,必须保持 `status.h.completed=false` 并明确报告阻塞；
+  禁止输出“流程完成”,禁止拿 `feishu_doc_url`、本地路径或 HTML snapshot URL 代替妙搭 `online_url`
+- 成功时最后一条消息必须包含且只包含一个可解析 JSON 对象：
+  `{"phase":"H","release_status":"finished","online_url":"https://<app>.aiforce.cloud/<path>"}`
+  `online_url` 必须直接取自发布响应,不得手工拼接；该 JSON 后不再追加其他 URL
 
 ## 五、并发规范(重要)
 

@@ -1377,7 +1377,7 @@ heat_score   : 87.4
       desc: "把 index.html 发到妙搭平台,拿一个公网可分享的链接。",
       content: `
         <h3>做了什么</h3>
-        <p>调 <code>miaoda-web-publish</code> skill,把 G 产出的 index.html 上传托管,等待 <code>release_status=finished</code> 拿 <code>online_url</code>。</p>
+        <p>用操作人的用户 OAuth 调 <code>lark-cli apps +html-publish</code>,把 G 产出的 index.html 上传托管,从响应 <code>data.url</code> 取得 <code>online_url</code>。</p>
         <div class="note"><b>关键更正(重要)</b>:<br>
           · <b>最终交付形态</b>:分享到飞书群 + 可线上访问 + 支持月度数据统计的网页版报告<br>
           · 飞书内嵌 HTML 效果差,所以<b>必须走公网托管(妙搭或等价方案)</b>,不能只发飞书文档链接<br>
@@ -1397,11 +1397,11 @@ heat_score   : 87.4
         <div class="ma-block">
           <h4>承担者:Coordinator 自己(调外部 skill)</h4>
           <ul>
-            <li>调 <code>miaoda-web-publish</code> — <b>外部 skill,不在本次 5 件套内</b>,首期人工上传或复用平台已有资源</li>
+            <li>客户文件只引用了 <code>miaoda-web-publish</code>,未交付 Skill 本体；MA 直接使用已安装的 <code>lark-cli apps</code></li>
             <li>System Prompt §四 · Phase H:${maLink('agents/coordinator.system.md', 'coordinator.system.md#Phase H')}</li>
             <li>Coordinator 传参:<code>index_html_path=/workspace/Projects/{PROJECT_DIR}/08_UI发布/index.html</code></li>
             <li>轮询 <code>release_status=finished</code> 得 <code>online_url</code>,写回 <code>run_config.yaml</code></li>
-            <li><b>依赖 <code>MIAODA_TOKEN</code></b>:需要操作人本人授权,不能后端预置</li>
+            <li><b>不使用 <code>MIAODA_TOKEN</code></b>:首次由操作人执行 <code>lark-cli auth login --domain apps</code> 完成用户 OAuth</li>
           </ul>
           <div class="note ma">妙搭发布 <b>不能省</b>——飞书内嵌 HTML 效果差,必须走公网托管;之前"分享飞书群就够了"的理解已作废。</div>
         </div>
