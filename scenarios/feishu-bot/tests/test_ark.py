@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import httpx
@@ -66,6 +67,31 @@ def test_event_progress_hides_raw_commands():
     assert event_progress({"type": "agent.tool_use", "name": "read", "input": {"file_path": "/secret"}}) == "正在调用工具：read"
     assert event_progress({"type": "agent.tool_result", "is_error": True}) == "工具执行未成功，Agent 正在尝试恢复"
     assert event_progress({"type": "agent.thinking"}) is None
+
+
+def test_event_progress_summarizes_agent_message_first_line():
+    body = "先扫一遍 memory\n再决定下一步"
+    got = event_progress({"type": "agent.message", "content": [{"type": "text", "text": body}]})
+    assert got == "Agent 说：先扫一遍 memory"
+
+
+def test_event_progress_skips_phase_marker_lines():
+    body = "[phase] C1\n实际正文才是重点"
+    got = event_progress({"type": "agent.message", "content": [{"type": "text", "text": body}]})
+    assert got == "Agent 说：实际正文才是重点"
+
+
+def test_event_progress_flags_empty_and_bloated_tool_results():
+    empty = event_progress({"type": "agent.tool_result", "content": [{"type": "text", "text": "   "}]})
+    assert empty == "↳ 结果：空"
+
+    huge = event_progress(
+        {"type": "agent.tool_result", "content": [{"type": "text", "text": "\n".join(f"row-{i}" for i in range(30))}]}
+    )
+    assert huge == "↳ 结果：30 行（偏多）"
+
+    normal = event_progress({"type": "agent.tool_result", "content": [{"type": "text", "text": "ok"}]})
+    assert normal is None
 
 
 def test_custom_tool_event_parsing_and_requires_action():
@@ -236,6 +262,22 @@ def test_result_from_events_only_recovers_current_run():
     )
     assert result.terminal == "idle"
     assert result.messages == ["新回复"]
+
+
+def test_result_from_events_treats_terminated_as_failure():
+    since = int(__import__("datetime").datetime.fromisoformat("2026-07-21T17:00:00+08:00").timestamp() * 1000)
+    result = result_from_events(
+        [
+            {
+                "type": "session.status_terminated",
+                "processed_at": "2026-07-21T17:00:01+08:00",
+            }
+        ],
+        since,
+    )
+    assert result is not None
+    assert result.terminal == "failed"
+    assert result.error == "session_terminated"
 
 
 # ---- session binding (卡点 B) ----
@@ -513,6 +555,8 @@ async def test_run_opens_stream_before_sending_message():
     def stream_responder(request):
         order.append("stream")
         body = "\n".join([
+            ": ready",
+            "",
             'data: {"type":"agent.message","content":[{"type":"text","text":"完成"}]}',
             "",
             'data: {"type":"session.status_idle"}',
@@ -536,9 +580,49 @@ async def test_run_opens_stream_before_sending_message():
 
 
 @respx.mock
+async def test_run_accepts_ready_line_without_trailing_blank_line():
+    message_sent = asyncio.Event()
+
+    class DelayedEventStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b": ready\n"
+            await message_sent.wait()
+            yield (
+                b'data: {"type":"agent.message","content":[{"type":"text","text":"done"}]}\n\n'
+                b'data: {"type":"session.status_idle"}\n\n'
+            )
+
+    respx.get(f"{BASE}/sessions/session-1/events/stream").mock(
+        return_value=httpx.Response(
+            200,
+            stream=DelayedEventStream(),
+            headers={"Content-Type": "text/event-stream"},
+        )
+    )
+
+    def events_responder(request):
+        message_sent.set()
+        return httpx.Response(200, json={"data": []})
+
+    events_route = respx.post(f"{BASE}/sessions/session-1/events").mock(
+        side_effect=events_responder
+    )
+
+    client = _client()
+    result = await client.run("session-1", "hello", 5_000)
+    await client.aclose()
+
+    assert events_route.called
+    assert result.terminal == "idle"
+    assert result.messages == ["done"]
+
+
+@respx.mock
 async def test_run_executes_custom_tool_and_ignores_requires_action_idle():
     body = "\n".join(
         [
+            ": ready",
+            "",
             (
                 'data: {"type":"agent.custom_tool_use","id":"custom-1",'
                 '"name":"memory_get","input":{"category":"facts","key":"owner"}}'
@@ -582,6 +666,27 @@ async def test_run_executes_custom_tool_and_ignores_requires_action_idle():
 
     tool_result = json.loads(events_route.calls[1].request.content)["events"][0]
     assert tool_result["custom_tool_use_id"] == "custom-1"
+
+
+@respx.mock
+async def test_run_does_not_send_message_before_stream_ready():
+    respx.get(f"{BASE}/sessions/session-1/events/stream").mock(
+        return_value=httpx.Response(
+            200,
+            text='data: {"type":"session.status_idle"}\n\n',
+            headers={"Content-Type": "text/event-stream"},
+        )
+    )
+    events_route = respx.post(f"{BASE}/sessions/session-1/events").mock(
+        return_value=httpx.Response(200, json={})
+    )
+
+    client = _client()
+    with pytest.raises(Exception, match="ready"):
+        await client.run("session-1", "你好", 5_000)
+    await client.aclose()
+
+    assert not events_route.called
 
 
 # ---- files & session resources (多模态：上传文件 + 挂载到 Session 文件系统) ----

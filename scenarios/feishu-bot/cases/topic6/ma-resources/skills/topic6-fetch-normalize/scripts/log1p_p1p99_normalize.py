@@ -2,7 +2,6 @@
 """
 log1p_p1p99_normalize.py — Phase B:log1p + P1/P99 标准化
 
-MA 口径 v1(2026-09-24):
   - 基准文件走 /mnt/skills/topic6-fetch-normalize/references/平台热度基准_2026.json
   - --project-dir 支持绝对路径;相对路径以 /workspace 为根
 
@@ -108,7 +107,7 @@ def _project_path(project_dir: str) -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Phase B:log1p+P1/P99 标准化(MA 口径)")
+    parser = argparse.ArgumentParser(description="Phase B:log1p+P1/P99 标准化")
     parser.add_argument("--project-dir", required=True,
                         help="项目目录,绝对路径或相对 /workspace")
     parser.add_argument("--benchmark", default=str(DEFAULT_BENCHMARK),

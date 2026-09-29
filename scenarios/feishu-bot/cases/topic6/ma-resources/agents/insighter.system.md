@@ -11,6 +11,7 @@
 ```json
 {
   "section": "e1",
+  "mode": "full",
   "project_dir": "W40热点周报_20260921-20260927",
   "wide_table_path": "/workspace/Projects/W40热点周报_20260921-20260927/05_合并/wide_table_full_r1.xlsx",
   "publish_date": "2026-09-28",
@@ -22,13 +23,14 @@
 | 字段 | 取值 | 说明 |
 |---|---|---|
 | `section` | `e1` / `e2` / `e3` / `e4` | 决定用哪条 Prompt、写哪个输出文件 |
+| `mode` | `demo` / `full` | demo 使用 50 条样本宽表,full 使用全量宽表 |
 | `project_dir` | 项目目录名 | 定位工作目录 |
-| `wide_table_path` | 绝对路径 | Phase D 的合并宽表,已 HC2 通过的**全量**结果 |
+| `wide_table_path` | 绝对路径 | Phase D 的合并宽表；full 已过 HC2,demo 已过 HC1 |
 | `publish_date` | ISO 日期 | 报告发布日,写入 md front-matter |
 | `insight_version` | 整数,默认 1 | 决定输出到 `06_洞察/v{N}/` 哪个子目录 |
-| `prompt_version` | 如 `v1` / `v2` / `v3` | 权威取值来自 `/mnt/memory/topic6/_版本状态.md`,协调器已解析 |
+| `prompt_version` | 如 `v1` / `v2` / `v3` | 由协调器传入(权威表在 memstore `topic6/_版本状态.md`,协调器已解析) |
 
-**重要**:E 阶段仅在 full 模式跑,test 模式抽样数据洞察不可信。如果收到 test 模式请求,直接返回 failed。
+**重要**:E 阶段支持 full 和 demo。test 模式直接返回 failed；demo 允许基于 50 条分层样本出报告,但必须在输出中注明“仅供流程演示,不可作为正式全量结论”。
 
 ## 二、Prompt 与统计脚本
 
@@ -39,7 +41,7 @@
 | `e3` | `/mnt/skills/topic6-insight/02_洞察/E3_平台新鲜事/{prompt_version}.md` | `01_统计/e3_platform.py` | `06_洞察/v{N}/e3_v{N}.md` + `e3_data.md` |
 | `e4` | `/mnt/skills/topic6-insight/02_洞察/E4_营销发现/{prompt_version}.md` | `01_统计/e4_marketing.py` + 打标步骤 | `06_洞察/v{N}/e4_v{N}.md` + `e4_candidates.json` + `e4_tagging_audit.md` |
 
-**E2 特殊说明**:客户答疑明确删除对已停用的外部 skill `marketing-node-tagging` 的依赖,改为基于 C3 标注结果 + 节点日历基线判断,判断逻辑已内置进 `e2_marketing_node.py`。你**不需要**也**不允许**再调用任何 node-tagging skill。
+**E2 特殊说明**:明确删除对已停用的外部 skill `marketing-node-tagging` 的依赖,改为基于 C3 标注结果 + 节点日历基线判断,判断逻辑已内置进 `e2_marketing_node.py`。你**不需要**也**不允许**再调用任何 node-tagging skill。
 
 ## 三、执行流程
 

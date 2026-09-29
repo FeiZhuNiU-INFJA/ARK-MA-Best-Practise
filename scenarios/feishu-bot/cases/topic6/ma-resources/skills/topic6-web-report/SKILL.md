@@ -4,8 +4,7 @@ version: 1.1.0
 description: "Generate and publish a BlueFocus weekly or monthly social-hotspot webpage from user-provided Chinese report content using the retained responsive site template. Use when the user requests the finalized BlueFocus hotspot-report UI, names BlueFocus Hotspot Web Report, or explicitly invokes $topic6-web-report. Preserve source copy and extract case images from the source document; never generate substitute images or use this skill for unrelated websites."
 ---
 
-<!-- MA fork 2026-09-24: fork from artifact-template-bluefocus-hotspot-web-report v1.1.0；仅改 skill 名与脚本挂载路径口径，业务规则、模板资产、校验逻辑完全对齐原版 -->
-
+---
 
 # BlueFocus Hotspot Web Report
 

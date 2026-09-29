@@ -441,7 +441,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         <p>${gwLink('gateway/pipeline_store.py')}</p>
         <h3>为什么用 SQLite</h3>
         <ul>
-          <li>MA 侧沙箱状态由平台自动持久化,但<b>飞书 chat_id ↔ MA session_id 映射</b>要 gateway 自己维护</li>
+          <li>沙箱状态由平台自动持久化,但<b>飞书 chat_id ↔ MA session_id 映射</b>要 gateway 自己维护</li>
           <li>用户手打 <code>HC1 pass</code> 时,先查 store 找 job → 找 session_id → resume</li>
           <li>断线重连也靠 store 里的 job.status = pending / waiting_hc / done</li>
         </ul>
@@ -484,7 +484,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
     COORD: {
       title: "topic6-coordinator · MA 主协调器",
       tags: ['<span class="tag agent">MA Agent</span>'],
-      desc: "整个 pipeline 的大脑。承载客户 topic6 原始 Producer 主线 14 步时序 + 子 Agent 委派。",
+      desc: "整个 pipeline 的大脑。承载 topic6 主线 14 步时序 + 子 Agent 委派。",
       content: `
         <h3>Agent 定义</h3>
         <p>
@@ -497,7 +497,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         <ul>
           <li><b>Custom Skills(5 个,全挂载)</b>:${maLink('skills/topic6-fetch-normalize/', 'topic6-fetch-normalize')} · ${maLink('skills/topic6-annotation/', 'topic6-annotation')} · ${maLink('skills/topic6-event-registry/', 'topic6-event-registry')} · ${maLink('skills/topic6-insight/', 'topic6-insight')} · ${maLink('skills/topic6-web-report/', 'topic6-web-report')}</li>
           <li><b>MCP Server</b>:${maLink('agents/coordinator.json', 'coordinator.json#mcp_servers')} 里注入 <code>hot-topics</code>,URL 由 <code>HOT_TOPICS_MCP_URL</code> 环境变量渲染 · <code>always_allow</code> 授权模式</li>
-          <li><b>MCP Toolset</b>:coordinator.json 的 <code>mcp_toolset</code> 段声明 <code>mcp_server_name: hot-topics</code>,把 MCP 工具直接挂到 Agent 工具集</li>
+          <li><b>MCP Toolset</b>:coordinator.json 的 <code>tools[]</code> 中以 <code>type: mcp_toolset</code> 声明 <code>mcp_server_name: hot-topics</code>,把 MCP 工具直接挂到 Agent 工具集</li>
           <li><b>原生工具</b>:<code>bash</code> / <code>read</code> / <code>write</code> / <code>edit</code>(顺序阶段直接跑脚本)</li>
           <li><b>Memory Store</b>:${maLink('memory-store.json')} 挂载 memory/topic6/{MEMORY, _版本状态, 错误案例库}.md 到 <code>/mnt/memory/topic6/</code>(<b>只读</b>)</li>
           <li><b>Multiagent 拓扑</b>:coordinator.json 的 <code>multiagent.type=coordinator</code>,可委派 annotator / insighter / self</li>
@@ -609,14 +609,14 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
     S2: {
       title: "Skill · topic6-annotation",
       tags: ['<span class="tag skill">Custom Skill</span>'],
-      desc: "客户核心资产,承载 C0/C3/R1~R5 七路标注 + 筛选/合并/成本记录。",
+      desc: "标注核心资产,承载 C0/C3/R1~R5 七路标注 + 筛选/合并/成本记录。",
       content: `
         <h3>Skill 目录</h3>
         <p>${maLink('skills/topic6-annotation/SKILL.md')} → 沙箱 <code>/mnt/skills/topic6-annotation/</code></p>
         <h3>Prompt 目录(7 类,各版本存 v{N}.md)</h3>
         <ul>
           <li>${maLink('skills/topic6-annotation/prompts/C0_基础事实/v1.md')}</li>
-          <li>${maLink('skills/topic6-annotation/prompts/节点标注/v1.md')}(C3)</li>
+          <li>${maLink('skills/topic6-annotation/prompts/节点标注/v7.md')}(C3)</li>
           <li>${maLink('skills/topic6-annotation/prompts/R1_平台借势/v1.md')} · R2_商业合作 · R3_风险预警 · R4_创意借鉴 · R5_消费者行为</li>
         </ul>
         <h3>核心脚本</h3>
@@ -641,7 +641,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
     S3: {
       title: "Skill · topic6-event-registry",
       tags: ['<span class="tag skill">Custom Skill</span>'],
-      desc: "客户外部 skill v2.1.0 的复刻,Phase C 第二批 C2 事件合并(20 个脚本流水线)。",
+      desc: "外部 skill v2.1.0 的复刻,Phase C 第二批 C2 事件合并(20 个脚本流水线)。",
       content: `
         <h3>Skill 目录</h3>
         <p>${maLink('skills/topic6-event-registry/SKILL.md')} → 沙箱 <code>/mnt/skills/topic6-event-registry/</code></p>
@@ -691,7 +691,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
     S5: {
       title: "Skill · topic6-web-report",
       tags: ['<span class="tag skill">Custom Skill</span>'],
-      desc: "客户外部 skill v1.1.0 的复刻,Phase G 把飞书文档转成自包含 index.html。",
+      desc: "外部 skill v1.1.0 的复刻,Phase G 把飞书文档转成自包含 index.html。",
       content: `
         <h3>Skill 目录</h3>
         <p>${maLink('skills/topic6-web-report/SKILL.md')} → 沙箱 <code>/mnt/skills/topic6-web-report/</code></p>
@@ -747,7 +747,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         <h3>接入方式</h3>
         <ul>
           <li>URL 由环境变量 <code>HOT_TOPICS_MCP_URL</code> 提供</li>
-          <li>${maLink('agents/coordinator.json', 'coordinator.json')} 的 <code>mcp_servers</code> + <code>mcp_toolset</code> 两段共同注入</li>
+          <li>${maLink('agents/coordinator.json', 'coordinator.json')} 的 <code>mcp_servers[]</code> 与 <code>tools[]</code> 中的 <code>mcp_toolset</code> 条目共同注入</li>
           <li>${maLink('create_all.sh')} 在注册 coordinator 前<b>必须校验并渲染 <code>${'$'}{HOT_TOPICS_MCP_URL}</code></b> 占位符</li>
           <li>授权模式 <code>always_allow</code> — coordinator 调 MCP 工具不需要每次确认</li>
         </ul>

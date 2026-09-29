@@ -2,10 +2,9 @@
 """
 fetch_hot_topics.py — Phase A:MCP 取数 + 清洗
 
-MA 口径 v1(2026-09-24):
-  - MCP 端点走 MA 平台注入的 hot-topics MCP,API Key 从环境变量读取
+  - MCP 端点走平台注入的 hot-topics MCP,API Key 从环境变量读取
   - --project-dir 支持绝对路径(如 /workspace/Projects/W35_...);相对路径以 /workspace 为根
-  - 删除 _snapshot_prompts(MA 环境 prompts 挂载在 /mnt/skills/topic6-annotation/prompts/)
+  - prompts 由 skill 挂载在 /mnt/skills/topic6-annotation/prompts/ 提供,无需 snapshot
 
 用法:
     python fetch_hot_topics.py \\
@@ -16,7 +15,7 @@ MA 口径 v1(2026-09-24):
     {project_dir}/01_原始数据/hot_topics_skill_raw.json  原始 JSON
     {project_dir}/01_原始数据/hot_topics_raw.xlsx        清洗结果
 
-API Key 优先级(MA 平台自动注入):
+API Key 优先级(平台自动注入):
     BLUEAI_API_KEY / HOT_TOPICS_API_KEY / ARK_API_KEY
 """
 
@@ -63,7 +62,7 @@ def get_api_key() -> str:
     if key:
         return key
     print(
-        "[fetch] 未找到 API Key。请在 MA 平台注入 BLUEAI_API_KEY / HOT_TOPICS_API_KEY / ARK_API_KEY 之一。",
+        "[fetch] 未找到 API Key。请在环境变量中注入 BLUEAI_API_KEY / HOT_TOPICS_API_KEY / ARK_API_KEY 之一。",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -224,7 +223,7 @@ def _project_path(project_dir: str) -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Phase A:MCP 取数 + 清洗(MA 口径)")
+    parser = argparse.ArgumentParser(description="Phase A:MCP 取数 + 清洗")
     parser.add_argument("--start", required=True, help="取数起始日期 YYYY-MM-DD")
     parser.add_argument("--end", required=True, help="取数截止日期 YYYY-MM-DD")
     parser.add_argument("--project-dir", required=True,

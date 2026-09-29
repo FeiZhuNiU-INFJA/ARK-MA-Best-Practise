@@ -13,20 +13,22 @@
     {"type": "custom", "skill_id": "${skill_id.topic6-web-report}", "version": "${version.topic6-web-report}"}
   ],
   "tools": [
-    {"type": "agent_toolset_20260701"}
+    {"type": "agent_toolset_20260701"},
+    {
+      "type": "mcp_toolset",
+      "mcp_server_name": "hot-topics",
+      "default_config": {
+        "permission_policy": {
+          "type": "always_allow"
+        }
+      }
+    }
   ],
   "mcp_servers": [
     {
       "type": "url",
       "name": "hot-topics",
       "url": "${HOT_TOPICS_MCP_URL}"
-    }
-  ],
-  "mcp_toolset": [
-    {
-      "type": "mcp_toolset",
-      "mcp_server_name": "hot-topics",
-      "default_config": "always_allow"
     }
   ],
   "multiagent": {

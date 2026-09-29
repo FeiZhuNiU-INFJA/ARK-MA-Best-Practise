@@ -24,11 +24,11 @@
 | 字段 | 取值 | 说明 |
 |---|---|---|
 | `task` | `c0` / `c3` / `r1` / `r2` / `r3` / `r4` / `r5` | 决定用哪条 Prompt、取哪些列、写什么字段 |
-| `mode` | `test` / `full` | 只影响文案回显,不改变标注逻辑 |
+| `mode` | `test` / `demo` / `full` | 只影响文案回显,不改变标注逻辑 |
 | `project_dir` | 形如 `W{周次}热点周报_{起日}-{止日}` | 项目目录名 |
 | `input_path` | 绝对路径 | 待标注的 xlsx,行数 = 需要标注的样本量 |
-| `output_path` | 绝对路径 | 单行 JSONL,一行一条,顺序必须与输入 row_id 对齐 |
-| `prompt_version` | 形如 `v4` / `v7` | 权威取值来自 `/mnt/memory/topic6/_版本状态.md`,协调器已解析好 |
+| `output_path` | 兼容字段 | 脚本按 task/run_id 写固定目录,不要把本字段传给 CLI |
+| `prompt_version` | 形如 `v4` / `v7` | 由协调器传入(权威表在 memstore `topic6/_版本状态.md`,协调器已解析) |
 
 ## 二、Prompt 与列映射
 
@@ -46,25 +46,28 @@
 
 ## 三、执行流程
 
-1. **读 Prompt 全文**:`cat` 出 Prompt 文件到当前上下文,严格按 Prompt 的输出 JSON schema 执行
-2. **调用 DataHub 批量标注**:执行
+1. **直接调用 DataHub 批量标注**:Prompt 由脚本读取并上传,不要先 `cat` 到 Agent 上下文
    ```bash
    python /mnt/skills/topic6-annotation/scripts/datahub_annotate.py \
      --task {task} \
      --prompt-file /mnt/skills/topic6-annotation/prompts/{task_dir}/{prompt_version}.md \
      --input {input_path} \
-     --output {output_path} \
-     --project-dir /workspace/Projects/{project_dir}
+     --project-dir /workspace/Projects/{project_dir} \
+     --model-id Doubao-Seed-Evolving \
+     --run-id {整数轮次}
    ```
-3. **JSON 有效率自检**:标注完后统计 output_path 里可解析 JSON 的行数占比
+2. **读取 completion_meta 自检**:脚本结束后读取对应 `{task}_completion_meta.json`
    - 有效率 ≥ 90% → 继续
    - 有效率 < 90% → 输出 `{"status":"partial","task":..,"invalid_ratio":..,"invalid_row_ids":[..]}` 交回协调器,让协调器决定是否 `retry_missing.py`
-4. **成本记录**:
+3. **成本记录**:使用 completion_meta 中的实际 model/platform/token/total_consume,不要套用 MA Agent 模型价格
    ```bash
    python /mnt/skills/topic6-annotation/tool/cost-tracker/cost_tracker.py \
      --project-dir "/workspace/Projects/{project_dir}" \
-     --phase C --task "{task}" --tool datahub --model doubao-seed-2-1-pro-260628 \
-     --input-tokens {N} --output-tokens {N}
+     append --phase C --task "{task}" --round {整数轮次} --mode {mode} \
+     --model-id {completion_meta.model_id} --platform {completion_meta.platform} \
+     --input-tokens {completion_meta.input_tokens} \
+     --output-tokens {completion_meta.output_tokens} \
+     --raw-cost {completion_meta.total_consume} --currency CNY
    ```
 
 ## 四、输出契约(交回协调器)
@@ -99,5 +102,6 @@
 - 你**只**跑一路,不要主动调 filter / merge / retry / cost 汇总
 - 严禁修改 `input_path` 里的数据,只读
 - 严禁写入 `/workspace/Projects/{project_dir}/` 之外的路径(除了 `/tmp` 临时文件)
-- 出错立即 `end_turn` 交回协调器,不要自作主张重试或降级
+- 普通错误立即 `end_turn` 交回协调器,不要自作主张重试或降级
+- 唯一例外是 `invalid model_id`:从脚本打印的 `/api/v1/model/list` 结果中选择大小写完全一致的同名候选,修正 `--model-id` 后最多重试 1 次;仍失败则立即回报两次 stderr
 - 不要输出多段 `agent.message.delta` 长文本回显,一次 JSON 结果即可

@@ -13,7 +13,13 @@ from arkagent.store import GatewayStore
 
 from pipeline_store import PipelineStore
 from topic6_hitl import Topic6Hitl, Topic6HitlDeps
-from topic6_runner import Topic6Config as RunnerConfig, Topic6Runner, Topic6RunnerError, parse_trigger
+from topic6_runner import (
+    Topic6Config as RunnerConfig,
+    Topic6Runner,
+    Topic6RunnerError,
+    normalize_user_text,
+    parse_trigger,
+)
 
 from config import Topic6Config
 
@@ -63,7 +69,7 @@ class Topic6Gateway:
                 self._store.complete_event(message.event_id, "completed")
                 return
 
-            text = message.text.strip()
+            text = normalize_user_text(message.text, message.mentioned_bot)
 
             if text == "/new":
                 cancelled = await self._runner.cancel_active_job(
@@ -74,13 +80,22 @@ class Topic6Gateway:
                 if cancelled is None:
                     await self._reply(
                         message.chat_id,
-                        "当前会话没有活跃任务,可直接发「热点周报 test」或「热点周报 full」开新一轮。",
+                        "[/new] 收到。当前会话没有活跃任务,可发送「热点周报 test」「热点周报 demo」或「热点周报 full」开新一轮。",
                     )
                 else:
                     await self._reply(
                         message.chat_id,
-                        f"已取消当前任务(job_id={cancelled.job_id})。可再发触发词开新一轮。",
+                        f"[/new] 已取消当前任务 job_id={cancelled.job_id}(状态置为 failed:cancelled_by_user)。可再发触发词开新一轮。",
                     )
+                self._store.complete_event(message.event_id, "completed")
+                return
+
+            if await self._hitl.handle_remark_message(
+                chat_id=message.chat_id,
+                thread_id=message.thread_id,
+                user_open_id=message.user_open_id,
+                text=text,
+            ):
                 self._store.complete_event(message.event_id, "completed")
                 return
 
@@ -88,7 +103,7 @@ class Topic6Gateway:
             if mode is None:
                 await self._reply(
                     message.chat_id,
-                    "当前 Bot 仅启用 topic6 场景。发送「热点周报 test」(冒烟)或「热点周报 full」(全量)触发;发送 /new 可取消当前任务。",
+                    "当前 Bot 仅启用 topic6 场景。发送「热点周报 test」(500 条标注校准)、「热点周报 demo」(50 条出报告)或「热点周报 full」(全量)触发;发送 /new 可取消当前任务。",
                 )
                 self._store.complete_event(message.event_id, "completed")
                 return
@@ -99,7 +114,7 @@ class Topic6Gateway:
                     thread_id=message.thread_id,
                     user_open_id=message.user_open_id,
                     mode=mode,
-                    user_message=message.text,
+                    user_message=text,
                 )
             except Topic6RunnerError as error:
                 await self._reply(message.chat_id, str(error))

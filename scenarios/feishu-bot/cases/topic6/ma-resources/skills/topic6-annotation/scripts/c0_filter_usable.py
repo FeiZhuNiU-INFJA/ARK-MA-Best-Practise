@@ -5,7 +5,7 @@ c0_filter_usable.py — 从 phase1_merged 筛选"营销可用"子集供 R1~R5 �
 MA 精简版:
   1. 去掉 --force-accept-unresolved / --reason 越权分支
      unresolved_ratio > 5% 直接 raise, 由 MA 协调器决定是否重新委派子 Agent 补标注
-  2. 默认保留策略保持不变: is_usable | c0_parse_error | missing_c0
+  2. R1~R5 只处理明确判定为"是"的行；解析失败/缺失行不再放大为五路无效调用
   3. 输出保留 phase1_merged 全部列 (供 R1~R5 上传时占位符匹配)
 
 CLI:
@@ -55,7 +55,7 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
     is_usable = df["是否营销可用"] == "是"
     parse_error = df.get("c0_parse_error", pd.Series(0, index=df.index)).fillna(0).astype(int) == 1
     missing_c0 = df["是否营销可用"].isna()
-    keep_mask = is_usable | parse_error | missing_c0
+    keep_mask = is_usable
 
     usable_count = int(is_usable.sum())
     parse_error_count = int((parse_error & ~is_usable).sum())
@@ -64,8 +64,8 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
     kept_count = int(keep_mask.sum())
 
     print(f"[filter] 明确可用: {usable_count}")
-    print(f"[filter] C0 解析失败但保留: {parse_error_count}")
-    print(f"[filter] C0 缺失但保留: {missing_count}")
+    print(f"[filter] C0 解析失败并排除: {parse_error_count}")
+    print(f"[filter] C0 缺失并排除: {missing_count}")
     print(f"[filter] 明确不可用 (排除): {excluded_count}")
     print(f"[filter] 保留合计: {kept_count}/{total} ({kept_count/total:.1%})")
 
@@ -98,8 +98,8 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
     return {
         "mode": mode, "run_id": run_id, "total_rows": total,
         "usable_count": usable_count,
-        "parse_error_included": parse_error_count,
-        "missing_included": missing_count,
+        "parse_error_excluded": parse_error_count,
+        "missing_excluded": missing_count,
         "excluded_count": excluded_count,
         "kept_count": kept_count,
         "kept_ratio": round(kept_count / total, 4),
@@ -112,7 +112,7 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--project-dir", required=True)
-    p.add_argument("--mode", default="test", choices=["test", "full"])
+    p.add_argument("--mode", default="test", choices=["test", "demo", "full"])
     p.add_argument("--run-id", type=int, required=True)
     args = p.parse_args()
     try:

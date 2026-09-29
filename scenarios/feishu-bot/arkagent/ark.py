@@ -673,9 +673,18 @@ class ArkClient:
                         progress = event_progress(event)
                         if progress and on_progress:
                             await on_progress(progress)
-                        if event.get("type") in ("session.error", "session.status_failed"):
+                        event_type = event.get("type")
+                        if event_type in (
+                            "session.error",
+                            "session.status_failed",
+                            "session.status_terminated",
+                        ):
                             sw.mark("ark.run.to_terminal", session=session_id, terminal="failed")
-                            error = event_error(event)
+                            error = event_error(event) or (
+                                "session_terminated"
+                                if event_type == "session.status_terminated"
+                                else "session_failed"
+                            )
                             # 把方舟给的失败原因落到日志：否则上层只看到「执行失败」，排查得手动拉 events。
                             log.warning(
                                 "方舟 Session 执行失败 session=%s：%s",
@@ -727,6 +736,9 @@ class _EventStream:
         self._session_id = session_id
         self._ctx = None
         self._response: Optional[httpx.Response] = None
+        self._chunks: Optional[AsyncIterator[str]] = None
+        self._buffer = ""
+        self._pending_events: list[dict] = []
 
     async def __aenter__(self) -> AsyncIterator[dict]:
         url = f"{self._client.base_url}/sessions/{quote(self._session_id, safe='')}/events/stream"
@@ -749,6 +761,8 @@ class _EventStream:
                 status_code=self._response.status_code,
                 body=body,
             )
+        self._chunks = self._response.aiter_text()
+        await self._wait_until_ready()
         return self._iterate()
 
     async def __aexit__(self, *exc) -> None:
@@ -756,16 +770,48 @@ class _EventStream:
             await self._ctx.__aexit__(*exc)
 
     async def _iterate(self) -> AsyncIterator[dict]:
-        buffer = ""
-        async for chunk in self._response.aiter_text():
-            buffer += chunk.replace("\r\n", "\n")
-            events, buffer = drain_event_buffer(buffer)
+        for event in self._pending_events:
+            yield event
+        self._pending_events.clear()
+
+        events, self._buffer = drain_event_buffer(self._buffer)
+        for event in events:
+            yield event
+
+        assert self._chunks is not None
+        async for chunk in self._chunks:
+            self._buffer += chunk.replace("\r\n", "\n").replace("\r", "\n")
+            events, self._buffer = drain_event_buffer(self._buffer)
             for event in events:
                 yield event
-        tail = buffer.strip()
+        tail = self._buffer.strip()
         if tail:
             for event in parse_event_block(tail):
                 yield event
+
+    async def _wait_until_ready(self) -> None:
+        """Consume the SSE ready comment before callers are allowed to send events."""
+        assert self._chunks is not None
+        async for chunk in self._chunks:
+            self._buffer += chunk.replace("\r\n", "\n").replace("\r", "\n")
+            # MA may flush ``: ready\n`` without the SSE block's trailing blank
+            # line. Waiting only for ``\n\n`` would deadlock: the caller cannot
+            # POST its first message, so no subsequent event arrives.
+            offset = 0
+            for line in self._buffer.splitlines(keepends=True):
+                next_offset = offset + len(line)
+                if line.endswith("\n") and line.strip() == ": ready":
+                    self._buffer = self._buffer[:offset] + self._buffer[next_offset:]
+                    return
+                offset = next_offset
+            while "\n\n" in self._buffer:
+                block, self._buffer = self._buffer.split("\n\n", 1)
+                lines = [line.strip() for line in block.split("\n")]
+                ready = any(line == ": ready" for line in lines)
+                self._pending_events.extend(parse_event_block(block))
+                if ready:
+                    return
+        raise ArkError("方舟事件流在发送 ready 信号前已关闭")
 
 
 # ---- SSE helpers（与原 TS 等价，模块级便于单测）----
@@ -800,10 +846,25 @@ def drain_event_buffer(input_text: str) -> tuple[list[dict], str]:
     return events, rest
 
 
+# 结果内容按行数判定"异常"：空结果或过长（Agent 一次拿回一堆条目往往说明检索没收敛）都值得
+# 让用户看一眼；正常范围（1~RESULT_ROWS_ABNORMAL 行）不上卡，避免刷屏。
+RESULT_ROWS_ABNORMAL = 30
+
+
 def event_progress(event: dict) -> Optional[str]:
-    if event.get("type") == "agent.tool_result" and event.get("is_error") is True:
-        return "工具执行未成功，Agent 正在尝试恢复"
-    if event.get("type") != "agent.tool_use":
+    etype = event.get("type")
+    if etype == "agent.tool_result":
+        if event.get("is_error") is True:
+            return "工具执行未成功，Agent 正在尝试恢复"
+        rows = _count_result_rows(event_text(event))
+        if rows == 0:
+            return "↳ 结果：空"
+        if rows >= RESULT_ROWS_ABNORMAL:
+            return f"↳ 结果：{rows} 行（偏多）"
+        return None
+    if etype == "agent.message":
+        return _summarize_agent_message(event_text(event))
+    if etype != "agent.tool_use":
         return None
     name = event.get("name") if isinstance(event.get("name"), str) else "未知工具"
     payload_input = event.get("input") if isinstance(event.get("input"), dict) else {}
@@ -813,6 +874,23 @@ def event_progress(event: dict) -> Optional[str]:
     if description:
         return f"正在执行：{description[:120]}"
     return f"正在调用工具：{str(name)[:80]}"
+
+
+def _count_result_rows(text: str) -> int:
+    stripped = text.strip()
+    if not stripped:
+        return 0
+    return stripped.count("\n") + 1
+
+
+def _summarize_agent_message(body: str) -> Optional[str]:
+    # 跳过 `[phase] X` 标记行（phase 切换 runner 另有强制刷卡逻辑，不重复展示）。
+    for raw in body.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("[phase]"):
+            continue
+        return f"Agent 说：{line[:80]}"
+    return None
 
 
 def event_custom_tool_call(event: dict) -> Optional[dict]:
@@ -858,7 +936,12 @@ def result_from_events(events: list[dict], started_at: int) -> Optional[RunResul
         return parsed is not None and parsed >= started_at
 
     current = [event for event in events if _after(event)]
-    failed_events = [event for event in current if event.get("type") in ("session.error", "session.status_failed")]
+    failed_events = [
+        event
+        for event in current
+        if event.get("type")
+        in ("session.error", "session.status_failed", "session.status_terminated")
+    ]
     failed = bool(failed_events)
     idle = any(
         event.get("type") == "session.status_idle"
@@ -878,7 +961,13 @@ def result_from_events(events: list[dict], started_at: int) -> Optional[RunResul
             or event_user_authorization_required(event, tool_domains)
         )
     # 与实时路径一致：失败时把方舟给的错误摘要一并带出（取第一条失败事件的 error）。
-    error = event_error(failed_events[0]) if failed_events else ""
+    error = ""
+    if failed_events:
+        error = event_error(failed_events[0]) or (
+            "session_terminated"
+            if failed_events[0].get("type") == "session.status_terminated"
+            else "session_failed"
+        )
     return RunResult(
         terminal="failed" if failed else "idle",
         messages=messages,

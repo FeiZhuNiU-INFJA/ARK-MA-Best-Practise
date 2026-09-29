@@ -34,6 +34,7 @@ STATUS_RUNNING = "running"
 STATUS_WAIT_HC = "wait_hc"
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
+STATUS_STOPPED = "stopped"
 
 # HC 卡点标识。
 HC_KINDS = ("HC1", "HC2", "HC3")
@@ -72,7 +73,7 @@ class PipelineJob:
     thread_id: str
     user_open_id: str
     ma_session_id: str
-    mode: str  # test | full
+    mode: str  # test | demo | full
     project_dir: str
     current_phase: str = "A"  # A / B / C1 / C2 / D / HC1 / FULL / HC2 / E / F / HC3 / G / H
     status: str = STATUS_RUNNING
@@ -318,6 +319,15 @@ class PipelineStore:
                 "UPDATE pipeline_jobs SET status = ?, finished_at = ?, updated_at = ?, "
                 "last_error = ? WHERE job_id = ?",
                 (STATUS_FAILED, now, now, error, job_id),
+            )
+
+    def mark_stopped(self, job_id: str, reason: str = "user_interrupt") -> None:
+        now = _now()
+        with self._lock:
+            self._conn.execute(
+                "UPDATE pipeline_jobs SET status = ?, finished_at = ?, updated_at = ?, "
+                "last_error = ? WHERE job_id = ?",
+                (STATUS_STOPPED, now, now, reason, job_id),
             )
 
     def set_progress_card_message_id(self, job_id: str, message_id: str) -> None:

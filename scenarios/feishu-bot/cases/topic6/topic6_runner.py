@@ -35,6 +35,7 @@ from pipeline_store import (
     STATUS_DONE,
     STATUS_FAILED,
     STATUS_RUNNING,
+    STATUS_STOPPED,
     STATUS_WAIT_HC,
     PipelineJob,
     PipelineStore,
@@ -48,14 +49,23 @@ TRIGGER_KEYWORDS = ("热点报告", "热点周报")
 
 # 模式关键词(用户消息里带就用,不带默认 test)。
 MODE_TEST_KEYWORDS = ("test", "小样本", "试跑")
+MODE_DEMO_KEYWORDS = ("demo", "演示")
 MODE_FULL_KEYWORDS = ("full", "全量", "正式")
 
 # 进度卡片 patch 节流:同一卡片至少间隔多少秒才发一次 patch,避免飞书频控。
 PROGRESS_MIN_INTERVAL_SEC = 4.0
 
 
+def normalize_user_text(text: str, mentioned_bot: bool = False) -> str:
+    """群聊入站先去掉开头的 @机器人，避免机器人名称参与命令/触发词判断。"""
+    normalized = text.strip()
+    if mentioned_bot:
+        normalized = re.sub(r"^(?:@\S+\s*)+", "", normalized).strip()
+    return normalized
+
+
 def parse_trigger(text: str) -> Optional[str]:
-    """返回 mode(test|full),不是触发消息返回 None。"""
+    """返回 mode(test|demo|full),不是触发消息返回 None。"""
     if not text:
         return None
     lower = text.strip().lower()
@@ -63,13 +73,31 @@ def parse_trigger(text: str) -> Optional[str]:
         return None
     if any(kw in lower for kw in MODE_FULL_KEYWORDS):
         return "full"
+    if any(kw in lower for kw in MODE_DEMO_KEYWORDS):
+        return "demo"
     return "test"
 
 
 # ---- 事件解析 --------------------------------------------------------------
 
 
-_HC_JSON_RE = re.compile(r"\{[^{}]*\"hc\"\s*:\s*\"(HC[123])\"[^{}]*\}", re.S)
+# 兜底"文本意图检测"用:如果 Agent 违约(说要输出 HC JSON 但没真输出),
+# 只要正文出现 HC 关键词 + 明确的"等确认"意图,就伪造一个占位 payload,
+# 免得 pipeline 被吞掉。关键词覆盖 coordinator.system.md 里禁止的元描述表达。
+_HC_INTENT_KEYWORDS = (
+    "等用户",
+    "等你审",
+    "请审核",
+    "请点击卡片",
+    "等待用户",
+    "等待确认",
+    "点击卡片确认",
+    "确认后继续",
+    "现在输出",
+    "接下来输出",
+    "输出结构化 JSON",
+    "输出 HC",
+)
 
 
 def extract_hc_payload(text: str) -> Optional[dict]:
@@ -79,26 +107,57 @@ def extract_hc_payload(text: str) -> Optional[dict]:
 
         {"hc": "HC1", "mode": "test", "project_dir": "...", ...}
 
-    正文中允许穿插其它文本,但 JSON 块本身必须完整可解析。为了容错,先用正则找到
-    第一个含 ``"hc": "HCx"`` 的花括号块,再交给 json.loads;失败返回 None,由上层
-    视为普通完成事件。
+    正文中允许穿插其它文本,但 JSON 块本身必须完整可解析。逐个尝试正文中的 ``{``
+    起点并交给 ``JSONDecoder.raw_decode``，从而正确处理嵌套对象；找不到合法 HC
+    对象时返回 None,由上层视为普通完成事件。
     """
     if not text:
         return None
-    match = _HC_JSON_RE.search(text)
-    if not match:
+    decoder = json.JSONDecoder()
+    payload: Optional[dict] = None
+    for start in (match.start() for match in re.finditer(r"\{", text)):
+        try:
+            value, _ = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and value.get("hc") in HC_KINDS:
+            payload = value
+            break
+    return payload
+
+
+def detect_hc_intent(text: str) -> Optional[str]:
+    """兜底:Agent 违约时,从文本里嗅出它**想**触发的 HC 类型。
+
+    coordinator.system.md 严禁"现在输出 HC1..." 之类的元描述——但方舟 doubao 模型
+    在长上下文/多工具后偶发违约,只在文本里"讲"要输出 JSON、却没真输出。gateway
+    如果只认严格 JSON,就会把这一轮当普通 idle 收工,导致 HITL 卡片不发、用户
+    看不到审批入口、pipeline 静默停滞在 A phase(见 job_1f05e24cccdc 场景)。
+
+    检测规则:文本同时包含 HC1/HC2/HC3 之一 **和** 至少一个意图关键词(等用户 /
+    等你审 / 请审核 / 点击卡片 等),就认为 Agent 在**表达**要触发 HC 但未落 JSON,
+    返回它想触发的 HC 类型;调用方用一个空 payload 兜住,照走 mark_wait_hc + 发卡片。
+    没匹配到返回 None,保留原有"当普通完成"路径。
+    """
+    if not text:
         return None
-    raw = match.group(0)
-    try:
-        value = json.loads(raw)
-    except (TypeError, ValueError, json.JSONDecodeError):
+    hc_kind: Optional[str] = None
+    for kind in HC_KINDS:
+        if kind in text:
+            hc_kind = kind
+            break
+    if hc_kind is None:
         return None
-    if not isinstance(value, dict):
+    if not any(kw in text for kw in _HC_INTENT_KEYWORDS):
         return None
-    hc_kind = value.get("hc")
-    if hc_kind not in HC_KINDS:
-        return None
-    return value
+    return hc_kind
+
+
+def validate_hc_payload(payload: dict) -> Optional[str]:
+    """返回 HC payload 的契约错误；合法时返回 None。"""
+    if payload.get("hc") == "HC3" and not str(payload.get("feishu_doc_url") or "").strip():
+        return "HC3 缺少 feishu_doc_url：Phase F 飞书发布未完成"
+    return None
 
 
 # ---- Runner ----------------------------------------------------------------
@@ -110,8 +169,7 @@ class Topic6Config:
 
     coordinator_agent_id: str
     environment_id: str
-    memory_store_id: str = ""  # 挂到 /mnt/memory/;为空则不挂
-    memory_mount_path: str = "/mnt/memory"
+    memory_store_id: str = ""  # 会被平台自动挂到沙箱 /mnt/memory/;为空则不挂
     vault_ids: tuple[str, ...] = ()
     # Session 首次消息发送后,SSE 消费的整体超时(秒)。给足 3.5h 主线 + 富余。
     session_timeout_sec: int = 6 * 3600
@@ -198,14 +256,19 @@ class Topic6Runner:
                 {
                     "type": "memory_store",
                     "memory_store_id": self._config.memory_store_id,
-                    "mount_path": self._config.memory_mount_path,
+                    "access": "read_only",
                 }
             )
+        env_overrides = {"FEISHU_USER_OPEN_ID": user_open_id}
+        if self._config.memory_store_id:
+            # 方舟把每个 memstore 挂在 /mnt/memory/{memstore_id}/ 下(多 store 隔离),
+            # 注入 ID 供 Agent bash 展开路径,例如 cat /mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md
+            env_overrides["TOPIC6_MEMORY_STORE_ID"] = self._config.memory_store_id
         session_id = await self._ark.create_session(
             self._config.coordinator_agent_id,
             self._config.environment_id,
             vault_ids=list(self._config.vault_ids),
-            env_overrides={"FEISHU_USER_OPEN_ID": user_open_id},
+            env_overrides=env_overrides,
             resources=resources,
         )
         # project_dir 由 coordinator 自己创建,这里先占位;pipeline 落库时统一按
@@ -342,9 +405,25 @@ class Topic6Runner:
                 # phase 切换是低频关键事件,强制立即刷,避免用户看到过时 phase。
                 await self._render_and_patch(job_id, status=STATUS_RUNNING, force=phase_changed)
 
+            if etype == "user.interrupt":
+                reason = "用户在方舟后台手动停止了 Session"
+                self._store.mark_stopped(job_id, reason)
+                await self._render_and_patch(
+                    job_id, status=STATUS_STOPPED, error=reason, force=True
+                )
+                return
+
             # 失败终态。
-            if etype in ("session.error", "session.status_failed"):
-                error = event_error(event) or "session_failed"
+            if etype in (
+                "session.error",
+                "session.status_failed",
+                "session.status_terminated",
+            ):
+                error = event_error(event) or (
+                    "session_terminated"
+                    if etype == "session.status_terminated"
+                    else "session_failed"
+                )
                 self._store.mark_failed(job_id, error[:400])
                 await self._render_and_patch(
                     job_id, status=STATUS_FAILED, error=error[:400], force=True
@@ -364,10 +443,46 @@ class Topic6Runner:
             return
         last = collected[-1] if collected else ""
         payload = extract_hc_payload(last)
+        if payload is None:
+            # 兜底:Agent 违约(只在文本里说"要输出 HC JSON"但没真输出),嗅出意图后
+            # 伪造一个占位 payload,防止流程被吞。占位标记 __fallback__=True 让 HC 卡片
+            # 渲染层能提示用户"AI 未输出结构化载荷,请照常审阅原始输出"。
+            intent_hc = detect_hc_intent(last)
+            if intent_hc is not None:
+                log.warning(
+                    "topic6 HC fallback triggered job=%s hc=%s (agent did not emit JSON, using intent detection)",
+                    job_id,
+                    intent_hc,
+                )
+                payload = {
+                    "hc": intent_hc,
+                    "mode": job.mode,
+                    "project_dir": job.project_dir,
+                    "__fallback__": True,
+                    "agent_message_tail": last[-400:],
+                }
         if payload:
             hc_kind = str(payload["hc"])
+            payload_error = validate_hc_payload(payload)
+            if payload_error:
+                log.error(
+                    "topic6 invalid HC payload job=%s hc=%s: %s",
+                    job_id,
+                    hc_kind,
+                    payload_error,
+                )
+                self._store.mark_failed(job_id, payload_error)
+                await self._render_and_patch(
+                    job_id,
+                    status=STATUS_FAILED,
+                    error=payload_error,
+                    force=True,
+                )
+                await self._reply_async_by_job(job_id, f"❌ {payload_error}")
+                return
             event_id = self._store.append_hc_event(job_id, hc_kind, payload)
             self._store.mark_wait_hc(job_id, hc_kind)
+            job = self._store.get_job(job_id) or job
             # 进度卡片切到"等待审核"状态,提示用户到下方 HC 卡片操作。
             await self._render_and_patch(job_id, status=STATUS_WAIT_HC, force=True)
             if self._card_sender is None:
@@ -392,8 +507,15 @@ class Topic6Runner:
                 )
             return
 
-        # 无 HC → 视为最终完成。拿最后一条消息里的链接当 online_url。
+        # 无 HC 时只有最终发布 URL 非空才算完成；否则属于提前结束/人工中断。
         online_url = _extract_first_url(last)
+        if not online_url:
+            reason = "Session 已结束，但未产生 HC 卡点或最终发布 URL"
+            self._store.mark_stopped(job_id, reason)
+            await self._render_and_patch(
+                job_id, status=STATUS_STOPPED, error=reason, force=True
+            )
+            return
         self._store.mark_done(job_id, online_url=online_url)
         await self._render_and_patch(
             job_id, status=STATUS_DONE, online_url=online_url, force=True
@@ -422,7 +544,7 @@ class Topic6Runner:
         if state is None:
             return
         ts = time.strftime("%H:%M:%S", time.localtime())
-        state.push_tool_line(f"`{ts}` · {progress}")
+        state.push_tool_line(f"{ts} · {progress}")
 
     async def _render_and_patch(
         self,

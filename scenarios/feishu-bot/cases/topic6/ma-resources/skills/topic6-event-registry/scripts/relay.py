@@ -3,9 +3,17 @@
 
 所有阶段脚本都走这里，不要各自造轮子。
 凭据只从环境变量读取。鉴权按以下顺序取第一个非空值：
-  BASE_URL：ANTHROPIC_BASE_URL（指向 bmc 中转网关）
-  Key：ANTHROPIC_API_KEY → ANTHROPIC_AUTH_TOKEN
+  BASE_URL：ARK_BASE_URL → OPENAI_BASE_URL（火山方舟 OpenAI 兼容 endpoint）
+  Key：ARK_API_KEY → OPENAI_API_KEY
 Embedding 另需：EMBEDDING_BASE_URL / EMBEDDING_API_KEY（缺省沿用上面两个）
+
+2026-09-28 从 Anthropic 原生 /v1/messages 切到方舟 OpenAI 兼容
+chat/completions。ARK_BASE_URL / OPENAI_BASE_URL 应包含版本前缀（如
+https://ark.cn-beijing.volces.com/api/v3），本模块只追加资源路径。
+system 从顶层字段挪到 messages[0]{role=system}，
+usage 字段从 input_tokens/output_tokens 换成 prompt_tokens/completion_tokens，
+停止原因从 stop_reason 换成 finish_reason。prompt caching 暂不支持，缓存
+相关 usage 字段保留为 0，避免上层聚合逻辑报错。
 """
 
 from __future__ import annotations
@@ -23,8 +31,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Sequence
 
-# 每百万 token 单价，仅用于成本台账的估算。换模型时在这里补。
+# 每百万 token 单价(USD 估算,仅用于成本台账。换模型时在这里补)。
+# doubao-seed-evolving 方舟原价 6/30 RMB per M token,按 7 汇率换算成 USD。
 PRICING = {
+    "doubao-seed-evolving": (0.857, 4.286),
+    # doubao-embedding-vision 文本输入 ¥0.7 / M token，按 7 汇率折算。
+    "doubao-embedding-vision": (0.1, 0.0),
     "claude-opus-4-7": (15.0, 75.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5-20251001": (1.0, 5.0),
@@ -32,9 +44,10 @@ PRICING = {
     "Doubao-embedding": (0.0, 0.0),
 }
 
-# Bedrock 后端对这些模型报 "`temperature` is deprecated for this model"，
-# 带上该字段会 400。这些模型只能跑默认温度。
-NO_TEMPERATURE = ("claude-opus-4-7",)
+
+def api_url(base: str, resource: str) -> str:
+    """把资源路径追加到已含版本前缀的 OpenAI 兼容 API 根地址。"""
+    return f"{base.rstrip('/')}/{resource.lstrip('/')}"
 
 
 def price_of(model: str) -> tuple[float, float]:
@@ -45,19 +58,19 @@ def price_of(model: str) -> tuple[float, float]:
 
 
 class Relay:
-    """Anthropic messages 接口客户端，线程安全累计用量。"""
+    """方舟 OpenAI 兼容 chat/completions 客户端，线程安全累计用量。"""
 
     def __init__(self, model: str, max_tokens: int, system: str,
                  temperature: float = 0.0, timeout: int = 600, retries: int = 3):
-        # Claude Code 环境通常只导出 ANTHROPIC_AUTH_TOKEN（指向 bmc 中转网关），
-        # 不导出 ANTHROPIC_API_KEY。两个都认，省掉每条命令手动加前缀。
-        self.base = (os.environ.get("ANTHROPIC_BASE_URL") or "").rstrip("/")
-        self.key = (os.environ.get("ANTHROPIC_API_KEY")
-                    or os.environ.get("ANTHROPIC_AUTH_TOKEN") or "")
+        self.base = (os.environ.get("ARK_BASE_URL")
+                     or os.environ.get("OPENAI_BASE_URL") or "").rstrip("/")
+        self.key = (os.environ.get("ARK_API_KEY")
+                    or os.environ.get("OPENAI_API_KEY") or "")
         if not self.base or not self.key:
             raise SystemExit(
-                "缺少凭据。需要 ANTHROPIC_BASE_URL，以及 ANTHROPIC_API_KEY 或 "
-                "ANTHROPIC_AUTH_TOKEN 之一。凭据只从环境变量读取，不要写进文件。")
+                "缺少凭据。需要 ARK_BASE_URL 或 OPENAI_BASE_URL，以及 "
+                "ARK_API_KEY 或 OPENAI_API_KEY。凭据只从环境变量读取，"
+                "不要写进文件。")
         self.model = model
         self.max_tokens = max_tokens
         self.system = system
@@ -65,6 +78,7 @@ class Relay:
         self.timeout = timeout
         self.retries = retries
         self.lock = threading.Lock()
+        # cache_read/cache_creation 保留字段以兼容上层聚合(方舟暂无对应能力,恒为 0)
         self.usage = {"input_tokens": 0, "output_tokens": 0,
                       "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
         self.calls = 0
@@ -74,37 +88,42 @@ class Relay:
         payload_body = {
             "model": self.model,
             "max_tokens": cap,
-            "system": [{"type": "text", "text": self.system,
-                        "cache_control": {"type": "ephemeral"}}],
-            "messages": [{"role": "user", "content": user_text + extra}],
+            "temperature": self.temperature,
+            "messages": [
+                {"role": "system", "content": self.system},
+                {"role": "user", "content": user_text + extra},
+            ],
         }
-        if not any(k in self.model for k in NO_TEMPERATURE):
-            payload_body["temperature"] = self.temperature
         body = json.dumps(payload_body, ensure_ascii=False).encode()
         req = urllib.request.Request(
-            self.base + "/v1/messages", data=body,
-            headers={"x-api-key": self.key, "anthropic-version": "2023-06-01",
+            api_url(self.base, "chat/completions"), data=body,
+            headers={"Authorization": f"Bearer {self.key}",
                      "content-type": "application/json"})
-        last = None
         for attempt in range(self.retries):
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     payload = json.load(resp)
                 break
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-                last = exc
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
                 if attempt == self.retries - 1:
                     raise
                 time.sleep(2 ** attempt)
+        usage = payload.get("usage") or {}
         with self.lock:
             self.calls += 1
-            for key in self.usage:
-                self.usage[key] += payload.get("usage", {}).get(key, 0) or 0
+            # OpenAI 兼容协议字段名换算成上层聚合期望的 input/output_tokens
+            self.usage["input_tokens"] += usage.get("prompt_tokens", 0) or 0
+            self.usage["output_tokens"] += usage.get("completion_tokens", 0) or 0
+        choices = payload.get("choices") or []
+        if not choices:
+            raise ValueError("方舟返回 choices 为空")
+        choice = choices[0]
         # 截断必须显式报错。当成解析失败去重试，只会再截断一次。
-        if payload.get("stop_reason") == "max_tokens":
+        if choice.get("finish_reason") == "length":
             raise ValueError(f"输出被 max_tokens={cap} 截断，"
                              f"需调大 max_tokens 或减小批量")
-        return "".join(b.get("text", "") for b in payload.get("content", []))
+        message = choice.get("message") or {}
+        return message.get("content") or ""
 
     def cost(self) -> float:
         pin, pout = price_of(self.model)
@@ -147,18 +166,19 @@ class Embedder:
     timeout=600 完整跑完 955 条。调 batch 或并发都无效，只能放宽等待。
     """
 
-    def __init__(self, model: str = "Doubao-embedding",
+    def __init__(self, model: str = "doubao-embedding-vision-251215",
                  cache_path: Path | None = None, timeout: int = 600,
                  retries: int = 4):
         self.base = (os.environ.get("EMBEDDING_BASE_URL")
-                     or os.environ.get("ANTHROPIC_BASE_URL", "")).rstrip("/")
+                     or os.environ.get("ARK_BASE_URL")
+                     or os.environ.get("OPENAI_BASE_URL", "")).rstrip("/")
         self.key = (os.environ.get("EMBEDDING_API_KEY")
-                    or os.environ.get("ANTHROPIC_API_KEY")
-                    or os.environ.get("ANTHROPIC_AUTH_TOKEN", ""))
+                    or os.environ.get("ARK_API_KEY")
+                    or os.environ.get("OPENAI_API_KEY", ""))
         if not self.base or not self.key:
             raise SystemExit("缺少 embedding 凭据。需要 EMBEDDING_BASE_URL / "
-                             "EMBEDDING_API_KEY，或沿用 ANTHROPIC_BASE_URL 加 "
-                             "ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN 之一。")
+                             "EMBEDDING_API_KEY，或沿用 ARK_BASE_URL 加 "
+                             "ARK_API_KEY / OPENAI_API_KEY 之一。")
         self.model = model
         self.timeout = timeout
         self.retries = retries
@@ -178,25 +198,37 @@ class Embedder:
 
     def embed(self, texts: Sequence[str], batch: int = 64,
               concurrency: int = 1) -> list[list[float]]:
-        """吞吐主要由**模型选择**决定，不由 batch 或 concurrency 决定。
+        """生成向量；vision 模型按官方多模态协议逐条请求。
 
-        实测（各 128 条全新文本）：Doubao-embedding 50.8 条/秒，
-        text-embedding-3-small 1.01~2.53 条/秒——差 20~50 倍，因为后者要出海。
-        而同一个模型换 batch 16/64、并发 16/32，四种组合全在 0.21~0.26 条/秒,
-        同样参数在不同时段还能差 70 倍。所以**不要指望调这两个参数提速**，
-        concurrency 只用来避免「全串行」这个最坏情况。
+        `/embeddings/multimodal` 会把同一 input 列表融合为一个向量，不能把多条
+        独立文本塞进一次请求。这里强制切成单条，再由 concurrency 控制并发。
+        显式指定旧 embedding 模型时仍沿用标准 `/embeddings` 批量协议。
         """
         pending = [t for t in texts if self._key(t) not in self.cache]
         unique = list(dict.fromkeys(pending))
-        chunks = [unique[i:i + batch] for i in range(0, len(unique), batch)]
+        is_multimodal = self.model.lower().startswith("doubao-embedding-vision")
+        effective_batch = 1 if is_multimodal else batch
+        chunks = [
+            unique[i:i + effective_batch]
+            for i in range(0, len(unique), effective_batch)
+        ]
         lock = threading.Lock()
         done = [0]
 
         def fetch(chunk: list[str]) -> None:
-            body = json.dumps({"model": self.model, "input": chunk},
-                              ensure_ascii=False).encode()
+            if is_multimodal:
+                payload_body = {
+                    "model": self.model,
+                    "input": [{"type": "text", "text": chunk[0]}],
+                    "encoding_format": "float",
+                }
+                resource = "embeddings/multimodal"
+            else:
+                payload_body = {"model": self.model, "input": chunk}
+                resource = "embeddings"
+            body = json.dumps(payload_body, ensure_ascii=False).encode()
             req = urllib.request.Request(
-                self.base + "/v1/embeddings", data=body,
+                api_url(self.base, resource), data=body,
                 headers={"Authorization": f"Bearer {self.key}",
                          "content-type": "application/json"})
             for attempt in range(self.retries):
@@ -209,10 +241,25 @@ class Embedder:
                     if attempt == self.retries - 1:
                         raise
                     time.sleep(2 ** attempt)
+            data = payload.get("data")
+            if isinstance(data, dict):
+                items = [data]
+            elif isinstance(data, list):
+                items = data
+            else:
+                raise ValueError("embedding 返回 data 不是对象或列表")
+            if len(items) != len(chunk):
+                raise ValueError(
+                    f"embedding 返回 {len(items)} 个向量，期望 {len(chunk)} 个")
             with lock:
+                usage = payload.get("usage") or {}
                 self.usage["input_tokens"] += (
-                    payload.get("usage", {}).get("prompt_tokens", 0) or 0)
-                for text, item in zip(chunk, payload.get("data", [])):
+                    usage.get("prompt_tokens")
+                    or usage.get("input_tokens")
+                    or usage.get("total_tokens")
+                    or 0
+                )
+                for text, item in zip(chunk, items):
                     self.cache[self._key(text)] = item["embedding"]
                 self.misses += len(chunk)
                 done[0] += 1
@@ -484,10 +531,8 @@ def report(relay: Relay, stage: str, manifest: Path | None = None,
     usage = relay.usage
     cost = relay.cost()
     print(f"[{stage}] 调用 {relay.calls} 次 | in {usage['input_tokens']} "
-          f"out {usage['output_tokens']} | cache_read {usage['cache_read_input_tokens']} "
+          f"out {usage['output_tokens']} "
           f"| 估算 ${cost:.4f}", flush=True)
-    if usage["cache_read_input_tokens"] == 0 and relay.calls > 1:
-        print(f"[{stage}] 提示缓存未命中，system 块可能未达模型最小 token 门槛", flush=True)
     if manifest:
         log_run(manifest, {"stage": stage, "model": relay.model, "calls": relay.calls,
                            "cost_usd": round(cost, 5), **usage, **(extra or {})})

@@ -17,18 +17,15 @@ MA 适配:删掉 PROJECT_ROOT.parents[1] 上溯,--project-dir 支持绝对/相�
 from __future__ import annotations
 
 import argparse
-import io
 import re
 import sys
 from pathlib import Path
-
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 WORKSPACE_ROOT = Path("/workspace")
 
 SECTION_IDS = ["e1", "e2", "e3", "e4"]
+DEMO_DISCLAIMER = "> 演示说明：本报告基于 50 条分层样本生成，仅供流程演示，不可作为正式全量结论。"
 
 
 def latest_insight_round(insight_dir: Path) -> int | None:
@@ -78,12 +75,26 @@ def resolve_period_info(proj: Path, args: argparse.Namespace) -> tuple[str, str,
     sys.exit(1)
 
 
+def format_period_display(period_label: str, date_start: str, date_end: str) -> str:
+    """避免 period_label 已含日期时再次拼接同一日期范围。"""
+    date_range = f"{date_start} ~ {date_end}"
+    if date_range in period_label:
+        return period_label
+    return f"{period_label} ({date_range})"
+
+
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure:
+            reconfigure(encoding="utf-8")
+
     parser = argparse.ArgumentParser(
         description="合并四版块洞察为完整报告(Phase F Step 0)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--project-dir", required=True, help="项目目录(绝对路径,或相对 /workspace)")
+    parser.add_argument("--mode", choices=["demo", "full"], default="full")
     parser.add_argument("--version", type=int, default=None, help="要合并的洞察轮次;不传时自动取06_洞察/下最新一轮")
     parser.add_argument("--period-label", default=None, help="覆盖周期标签,如 2026-W35")
     parser.add_argument("--date-start", default=None, help="覆盖起始日期,如 2026-08-24")
@@ -113,13 +124,19 @@ def main() -> int:
     print(f"[pipeline_f] 合并轮次:v{version}({round_dir})")
 
     period_label, date_start, date_end = resolve_period_info(proj, args)
-    print(f"[pipeline_f] 周期:{period_label}({date_start} ~ {date_end})")
+    period_display = format_period_display(period_label, date_start, date_end)
+    print(f"[pipeline_f] 周期:{period_display}")
 
     sections = [section_files[sid].read_text(encoding="utf-8").strip() for sid in SECTION_IDS]
+    header_lines = [
+        f"# 社媒热点周刊 · {period_label}",
+        f"> 数据范围:微博、知乎、抖音、B站\n> 数据周期:{period_display}",
+    ]
+    if args.mode == "demo":
+        header_lines.append(DEMO_DISCLAIMER)
 
     report = "\n\n".join([
-        f"# 社媒热点周刊 · {period_label}",
-        f"> 数据范围:微博、知乎、抖音、B站\n> 数据周期:{period_label}({date_start} ~ {date_end})",
+        *header_lines,
         "\n\n---\n\n".join(sections),
     ])
 

@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """
-cost_tracker.py — Topic6 双轨成本台账 (MA 版)
+cost_tracker.py — Topic6 双轨成本台账
 
-MA 环境改动:
-  - _cost_dir(): 客户版靠 __file__.parent.parent.parent 上溯到项目根,
-    MA 环境下 skill 挂载到 /mnt/skills/topic6-annotation/tool/, 上溯行不通。
-    改为直接把 --project-dir 当作项目绝对路径使用 (支持相对路径时补 /workspace/)。
-  - 移除 io.TextIOWrapper 包裹, 改用 sys.stdout.reconfigure (客户源已同步这个修补方向)。
+  - _cost_dir() 直接把 --project-dir 当作项目绝对路径使用(相对路径时补 /workspace/)。
+  - stdout 使用 sys.stdout.reconfigure 处理编码。
 
 存储:
   {project_dir}/costs/cost_tracker.jsonl

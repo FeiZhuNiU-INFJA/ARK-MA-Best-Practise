@@ -17,6 +17,7 @@ from pipeline_store import (
     STATUS_DONE,
     STATUS_FAILED,
     STATUS_RUNNING,
+    STATUS_STOPPED,
     STATUS_WAIT_HC,
     PipelineJob,
 )
@@ -38,12 +39,14 @@ def _header(status: str, phase: str) -> dict:
     """标题按状态选 emoji + 颜色。飞书 header template: blue/green/red/grey/turquoise。"""
     if status == STATUS_DONE:
         title, template = f"✅ Topic6 Pipeline · 已完成", "green"
+    elif status == STATUS_STOPPED:
+        title, template = f"⏹️ Topic6 Pipeline · 已停止", "grey"
     elif status == STATUS_FAILED:
         title, template = f"❌ Topic6 Pipeline · 已失败", "red"
     elif status == STATUS_WAIT_HC:
         title, template = f"⏸️ Topic6 Pipeline · 等待审核 {phase}", "turquoise"
     else:
-        title, template = f"🚀 Topic6 Pipeline · Phase {phase}", "blue"
+        title, template = "🚀 Topic6 Pipeline · 运行中", "blue"
     return {"title": {"tag": "plain_text", "content": title}, "template": template}
 
 
@@ -109,11 +112,18 @@ def build_progress_card(
                 },
             }
         )
-    elif status == STATUS_FAILED and error:
+    elif status in (STATUS_FAILED, STATUS_STOPPED) and error:
         elements.append(
             {
                 "tag": "div",
-                "text": {"tag": "lark_md", "content": f"**错误摘要**\n{error[:400]}"},
+                "text": {
+                    "tag": "lark_md",
+                    "content": (
+                        f"**停止原因**\n{error[:400]}"
+                        if status == STATUS_STOPPED
+                        else f"**错误摘要**\n{error[:400]}"
+                    ),
+                },
             }
         )
     elif status == STATUS_DONE and online_url:

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
 01_统计 · E2 营销节点
-统计口径唯一权威。02_洞察/E2_营销节点/v1.md 不重复。
+统计口径唯一权威。02_洞察/E2_营销节点/v3.md 不重复。
 """
 
 from __future__ import annotations
 
+import csv
 import os
 import re
 import sys
@@ -16,11 +17,11 @@ import pandas as pd
 
 from _common import explode_pipe, fmt_score, top_titles_with_links_str
 
-# marketing-node-tagging 日历路径（与宽表无关，E2 专属输入）。
-# MA 部署默认复用 topic6-annotation skill 的日历文件（annotation/insight 共用同一份
-# 全年节点日历，避免同一份 marketing_calendar.md 在两个 skill 里各存一份）；
-# 需要换其它日历文件时通过环境变量 MARKETING_CALENDAR_PATH 覆盖。
-_DEFAULT_CALENDAR = "/mnt/skills/topic6-annotation/references/marketing_calendar/marketing_calendar.md"
+# 默认复用 fetch-normalize skill 的全年节点 CSV，避免在多个 skill 里维护副本。
+# MARKETING_CALENDAR_PATH 仍可覆盖，且兼容旧 Markdown 表格格式。
+_DEFAULT_CALENDAR = (
+    "/mnt/skills/topic6-fetch-normalize/references/marketing_calendar_2026.csv"
+)
 _calendar_env = os.environ.get("MARKETING_CALENDAR_PATH", _DEFAULT_CALENDAR)
 CALENDAR_PATH = Path(_calendar_env) if _calendar_env else None
 
@@ -29,6 +30,40 @@ CALENDAR_PATH = Path(_calendar_env) if _calendar_env else None
 # "本周节点预告"密度判断不能只看节点数量——节点数量多但全是短筹备类型时，
 # 实际筹备工作量是可控的；只有出现长筹备类型才真正意味着需要提前启动准备。
 LONG_PREP_TYPES = {"电商大促", "大众节日"}
+
+
+def _load_calendar_rows() -> list[tuple[date, str, str]]:
+    if not CALENDAR_PATH or not CALENDAR_PATH.exists():
+        return []
+
+    rows: list[tuple[date, str, str]] = []
+    if CALENDAR_PATH.suffix.lower() == ".csv":
+        with open(CALENDAR_PATH, encoding="utf-8-sig", newline="") as f:
+            for item in csv.DictReader(f):
+                try:
+                    node_date = date.fromisoformat((item.get("date") or "").strip())
+                except ValueError:
+                    continue
+                name = (item.get("name") or "").strip()
+                node_type = (item.get("type") or "").strip()
+                if name:
+                    rows.append((node_date, name, node_type))
+        return rows
+
+    with open(CALENDAR_PATH, encoding="utf-8") as f:
+        for line in f:
+            match = re.match(
+                r"\|\s*(\d{4}-\d{2}-\d{2})\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|",
+                line,
+            )
+            if not match:
+                continue
+            try:
+                node_date = date.fromisoformat(match.group(1))
+            except ValueError:
+                continue
+            rows.append((node_date, match.group(2).strip(), match.group(3).strip()))
+    return rows
 
 
 def _load_node_calendar_full() -> dict[str, date]:
@@ -40,17 +75,7 @@ def _load_node_calendar_full() -> dict[str, date]:
     "查不到锚点"分支统一兜底，不额外报错。"""
     if not CALENDAR_PATH or not CALENDAR_PATH.exists():
         return {}
-    calendar: dict[str, date] = {}
-    with open(CALENDAR_PATH, encoding="utf-8") as f:
-        for line in f:
-            m = re.match(r"\|\s*(\d{4}-\d{2}-\d{2})\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|", line)
-            if m:
-                try:
-                    d = date.fromisoformat(m.group(1))
-                except ValueError:
-                    continue
-                calendar[m.group(2).strip()] = d
-    return calendar
+    return {name: node_date for node_date, name, _node_type in _load_calendar_rows()}
 
 
 def _build_last_week_table(bucket_df: pd.DataFrame) -> tuple[bool, str | None]:
@@ -179,23 +204,14 @@ def prep_e2_nodes(df_y: pd.DataFrame, pub_date: date) -> dict:
             ),
         }
     else:
-        with open(CALENDAR_PATH, encoding="utf-8") as f:
-            raw = f.readlines()
-
         next_week = []
-        for line in raw:
-            m = re.match(r"\|\s*(\d{4}-\d{2}-\d{2})\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|", line)
-            if m:
-                try:
-                    d = date.fromisoformat(m.group(1))
-                except ValueError:
-                    continue
-                if pub_date <= d <= window_end:
-                    next_week.append({
-                        "节点日期": m.group(1),
-                        "节点名称": m.group(2).strip(),
-                        "节点类型": m.group(3).strip(),
-                    })
+        for node_date, name, node_type in _load_calendar_rows():
+            if pub_date <= node_date <= window_end:
+                next_week.append({
+                    "节点日期": node_date.isoformat(),
+                    "节点名称": name,
+                    "节点类型": node_type,
+                })
 
         if not next_week:
             result["next_week"] = {

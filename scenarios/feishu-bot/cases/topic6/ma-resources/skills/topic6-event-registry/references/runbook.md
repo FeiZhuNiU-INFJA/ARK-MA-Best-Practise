@@ -29,7 +29,8 @@
 | ⑦ 报「有 N 个块失败」 | 三类 JSON 失败之一 | 先原样重跑一次（②③ 会自动恢复）；仍失败再跑 `x1_presplit_blocks.py` + 重跑 ⑦ |
 | ⑦ 报「覆盖不一致：期望 X 实得 Y」 | 有块没产出 | 与上一条同源，是失败块的连带现象，不是独立问题 |
 | 阶段 00 报「校验不通过已回退原标题 N 条」 | 清洗时新增了汉字、数字或顿号 | **这是正常的保护动作**，不是故障。抽查一下被回退的行即可 |
-| 向量化极慢（每秒个位数） | 用了要出海的 OpenAI 模型 | 确认 `--model` 是 `Doubao-embedding`，模型吞吐对比见 [benchmarks.md](benchmarks.md) |
+| `InvalidEndpointOrModel.NotFound` | 使用了已失效的旧模型名或错误接口 | 确认 `--model doubao-embedding-vision-251215`，并由脚本调用 `/embeddings/multimodal` |
+| 向量化极慢（每秒个位数） | 模型端点吞吐或并发不足 | 确认模型是 `doubao-embedding-vision-251215`；适度调整 `--concurrency`，遇到 429 则调低 |
 | 成本台账数字明显偏低 | 失败轮次没记进台账 | 见「成本台账的已知缺陷」，按每块单价补估 |
 
 **唯一需要删东西重来的情况**是「想换一套分块策略」——那时新建运行目录，
@@ -42,21 +43,18 @@
 
 | 用途 | 环境变量（按优先级） | 说明 |
 |---|---|---|
-| 网关地址 | `ANTHROPIC_BASE_URL` | 指向 bmc 中转网关 |
-| 鉴权 Key | `ANTHROPIC_API_KEY` → `ANTHROPIC_AUTH_TOKEN` | 通常只有后者 |
+| API 根地址 | `ARK_BASE_URL` → `OPENAI_BASE_URL` | 必须包含版本前缀；方舟示例为 `https://ark.cn-beijing.volces.com/api/v3` |
+| 鉴权 Key | `ARK_API_KEY` → `OPENAI_API_KEY` | 使用 Bearer 鉴权 |
 | 向量化（可选） | `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` | 不设则沿用上面两个 |
+| 向量模型（可选） | `EMBEDDING_MODEL_ID` | 默认 `doubao-embedding-vision-251215`；也可用 `--model` 覆盖 |
 
-**Claude Code 环境通常只导出 `ANTHROPIC_AUTH_TOKEN`，不导出 `ANTHROPIC_API_KEY`。**
-脚本已同时认这两个，直接跑即可，不要在每条命令前手动加 `ANTHROPIC_API_KEY=...` 前缀。
-
-同一个网关同时提供 messages 和 embeddings，但**两个端点的鉴权头不同**：messages 用
-`x-api-key`，embeddings 用 `Authorization: Bearer`。这是网关背后接了不同后端导致的，
-`relay.py` 已分别处理，调用方不用管。
+`relay.py` 将 Base URL 视为已经定位到版本根路径，只追加
+`/chat/completions`、`/embeddings` 或 `/embeddings/multimodal`，不会额外插入 `/v1`。
 
 开跑前自检一句（不打印 Key 本身）：
 
 ```bash
-python3 -c "import os;print('BASE', bool(os.environ.get('ANTHROPIC_BASE_URL')),'KEY', bool(os.environ.get('ANTHROPIC_API_KEY') or os.environ.get('ANTHROPIC_AUTH_TOKEN')))"
+python3 -c "import os;print('BASE', bool(os.environ.get('ARK_BASE_URL') or os.environ.get('OPENAI_BASE_URL')),'KEY', bool(os.environ.get('ARK_API_KEY') or os.environ.get('OPENAI_API_KEY')))"
 ```
 
 两个都是 True 就能跑。**不要把 Key 写进脚本、日志、run_manifest 或任何产出文件。**

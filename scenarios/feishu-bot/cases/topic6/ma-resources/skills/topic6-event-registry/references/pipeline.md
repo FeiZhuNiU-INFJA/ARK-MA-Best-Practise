@@ -264,10 +264,11 @@ score = (3 * bool(actor) + 3 * bool(action) + 2 * bool(object)
 交集召回」，**但那条链已经断了**——`actor_ids` 从来没被写进 `identity_core`，
 详见 [open-questions.md](open-questions.md) 第 1、2 条。
 
-**吞吐由模型选择决定，不由 `--batch-size` 或 `--concurrency` 决定。** 默认模型是
-`Doubao-embedding`（50.8 条/秒）；换成要出海的 `text-embedding-3-small` 会掉到
-1~2.5 条/秒。而同一个模型调批量和并发几乎无效，四组对照见
-[benchmarks.md](benchmarks.md)。`--concurrency` 只用来避免「全串行」这个最坏情况。
+默认模型是 `doubao-embedding-vision-251215`，走
+`POST /api/v3/embeddings/multimodal`。该接口会把一次请求中的多模态 `input`
+融合为一个向量，因此脚本固定每条文本一个请求，`--concurrency` 用于并行这些请求，
+`--batch-size` 对 vision 模型不生效。旧模型名 `Doubao-embedding` 已失效，不得使用。
+历史模型的吞吐对照见 [benchmarks.md](benchmarks.md)。
 
 Embedding 只产出候选，**分数不决定任何关系**。
 

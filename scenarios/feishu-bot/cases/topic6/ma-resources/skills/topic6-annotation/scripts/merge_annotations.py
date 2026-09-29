@@ -2,15 +2,13 @@
 """
 merge_annotations.py — 七路标注宽表合并 (C0 + R1~R5 + C2 + C3)
 
-MA 精简版:
   1. 输出 28 列宽表 (基础字段 9 列 + C0 7 列 + [提取节点, 事件簇名] + R1~R5 各 2 列)
   2. C3 只保留过滤后的 "提取节点"; C2 只保留 "事件簇名"
   3. 单路缺失只告警不中断, 用 health_summary md 汇总
-  4. 去掉客户版对 patch/retry 相关字段的引用
 
 输入 (相对 project_dir):
   02_标准化/hot_topics_normalized.xlsx
-  03_抽样/sample_500.xlsx                     (test 模式过滤 row_id)
+  03_抽样/sample_500.xlsx                     (test/demo 模式过滤 row_id)
   04_标注/{C0,R1..R5,C3}_*/{task}_postprocess_r{run_id}.xlsx
   04_标注/C2_事件归档/c2_event_result_r{run_id}.xlsx
 
@@ -120,13 +118,13 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
     base_rows = len(df_base)
     print(f"[merge] 基础表: {base_rows} 行")
 
-    if mode == "test":
+    if mode in {"test", "demo"}:
         sample_file = proj / "03_抽样" / "sample_500.xlsx"
         if sample_file.exists():
             sample_ids = set(pd.read_excel(sample_file, usecols=["row_id"])["row_id"])
             df_base = df_base[df_base["row_id"].isin(sample_ids)].copy()
             base_rows = len(df_base)
-            print(f"[merge] test 模式过滤至 {base_rows} 行")
+            print(f"[merge] {mode} 模式过滤至 {base_rows} 行")
 
     df = df_base.copy()
     missing: dict[str, bool] = {}
@@ -272,7 +270,7 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--project-dir", required=True)
-    p.add_argument("--mode", default="test", choices=["test", "full"])
+    p.add_argument("--mode", default="test", choices=["test", "demo", "full"])
     p.add_argument("--run-id", type=int, required=True)
     args = p.parse_args()
     try:

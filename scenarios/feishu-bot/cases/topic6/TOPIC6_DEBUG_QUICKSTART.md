@@ -24,10 +24,10 @@ topic6 专用轻量初始化:只问方舟 API Key + 扫码建飞书应用,写入
 - `ARK_API_KEY`
 - `FEISHU_APP_ID` / `FEISHU_APP_SECRET`
 
-**不会**创建 digital-employee Agent,也不要求 mock 客户A MCP 地址——那些是另一场景的东西。
+**不会**创建 digital-employee Agent,也不要求 mock MCP 地址——那些是另一场景的东西。
 topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 
-> 注意:不要跑不带参数的 `arkagent init`,那是 digital-employee 场景专用,会强制要求输入 mock 客户A MCP 公网地址。
+> 注意:不要跑不带参数的 `arkagent init`,那是 digital-employee 场景专用,会强制要求输入 mock MCP 公网地址。
 
 已建过 Bot 就跳过这步。
 
@@ -49,11 +49,12 @@ topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 
 - [ ] `docx:document` — 读写飞书文档正文(Phase F 拉草稿、Phase H 写回)
 - [ ] `docx:document.content:read` — 仅读文档内容(部分租户单独开)
-- [ ] `drive:drive` **或** `drive:file:writeable` — 在指定云空间目录里新建/移动文档
+- [ ] `space:folder:create` — 创建云空间文件夹；在“应用身份权限”中搜索“创建云空间文件夹”。不要误选 `drive:drive:version` 等文档版本权限
 
 **可选**
 
 - [ ] `contact:user.id:readonly` — open_id ↔ user_id 反查(若白名单只用 open_id 可省)
+- [ ] `contact:user.base:readonly` — 反查 open_id 对应真名,用于 HC 卡片"XXX 已通过/驳回"回显操作人姓名(未开时回退为 open_id 后 6 位短标识,不影响流转)
 
 ### 事件订阅(事件与回调 → 事件订阅)
 
@@ -61,6 +62,9 @@ topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 - [ ] `card.action.trigger` — HC1/HC2/HC3 卡片按钮点击回调(HITL 必需)
 
 ### 生效方式
+
+新增权限后必须提交审核并发布应用版本；仅勾选但未发布不会对
+`tenant_access_token` 生效。
 
 - **企业自建应用**:保存后即时生效,无需审核。
 - **应用状态**要点到「启用」,并在目标群里把 Bot 加为群成员;单聊需管理员放开可用范围。
@@ -82,20 +86,22 @@ ARK_API_KEY=xxx
 # 飞书——init --topic6 已自动写入
 FEISHU_APP_ID=cli_xxx
 FEISHU_APP_SECRET=xxx
-LARK_APP_ID=cli_xxx           # 与 FEISHU_APP_ID 同值,给沙箱脚本用
-LARK_APP_SECRET=xxx           # 与 FEISHU_APP_SECRET 同值
 ```
 
-### 2.2 客户方给的(问客户要)
+`create_all.sh` 会默认将 `FEISHU_APP_ID/FEISHU_APP_SECRET` 复用为沙箱使用的
+`LARK_APP_ID/LARK_APP_SECRET`。只有 Gateway 与沙箱需要使用不同飞书应用时，
+才在配置中显式设置 `LARK_APP_ID` 和 `LARK_APP_SECRET`。
+
+### 2.2 业务侧 API Key(向业务对接人获取)
 
 ```env
 # 热点 MCP——BlueView 的爬虫服务
 HOT_TOPICS_MCP_URL=https://smartai.blueviewai.com/mcp/crawler-hot-topics-server
-BLUEAI_API_KEY=<客户给的 Key>
+BLUEAI_API_KEY=<业务对接人给的 Key>
 
 # DataHub——Phase C 标注要用
 DATAHUB_ENDPOINT=https://bmc-data-hub.bluemediagroup.cn/...
-DATAHUB_API_KEY=<客户给的 Key>
+DATAHUB_API_KEY=<业务对接人给的 Key>
 ```
 
 ### 2.3 可选/延后
@@ -143,23 +149,68 @@ python3 tools/upload_skills.py
 
 - `ENVIRONMENT_ID`
 - `MEMORY_STORE_ID`
-- `ANNOTATOR_AGENT_ID` / `INSIGHTER_AGENT_ID`
-- `COORDINATOR_AGENT_ID` ← 后面要写进 config.env
+- `AGENT_ANNOTATOR_ID` / `AGENT_INSIGHTER_ID`
+- `AGENT_COORDINATOR_ID`（脚本会自动回写 config.env）
 
-后续只是改 Prompt / Skill,跑 `./ma-resources/create_all.sh --update-agent` 就地更新,不必再全量创建。
+后续只是改 Prompt / Skill,直接重跑 `./ma-resources/create_all.sh` 即可——3 个 Agent 每次都会强制重建,skill_id / prompt 都会一并生效。仅当 `environment.json` 或 memory md 文件也改过时,才分别加上 `--update-env` / `--update-memory`。
 
+### 3.4 全量更新所有 Topic 6 资源
+
+以下流程会:
+
+- 运行完整测试
+- 重新打包并强制上传全部 5 个 Skills
+- 原地更新 Environment
+- 更新已有 Memory 内容
+- 删除并重建 Annotator、Insighter、Coordinator
+- 自动回写新的资源 ID
+
+在任意目录执行均可:
+
+```bash
+/Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/update_ma.sh
+```
+
+脚本默认读取 `~/.arkagent/cases/topic6/config.env`，并自动使用当前
+`nio-ma-demo` 环境；若未激活但本机有 `conda`，则自动通过 `conda run` 执行。
+它不会停止或重启 Gateway。更新完成后手动重启：
+
+| 组件 | 更新方式 | ID |
+|---|---|---|
+| 5 个 Skills | 强制重新上传 | **变化** |
+| Annotator / Insighter / Coordinator | 删除同名旧 Agent 后重建 | **变化** |
+| Environment | 按名称原地更新 | **不变** |
+| Memory Store | 按名称原地更新 | **不变** |
+| 飞书 App / Vault | 不由脚本更新 | **不变** |
+
+Coordinator 的新 ID 会自动回写 `~/.arkagent/cases/topic6/config.env`。运行中的
+Gateway 仍持有旧 ID，所以脚本结束后必须重启：
+
+```bash
+cd /Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot
+python -m arkagent run --case topic6
+```
 ---
 
-## 4. 回填 topic6 资源 ID
+## 4. 确认 topic6 资源 ID
 
-`create_all.sh` 打印的 ID 追加到 `~/.arkagent/cases/topic6/config.env`:
+`create_all.sh` 会打印以下 ID:
+
+- `ENVIRONMENT_ID`
+- `MEMORY_STORE_ID`
+- `AGENT_ANNOTATOR_ID`
+- `AGENT_INSIGHTER_ID`
+- `AGENT_COORDINATOR_ID`
+
+如果 `~/.arkagent/cases/topic6/config.env` 已存在,脚本会自动更新:
 
 ```env
-TOPIC6_COORDINATOR_AGENT_ID=<create_all.sh 输出>   # 开关:不填则 topic6 不装配
-TOPIC6_ENVIRONMENT_ID=<create_all.sh 输出>         # 可省略,回退 ARK_ENVIRONMENT_ID
-TOPIC6_MEMORY_STORE_ID=<create_all.sh 输出>
-TOPIC6_PIPELINE_DB_PATH=./data/topic6_pipeline.db
+TOPIC6_COORDINATOR_AGENT_ID=<AGENT_COORDINATOR_ID>
+TOPIC6_ENVIRONMENT_ID=<ENVIRONMENT_ID>
+TOPIC6_MEMORY_STORE_ID=<MEMORY_STORE_ID>
 ```
+
+更新完成后重新加载配置,或重启 Gateway 使新 ID 生效。
 
 ---
 
@@ -167,17 +218,17 @@ TOPIC6_PIPELINE_DB_PATH=./data/topic6_pipeline.db
 
 ```bash
 cd scenarios/feishu-bot
-python3 -m arkagent run
+python3 -m arkagent run --case topic6
 ```
 
 启动日志出现下面这行才算 topic6 装配成功:
 
 ```
 - topic6 场景：已启用(coordinator=xxx, env=xxx)
-topic6 触发词：热点报告 / 热点周报(可加 test/full 指定模式)
+topic6 触发词：热点报告 / 热点周报(可加 test/demo/full 指定模式)
 ```
 
-想拉更详细日志:`ARKAGENT_LOG_LEVEL=DEBUG python3 -m arkagent run`。
+想拉更详细日志:`ARKAGENT_LOG_LEVEL=DEBUG python3 -m arkagent run --case topic6`。
 
 ---
 
@@ -188,6 +239,14 @@ topic6 触发词：热点报告 / 热点周报(可加 test/full 指定模式)
 ```
 热点周报 test
 ```
+
+需要只跑 50 条样本并继续生成演示报告时发送：
+
+```text
+热点周报 demo
+```
+
+demo 在 HC1 通过后直接进入洞察与报告阶段,不会触发全量标注和 HC2。
 
 正常应该看到:
 
@@ -201,14 +260,14 @@ topic6 触发词：热点报告 / 热点周报(可加 test/full 指定模式)
 
 ## 6. 常见故障排查
 
-| 现象                              | 排查方向                                                                                                                    |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| 日志"topic6 场景:未启用"          | 检查`TOPIC6_COORDINATOR_AGENT_ID` 是否已写入 config.env、拼写是否正确                                                     |
-| Coordinator 拉不到 hot-topics MCP | `HOT_TOPICS_MCP_URL` 未 export 就跑了 `create_all.sh`,MCP URL 被空值渲染进 Agent 定义;重新 export 后 `--update-agent` |
-| Skill 找不到                      | `skill_ids.json` 有 null 项,重跑 `upload_skills.py`                                                                     |
-| HC 卡片点击后无响应               | Feishu Bot 后台"事件订阅"里是否开启`card.action.trigger` 权限                                                             |
-| SSE 中断/超时                     | 单会话默认 10 分钟,超长任务加大`SESSION_TIMEOUT_MS`(毫秒)                                                                 |
-| 图片抓取失败                      | 已知风险点,飞书`im.v1.images.get` 并发大图不稳定,重跑一次 Phase G 即可                                                    |
+| 现象                              | 排查方向                                                                                                                                                             |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 日志"topic6 场景:未启用"          | 检查`TOPIC6_COORDINATOR_AGENT_ID` 是否已写入 config.env、拼写是否正确                                                                                              |
+| Coordinator 拉不到 hot-topics MCP | `HOT_TOPICS_MCP_URL` 未 export 就跑了 `create_all.sh`,MCP URL 被空值渲染进 Agent 定义;重新 export 后加 `--update-env` 重跑 `create_all.sh`(Agent 会自动重建) |
+| Skill 找不到                      | `skill_ids.json` 有 null 项,重跑 `upload_skills.py`                                                                                                              |
+| HC 卡片点击后无响应               | Feishu Bot 后台"事件订阅"里是否开启`card.action.trigger` 权限                                                                                                      |
+| SSE 中断/超时                     | 单会话默认 10 分钟,超长任务加大`SESSION_TIMEOUT_MS`(毫秒)                                                                                                          |
+| 图片抓取失败                      | 已知风险点,飞书`im.v1.images.get` 并发大图不稳定,重跑一次 Phase G 即可                                                                                             |
 
 ---
 

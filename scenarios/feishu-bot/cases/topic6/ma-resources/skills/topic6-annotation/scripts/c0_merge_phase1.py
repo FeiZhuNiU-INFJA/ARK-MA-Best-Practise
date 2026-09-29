@@ -52,7 +52,8 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
     proj = _resolve_project_dir(project_dir)
 
     base_file = (
-        proj / "03_抽样" / "sample_500.xlsx" if mode == "test"
+        proj / "03_抽样" / "sample_500.xlsx"
+        if mode in {"test", "demo"}
         else proj / "02_标准化" / "hot_topics_normalized.xlsx"
     )
     if not base_file.exists():
@@ -122,7 +123,7 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--project-dir", required=True)
-    p.add_argument("--mode", default="test", choices=["test", "full"])
+    p.add_argument("--mode", default="test", choices=["test", "demo", "full"])
     p.add_argument("--run-id", type=int, required=True)
     args = p.parse_args()
     try:

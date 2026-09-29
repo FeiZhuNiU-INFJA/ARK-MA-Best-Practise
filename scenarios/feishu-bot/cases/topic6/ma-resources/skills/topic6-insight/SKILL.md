@@ -21,16 +21,16 @@ topic6-insight/
 │   ├── run_stats.py            编排入口: 宽表 → 4 版块数据
 │   ├── _common.py              分数/链接/pipe 展开等工具函数
 │   ├── e1_industry.py          E1 行业及热门话题
-│   ├── e2_nodes.py             E2 营销节点(依赖 marketing_calendar.md)
+│   ├── e2_nodes.py             E2 营销节点(依赖共享 marketing_calendar_2026.csv)
 │   ├── e3_platforms.py         E3 平台新鲜事
 │   └── e4_marketing.py         E4 营销发现(舆情风险/合作动态/营销观察/消费洞察)
 ├── 02_洞察/                    Prompt 目录
 │   ├── _shared/role_style.md   共享角色/风格,拼在每个版块 prompt 前
 │   ├── E1_行业话题/v1.md
-│   ├── E2_营销节点/v1.md
+│   ├── E2_营销节点/v3.md
 │   ├── E3_平台新鲜事/v1.md
 │   └── E4_营销发现/
-│       ├── v1.md               撰写 prompt
+│       ├── v6.md               撰写 prompt
 │       └── _tagging/v1.md      打标 prompt(舆情风险可接性/合作动态参考价值)
 └── references/
     ├── E3_统计口径说明.md
@@ -76,19 +76,21 @@ python /mnt/skills/topic6-insight/scripts/pipeline_f.py \
 - 环境变量:
   - `ARK_API_KEY`(fallback `OPENAI_API_KEY`)
   - `ARK_BASE_URL`(fallback `OPENAI_BASE_URL`) — MA 环境请指向火山方舟 endpoint
-  - `MARKETING_CALENDAR_PATH`(可选,默认 `/mnt/skills/topic6-annotation/references/marketing_calendar/marketing_calendar.md`)
-- 上游数据: `{project_dir}/05_合并/wide_table_full_r{N}.xlsx`(来自 topic6-annotation)
+  - `MARKETING_CALENDAR_PATH`(可选,默认 `/mnt/skills/topic6-fetch-normalize/references/marketing_calendar_2026.csv`)
+- 上游数据:正式模式使用 `{project_dir}/05_合并/wide_table_full_r{N}.xlsx`,演示模式使用 `wide_table_demo_r{N}.xlsx`
 - 跨 skill 依赖: cost-tracker 调用 `/mnt/skills/topic6-annotation/tool/cost-tracker/cost_tracker.py`
 
-## MA 适配要点(相对客户原版)
+## 架构要点
 
-1. 删掉 `PROJECT_ROOT = SCRIPT_DIR.parents[N]` 的目录上溯逻辑,项目路径改从 `--project-dir` 传入。
-2. LLM SDK 从 `anthropic.AsyncAnthropic` 换成 `openai.AsyncOpenAI`,走火山方舟 OpenAI 兼容 endpoint。
+1. 项目路径从 `--project-dir` 传入,不做目录上溯推导。
+2. LLM SDK 走 OpenAI 兼容 endpoint(`openai.AsyncOpenAI`)。
 3. `cost_tracker.py` 从 topic6-annotation skill 挂载路径调用,两个 skill 共用一份账本。
-4. E2 `MARKETING_CALENDAR_PATH` 默认指向 topic6-annotation 的日历文件,不再单独 fork 一份。
+4. E2 `MARKETING_CALENDAR_PATH` 默认指向 topic6-fetch-normalize 的共享 CSV 日历，也兼容旧 Markdown 表格。
 
 ## 前置约束
 
-- 只支持 `--mode full`,test 模式(500 条抽样)直接拒绝生成洞察。
+- 支持 `--mode full` 正式交付和 `--mode demo` 50 条样本演示。
+- `--mode test` 仅用于标注校准,直接拒绝生成洞察。
+- demo 产出的所有报告必须注明“基于 50 条分层样本,仅供流程演示,不可作为正式全量结论”。
 - 同一项目按 v1、v2... 迭代,每轮独立子目录,不覆盖历史。
-- 上游 `05_合并/wide_table_full_r{N}.xlsx` 必须存在,来源 topic6-annotation。
+- 对应模式的上游宽表 `05_合并/wide_table_{full|demo}_r{N}.xlsx` 必须存在,来源 topic6-annotation。

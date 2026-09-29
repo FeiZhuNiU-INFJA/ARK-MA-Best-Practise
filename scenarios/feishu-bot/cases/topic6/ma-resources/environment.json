@@ -13,7 +13,9 @@
         "requests>=2.31",
         "pyyaml>=6.0",
         "numpy>=1.24",
-        "python-dateutil>=2.8"
+        "openai>=1.0",
+        "python-dateutil>=2.8",
+        "lunardate>=0.2.2"
       ]
     },
     "env": {
@@ -24,7 +26,9 @@
       "LARK_APP_ID": "${LARK_APP_ID}",
       "LARK_APP_SECRET": "${LARK_APP_SECRET}",
       "BLUEAI_API_KEY": "${BLUEAI_API_KEY}",
-      "MIAODA_TOKEN": "${MIAODA_TOKEN}"
+      "MIAODA_TOKEN": "${MIAODA_TOKEN}",
+      "ARK_API_KEY": "${ARK_API_KEY}",
+      "ARK_BASE_URL": "${ARK_BASE_URL}"
     }
   }
 }

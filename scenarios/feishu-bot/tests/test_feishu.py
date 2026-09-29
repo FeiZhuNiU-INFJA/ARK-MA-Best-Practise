@@ -728,3 +728,90 @@ def test_reply_passes_roster_into_post(monkeypatch):
     sender.reply("om-1", "请 @张三 跟进", roster={"张三": "ou_zhangsan"})
     assert calls[0][0] == "post"
     assert "ou_zhangsan" in calls[0][1]
+
+
+# ---- resolve_operator_name ---------------------------------------------------
+# 覆盖卡片回调"操作人"回显真名的三条路径 + 缓存。飞书卡片按钮事件只带 open_id
+# （见 P2CardActionTrigger.operator 结构），SDK 也不解析姓名，所以必须自己反查：
+# 群里走 chat_roster、单聊/名册没命中走 contact.v3.user.get，两条路都失败退空串
+# 由上层兜底成 open_id 短后缀。
+
+
+def _sender_with_cache():
+    sender = _bare_sender()
+    sender._roster_cache = {}
+    sender._operator_name_cache = {}
+    return sender
+
+
+def test_resolve_operator_name_empty_open_id_returns_empty():
+    # open_id 为空（SDK 拿不到操作人时的正常情况）直接返空串，不打 API。
+    sender = _sender_with_cache()
+    sender._fetch_user_name = lambda oid: pytest.fail("不该调 contacts API")
+    assert sender.resolve_operator_name("", chat_id="oc-1") == ""
+
+
+def test_resolve_operator_name_hits_roster_first(monkeypatch):
+    # 群聊场景：名册里 open_id 反查到名字，走本地缓存不打 contacts API。
+    sender = _sender_with_cache()
+    monkeypatch.setattr(
+        sender, "chat_roster", lambda chat_id: {"张经理": "ou_manager", "李工": "ou_li"}
+    )
+    sender._fetch_user_name = lambda oid: pytest.fail("名册命中不应回退 contacts")
+    assert sender.resolve_operator_name("ou_manager", chat_id="oc-1") == "张经理"
+
+
+def test_resolve_operator_name_falls_back_to_contacts_when_roster_miss(monkeypatch):
+    # 名册里没有该 open_id（bot 触发/成员刚变动/单聊没 chat_id 等）→ 走 contact API。
+    sender = _sender_with_cache()
+    monkeypatch.setattr(sender, "chat_roster", lambda chat_id: {"张经理": "ou_manager"})
+    fetched = []
+
+    def _fake_fetch(open_id: str) -> str:
+        fetched.append(open_id)
+        return "王小样"
+
+    sender._fetch_user_name = _fake_fetch
+    assert sender.resolve_operator_name("ou_wang", chat_id="oc-1") == "王小样"
+    assert fetched == ["ou_wang"]
+
+
+def test_resolve_operator_name_returns_empty_when_all_paths_fail(monkeypatch):
+    # 两条路都拿不到：返空串（不缓存），由上层兜底成 open_id 后缀。
+    sender = _sender_with_cache()
+    monkeypatch.setattr(sender, "chat_roster", lambda chat_id: {})
+
+    def _boom(_open_id: str) -> str:
+        raise RuntimeError("contact api down")
+
+    sender._fetch_user_name = _boom
+    assert sender.resolve_operator_name("ou_x", chat_id="oc-1") == ""
+    # 失败结果不进缓存，下次仍会重试。
+    assert "ou_x" not in sender._operator_name_cache
+
+
+def test_resolve_operator_name_caches_hit(monkeypatch):
+    # 命中后写入 _operator_name_cache；再次调用不打任何底层桩，直接读缓存。
+    sender = _sender_with_cache()
+    roster_calls = []
+
+    def _roster(chat_id: str) -> dict[str, str]:
+        roster_calls.append(chat_id)
+        return {"王小样": "ou_wang"}
+
+    monkeypatch.setattr(sender, "chat_roster", _roster)
+    sender._fetch_user_name = lambda oid: pytest.fail("命中缓存不该走 contacts")
+
+    assert sender.resolve_operator_name("ou_wang", chat_id="oc-1") == "王小样"
+    assert sender.resolve_operator_name("ou_wang", chat_id="oc-1") == "王小样"
+    # 第二次调用直接命中 _operator_name_cache，chat_roster 只被打一次。
+    assert roster_calls == ["oc-1"]
+
+
+def test_resolve_operator_name_without_chat_id_uses_contacts():
+    # 单聊/无 chat_id 时跳过名册直接走 contacts。
+    sender = _sender_with_cache()
+    sender.chat_roster = lambda chat_id: pytest.fail("无 chat_id 不该查名册")
+    sender._fetch_user_name = lambda oid: "赵四"
+    assert sender.resolve_operator_name("ou_zhao") == "赵四"
+
