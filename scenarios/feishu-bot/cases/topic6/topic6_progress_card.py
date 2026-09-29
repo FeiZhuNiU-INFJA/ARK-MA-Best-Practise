@@ -43,7 +43,7 @@ def _header(status: str, phase: str) -> dict:
     elif status == STATUS_WAIT_HC:
         title, template = f"⏸️ Topic6 Pipeline · 等待审核 {phase}", "turquoise"
     else:
-        title, template = f"🚀 Topic6 Pipeline · Phase {phase}", "blue"
+        title, template = "🚀 Topic6 Pipeline · 运行中", "blue"
     return {"title": {"tag": "plain_text", "content": title}, "template": template}
 
 

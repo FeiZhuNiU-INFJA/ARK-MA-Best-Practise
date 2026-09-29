@@ -74,12 +74,17 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 - 解析失败/缺失占比 > 5% → 熔断并停止,不得继续放大到 R1~R5
 - 解析失败/缺失占比 ≤ 5% → 这些行不进入 R1~R5,仅明确“是否营销可用=是”的行进入第二批
 
-### Phase C 第二批(并发 5 路,仅跑筛选子集)
+### Phase C 第二批(5 个子 Agent + C2 并发,仅跑筛选子集)
 
-**通过 Multi Agent 并发委派 6 个子 Agent 会话:**
+**并发启动 6 条执行分支:5 个 `topic6-annotator` 子 Agent + Coordinator 后台执行 C2。**
 
-- `topic6-annotator` × 5 (task=r1..r5),input=`04_筛选/usable_subset.xlsx`,output=`04_标注/r{N}_raw.jsonl`
-- C2 事件合并:依次执行 `/mnt/skills/topic6-event-registry/scripts/` 下 00~08 编号脚本(`00_seed_from_registry.py` → `01_eventness.py` → ... → `08_rank_events.py`,不用子 Agent,skill 内部就是脚本流水线),input 同上,output=`04_标注/c2_raw.jsonl`
+- `topic6-annotator` × 5 (task=r1..r5),input=`04_标注/_可用子集/usable_subset_{mode}_r{N}.xlsx`
+- C2 事件合并不用子 Agent,严格按 `topic6-event-registry/references/pipeline.md` 的跨平台流程执行:
+  1. 将同一份可用子集转成带 `record_id/title/platform/heat` 的 CSV。
+  2. 四个平台并行执行 `00_clean_titles.py → 01_eventness.py → 02_extract_frames.py → 03_normalize_entities.py → 04_build_embeddings.py --model doubao-embedding-vision-251215`；不得使用已失效的 `Doubao-embedding` 模型名。
+  3. 执行 `x0_merge_platforms.py` 合库；在 merged 目录依次执行 `05_recall_candidates.py --top-k 60 → 06_build_blocks.py → 07_block_archive.py → x2_confidence_filter.py → x3_review_bidirectional.py → x4_detail_table.py`。
+  4. 将 x4 的 `out/热点明细_含事件归属.csv` 转为 `04_标注/C2_事件归档/c2_event_result_r{N}.xlsx`，保留 `record_id`（或改名为 `row_id`）和 `一级事件名`，供 `merge_annotations.py` 消费。
+- 禁止把 `00_seed_from_registry.py` 当成 C2 起点；它只用于有上一窗口 Registry 的跨窗口增量场景。禁止四个平台各自跑完 05~08 后再拼接，那会漏掉跨平台事件合并。
 
 六路全部完成后 → 进入 Phase D。
 
@@ -180,6 +185,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 - 用 lark-cli 推送到飞书云文档(应用身份动态创建分区文件夹,再转移所有权给"发起人 + 2 admin: 赵修源 / 袁杰松")
 - URL 写入 run_config.yaml
 - 关卡:发布成功
+- `FEISHU_HOTREPORT_FOLDER_TOKEN` 缺失、lark-cli 未配置、应用缺 scope、导入失败或 URL 为空时，Phase F 均视为失败；严禁用本地 Markdown 路径代替飞书文档并进入 HC3。
 
 ### HC3 · 报告审核 · 结构化输出后 end_turn
 
@@ -194,6 +200,8 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
   "note": "请在飞书文档中审核并按需调整图片,完成后点击卡片按钮"
 }
 ```
+
+`feishu_doc_url` 必须是非空的飞书 `/docx/` URL；为空时不得输出 HC3。
 
 用户点"通过"后再进入 Phase G。
 
@@ -227,7 +235,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 | R07 | 报告所有数字来自宽表,不得估算 |
 | R08 | 阶段内并发、跨阶段串行(本 Prompt 已定义拓扑) |
 | R09 | 不用 AskUserQuestion,HC 走结构化 JSON |
-| R10 | 步骤 ≥ 4 时,每阶段开始前输出一行进度提示(SSE `agent.message.delta` 会被 gateway 转发到飞书卡片) |
+| R10 | 步骤 ≥ 4 时,每阶段开始前必须单独输出 `[phase] A` / `[phase] C2` / `[phase] E` / `[phase] F` / `[phase] HC3` 等阶段标记，再输出进度提示；Gateway 依此更新 `current_phase` |
 | R11 | API Key 从环境变量读取,禁止硬编码 |
 | R12 | 会话隔离键由 gateway 侧管理,你不需要解析 |
 | R13 | 写入 memory 走 gateway 侧 API,你只读不写 |

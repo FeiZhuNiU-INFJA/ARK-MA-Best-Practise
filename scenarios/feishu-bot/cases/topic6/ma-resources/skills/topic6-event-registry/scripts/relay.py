@@ -8,7 +8,9 @@
 Embedding 另需：EMBEDDING_BASE_URL / EMBEDDING_API_KEY（缺省沿用上面两个）
 
 2026-09-28 从 Anthropic 原生 /v1/messages 切到方舟 OpenAI 兼容
-/v1/chat/completions。system 从顶层字段挪到 messages[0]{role=system}，
+chat/completions。ARK_BASE_URL / OPENAI_BASE_URL 应包含版本前缀（如
+https://ark.cn-beijing.volces.com/api/v3），本模块只追加资源路径。
+system 从顶层字段挪到 messages[0]{role=system}，
 usage 字段从 input_tokens/output_tokens 换成 prompt_tokens/completion_tokens，
 停止原因从 stop_reason 换成 finish_reason。prompt caching 暂不支持，缓存
 相关 usage 字段保留为 0，避免上层聚合逻辑报错。
@@ -33,12 +35,19 @@ from typing import Callable, Iterable, Iterator, Sequence
 # doubao-seed-evolving 方舟原价 6/30 RMB per M token,按 7 汇率换算成 USD。
 PRICING = {
     "doubao-seed-evolving": (0.857, 4.286),
+    # doubao-embedding-vision 文本输入 ¥0.7 / M token，按 7 汇率折算。
+    "doubao-embedding-vision": (0.1, 0.0),
     "claude-opus-4-7": (15.0, 75.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5-20251001": (1.0, 5.0),
     "text-embedding-3-small": (0.02, 0.0),
     "Doubao-embedding": (0.0, 0.0),
 }
+
+
+def api_url(base: str, resource: str) -> str:
+    """把资源路径追加到已含版本前缀的 OpenAI 兼容 API 根地址。"""
+    return f"{base.rstrip('/')}/{resource.lstrip('/')}"
 
 
 def price_of(model: str) -> tuple[float, float]:
@@ -87,17 +96,15 @@ class Relay:
         }
         body = json.dumps(payload_body, ensure_ascii=False).encode()
         req = urllib.request.Request(
-            self.base + "/v1/chat/completions", data=body,
+            api_url(self.base, "chat/completions"), data=body,
             headers={"Authorization": f"Bearer {self.key}",
                      "content-type": "application/json"})
-        last = None
         for attempt in range(self.retries):
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     payload = json.load(resp)
                 break
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-                last = exc
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
                 if attempt == self.retries - 1:
                     raise
                 time.sleep(2 ** attempt)
@@ -159,7 +166,7 @@ class Embedder:
     timeout=600 完整跑完 955 条。调 batch 或并发都无效，只能放宽等待。
     """
 
-    def __init__(self, model: str = "Doubao-embedding",
+    def __init__(self, model: str = "doubao-embedding-vision-251215",
                  cache_path: Path | None = None, timeout: int = 600,
                  retries: int = 4):
         self.base = (os.environ.get("EMBEDDING_BASE_URL")
@@ -191,25 +198,37 @@ class Embedder:
 
     def embed(self, texts: Sequence[str], batch: int = 64,
               concurrency: int = 1) -> list[list[float]]:
-        """吞吐主要由**模型选择**决定，不由 batch 或 concurrency 决定。
+        """生成向量；vision 模型按官方多模态协议逐条请求。
 
-        实测（各 128 条全新文本）：Doubao-embedding 50.8 条/秒，
-        text-embedding-3-small 1.01~2.53 条/秒——差 20~50 倍，因为后者要出海。
-        而同一个模型换 batch 16/64、并发 16/32，四种组合全在 0.21~0.26 条/秒,
-        同样参数在不同时段还能差 70 倍。所以**不要指望调这两个参数提速**，
-        concurrency 只用来避免「全串行」这个最坏情况。
+        `/embeddings/multimodal` 会把同一 input 列表融合为一个向量，不能把多条
+        独立文本塞进一次请求。这里强制切成单条，再由 concurrency 控制并发。
+        显式指定旧 embedding 模型时仍沿用标准 `/embeddings` 批量协议。
         """
         pending = [t for t in texts if self._key(t) not in self.cache]
         unique = list(dict.fromkeys(pending))
-        chunks = [unique[i:i + batch] for i in range(0, len(unique), batch)]
+        is_multimodal = self.model.lower().startswith("doubao-embedding-vision")
+        effective_batch = 1 if is_multimodal else batch
+        chunks = [
+            unique[i:i + effective_batch]
+            for i in range(0, len(unique), effective_batch)
+        ]
         lock = threading.Lock()
         done = [0]
 
         def fetch(chunk: list[str]) -> None:
-            body = json.dumps({"model": self.model, "input": chunk},
-                              ensure_ascii=False).encode()
+            if is_multimodal:
+                payload_body = {
+                    "model": self.model,
+                    "input": [{"type": "text", "text": chunk[0]}],
+                    "encoding_format": "float",
+                }
+                resource = "embeddings/multimodal"
+            else:
+                payload_body = {"model": self.model, "input": chunk}
+                resource = "embeddings"
+            body = json.dumps(payload_body, ensure_ascii=False).encode()
             req = urllib.request.Request(
-                self.base + "/v1/embeddings", data=body,
+                api_url(self.base, resource), data=body,
                 headers={"Authorization": f"Bearer {self.key}",
                          "content-type": "application/json"})
             for attempt in range(self.retries):
@@ -222,10 +241,25 @@ class Embedder:
                     if attempt == self.retries - 1:
                         raise
                     time.sleep(2 ** attempt)
+            data = payload.get("data")
+            if isinstance(data, dict):
+                items = [data]
+            elif isinstance(data, list):
+                items = data
+            else:
+                raise ValueError("embedding 返回 data 不是对象或列表")
+            if len(items) != len(chunk):
+                raise ValueError(
+                    f"embedding 返回 {len(items)} 个向量，期望 {len(chunk)} 个")
             with lock:
+                usage = payload.get("usage") or {}
                 self.usage["input_tokens"] += (
-                    payload.get("usage", {}).get("prompt_tokens", 0) or 0)
-                for text, item in zip(chunk, payload.get("data", [])):
+                    usage.get("prompt_tokens")
+                    or usage.get("input_tokens")
+                    or usage.get("total_tokens")
+                    or 0
+                )
+                for text, item in zip(chunk, items):
                     self.cache[self._key(text)] = item["embedding"]
                 self.misses += len(chunk)
                 done[0] += 1

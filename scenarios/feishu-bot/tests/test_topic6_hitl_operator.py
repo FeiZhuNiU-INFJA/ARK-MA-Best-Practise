@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import sys
 from pathlib import Path
@@ -32,8 +33,11 @@ def _load(name: str, file: str):
 
 
 hitl_mod = _load("topic6_hitl", "topic6_hitl.py")
+pipeline_store_mod = _load("pipeline_store", "pipeline_store.py")
 _extract_operator_open_id = hitl_mod._extract_operator_open_id
 _resolve_operator_label = hitl_mod._resolve_operator_label
+_extract_action_note = hitl_mod._extract_action_note
+_extract_action_value = hitl_mod._extract_action_value
 
 
 class _FakeFeishu:
@@ -128,3 +132,60 @@ def test_resolve_label_without_feishu_client_uses_open_id_suffix():
     # feishu 为空(测试/降级路径)也能给出可用标签,不炸。
     action = SimpleNamespace(chat_id="oc-1", operator=SimpleNamespace(open_id="ou_xy1234"))
     assert _resolve_operator_label(action, feishu=None) == "操作人 ...xy1234"
+
+
+def test_extracts_remark_form_submission_from_card_callback():
+    action = {
+        "action": {
+            "name": "remark_submit",
+            "form_value": '{"remark_note":"请重新执行 Phase F"}',
+        }
+    }
+
+    assert _extract_action_value(action) == {"decision": "remark"}
+    assert _extract_action_note(action) == "请重新执行 Phase F"
+
+
+def test_followup_message_resolves_pending_remark_and_resumes_job(tmp_path):
+    store = pipeline_store_mod.PipelineStore(str(tmp_path / "topic6.db"))
+    job = store.create_job(
+        chat_id="chat-1",
+        thread_id="",
+        user_open_id="user-1",
+        ma_session_id="session-1",
+        mode="demo",
+        project_dir="/workspace/demo",
+    )
+    event_id = store.append_hc_event(job.job_id, "HC3", {"hc": "HC3"})
+    store.mark_wait_hc(job.job_id, "HC3")
+    store.append_remark(event_id, hitl_mod.PENDING_REMARK_NOTE)
+
+    class _Runner:
+        _feishu = None
+
+        def __init__(self):
+            self.resumed = []
+
+        async def resume_job(self, current_job, message):
+            self.resumed.append((current_job, message))
+
+    runner = _Runner()
+    hitl = hitl_mod.Topic6Hitl(hitl_mod.Topic6HitlDeps(store=store, runner=runner))
+    handled = asyncio.run(
+        hitl.handle_remark_message(
+            chat_id="chat-1",
+            thread_id="",
+            user_open_id="user-1",
+            text="权限已发布，请重新执行 Phase F 飞书发布",
+        )
+    )
+
+    assert handled is True
+    assert runner.resumed[0][1] == (
+        "HC3 remark: 权限已发布，请重新执行 Phase F 飞书发布"
+    )
+    resolved = store.get_hc_event(event_id)
+    assert resolved.user_decision == "remark"
+    assert resolved.user_note == "权限已发布，请重新执行 Phase F 飞书发布"
+    assert resolved.resolved_at is not None
+    store.close()

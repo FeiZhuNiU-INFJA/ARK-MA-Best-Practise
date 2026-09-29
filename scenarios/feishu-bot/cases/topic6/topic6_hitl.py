@@ -32,6 +32,7 @@ log = logging.getLogger("arkagent.topic6.hitl")
 DECISION_PASS = "pass"
 DECISION_REJECT = "reject"
 DECISION_REMARK = "remark"
+PENDING_REMARK_NOTE = "等待补充说明"
 
 # 每个 HC 的头部信息(颜色 + 图标 + 标题)。
 _HC_META = {
@@ -108,7 +109,7 @@ def build_hc_card(job: PipelineJob, hc_kind: str, event_id: int, payload: dict) 
             "tag": "markdown",
             "content": (
                 f"任务 ID:`{job.job_id}`  ·  运行模式:**{job.mode}**  ·  "
-                f"当前阶段:**{job.current_phase}**"
+                f"当前阶段:**{hc_kind}**"
             ),
         },
     ]
@@ -175,26 +176,40 @@ def build_hc_card(job: PipelineJob, hc_kind: str, event_id: int, payload: dict) 
                         }
                     ],
                 },
+            ],
+        }
+    )
+    elements.append(
+        {
+            "tag": "form",
+            "name": f"remark_form_{event_id}",
+            "elements": [
                 {
-                    "tag": "column",
-                    "width": "weighted",
-                    "weight": 1,
-                    "elements": [
-                        {
-                            "tag": "button",
-                            "text": {"tag": "plain_text", "content": "备注"},
-                            "type": "default",
-                            "width": "fill",
-                            "behaviors": [
-                                {
-                                    "type": "callback",
-                                    "value": _action_value(
-                                        job.job_id, hc_kind, event_id, DECISION_REMARK
-                                    ),
-                                }
-                            ],
-                        }
-                    ],
+                    "tag": "input",
+                    "name": "remark_note",
+                    "required": True,
+                    "input_type": "multiline_text",
+                    "rows": 2,
+                    "auto_resize": True,
+                    "max_rows": 4,
+                    "max_length": 500,
+                    "width": "fill",
+                    "label": {"tag": "plain_text", "content": "备注"},
+                    "placeholder": {
+                        "tag": "plain_text",
+                        "content": "填写补充说明，提交后继续执行",
+                    },
+                },
+                {
+                    "tag": "button",
+                    "name": "remark_submit",
+                    "text": {
+                        "tag": "plain_text",
+                        "content": "提交备注并继续",
+                    },
+                    "type": "default",
+                    "width": "fill",
+                    "form_action_type": "submit",
                 },
             ],
         }
@@ -205,7 +220,7 @@ def build_hc_card(job: PipelineJob, hc_kind: str, event_id: int, payload: dict) 
             "content": (
                 "> 通过:pipeline 继续跑下一阶段  "
                 "  ·  打回:标 failed 结束任务  "
-                "  ·  备注:再次@bot 附一条说明后视为通过"
+                "  ·  备注:填写后提交并继续"
             ),
         }
     )
@@ -254,7 +269,7 @@ def build_hc_resolved_card(
             "tag": "markdown",
             "content": (
                 f"任务 ID:`{job.job_id}`  ·  运行模式:**{job.mode}**  ·  "
-                f"当前阶段:**{job.current_phase}**"
+                f"当前阶段:**{hc_kind}**"
             ),
         },
     ]
@@ -403,6 +418,7 @@ class Topic6Hitl(Topic6CardSenderProtocol):
                 job_id, event_id, decision,
             )
             return
+        hc_kind = hc_event.hc_kind
         if hc_event.resolved_at is not None:
             log.info(
                 "topic6 handle_card_action: HC event=%s 已处理过(decision=%s),忽略重复回调",
@@ -425,7 +441,7 @@ class Topic6Hitl(Topic6CardSenderProtocol):
         note = _extract_action_note(action) or ""
         # 备注按钮:仅记录一条 remark 事件,不 resume——等用户 @bot 补一句正文再唤醒。
         if decision == DECISION_REMARK and not note:
-            self._store.append_remark(hc_event.id, "等待补充说明")
+            self._store.append_remark(hc_event.id, PENDING_REMARK_NOTE)
             self._reply_sync(
                 job.chat_id, f"📝 已记 {hc_kind} 备注意向,请再 @bot 一条说明。"
             )
@@ -469,6 +485,55 @@ class Topic6Hitl(Topic6CardSenderProtocol):
         except Exception as error:  # noqa: BLE001 - resume 失败也要通知飞书
             log.exception("topic6 resume_job failed job=%s: %s", job.job_id, error)
             self._reply_sync(job.chat_id, f"⚠️ {hc_kind} 续跑失败:{error!s}"[:200])
+
+    async def handle_remark_message(
+        self,
+        *,
+        chat_id: str,
+        thread_id: str,
+        user_open_id: str,
+        text: str,
+    ) -> bool:
+        """把“备注按钮后补发的文本”接回待审核 Job；未命中返回 False。"""
+        job = self._store.get_active_job_by_session_key(
+            chat_id, thread_id, user_open_id
+        )
+        if job is None:
+            return False
+        hc_event = self._store.latest_hc_for_job(job.job_id, job.current_phase)
+        if (
+            hc_event is None
+            or hc_event.resolved_at is not None
+            or hc_event.user_note != PENDING_REMARK_NOTE
+        ):
+            return False
+
+        note = text.strip()
+        if not note:
+            return False
+        self._store.resolve_hc_event(hc_event.id, DECISION_REMARK, note)
+        if hc_event.card_message_id:
+            resolved = HcEvent(
+                id=hc_event.id,
+                job_id=hc_event.job_id,
+                hc_kind=hc_event.hc_kind,
+                payload=hc_event.payload,
+                card_message_id=hc_event.card_message_id,
+                user_decision=DECISION_REMARK,
+                user_note=note,
+                created_at=hc_event.created_at,
+                resolved_at=int(time.time() * 1000),
+            )
+            await self._patch_resolved_card(
+                hc_event.card_message_id,
+                resolved,
+                {"chat_id": chat_id, "operator": {"open_id": user_open_id}},
+            )
+        await self._runner.resume_job(
+            job,
+            _build_decision_message(hc_event.hc_kind, DECISION_REMARK, note),
+        )
+        return True
 
     # ---- helper --------------------------------------------------------------
 
@@ -521,31 +586,51 @@ class Topic6Hitl(Topic6CardSenderProtocol):
 
 def _extract_action_value(action: Any) -> Optional[dict]:
     """从 lark_channel CardActionEvent / dict 里挖出按钮 value 结构。"""
-    inner = getattr(action, "action", None) or {}
-    value = getattr(inner, "value", None) if inner else None
-    if value is None and isinstance(action, dict):
-        value = ((action.get("action") or {}).get("value"))
+    inner = getattr(action, "action", None)
+    if inner is None and isinstance(action, dict):
+        inner = action.get("action")
+    inner = inner or {}
+    value = getattr(inner, "value", None)
+    if value is None and isinstance(inner, dict):
+        value = inner.get("value")
     if isinstance(value, str):
         try:
             value = json.loads(value)
         except (TypeError, ValueError):
-            return None
+            value = None
     if isinstance(value, dict):
         return value
+    name = getattr(inner, "name", None)
+    if name is None and isinstance(inner, dict):
+        name = inner.get("name")
+    if name == "remark_submit":
+        return {"decision": DECISION_REMARK}
     return None
 
 
 def _extract_action_note(action: Any) -> Optional[str]:
     """备注按钮可能配合一个 input 组件;这里从 form_value / input_value 抽出说明文本。"""
     inner = getattr(action, "action", None)
+    if inner is None and isinstance(action, dict):
+        inner = action.get("action")
     if inner is None:
         return None
-    form_value = getattr(inner, "form_value", None) or {}
+    form_value = getattr(inner, "form_value", None)
+    if form_value is None and isinstance(inner, dict):
+        form_value = inner.get("form_value")
+    if isinstance(form_value, str):
+        try:
+            form_value = json.loads(form_value)
+        except (TypeError, ValueError):
+            form_value = {}
+    form_value = form_value or {}
     if isinstance(form_value, dict):
         note = form_value.get("remark_note") or form_value.get("note")
         if isinstance(note, str) and note.strip():
             return note.strip()
     input_value = getattr(inner, "input_value", None)
+    if input_value is None and isinstance(inner, dict):
+        input_value = inner.get("input_value")
     if isinstance(input_value, str) and input_value.strip():
         return input_value.strip()
     return None

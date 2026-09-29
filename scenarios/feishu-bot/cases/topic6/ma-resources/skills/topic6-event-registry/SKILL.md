@@ -178,8 +178,9 @@ x3 同时做过合方向的拆分，所以它不是只会合——实测微博�
 
 ### 运行契约：授权、超时、失败恢复、并行
 
-**开跑前不需要向用户索要凭据**，脚本从环境变量读（`ANTHROPIC_API_KEY` 与
-`ANTHROPIC_AUTH_TOKEN` 两个变量名都认，Claude Code 环境通常只有后者）。
+**开跑前不需要向用户索要凭据**，脚本从环境变量读：
+`ARK_BASE_URL` → `OPENAI_BASE_URL`，`ARK_API_KEY` → `OPENAI_API_KEY`。
+Base URL 必须包含版本前缀（方舟示例：`https://ark.cn-beijing.volces.com/api/v3`）。
 
 **所有阶段都有断点，任何中断后原样重跑即可续跑**，已完成批次读缓存、不重复计费。
 这覆盖了绝大多数异常：工具超时、进程被杀、网络断、**API 额度用尽换 Key**、限流。
@@ -405,19 +406,20 @@ python3 $S/07_block_archive.py --run-dir . --prior-events work/prior_events.json
 分阶段明细见 [references/benchmarks.md](references/benchmarks.md)，
 台账缺陷的复现细节见 [references/runbook.md](references/runbook.md)。
 
-## 向量化用 Doubao-embedding
+## 向量化用 doubao-embedding-vision-251215
 
-阶段 04 曾是全流程最慢的一环（1816 条要 20~30 分钟），真因不是网关拥塞、也不是批量或
-并发没调好，而是**默认模型选错了**：`text-embedding-3-small` 是 OpenAI 的，要出海。
-换成 `Doubao-embedding` 后 1816 条只需 **15.8 秒**，召回质量在两个平台复验持平略优。
+阶段 04 默认使用方舟当前推荐的 `doubao-embedding-vision-251215`，文本请求走
+`POST /api/v3/embeddings/multimodal`。该接口会把同一个 `input` 列表融合成一个向量，
+所以脚本逐条提交文本，再用 `--concurrency` 并发；不能把多条标题塞进一个请求。
 
-**批量和并发调不动吞吐，别在那上面花时间**——四种组合实测全在 0.21~0.26 条/秒，
-而同样参数在不同时段差 70 倍。唯一有意义的参数是超时（默认 600 秒，曾是 120 秒，
-会把正常的慢请求误杀）。
+`Doubao-embedding` 是旧模型名，当前端点会返回
+`InvalidEndpointOrModel.NotFound`，不得再作为默认值。可通过
+`EMBEDDING_MODEL_ID` 或 `--model` 显式覆盖模型。
 
-换模型注意：**维度 2560 与 1536 不通用，已有 embeddings 必须重算**（缓存键含模型名，
-不会串档，但旧缓存不命中）。五个模型的完整吞吐与召回对比见
-[references/benchmarks.md](references/benchmarks.md)。
+旧基准中，从出海的 `text-embedding-3-small` 换到当时可用的 `Doubao-embedding`
+曾把 1816 条从 20~30 分钟降到 15.8 秒；这只是历史对照，不代表旧模型当前仍可调用。
+换模型后已有 embeddings 必须重算（缓存键含模型名，不会串档，但旧缓存不命中）。
+历史模型的吞吐与召回对比见 [references/benchmarks.md](references/benchmarks.md)。
 
 
 ## 脚本

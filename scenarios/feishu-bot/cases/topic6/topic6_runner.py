@@ -72,8 +72,6 @@ def parse_trigger(text: str) -> Optional[str]:
 # ---- 事件解析 --------------------------------------------------------------
 
 
-_HC_JSON_RE = re.compile(r"\{[^{}]*\"hc\"\s*:\s*\"(HC[123])\"[^{}]*\}", re.S)
-
 # 兜底"文本意图检测"用:如果 Agent 违约(说要输出 HC JSON 但没真输出),
 # 只要正文出现 HC 关键词 + 明确的"等确认"意图,就伪造一个占位 payload,
 # 免得 pipeline 被吞掉。关键词覆盖 coordinator.system.md 里禁止的元描述表达。
@@ -100,26 +98,53 @@ def extract_hc_payload(text: str) -> Optional[dict]:
 
         {"hc": "HC1", "mode": "test", "project_dir": "...", ...}
 
-    正文中允许穿插其它文本,但 JSON 块本身必须完整可解析。为了容错,先用正则找到
-    第一个含 ``"hc": "HCx"`` 的花括号块,再交给 json.loads;失败返回 None,由上层
-    视为普通完成事件。
+    正文中允许穿插其它文本,但 JSON 块本身必须完整可解析。逐个尝试正文中的 ``{``
+    起点并交给 ``JSONDecoder.raw_decode``，从而正确处理嵌套对象；找不到合法 HC
+    对象时返回 None,由上层视为普通完成事件。
     """
     if not text:
         return None
-    match = _HC_JSON_RE.search(text)
-    if not match:
-        return None
-    raw = match.group(0)
-    try:
-        value = json.loads(raw)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return None
-    if not isinstance(value, dict):
-        return None
-    hc_kind = value.get("hc")
-    if hc_kind not in HC_KINDS:
-        return None
-    return value
+    decoder = json.JSONDecoder()
+    payload: Optional[dict] = None
+    candidates = 0
+    for start in (match.start() for match in re.finditer(r"\{", text)):
+        candidates += 1
+        try:
+            value, _ = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and value.get("hc") in HC_KINDS:
+            payload = value
+            break
+
+    # #region debug-point B:hc-regex-match
+    import contextlib as _debug_contextlib
+    import urllib.request as _debug_urllib
+    with _debug_contextlib.suppress(Exception):
+        _debug_urllib.urlopen(
+            _debug_urllib.Request(
+                "http://127.0.0.1:7777/event",
+                data=json.dumps({
+                    "sessionId": "hc-card-not-sent",
+                    "runId": "post-fix",
+                    "hypothesisId": "B",
+                    "location": "topic6_runner.py:extract_hc_payload",
+                    "msg": "[DEBUG] HC JSON decoding evaluated",
+                    "data": {
+                        "text_length": len(text),
+                        "open_braces": text.count("{"),
+                        "close_braces": text.count("}"),
+                        "candidate_count": candidates,
+                        "matched": payload is not None,
+                        "hc": payload.get("hc") if payload else None,
+                    },
+                }).encode(),
+                headers={"Content-Type": "application/json"},
+            ),
+            timeout=0.2,
+        ).read()
+    # #endregion
+    return payload
 
 
 def detect_hc_intent(text: str) -> Optional[str]:
@@ -147,6 +172,13 @@ def detect_hc_intent(text: str) -> Optional[str]:
     if not any(kw in text for kw in _HC_INTENT_KEYWORDS):
         return None
     return hc_kind
+
+
+def validate_hc_payload(payload: dict) -> Optional[str]:
+    """返回 HC payload 的契约错误；合法时返回 None。"""
+    if payload.get("hc") == "HC3" and not str(payload.get("feishu_doc_url") or "").strip():
+        return "HC3 缺少 feishu_doc_url：Phase F 飞书发布未完成"
+    return None
 
 
 # ---- Runner ----------------------------------------------------------------
@@ -444,8 +476,26 @@ class Topic6Runner:
                 }
         if payload:
             hc_kind = str(payload["hc"])
+            payload_error = validate_hc_payload(payload)
+            if payload_error:
+                log.error(
+                    "topic6 invalid HC payload job=%s hc=%s: %s",
+                    job_id,
+                    hc_kind,
+                    payload_error,
+                )
+                self._store.mark_failed(job_id, payload_error)
+                await self._render_and_patch(
+                    job_id,
+                    status=STATUS_FAILED,
+                    error=payload_error,
+                    force=True,
+                )
+                await self._reply_async_by_job(job_id, f"❌ {payload_error}")
+                return
             event_id = self._store.append_hc_event(job_id, hc_kind, payload)
             self._store.mark_wait_hc(job_id, hc_kind)
+            job = self._store.get_job(job_id) or job
             # 进度卡片切到"等待审核"状态,提示用户到下方 HC 卡片操作。
             await self._render_and_patch(job_id, status=STATUS_WAIT_HC, force=True)
             if self._card_sender is None:

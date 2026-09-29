@@ -49,7 +49,7 @@ topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 
 - [ ] `docx:document` — 读写飞书文档正文(Phase F 拉草稿、Phase H 写回)
 - [ ] `docx:document.content:read` — 仅读文档内容(部分租户单独开)
-- [ ] `drive:drive` **或** `drive:file:writeable` — 在指定云空间目录里新建/移动文档
+- [ ] `space:folder:create` — 创建云空间文件夹；在“应用身份权限”中搜索“创建云空间文件夹”。不要误选 `drive:drive:version` 等文档版本权限
 
 **可选**
 
@@ -62,6 +62,9 @@ topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 - [ ] `card.action.trigger` — HC1/HC2/HC3 卡片按钮点击回调(HITL 必需)
 
 ### 生效方式
+
+新增权限后必须提交审核并发布应用版本；仅勾选但未发布不会对
+`tenant_access_token` 生效。
 
 - **企业自建应用**:保存后即时生效,无需审核。
 - **应用状态**要点到「启用」,并在目标群里把 Bot 加为群成员;单聊需管理员放开可用范围。
@@ -161,60 +164,32 @@ python3 tools/upload_skills.py
 - 更新已有 Memory 内容
 - 删除并重建 Annotator、Insighter、Coordinator
 - 自动回写新的资源 ID
-- 重新启动 Gateway
 
-执行前先停止正在运行的 Gateway:
+在任意目录执行均可:
 
 ```bash
-# 1. 进入项目并激活环境
-cd /Users/bytedance/workspace/ark-agent-feishu-bot
-conda activate nio-ma-demo
-
-# 2. 加载配置
-set -a
-source ~/.arkagent/cases/topic6/config.env
-set +a
-
-# 3. 检查必填变量,不输出密钥
-: "${ARK_API_KEY:?缺少 ARK_API_KEY}"
-: "${FEISHU_APP_ID:?缺少 FEISHU_APP_ID}"
-: "${FEISHU_APP_SECRET:?缺少 FEISHU_APP_SECRET}"
-: "${HOT_TOPICS_MCP_URL:?缺少 HOT_TOPICS_MCP_URL}"
-: "${BLUEAI_API_KEY:?缺少 BLUEAI_API_KEY}"
-: "${DATAHUB_ENDPOINT:?缺少 DATAHUB_ENDPOINT}"
-: "${DATAHUB_API_KEY:?缺少 DATAHUB_API_KEY}"
-
-# 4. 完整回归测试
-cd scenarios/feishu-bot
-python3 -m pytest -q
-
-# 5. 进入 Topic 6
-cd cases/topic6
-
-# 6. 重新打包全部 5 个 Skills
-./tools/pack_skills.sh
-
-# 7. 强制上传全部 Skills
-python3 tools/upload_skills.py --force
-
-# 8. 全量更新 Environment、Memory,并重建全部 Agent
-./ma-resources/create_all.sh --update-env --update-memory
-
-# 9. 检查新资源 ID
-jq . ma-resources/created_ids.json
-grep -E '^TOPIC6_(COORDINATOR_AGENT_ID|ENVIRONMENT_ID|MEMORY_STORE_ID)=' \
-  ~/.arkagent/cases/topic6/config.env
-
-# 10. 重新加载 create_all.sh 自动回写后的资源 ID
-set -a
-source ~/.arkagent/cases/topic6/config.env
-set +a
-
-# 11. 返回服务目录并启动 Gateway
-cd ../..
-python3 -m arkagent run --case topic6
+/Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/update_ma.sh
 ```
 
+脚本默认读取 `~/.arkagent/cases/topic6/config.env`，并自动使用当前
+`nio-ma-demo` 环境；若未激活但本机有 `conda`，则自动通过 `conda run` 执行。
+它不会停止或重启 Gateway。更新完成后手动重启：
+
+| 组件 | 更新方式 | ID |
+|---|---|---|
+| 5 个 Skills | 强制重新上传 | **变化** |
+| Annotator / Insighter / Coordinator | 删除同名旧 Agent 后重建 | **变化** |
+| Environment | 按名称原地更新 | **不变** |
+| Memory Store | 按名称原地更新 | **不变** |
+| 飞书 App / Vault | 不由脚本更新 | **不变** |
+
+Coordinator 的新 ID 会自动回写 `~/.arkagent/cases/topic6/config.env`。运行中的
+Gateway 仍持有旧 ID，所以脚本结束后必须重启：
+
+```bash
+cd /Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot
+python -m arkagent run --case topic6
+```
 ---
 
 ## 4. 确认 topic6 资源 ID

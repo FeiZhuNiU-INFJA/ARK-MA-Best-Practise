@@ -13,6 +13,34 @@
 
 ## 2026-09-29
 
+### HC3 状态一致性与轨迹问题收口
+
+- **HC3 卡片错显 HC1**：Gateway 先把数据库阶段更新为 HC3，但发送审核卡时复用了更新前的 Job 快照。审核卡现直接以 `hc_kind` 渲染阶段，Runner 在写库后也会重新读取 Job。
+- **备注补充消息未续跑**：点击“备注”后再 @bot 的正文此前会落入默认帮助回复。Gateway 现优先识别等待补充说明的 HC，将正文作为 `HCx remark` 注入原 Session 并继续执行。
+- **备注交互改为卡片内完成**：HC 卡片增加必填多行备注输入框和“提交备注并继续”按钮，表单提交后直接携带 `form_value.remark_note` 续跑，不再要求用户二次 @bot；文本补充入口仍作为兼容兜底保留。
+- **无效 HC3 拦截**：`feishu_doc_url` 为空说明 Phase F 未发布成功，Gateway 现在将其标记为失败，不再生成可误点“通过”的 HC3 卡片；Coordinator 同步禁止用本地 Markdown 路径替代飞书文档。
+- **飞书权限说明**：创建报告目录使用应用身份权限 `space:folder:create`（“创建云空间文件夹”）；旧文档中的 `drive:drive` 表述已移除，明确不得误选 `drive:drive:version`。
+- **Phase E 依赖**：Environment 增加 `openai>=1.0`，避免沙箱运行时临时安装。
+- **E2 日历**：默认改为直接读取 `topic6-fetch-normalize/references/marketing_calendar_2026.csv`，并保留 Markdown 日历兼容。
+- **报告周期**：`pipeline_f.py` 避免在 `period_label` 已含日期时重复拼接日期范围。
+- **验证**：Topic6 完整测试集 `397 passed`。
+
+### C2 向量模型切换为 Doubao-embedding-vision
+
+- **触发现象**：旧默认模型 `Doubao-embedding` 调用标准 `/api/v3/embeddings` 时返回 `InvalidEndpointOrModel.NotFound`。
+- **依据**：方舟模型详情页当前首推准确模型 ID `doubao-embedding-vision-251215`；文本输入使用 `POST /api/v3/embeddings/multimodal`。
+- **实现**：
+  - `04_build_embeddings.py` 默认模型切换为 `doubao-embedding-vision-251215`，支持 `EMBEDDING_MODEL_ID` 和 `--model` 覆盖。
+  - vision 接口每条文本单独请求，使用 `--concurrency` 并发；兼容响应 `data` 为对象或列表的两种结构。
+  - 显式指定标准 embedding 模型时继续使用 `/embeddings` 批量协议，保留兼容性。
+  - Coordinator 和 Event Registry 操作文档同步准确模型 ID、接口及故障排查口径。
+- **验证**：Topic6 完整测试集 `392 passed`。
+
+### MA 资源全量更新单入口
+
+- 新增 `update_ma.sh`，统一完成配置加载与校验、全量测试、5 个 Skill 打包和强制上传、Environment/Memory 更新、3 个 Agent 重建、资源 ID 校验与 Gateway 配置回写。
+- 脚本不管理 Gateway 进程；执行完成后仍需手动重启 Gateway，使新 Agent ID 和本地代码生效。
+
 ### demo 抽样量降至 50 条
 
 - **触发现象**：demo 使用 500 条样本时，C0/C3 仍受 DataHub 吞吐限制，端到端演示等待时间过长。

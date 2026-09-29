@@ -84,6 +84,15 @@ class Topic6Gateway:
                 self._store.complete_event(message.event_id, "completed")
                 return
 
+            if await self._hitl.handle_remark_message(
+                chat_id=message.chat_id,
+                thread_id=message.thread_id,
+                user_open_id=message.user_open_id,
+                text=text,
+            ):
+                self._store.complete_event(message.event_id, "completed")
+                return
+
             mode = parse_trigger(text)
             if mode is None:
                 await self._reply(

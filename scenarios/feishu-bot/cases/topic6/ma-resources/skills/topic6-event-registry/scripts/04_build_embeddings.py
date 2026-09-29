@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -35,24 +36,22 @@ def frame_text(frame: dict) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--run-dir", required=True, type=Path)
-    ap.add_argument("--model", default="Doubao-embedding",
-                    help="默认曾是 text-embedding-3-small，它要出海、慢且不稳。"
-                         "同一批全新真实文本实测：3-small 1.01~2.53 条/秒，"
-                         "Doubao-embedding 50.8 条/秒（约 20~50 倍）；1816 条从 20~30 分钟"
-                         "降到 15.8 秒。召回质量在两个平台复验均持平略优："
-                         "微博 68.4%→69.8%、知乎 93.4%→93.9%（基准由 3-small 的召回结果"
-                         "产出，天然偏向它，Doubao 仍胜出）。维度 2560，与 1536 不通用，"
-                         "换模型后 embeddings 要重算——缓存键含模型名，不会串。"
-                         "网关另有 text-embedding-v4（1024 维、14 条/秒、批量上限 10）")
+    ap.add_argument(
+        "--model",
+        default=os.environ.get(
+            "EMBEDDING_MODEL_ID", "doubao-embedding-vision-251215"
+        ),
+        help="默认使用 doubao-embedding-vision-251215；可通过 "
+             "EMBEDDING_MODEL_ID 或 --model 覆盖。vision 模型走方舟 "
+             "/embeddings/multimodal，文本逐条请求并由 --concurrency 并发。"
+             "模型变化会使旧向量缓存自动失效。",
+    )
     ap.add_argument("--batch-size", type=int, default=64)
     ap.add_argument("--text-source", choices=["frame", "clean_title"], default="frame",
                     help="frame=六字段拼装文本；clean_title=只用清洗后标题")
     ap.add_argument("--concurrency", type=int, default=8,
-                    help="并发请求数。默认曾是 1（全串行），而文档示例用 4，等于没人用默认值。"
-                         "注意：实测吞吐由端点自身状态决定，客户端参数几乎无效——"
-                         "同样参数在不同时段实测 0.21 / 0.73 / 2.3 条每秒，差 10 倍；"
-                         "batch 16/64、并发 16/32 之间无显著差异。所以并发只用来避免"
-                         "「全串行」这个最坏情况，不要指望调它提速")
+                    help="并发请求数。vision 接口每条文本一次请求，此参数控制请求并发；"
+                         "显式指定旧批量 embedding 模型时仍按 --batch-size 分批")
     args = ap.parse_args()
 
     src = args.run_dir / "work" / "frames_resolved.jsonl"

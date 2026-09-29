@@ -34,11 +34,12 @@ Topic 6 是一个运行在火山方舟 Managed Agents（MA）上的飞书 Bot �
 
 资源或代码更新后，应遵循：
 
-```text
-运行测试 → 打包 Skill → 上传 Skill → 更新 MA 资源 → 重启 Gateway → 新建 Session
+```bash
+cd /Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6
+./update_ma.sh
 ```
 
-具体命令及 `--update-env`、`--update-memory` 的使用条件见[快速调试与完整配置](./TOPIC6_DEBUG_QUICKSTART.md#34-全量更新所有-topic-6-资源)。
+该脚本会完成测试、Skill 打包上传、Environment/Memory 更新、Agent 重建和资源 ID 回写；Gateway 仍需手动重启。详见[快速调试与完整配置](./TOPIC6_DEBUG_QUICKSTART.md#34-全量更新所有-topic-6-资源)。
 
 ## 系统组成
 
