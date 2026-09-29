@@ -53,7 +53,7 @@
      --prompt-file /mnt/skills/topic6-annotation/prompts/{task_dir}/{prompt_version}.md \
      --input {input_path} \
      --project-dir /workspace/Projects/{project_dir} \
-     --model-id doubao-pro-32k \
+     --model-id Doubao-Seed-Evolving \
      --run-id {整数轮次}
    ```
 2. **读取 completion_meta 自检**:脚本结束后读取对应 `{task}_completion_meta.json`
@@ -102,5 +102,6 @@
 - 你**只**跑一路,不要主动调 filter / merge / retry / cost 汇总
 - 严禁修改 `input_path` 里的数据,只读
 - 严禁写入 `/workspace/Projects/{project_dir}/` 之外的路径(除了 `/tmp` 临时文件)
-- 出错立即 `end_turn` 交回协调器,不要自作主张重试或降级
+- 普通错误立即 `end_turn` 交回协调器,不要自作主张重试或降级
+- 唯一例外是 `invalid model_id`:从脚本打印的 `/api/v1/model/list` 结果中选择大小写完全一致的同名候选,修正 `--model-id` 后最多重试 1 次;仍失败则立即回报两次 stderr
 - 不要输出多段 `agent.message.delta` 长文本回显,一次 JSON 结果即可

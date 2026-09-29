@@ -11,7 +11,7 @@ MA 适配要点：
   - cost-tracker 从 topic6-annotation skill 挂载路径调用（annotation/insight 共用同一份）
 
 设计原则：
-  - full 模式用于正式交付；demo 模式允许基于 500 条抽样数据生成演示报告
+  - full 模式用于正式交付；demo 模式允许基于 50 条抽样数据生成演示报告
   - test 模式只用于标注校准，不生成洞察
   - 同一项目洞察按版本迭代（v1、v2...），每轮单独一个子目录
 
@@ -721,7 +721,7 @@ def main():
     if args.mode == "test":
         print(
             "[pipeline_e] ❌ 不允许在 test 模式下生成洞察。\n"
-            "  test 仅用于标注校准；如需基于 500 条样本生成演示报告,请使用 --mode demo。",
+            "  test 仅用于标注校准；如需基于 50 条样本生成演示报告,请使用 --mode demo。",
             file=sys.stderr,
         )
         sys.exit(1)

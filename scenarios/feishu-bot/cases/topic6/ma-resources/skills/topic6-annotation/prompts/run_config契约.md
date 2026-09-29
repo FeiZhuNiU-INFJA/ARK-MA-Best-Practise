@@ -64,7 +64,7 @@ init → ab → sample → c0_sample → c0_filter_sample → c_route_sample →
 |---|---|---|
 | `init` | — | 项目目录刚建，run_config 已写入 period |
 | `ab` | `prompt/02` | 取数 + 清洗 + 标准化（一条命令完成） |
-| `sample` | `prompt/03` | 分层抽样 500 条，test/demo 模式经过 |
+| `sample` | `prompt/03` | 分层抽样，test 500 条、demo 50 条 |
 | `c0_sample` / `c0_full` | `prompt/04` | 第一批：C0 + C3 并发 |
 | `c0_filter_sample` / `c0_filter_full` | `prompt/04` | 筛选「营销可用」子集（纯脚本零成本） |
 | `c_route_sample` / `c_route_full` | `prompt/04` | 第二批：R1~R5 + C2 并发，只吃子集 |

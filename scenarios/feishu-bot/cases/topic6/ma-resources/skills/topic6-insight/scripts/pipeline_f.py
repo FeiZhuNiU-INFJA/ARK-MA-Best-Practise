@@ -29,7 +29,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 WORKSPACE_ROOT = Path("/workspace")
 
 SECTION_IDS = ["e1", "e2", "e3", "e4"]
-DEMO_DISCLAIMER = "> 演示说明：本报告基于 500 条分层样本生成，仅供流程演示，不可作为正式全量结论。"
+DEMO_DISCLAIMER = "> 演示说明：本报告基于 50 条分层样本生成，仅供流程演示，不可作为正式全量结论。"
 
 
 def latest_insight_round(insight_dir: Path) -> int | None:

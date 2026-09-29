@@ -52,7 +52,9 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 
 ### 抽样(test / demo 模式)
 
-- 调 `/mnt/skills/topic6-fetch-normalize/scripts/sample_500.py` → `03_抽样/sample_500.xlsx`
+- `mode=test`:调 `/mnt/skills/topic6-fetch-normalize/scripts/sample_500.py --size 500` → `03_抽样/sample_500.xlsx`
+- `mode=demo`:调 `/mnt/skills/topic6-fetch-normalize/scripts/sample_500.py --size 50` → `03_抽样/sample_500.xlsx`
+- `sample_500.xlsx` 是兼容既有合并和断点恢复逻辑的固定文件名；实际行数必须以 `status.sample.sample_rows` 为准
 
 ### Phase C 第一批(并发)
 
@@ -61,7 +63,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 - 委派子 Agent `topic6-annotator` 执行 C0 基础事实层,input=`03_抽样/sample_500.xlsx`(test/demo) 或 `02_标准化/hot_topics_normalized.xlsx`(full),task="c0"
 - 委派子 Agent `topic6-annotator` 执行 C3 节点标注,同上 input,task="c3"
 - `datahub_annotate.py` 的 `--run-id` 必须传整数轮次(如 `1`),不得传流水线字符串 ID
-- DataHub 模型统一传 `doubao-pro-32k`;以 completion_meta 的实际模型和 `total_consume` 记账,不得套用 MA Agent 模型价格
+- DataHub 模型默认传大小写敏感的准确 ID `Doubao-Seed-Evolving`;以 completion_meta 的实际模型和 `total_consume` 记账,不得套用 MA Agent 模型价格
 
 两路都完成后 → 触发筛选。
 
@@ -105,7 +107,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
   "project_dir": "{PROJECT_DIR}",
   "wide_table_path": "/mnt/session/outputs/{PROJECT_DIR}/05_合并/wide_table_{mode}_r1.xlsx",
   "distribution_summary": {
-    "rows": 500,
+    "rows": {sample_rows},
     "cols": 28,
     "c0_valid_rate": 0.98,
     "r1_r5_valid_rates": [1.0, 1.0, 1.0, 1.0, 1.0]
@@ -125,7 +127,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 用户通过卡片按钮回复 `HC1 通过` / `HC1 打回:xxx` / `HC1 备注:xxx` 后,你会收到新的 `user.message`。
 
 - `mode=test`:收到“通过”后进入 C→D 全量,再经过 HC2。
-- `mode=demo`:收到“通过”后**直接进入 Phase E**,使用 `wide_table_demo_r{N}.xlsx`;严禁重跑全量 C→D,跳过 HC2。demo 报告必须注明“基于 500 条分层样本,仅供流程演示,不可作为正式全量结论”。
+- `mode=demo`:收到“通过”后**直接进入 Phase E**,使用 `wide_table_demo_r{N}.xlsx`;严禁重跑全量 C→D,跳过 HC2。demo 报告必须注明“基于 50 条分层样本,仅供流程演示,不可作为正式全量结论”。
 - `mode=full`:初始阶段直接跑全量 C→D,不进入 HC1,完成后进入 HC2。
 
 ### C→D 全量(仅当 test 模式通过 HC1,或初始 mode=full)

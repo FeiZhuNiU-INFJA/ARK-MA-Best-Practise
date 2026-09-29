@@ -6,6 +6,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 
 TOPIC6_DIR = Path(__file__).resolve().parents[1] / "cases" / "topic6"
 ANNOTATE_SCRIPT = (
@@ -23,6 +25,12 @@ PIPELINE_F_SCRIPT = (
     / "topic6-insight"
     / "scripts"
     / "pipeline_f.py"
+)
+COORDINATOR_PROMPT = (
+    TOPIC6_DIR / "ma-resources" / "agents" / "coordinator.system.md"
+)
+ANNOTATOR_PROMPT = (
+    TOPIC6_DIR / "ma-resources" / "agents" / "annotator.system.md"
 )
 
 
@@ -96,6 +104,63 @@ def test_download_inline_results_reads_paginated_result_list(tmp_path, monkeypat
     assert [row["row_id"] for row in written_rows] == ["T0001", "T0002"]
 
 
+def test_validate_model_id_prints_list_and_returns_exact_match(capsys):
+    module = _load_annotate_module()
+    models = [
+        {
+            "model_id": "Doubao-pro-32k",
+            "platform": "Volcengine",
+            "input_price": "¥1.2",
+            "output_price": "¥3.4",
+        },
+        {"model_id": "gpt-5.6-luna", "platform": "OpenAI"},
+    ]
+
+    info = module._validate_model_id("Doubao-pro-32k", models)
+
+    assert info == {
+        "platform": "Volcengine",
+        "input_price": 1.2,
+        "output_price": 3.4,
+    }
+    output = capsys.readouterr().out
+    assert "/api/v1/model/list: 2 models" in output
+    assert "Doubao-pro-32k, gpt-5.6-luna" in output
+
+
+def test_validate_model_id_suggests_case_sensitive_match():
+    module = _load_annotate_module()
+
+    with pytest.raises(
+        ValueError,
+        match="invalid model_id: doubao-pro-32k; 大小写敏感候选: Doubao-pro-32k",
+    ):
+        module._validate_model_id(
+            "doubao-pro-32k",
+            [{"model_id": "Doubao-pro-32k"}],
+        )
+
+
+def test_agent_prompts_use_canonical_model_id_and_allow_one_retry():
+    coordinator = COORDINATOR_PROMPT.read_text(encoding="utf-8")
+    annotator = ANNOTATOR_PROMPT.read_text(encoding="utf-8")
+
+    assert "`Doubao-Seed-Evolving`" in coordinator
+    assert "--model-id Doubao-Seed-Evolving" in annotator
+    assert "最多重试 1 次" in annotator
+    assert "`Doubao-pro-32k`" not in coordinator
+    assert "--model-id Doubao-pro-32k" not in annotator
+
+
+def test_coordinator_uses_50_rows_for_demo_and_500_for_test():
+    coordinator = COORDINATOR_PROMPT.read_text(encoding="utf-8")
+
+    assert "mode=test" in coordinator
+    assert "sample_500.py --size 500" in coordinator
+    assert "mode=demo" in coordinator
+    assert "sample_500.py --size 50" in coordinator
+
+
 def test_pipeline_f_marks_demo_report_as_sample_only(tmp_path):
     project = tmp_path / "W39_demo"
     round_dir = project / "06_洞察" / "v1"
@@ -127,4 +192,4 @@ def test_pipeline_f_marks_demo_report_as_sample_only(tmp_path):
 
     assert result.returncode == 0, result.stderr
     report = project / "07_报告" / "热点报告_2026-W39_v1.md"
-    assert "基于 500 条分层样本生成" in report.read_text(encoding="utf-8")
+    assert "基于 50 条分层样本生成" in report.read_text(encoding="utf-8")

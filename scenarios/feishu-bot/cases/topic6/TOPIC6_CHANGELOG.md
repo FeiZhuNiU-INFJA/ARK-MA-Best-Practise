@@ -13,6 +13,27 @@
 
 ## 2026-09-29
 
+### demo 抽样量降至 50 条
+
+- **触发现象**：demo 使用 500 条样本时，C0/C3 仍受 DataHub 吞吐限制，端到端演示等待时间过长。
+- **实现**：demo 调用 `sample_500.py --size 50`，test 继续使用 `--size 500`；兼容既有合并与断点恢复逻辑，产物文件名仍为 `sample_500.xlsx`，实际行数以 `status.sample.sample_rows` 为准。
+- **口径**：50 条仅用于流程演示，不用于标注质量或正式业务结论；报告和 HC1 卡片同步标明 demo 样本量。
+
+### DataHub 默认模型切换为 Doubao-Seed-Evolving
+
+- **依据**：方舟 Environment 实际调用 `/api/v1/model/list` 返回 113 个模型，确认精确 ID `Doubao-Seed-Evolving` 可用。
+- **实现**：Coordinator 与 Annotator 的默认 `--model-id` 从 `Doubao-pro-32k` 切换为 `Doubao-Seed-Evolving`；仍以接口返回列表做运行前精确校验，并以 completion metadata 的实际模型和成本记账。
+
+### DataHub 模型 ID 预检与单次纠错重试
+
+- **触发现象**：C3 使用 `doubao-pro-32k` 创建任务时，DataHub 因模型 ID 大小写敏感返回 `invalid model_id`；子 Agent 受“出错立即结束”约束，没有用查询到的 `Doubao-pro-32k` 重试。
+- **根因**：Coordinator/Annotator 契约固化了错误大小写，且模型列表查询发生在输入文件上传和任务创建之后。
+- **实现**：
+  - 模型 ID 统一修正为 `Doubao-pro-32k`。
+  - `datahub_annotate.py` 在上传前调用 `/api/v1/model/list`，打印模型数量和完整 ID 列表，并做大小写敏感的精确校验；无效 ID 会提示唯一的大小写候选，不再产生无用 Data Source。
+  - Annotator 遇到 `invalid model_id` 时允许按模型列表候选修正参数并最多重试一次；其他错误仍立即回报。
+- **本地验证限制**：本机直调模型列表返回 `ip not allowed`，需在已加入 DataHub IP 白名单的方舟 Environment 中观察真实列表。
+
 ### Phase C 性能与稳定性优化，新增 500 条演示模式
 
 - **触发现象**：一次 test 轨迹中，C0/C3 虽于 `10:35:24` 并发启动，但 500 条数据分别耗时约 41/42 分钟；C0 使用约 572 万 tokens，C3 使用约 258 万 tokens。两路 DataHub 任务成功后均未返回 `result_url`，导致统一脚本报错，子 Agent 被迫手工从 `result_list` 分页恢复结果。

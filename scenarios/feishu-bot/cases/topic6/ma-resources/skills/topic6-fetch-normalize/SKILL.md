@@ -19,7 +19,7 @@ description: 社媒热点周刊 Phase A+B：从 hot-topics MCP 取数，清洗�
 |---|---|---|---|
 | `scripts/fetch_hot_topics.py` | MA hot-topics MCP | `01_原始数据/hot_topics_skill_raw.json` + `hot_topics_raw.xlsx` | A 段:MCP 取数 + 清洗 + 完整周检查 |
 | `scripts/log1p_p1p99_normalize.py` | `01_原始数据/hot_topics_raw.xlsx` | `02_标准化/hot_topics_normalized.xlsx` | B 段:log1p+P1/P99 归一到 [40,100] |
-| `scripts/sample_500.py` | `02_标准化/hot_topics_normalized.xlsx` | `03_抽样/sample_500.xlsx` | 分层随机抽样 500 条(test/demo 模式用) |
+| `scripts/sample_500.py` | `02_标准化/hot_topics_normalized.xlsx` | `03_抽样/sample_500.xlsx` | 分层随机抽样；test 500 条，demo 50 条 |
 
 ---
 
@@ -35,8 +35,14 @@ python /mnt/skills/topic6-fetch-normalize/scripts/fetch_hot_topics.py \
 python /mnt/skills/topic6-fetch-normalize/scripts/log1p_p1p99_normalize.py \
     --project-dir /workspace/Projects/W35_20260824-20260830
 
-# (可选)test/demo 模式抽样
+# test 模式抽样 500 条
 python /mnt/skills/topic6-fetch-normalize/scripts/sample_500.py \
+    --size 500 \
+    --project-dir /workspace/Projects/W35_20260824-20260830
+
+# demo 模式抽样 50 条
+python /mnt/skills/topic6-fetch-normalize/scripts/sample_500.py \
+    --size 50 \
     --project-dir /workspace/Projects/W35_20260824-20260830
 ```
 

@@ -89,8 +89,8 @@ python /mnt/skills/topic6-insight/scripts/pipeline_f.py \
 
 ## 前置约束
 
-- 支持 `--mode full` 正式交付和 `--mode demo` 500 条样本演示。
+- 支持 `--mode full` 正式交付和 `--mode demo` 50 条样本演示。
 - `--mode test` 仅用于标注校准,直接拒绝生成洞察。
-- demo 产出的所有报告必须注明“基于 500 条分层样本,仅供流程演示,不可作为正式全量结论”。
+- demo 产出的所有报告必须注明“基于 50 条分层样本,仅供流程演示,不可作为正式全量结论”。
 - 同一项目按 v1、v2... 迭代,每轮独立子目录,不覆盖历史。
 - 对应模式的上游宽表 `05_合并/wide_table_{full|demo}_r{N}.xlsx` 必须存在,来源 topic6-annotation。

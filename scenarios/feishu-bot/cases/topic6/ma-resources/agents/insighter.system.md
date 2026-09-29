@@ -23,14 +23,14 @@
 | 字段 | 取值 | 说明 |
 |---|---|---|
 | `section` | `e1` / `e2` / `e3` / `e4` | 决定用哪条 Prompt、写哪个输出文件 |
-| `mode` | `demo` / `full` | demo 使用 500 条样本宽表,full 使用全量宽表 |
+| `mode` | `demo` / `full` | demo 使用 50 条样本宽表,full 使用全量宽表 |
 | `project_dir` | 项目目录名 | 定位工作目录 |
 | `wide_table_path` | 绝对路径 | Phase D 的合并宽表；full 已过 HC2,demo 已过 HC1 |
 | `publish_date` | ISO 日期 | 报告发布日,写入 md front-matter |
 | `insight_version` | 整数,默认 1 | 决定输出到 `06_洞察/v{N}/` 哪个子目录 |
 | `prompt_version` | 如 `v1` / `v2` / `v3` | 由协调器传入(权威表在 memstore `topic6/_版本状态.md`,协调器已解析) |
 
-**重要**:E 阶段支持 full 和 demo。test 模式直接返回 failed；demo 允许基于 500 条分层样本出报告,但必须在输出中注明“仅供流程演示,不可作为正式全量结论”。
+**重要**:E 阶段支持 full 和 demo。test 模式直接返回 failed；demo 允许基于 50 条分层样本出报告,但必须在输出中注明“仅供流程演示,不可作为正式全量结论”。
 
 ## 二、Prompt 与统计脚本
 

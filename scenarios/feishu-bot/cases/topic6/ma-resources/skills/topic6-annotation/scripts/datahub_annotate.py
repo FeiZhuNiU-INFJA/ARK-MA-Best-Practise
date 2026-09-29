@@ -193,11 +193,31 @@ def _get_task(
     return body["data"]
 
 
-def _get_model_info(api_key: str, model_id: str) -> dict:
+def _list_models(api_key: str) -> list[dict]:
     resp = requests.get(f"{DATAHUB_BASE}/api/v1/model/list",
                         headers=_headers(api_key), timeout=30)
     resp.raise_for_status()
-    models = resp.json().get("data", {}).get("models", [])
+    body = resp.json()
+    if body.get("code", -1) != 0:
+        raise RuntimeError(f"查询模型列表失败: {body.get('message', body)}")
+    models = body.get("data", {}).get("models", [])
+    if not isinstance(models, list):
+        raise RuntimeError("查询模型列表失败: data.models 不是列表")
+    return models
+
+
+def _validate_model_id(model_id: str, models: list[dict]) -> dict:
+    model_ids = [
+        str(model.get("model_id"))
+        for model in models
+        if model.get("model_id")
+    ]
+    print(
+        f"[model] /api/v1/model/list: {len(model_ids)} models",
+        flush=True,
+    )
+    print(f"[model] supported model_ids: {', '.join(model_ids)}", flush=True)
+
     for m in models:
         if m.get("model_id") == model_id:
             return {
@@ -205,7 +225,14 @@ def _get_model_info(api_key: str, model_id: str) -> dict:
                 "input_price": float(str(m.get("input_price", 0)).lstrip("$¥￥")),
                 "output_price": float(str(m.get("output_price", 0)).lstrip("$¥￥")),
             }
-    return {"platform": "Unknown", "input_price": 0.0, "output_price": 0.0}
+
+    case_matches = [candidate for candidate in model_ids
+                    if candidate.casefold() == model_id.casefold()]
+    hint = (
+        f"; 大小写敏感候选: {case_matches[0]}"
+        if len(case_matches) == 1 else ""
+    )
+    raise ValueError(f"invalid model_id: {model_id}{hint}")
 
 
 def _download_result(url: str, out_path: Path) -> None:
@@ -525,6 +552,9 @@ def annotate(task: str, project_dir: str, input_file: str, prompt_file: str,
     prompt_text = Path(prompt_file).read_text(encoding="utf-8")
     print(f"[annotate] prompt={prompt_file} ({len(prompt_text)} chars)", flush=True)
 
+    models = _list_models(api_key)
+    model_info = _validate_model_id(model_id, models)
+
     upload_path = _prepare_input(input_path)
     print(f"[annotate] 上传: {upload_path}", flush=True)
     ds_id = _upload_file(api_key, upload_path)
@@ -534,7 +564,6 @@ def annotate(task: str, project_dir: str, input_file: str, prompt_file: str,
     task_id = _create_task(api_key, ds_id, prompt_text, model_id, task_name)
     print(f"[annotate] task_id={task_id}", flush=True)
 
-    model_info = _get_model_info(api_key, model_id)
     submit_meta = {
         "task": task, "task_id": task_id, "run_id": run_id,
         "model_id": model_id, "platform": model_info["platform"],
