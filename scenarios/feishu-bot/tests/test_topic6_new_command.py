@@ -269,3 +269,42 @@ def test_idle_without_hc_or_final_url_is_not_marked_done(loop, tmp_path):
     reloaded = store.get_job(job.job_id)
     assert reloaded.status == STATUS_STOPPED
     assert reloaded.last_error == "Session 已结束，但未产生 HC 卡点或最终发布 URL"
+
+
+def test_resume_immediately_restores_single_card_to_running(loop, tmp_path):
+    class _Sender:
+        def __init__(self):
+            self.patches = []
+
+        def patch_interactive_card(self, message_id, card):
+            self.patches.append((message_id, card))
+
+    store = PipelineStore(str(tmp_path / "topic6.db"))
+    job = store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="demo",
+        project_dir="/workspace/x",
+    )
+    store.set_progress_card_message_id(job.job_id, "message-progress")
+    store.mark_wait_hc(job.job_id, "HC1")
+    job = store.get_job(job.job_id)
+    sender = _Sender()
+    cfg = RunnerConfig(coordinator_agent_id="agent-x", environment_id="env-x")
+    runner = Topic6Runner(_StubArk(), sender, store, cfg, loop=loop)
+    state = topic6_runner._ProgressState()
+    state.push_tool_line("19:20:00 · 正在执行：Phase D merge")
+    runner._progress[job.job_id] = state
+    spawned = object()
+    runner._spawn_stream = lambda *_args, **_kwargs: spawned  # type: ignore[method-assign]
+
+    loop.run_until_complete(runner.resume_job(job, "HC1 pass"))
+
+    assert sender.patches[0][0] == "message-progress"
+    card = sender.patches[0][1]
+    assert card["header"]["title"]["content"] == "🚀 Topic6 Pipeline · 运行中"
+    assert "Phase D merge" in card["elements"][2]["text"]["content"]
+    assert runner._active_streams[job.ma_session_id] is spawned
+    store.close()

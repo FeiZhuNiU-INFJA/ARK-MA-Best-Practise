@@ -352,6 +352,10 @@ class Topic6Runner:
         # 复用同一张进度卡片(state 若已回收就重建,避免续跑丢卡)。
         if job.job_id not in self._progress:
             self._progress[job.job_id] = _ProgressState()
+        # 审核回调刚把唯一主卡 patch 成“已通过/已备注”终态。必须在启动下一段 SSE 前
+        # 立即恢复运行卡，否则下一段开头若只有 status/thinking 事件、迟迟没有可展示的
+        # progress，卡片会一直停留在 HC 已处理状态，历史工具进度也看不到。
+        await self._render_and_patch(job.job_id, status=STATUS_RUNNING, force=True)
         task = self._spawn_stream(job, first_user_message=decision_message)
         self._active_streams[job.ma_session_id] = task
 
