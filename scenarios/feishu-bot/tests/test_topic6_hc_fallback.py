@@ -60,6 +60,29 @@ def test_progress_header_hides_running_phase_but_keeps_hc_phase():
     assert stopped["title"]["content"] == "⏹️ Topic6 Pipeline · 已停止"
 
 
+def test_progress_and_hc_cards_use_same_schema_version():
+    job = runner_mod.PipelineJob(
+        job_id="job-1",
+        chat_id="chat-1",
+        thread_id="",
+        user_open_id="user-1",
+        ma_session_id="session-1",
+        mode="demo",
+        project_dir="/workspace/demo",
+    )
+
+    progress = progress_card_mod.build_progress_card(
+        job=job,
+        status="running",
+        elapsed_sec=1,
+        tool_lines=["正在执行 Phase A"],
+    )
+    hc = hitl_mod.build_hc_card(job, "HC1", 1, {"hc": "HC1", "mode": "demo"})
+
+    assert progress["schema"] == hc["schema"] == "2.0"
+    assert progress["body"]["elements"][2]["tag"] == "markdown"
+
+
 def test_hc_card_uses_payload_hc_kind_instead_of_stale_job_phase():
     job = runner_mod.PipelineJob(
         job_id="job-1",

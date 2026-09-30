@@ -118,21 +118,22 @@ python3 -c "import os;print('BASE', bool(os.environ.get('ARK_BASE_URL') or os.en
 
 三类 JSON 失败的判别方法见 [pipeline.md](pipeline.md) 的「三类长得一样的 JSON 失败」。
 
-## 并行执行：四平台同阶段并行，不要顺序跑
+## Topic6 跨平台执行：只并行阶段 00
 
-阶段 03 的串行只在平台内部（Entity 注册表逐批累积），**四个平台之间要并行**——
-每个平台有独立注册表，互不依赖：
+Topic6 的跨平台口径使用统一入口：
 
 ```bash
-S=/mnt/skills/topic6-event-registry/scripts
-for p in 微博 抖音 知乎 B站; do
-  (cd $p && python3 $S/02_extract_frames.py --run-dir . --batch-size 40 --concurrency 8) &
-done
-wait
+python3 /mnt/skills/topic6-event-registry/scripts/run_topic6_c2.py \
+  --project-dir <项目目录> --mode demo --run-id 1
 ```
 
-墙上时间从「四平台之和」变成「最慢那个平台」，数据语义零变化。实测 3762 条四平台的
-阶段 03：顺序跑 25 分钟，改成两两并行 17 分钟。
+入口只把四个平台的阶段 00 并行执行，随后立即 x0 合库，并在 merged 目录统一执行
+01→02→03→04→05→06→07→x2→x3→x4。不要在 x0 前按平台执行 01~04：x0 只合并
+`work/clean_titles.jsonl`，这些提前生成的结果不会进入合库产物。
+
+`c2_status.json` 记录已完成阶段。输入、Chat 模型、Embedding 模型和 x2 策略共同构成
+运行签名：签名不变时原地续跑；任一项变化时自动清理旧阶段产物并从 00 重跑。进程锁会
+拒绝同一项目下的第二个 C2 runner，避免重复计费和并发写坏缓存。
 
 messages 端点确实能并行——实测 8 个并发请求同时发，单个耗时 38 秒、8 个总共 46 秒，
 接近线性。**但 embeddings 端点不是这样**，加并发不涨吞吐，四组对照见 [benchmarks.md](benchmarks.md)。

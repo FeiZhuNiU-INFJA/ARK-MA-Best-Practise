@@ -2,7 +2,7 @@
 # Topic 6 MA 资源全量更新入口。只更新资源，不停止或重启 Gateway。
 #
 # ID 变化规则:
-#   - 5 个 Skills:强制重新上传，ID 会变化
+#   - 6 个 Skills:强制重新上传，ID 会变化
 #   - Annotator / Insighter / Coordinator:删除同名旧 Agent 后重建，ID 会变化
 #   - Environment / Memory Store:按名称原地更新，ID 不变
 #   - 飞书 App / Vault:本脚本不创建或更新，ID 不变
@@ -125,6 +125,10 @@ cat <<EOF
 Topic 6 MA 资源更新完成。
 ID 变化:Skills 和 3 个 Agents 已更新为新 ID；Environment 和 Memory Store 保持原 ID。
 Coordinator 新 ID 已回写 ${CONFIG_FILE}。
+update_ma.sh 不会代替具体用户完成 OAuth。每位妙搭发布人首次使用前运行:
+  cd "${FEISHU_BOT_DIR}"
+  python cases/topic6/authorize_miaoda_user.py
+
 Gateway 未重启。请在另一个终端手动重启:
   cd "${FEISHU_BOT_DIR}"
   python -m arkagent run --case topic6

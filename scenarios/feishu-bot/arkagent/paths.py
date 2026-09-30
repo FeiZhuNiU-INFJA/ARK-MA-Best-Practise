@@ -4,7 +4,8 @@
 含独立的 ``config.env`` 与 ``gateway.db``,由 ``arkagent run --case`` 加载。
 主目录 ``~/.arkagent/`` 仅剩少量共享物:App 级互斥锁 ``feishu.{app_id}.lock``、
 以及历史遗留的 ``config.env``(旧客户 A demo,已作废;新 case 请勿写入此文件)。
-可用 ``ARKAGENT_HOME`` 环境变量整体重定向。
+可用 ``ARKAGENT_HOME`` 环境变量整体重定向；仅需移动互斥锁时可设置
+``ARKAGENT_LOCK_DIR``，不会改变配置和数据库路径。
 
 互斥的真正资源是「同一飞书 App 的 WS 长连接只能被一个进程订阅」,所以锁按
 ``FEISHU_APP_ID`` 分粒度:不同 case 用不同 Bot 时可并行运行。
@@ -62,6 +63,9 @@ def get_feishu_lock_path(app_id: str, env: Optional[Mapping[str, str]] = None) -
     """按飞书 App id 生成锁路径:同一 Bot 只允许一个 gateway 进程订阅 WS。"""
     if not app_id or "/" in app_id or ".." in app_id:
         raise ValueError(f"非法 FEISHU_APP_ID:{app_id!r}")
+    environ = os.environ if env is None else env
+    lock_dir = environ.get("ARKAGENT_LOCK_DIR")
+    if lock_dir:
+        return str(Path(lock_dir).resolve() / f"feishu.{app_id}.lock")
     base = get_arkagent_paths(env)
     return str(Path(base.state_dir) / f"feishu.{app_id}.lock")
-

@@ -7,7 +7,7 @@
   - ``resume_job``:HITL 卡片回调后,把 HC 决策以 ``user.message`` 注入原 MA Session,
     再启一个 SSE 消费任务把 pipeline 从 wait_hc 拉回 running。
   - SSE 消费:``agent.tool_use`` / ``agent.message.delta`` 汇成一句进度文本发飞书;
-    ``session.status_idle`` 时检查末尾消息是否是 HC 结构化 JSON,是则送 HITL 卡片,
+    ``session.status_idle`` 时检查末尾消息是否是 HC 结构化 JSON,是则把主卡切到 HITL,
     否则视为流程终态(成功/失败)落库并推最终链接。
 
 不重写 SSE / SSE 解析,直接复用 :mod:`arkagent.ark` 里的 ``_open_event_stream`` 与
@@ -27,6 +27,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
+from urllib.parse import urlsplit
 
 from arkagent.ark import ArkClient, event_error, event_progress, event_requires_action, event_text
 from arkagent.feishu import FeishuSender
@@ -216,10 +217,15 @@ class Topic6Runner:
         self._config = config
         self._loop = loop
         self._card_sender = card_sender  # 由 topic6_hitl 注入
+        # 串行化“检查活跃任务 → 创建 Session → 落 Job”，避免两个同时到达的触发
+        # 都在落库前通过检查并各自创建一条长任务。
+        self._start_lock = asyncio.Lock()
         # ma_session_id → 正在消费的 SSE 任务;续跑前 cancel 前一个。
         self._active_streams: dict[str, asyncio.Task] = {}
         # job_id → 进度卡片本地状态(tool 环形缓冲 + 上次 patch 时间)。
         self._progress: dict[str, "_ProgressState"] = {}
+        # 同一任务的进度事件与 HITL 回调可能并发 patch；按 job 串行，避免旧快照覆盖新状态。
+        self._card_locks: dict[str, asyncio.Lock] = {}
 
     def bind_card_sender(self, sender: "Topic6CardSenderProtocol") -> None:
         self._card_sender = sender
@@ -234,20 +240,43 @@ class Topic6Runner:
         user_open_id: str,
         mode: str,
         user_message: str,
+        user_vault_id: str = "",
     ) -> PipelineJob:
-        """创建 MA Session 并启动 SSE 消费任务;返回落库后的 PipelineJob。
+        """全局串行检查并启动任务；同一 Gateway 只允许一个活跃 Job。"""
+        async with self._start_lock:
+            return await self._start_job_locked(
+                chat_id=chat_id,
+                thread_id=thread_id,
+                user_open_id=user_open_id,
+                mode=mode,
+                user_message=user_message,
+                user_vault_id=user_vault_id,
+            )
 
-        - 会话隔离键:``(chat_id, thread_id, user_open_id)``。若已有活跃任务直接抛错,
-          避免同一用户在同群同话题重复触发跑两遍。
+    async def _start_job_locked(
+        self,
+        *,
+        chat_id: str,
+        thread_id: str,
+        user_open_id: str,
+        mode: str,
+        user_message: str,
+        user_vault_id: str = "",
+    ) -> PipelineJob:
+        """创建 MA Session、落库并启动 SSE 消费任务。
+
+        - 整个 Gateway 任意 ``running`` / ``wait_hc`` Job 都会阻止新建任务。
         - Session 挂载 Memory Store(``/mnt/memory``)承载 topic6 的 lm/ 内容。
         - 首个 user.message 拼「触发词 + 模式 + 用户原始消息」,由 coordinator 解析并按
           system prompt 的 14 步执行。
         """
-        existing = self._store.get_active_job_by_session_key(chat_id, thread_id, user_open_id)
+        existing = self._store.get_active_job()
         if existing:
+            state = "等待审核" if existing.status == STATUS_WAIT_HC else "运行中"
             raise Topic6RunnerError(
-                f"该会话已有活跃 pipeline(job_id={existing.job_id}, status={existing.status}),"
-                "请等它跑完或先 /topic6 cancel。"
+                f"当前已有热点周报任务{state}"
+                f"（mode={existing.mode}，phase={existing.current_phase}）。"
+                "请等待前一个任务结束后再发起。"
             )
 
         resources = []
@@ -264,10 +293,17 @@ class Topic6Runner:
             # 方舟把每个 memstore 挂在 /mnt/memory/{memstore_id}/ 下(多 store 隔离),
             # 注入 ID 供 Agent bash 展开路径,例如 cat /mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md
             env_overrides["TOPIC6_MEMORY_STORE_ID"] = self._config.memory_store_id
+        vault_ids = list(
+            dict.fromkeys(
+                vault_id
+                for vault_id in (*self._config.vault_ids, user_vault_id)
+                if vault_id
+            )
+        )
         session_id = await self._ark.create_session(
             self._config.coordinator_agent_id,
             self._config.environment_id,
-            vault_ids=list(self._config.vault_ids),
+            vault_ids=vault_ids,
             env_overrides=env_overrides,
             resources=resources,
         )
@@ -292,6 +328,7 @@ class Topic6Runner:
         # 不再对每条 tool 事件单独 send_to_chat 刷屏。发失败也不阻塞主流程,只是这一次没有卡片。
         state = _ProgressState()
         self._progress[job.job_id] = state
+        self._card_locks[job.job_id] = asyncio.Lock()
         card = build_progress_card(
             job=job,
             status=STATUS_RUNNING,
@@ -326,6 +363,10 @@ class Topic6Runner:
         # 复用同一张进度卡片(state 若已回收就重建,避免续跑丢卡)。
         if job.job_id not in self._progress:
             self._progress[job.job_id] = _ProgressState()
+        # 审核回调刚把唯一主卡 patch 成“已通过/已备注”终态。必须在启动下一段 SSE 前
+        # 立即恢复运行卡，否则下一段开头若只有 status/thinking 事件、迟迟没有可展示的
+        # progress，卡片会一直停留在 HC 已处理状态，历史工具进度也看不到。
+        await self._render_and_patch(job.job_id, status=STATUS_RUNNING, force=True)
         task = self._spawn_stream(job, first_user_message=decision_message)
         self._active_streams[job.ma_session_id] = task
 
@@ -483,10 +524,9 @@ class Topic6Runner:
             event_id = self._store.append_hc_event(job_id, hc_kind, payload)
             self._store.mark_wait_hc(job_id, hc_kind)
             job = self._store.get_job(job_id) or job
-            # 进度卡片切到"等待审核"状态,提示用户到下方 HC 卡片操作。
-            await self._render_and_patch(job_id, status=STATUS_WAIT_HC, force=True)
             if self._card_sender is None:
                 # 兜底:没注入 HC 卡片发送器,退回一条纯文本让用户手工继续。
+                await self._render_and_patch(job_id, status=STATUS_WAIT_HC, force=True)
                 await self._reply_async_by_job(
                     job_id,
                     f"⏸️ 等你审 {hc_kind}(卡片发送器未注入,回复 pass/reject/remark:xxx 继续)",
@@ -494,7 +534,7 @@ class Topic6Runner:
                 return
             try:
                 message_id = await self._card_sender.send_hc_card(job, hc_kind, event_id, payload)
-                # 卡片消息 id 写回 hc_event,便于回调时反查。
+                # HC 与运行进度复用同一个 message_id；写回事件便于回调审计与兜底反查。
                 if message_id:
                     self._store._conn.execute(  # noqa: SLF001 - runner 与 store 同包
                         "UPDATE pipeline_hc_events SET card_message_id = ? WHERE id = ?",
@@ -502,15 +542,17 @@ class Topic6Runner:
                     )
             except Exception as error:  # noqa: BLE001 - 卡片失败仍算 wait_hc,人工兜底
                 log.exception("topic6 send hc card failed job=%s hc=%s: %s", job_id, hc_kind, error)
+                await self._render_and_patch(job_id, status=STATUS_WAIT_HC, force=True)
                 await self._reply_async_by_job(
                     job_id, f"⚠️ {hc_kind} 卡片发送失败({error!s});可回复 pass/reject 手工继续"
                 )
             return
 
-        # 无 HC 时只有最终发布 URL 非空才算完成；否则属于提前结束/人工中断。
-        online_url = _extract_first_url(last)
+        # 只有 Phase H 的结构化结果和妙搭域名同时有效才算完成。不能从自由文本里
+        # 抓第一个 URL，否则飞书文档链接或错误信息中的排障链接会被误当成发布结果。
+        online_url = extract_final_online_url(last)
         if not online_url:
-            reason = "Session 已结束，但未产生 HC 卡点或最终发布 URL"
+            reason = "Session 已结束，但 Phase H 未返回有效的妙搭 online_url"
             self._store.mark_stopped(job_id, reason)
             await self._render_and_patch(
                 job_id, status=STATUS_STOPPED, error=reason, force=True
@@ -546,6 +588,28 @@ class Topic6Runner:
         ts = time.strftime("%H:%M:%S", time.localtime())
         state.push_tool_line(f"{ts} · {progress}")
 
+    def _review_lines(self, job_id: str) -> list[str]:
+        """格式化已落库的 HC 审核轨迹，供后续运行态和终态持续展示。"""
+        decision_meta = {
+            "pass": ("✅", "通过"),
+            "reject": ("❌", "打回"),
+            "remark": ("📝", "备注通过"),
+        }
+        lines: list[str] = []
+        for event in self._store.list_resolved_hc_for_job(job_id):
+            emoji, label = decision_meta.get(
+                event.user_decision, ("•", event.user_decision or "已处理")
+            )
+            operator = event.operator_label or "审核人未记录"
+            resolved_at = time.strftime(
+                "%H:%M",
+                time.localtime(event.resolved_at or event.created_at),
+            )
+            lines.append(
+                f"{event.hc_kind} · {emoji} {label} · {operator} · {resolved_at}"
+            )
+        return lines
+
     async def _render_and_patch(
         self,
         job_id: str,
@@ -572,6 +636,7 @@ class Topic6Runner:
             status=status,
             elapsed_sec=elapsed_sec,
             tool_lines=list(state.tool_lines),
+            review_lines=self._review_lines(job_id),
             overflow=state.overflow,
             error=error,
             online_url=online_url,
@@ -581,11 +646,7 @@ class Topic6Runner:
             # 内容没变(比如相邻两次 progress 完全同文),省一次 API 调用。
             return
         try:
-            await self._loop_run(
-                lambda: self._feishu.patch_interactive_card(
-                    job.progress_card_message_id, card
-                )
-            )
+            await self.patch_job_card(job_id, card)
         except Exception as error_patch:  # noqa: BLE001 - patch 失败不该拖垮 SSE
             log.warning(
                 "topic6 progress card patch failed job=%s: %s", job_id, error_patch
@@ -593,6 +654,24 @@ class Topic6Runner:
             return
         state.last_patch_at = now
         state.last_signature = signature
+
+    async def patch_job_card(self, job_id: str, card: dict) -> Optional[str]:
+        """串行 patch 当前任务唯一的交互卡片；没有 message_id 时返回 None。"""
+        job = self._store.get_job(job_id)
+        if job is None or not job.progress_card_message_id:
+            return None
+        lock = self._card_locks.setdefault(job_id, asyncio.Lock())
+        async with lock:
+            await self._loop_run(
+                lambda: self._feishu.patch_interactive_card(
+                    job.progress_card_message_id, card
+                )
+            )
+        state = self._progress.get(job_id)
+        if state is not None:
+            state.last_signature = self._signature(card)
+            state.last_patch_at = time.monotonic()
+        return job.progress_card_message_id
 
     @staticmethod
     def _signature(card: dict) -> str:
@@ -623,7 +702,7 @@ class Topic6RunnerError(RuntimeError):
 
 
 class Topic6CardSenderProtocol:
-    """topic6_hitl 会实现的卡片发送接口(避免 runner ↔ hitl 循环 import)。"""
+    """topic6_hitl 会实现的审核态切换接口(避免 runner ↔ hitl 循环 import)。"""
 
     async def send_hc_card(
         self,
@@ -632,15 +711,37 @@ class Topic6CardSenderProtocol:
         _event_id: int,
         _payload: dict,
     ) -> Optional[str]:
-        """发送 HC 卡片,返回飞书 message_id(供反查)。"""
+        """把任务主卡切到 HC 状态,返回复用的飞书 message_id(供反查)。"""
         raise NotImplementedError
 
 
-_URL_RE = re.compile(r"https?://[^\s)】]+", re.I)
+def extract_final_online_url(text: str) -> str:
+    """读取 Phase H 结构化结果中的妙搭线上 URL。
 
-
-def _extract_first_url(text: str) -> str:
+    自由文本中的 URL 不可信：报告正文通常先出现飞书 docx 链接，而且 Markdown /
+    JSON 标点会被宽松正则一并吞入。这里只接受显式 ``online_url`` 字段，并校验
+    HTTPS 与妙搭发布域名。
+    """
     if not text:
         return ""
-    match = _URL_RE.search(text)
-    return match.group(0) if match else ""
+    decoder = json.JSONDecoder()
+    for start in (match.start() for match in re.finditer(r"\{", text)):
+        try:
+            value, _ = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(value, dict):
+            continue
+        candidate = str(value.get("online_url") or "").strip()
+        if not candidate:
+            continue
+        parsed = urlsplit(candidate)
+        hostname = (parsed.hostname or "").lower()
+        if (
+            parsed.scheme == "https"
+            and parsed.query == ""
+            and parsed.fragment == ""
+            and (hostname == "aiforce.cloud" or hostname.endswith(".aiforce.cloud"))
+        ):
+            return candidate
+    return ""

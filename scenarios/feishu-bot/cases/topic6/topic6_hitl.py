@@ -3,8 +3,8 @@
 配合 :mod:`topic6_runner` 用:
 
   - Runner 在 Session 进入 idle 且末尾消息带 ``{"hc":"HCx", ...}`` 时,调
-    ``Topic6Hitl.send_hc_card`` 把审核卡片发到当前 job 的 chat_id 里,并把返回的
-    飞书 ``message_id`` 记到 ``pipeline_hc_events.card_message_id``。
+    ``Topic6Hitl.send_hc_card`` 把任务主卡 patch 成审核卡,并把复用的飞书
+    ``message_id`` 记到 ``pipeline_hc_events.card_message_id``。
   - 用户点卡片按钮后,飞书 SDK 通过 ``Events.CARD_ACTION`` 触发 gateway 侧回调;
     orchestrator 会把 payload 转交给 :meth:`Topic6Hitl.handle_card_action`。这里
     解出 ``action.value`` 里携带的 job_id / event_id / decision,反查 pipeline_hc_events,
@@ -17,6 +17,7 @@ HC3 紫。按钮固定「通过 / 打回 / 备注」三个;备注按钮走 input
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -333,7 +334,7 @@ class Topic6Hitl(Topic6CardSenderProtocol):
     """topic6 的 HITL 门面:发卡片 + 收回调。
 
     - ``send_hc_card`` 由 runner 主动调用(见 :meth:`Topic6Runner._handle_idle`),
-      同步走 FeishuSender.send_interactive_card,拿 message_id 返回给 runner。
+      优先把任务主卡 patch 成审核态；仅在主卡初始化失败时降级新发一张。
     - ``handle_card_action`` 由 orchestrator 在 SDK 的 ``cardAction`` 回调里调用,
       异步在事件循环内完成:反查 → resolve_hc_event → resume_job。
     """
@@ -352,17 +353,21 @@ class Topic6Hitl(Topic6CardSenderProtocol):
         _payload: dict,
     ) -> Optional[str]:
         card = build_hc_card(_job, _hc_kind, _event_id, _payload)
-        import asyncio
 
-        loop = asyncio.get_event_loop()
-        # FeishuSender 是同步 SDK;放到 executor 里,避免堵住 SSE 消费循环。
+        # 正常路径复用任务启动时创建的主卡，整个 job 在会话里始终只有一张卡片。
         try:
-            message_id = await loop.run_in_executor(
-                None,
-                lambda: self._runner._feishu.send_interactive_card(  # noqa: SLF001 - 网关内包
-                    _job.chat_id, card
-                ),
-            )
+            message_id = await self._runner.patch_job_card(_job.job_id, card)
+            if message_id is None:
+                loop = asyncio.get_event_loop()
+                message_id = await loop.run_in_executor(
+                    None,
+                    lambda: self._runner._feishu.send_interactive_card(  # noqa: SLF001 - 网关内包
+                        _job.chat_id, card
+                    ),
+                )
+                if message_id:
+                    self._store.set_progress_card_message_id(_job.job_id, message_id)
+                    _job.progress_card_message_id = message_id
         except Exception as error:  # noqa: BLE001 - 卡片失败让 runner 兜底
             log.exception(
                 "topic6 send_hc_card failed job=%s hc=%s: %s",
@@ -370,7 +375,7 @@ class Topic6Hitl(Topic6CardSenderProtocol):
             )
             raise
         log.info(
-            "topic6 hc card sent job=%s hc=%s message_id=%s",
+            "topic6 hc card shown job=%s hc=%s message_id=%s",
             _job.job_id, _hc_kind, message_id,
         )
         return message_id
@@ -447,7 +452,18 @@ class Topic6Hitl(Topic6CardSenderProtocol):
             )
             return
 
-        self._store.resolve_hc_event(hc_event.id, decision, note)
+        operator_label = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: _resolve_operator_label(
+                action, self._runner._feishu  # noqa: SLF001
+            ),
+        )
+        self._store.resolve_hc_event(
+            hc_event.id,
+            decision,
+            note,
+            operator_label=operator_label,
+        )
         log.info(
             "topic6 hc resolved job=%s hc=%s event=%s decision=%s note=%s",
             job.job_id, hc_kind, hc_event.id, decision, note[:80],
@@ -466,10 +482,16 @@ class Topic6Hitl(Topic6CardSenderProtocol):
                 card_message_id=hc_event.card_message_id,
                 user_decision=decision,
                 user_note=note,
+                operator_label=operator_label,
                 created_at=hc_event.created_at,
-                resolved_at=int(time.time() * 1000),
+                resolved_at=int(time.time()),
             )
-            await self._patch_resolved_card(target_message_id, hc_event_updated, action)
+            await self._patch_resolved_card(
+                target_message_id,
+                hc_event_updated,
+                action,
+                operator_label=operator_label,
+            )
 
         if decision == DECISION_REJECT:
             self._store.mark_failed(
@@ -511,7 +533,22 @@ class Topic6Hitl(Topic6CardSenderProtocol):
         note = text.strip()
         if not note:
             return False
-        self._store.resolve_hc_event(hc_event.id, DECISION_REMARK, note)
+        action = {
+            "chat_id": chat_id,
+            "operator": {"open_id": user_open_id},
+        }
+        operator_label = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: _resolve_operator_label(
+                action, self._runner._feishu  # noqa: SLF001
+            ),
+        )
+        self._store.resolve_hc_event(
+            hc_event.id,
+            DECISION_REMARK,
+            note,
+            operator_label=operator_label,
+        )
         if hc_event.card_message_id:
             resolved = HcEvent(
                 id=hc_event.id,
@@ -521,13 +558,15 @@ class Topic6Hitl(Topic6CardSenderProtocol):
                 card_message_id=hc_event.card_message_id,
                 user_decision=DECISION_REMARK,
                 user_note=note,
+                operator_label=operator_label,
                 created_at=hc_event.created_at,
-                resolved_at=int(time.time() * 1000),
+                resolved_at=int(time.time()),
             )
             await self._patch_resolved_card(
                 hc_event.card_message_id,
                 resolved,
-                {"chat_id": chat_id, "operator": {"open_id": user_open_id}},
+                action,
+                operator_label=operator_label,
             )
         await self._runner.resume_job(
             job,
@@ -538,21 +577,27 @@ class Topic6Hitl(Topic6CardSenderProtocol):
     # ---- helper --------------------------------------------------------------
 
     async def _patch_resolved_card(
-        self, card_message_id: str, hc_event: HcEvent, action: Any
+        self,
+        card_message_id: str,
+        hc_event: HcEvent,
+        action: Any,
+        *,
+        operator_label: str = "",
     ) -> None:
         """把 HC 卡片 patch 到"已处理"终态。失败降级为一条文本兜底,不抛。"""
         job = self._store.get_job(hc_event.job_id)
         if job is None:
             return
-        import asyncio
-
-        loop = asyncio.get_event_loop()
-        operator_label = await loop.run_in_executor(
-            None,
-            lambda: _resolve_operator_label(
-                action, self._runner._feishu  # noqa: SLF001
-            ),
-        )
+        if not operator_label:
+            operator_label = hc_event.operator_label
+        if not operator_label:
+            loop = asyncio.get_event_loop()
+            operator_label = await loop.run_in_executor(
+                None,
+                lambda: _resolve_operator_label(
+                    action, self._runner._feishu  # noqa: SLF001
+                ),
+            )
         resolved_card = build_hc_resolved_card(
             job=job,
             hc_kind=hc_event.hc_kind,
@@ -562,12 +607,7 @@ class Topic6Hitl(Topic6CardSenderProtocol):
             operator_label=operator_label,
         )
         try:
-            await loop.run_in_executor(
-                None,
-                lambda: self._runner._feishu.patch_interactive_card(  # noqa: SLF001
-                    card_message_id, resolved_card
-                ),
-            )
+            await self._runner.patch_job_card(hc_event.job_id, resolved_card)
         except Exception as error:  # noqa: BLE001 - patch 失败退化成一条文本
             log.warning(
                 "topic6 patch resolved card failed job=%s hc=%s message=%s: %s",

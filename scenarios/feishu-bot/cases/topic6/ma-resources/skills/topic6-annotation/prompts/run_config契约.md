@@ -73,7 +73,7 @@ init → ab → sample → c0_sample → c0_filter_sample → c_route_sample →
 | `e` | `prompt/06` | 四路并发洞察 |
 | `f` | `prompt/07` | 合并 + 自校验 + 飞书发布 |
 | `g_ui_publish` | `prompt/08` | 网页版发布（产出自包含 index.html） |
-| `h_miaoda_publish` | `prompt/09` | 妙搭公网发布（`miaoda-web-publish` skill，固定关卡，非可选） |
+| `h_miaoda_publish` | `prompt/09` | 妙搭公网发布（`miaoda-web-publish` Skill，固定关卡，非可选） |
 | `done` | — | 流程结束 |
 
 > **2026-09-20 三处修正**：
@@ -111,7 +111,7 @@ R1~R5 与 C2 只处理这个子集（不是全量），C3 不受此筛选影响�
 | `ab` | prompt/02 | completed / week_num / iso_label / raw_rows / clean_rows |
 | `sample` | prompt/03 | completed / sample_file / sample_rows |
 | `c0_base` `c3_node` | prompt/04 第一批 | status / datahub_task_id / prompt_version / row_count |
-| `c0_merge` `c0_filter` | prompt/04 筛选 | status / run_id / usable_count / parse_error_included / missing_included |
+| `c0_merge` `c0_filter` | prompt/04 筛选 | status / run_id / usable_count / parse_error_excluded / missing_excluded |
 | `c0_retry` | prompt/04 熔断后 | triggered / attempt / max_attempts / still_unresolved / force_accept_used |
 | `r1_platform`…`r5_consumer` `c2_cluster` | prompt/04 第二批 | 同 c0_base，`input_file` = `c0_filter.subset_file` |
 | `d_test` `d_full` | prompt/05 | completed / output_file |

@@ -11,10 +11,156 @@
 
 ---
 
+## 2026-09-30
+
+### 活跃任务用户 Token 保活
+
+- **触发现象**：Session `sesn-20260930023459-r9zoi` 从 10:34 运行至 12:39；Phase G
+  已完成，但 Phase H 调用 `lark-cli apps +list --as user` 返回
+  `99991677 token_expired`，最终因没有妙搭 `online_url` 被 Gateway 标记为 stopped。
+- **根因**：Gateway 原先只在创建 Session 前检查并刷新一次用户 Token。长任务超过约
+  2 小时后，已挂用户 Vault 中的短期 access token 过期。
+- **修复**：Gateway 为每个活跃 Job 启动保活协程，每分钟检查一次，覆盖 `running` 与
+  `wait_hc`；在过期前 15 分钟使用 refresh token 原地更新同一个 Vault Credential。
+  刷新失败会记录日志并继续重试，任务终态或 `/new` 取消后停止保活。
+- **身份稳定性**：全程保持原 `session_id`、Vault ID 和 Credential ID，不动态追加
+  Vault。方舟运行时周期性重新解析已挂 Vault 的凭据轮换。
+
+### Phase E 流式有限并发与版块级恢复
+
+- **触发现象**：Session `sesn-20260930023459-r9zoi` 中，旧 `pipeline_e.py` 使用非流式
+  四路并发，E1~E4 同时出现 `Connection error`；用相同 Prompt 单独流式调用 E1 可成功。
+- **调用优化**：E1~E4 改为默认最多 2 路并发的流式响应；断连、429 和 5xx 最多尝试
+  5 次，指数退避且每次创建全新 `AsyncOpenAI` 客户端，避免复用失效连接。
+- **可靠恢复**：每个成功版块立即原子写入 Markdown 和
+  `pipeline_e_checkpoint_v{N}.json`。相同输入、模型、Prompt 和版本重跑时只补失败版块，
+  已完成版块不重复调用或计费；显式 `--sections` 仍表示强制重跑指定版块。
+- **编排约束**：Coordinator 只可原参数重跑正式入口一次，禁止 inline Python、拆成
+  四次调用、改写 Prompt、切模型、提高并发或删除 checkpoint。
+- **生效方式**：执行 `update_ma.sh` 更新 Skill 和 Coordinator，重启 Gateway 后创建
+  新 Session；已有 Session 不会自动获得更新后的资源快照。
+
+### Demo R1~R5 小批次恢复与失败收口
+
+- **触发现象**：Session `sesn-20260930023459-r9zoi` 中，R1~R5 直接 Ark 批量请求出现
+  `Remote end closed connection without response`。旧入口五路各发一个长请求，且要
+  等五路全部成功后才统一落盘；任一路失败会丢失其余已成功结果。
+- **执行优化**：`run_demo_routes.py` 保持原 R1~R5 Prompt 和输出契约，改为默认每批
+  5 行、最多 2 请求并发。断连、超时、429 和 5xx 最多重试 5 次，使用指数退避与抖动，
+  每次重试创建新请求。
+- **可靠恢复**：每个成功 chunk 立即原子写 JSON checkpoint；每个 route 完成后立即写
+  raw/postprocess/completion_meta、run_config 和成本，不再等待其他 route。重跑按输入、
+  模型、Prompt、run_id 和 batch size 只补缺失 chunk，已完成 route 直接复用。
+- **编排约束**：Coordinator 失败后只可按原参数重跑正式入口一次，禁止 inline Python、
+  改写 Prompt、切模型、修改 batch size 或删除 checkpoint 来绕过问题。
+
+### 妙搭用户 OAuth 预授权与每用户 Vault
+
+- **根因**：MA Session 创建后不能追加 Vault；Gateway 主机上的 lark-cli 登录态也不会
+  自动进入方舟沙箱。仅在 Agent 内提示 `auth login` 会让 Phase H 等到流水线末尾才失败。
+- **授权入口**：新增 `authorize_miaoda_user.py`。Device Flow 完成后通过用户信息接口
+  自动取得扫码者 `open_id`，不要求手工传 ID；可选 `--expected-open-id` 仅用于防止
+  扫错账号，校验失败时不写凭据。
+- **凭据边界**：短期 `LARKSUITE_CLI_USER_ACCESS_TOKEN` 写入每用户独立 Ark Vault；
+  refresh token 只保存在权限为 `0600` 的 Topic6 SQLite 中，不进入 MA 沙箱或日志。
+- **运行时接入**：Gateway 在创建任务前按消息发送者查授权并刷新短 token，再把用户
+  Vault 传给新 Session。未授权或授权失效时直接拒绝启动并提示运行授权脚本。
+- **权限事实**：授权范围限定为 `offline_access`、`auth:user.id:read`、
+  `spark:app:read`、`spark:app:write`，覆盖身份识别、续期和妙搭发布。
+
 ## 2026-09-29
+
+### Phase H 终态校验与报告链接修复
+
+- **轨迹证据**：Session `sesn-20260929132115-ol7cr` 共 412 个事件。Phase G 的 HTML
+  snapshot 上传因缺少 API Key 失败，Agent 将 `status.h.completed=false` 写入配置后仍
+  宣称流程完成；Gateway 又从自由文本中抓取首个飞书文档 URL，并连同 JSON 尾部的
+  `",` 标点写入卡片，飞书打开时进一步附加一次性登录参数。
+- **终态收紧**：Gateway 不再抓取任意 URL，只接受 Phase H 结构化结果中的
+  `online_url`，并校验为 HTTPS `*.aiforce.cloud`；否则任务进入 `stopped`，不显示
+  “打开报告”完成按钮。
+- **编排收口**：Phase G 只负责构建、校验和落盘 HTML，禁止把 snapshot 上传视为妙搭
+  发布。补充迁入客户后续提供的 `miaoda-web-publish` v1.0.1，作为第 6 个 Coordinator
+  Skill；按其用户 OAuth + Git 管理发布契约执行，不引入 `MIAODA_TOKEN`。OAuth 未完成
+  或发布失败时不得宣称完成。
+- **验证**：完整测试集 `423 passed`；6 个 Skill 已上传并重建 Coordinator。
+
+### Demo 第二批与洞察阶段提速
+
+- **轨迹证据**：线上 Session `sesn-20260929115416-cgepu` 共 315 个事件。
+  R1~R5 只处理 14 行仍各耗时 10.0~11.6 分钟；完整 C2 与其并发但耗时约
+  12.6 分钟，成为 Phase C 第二批关键路径。E1~E4 子线程耗时 2.4~5.3 分钟，
+  且每个子线程都重复调用一次 `pipeline_e.py` 和全量统计预处理。
+- **R1~R5 demo 快速入口**：新增 `run_demo_routes.py`，复用正式 R1~R5 Prompt，
+  将每路 14 次逐行 DataHub 推理改为每路一次 Ark 批量推理，五路并发并产出原有
+  raw/postprocess/completion_meta 文件与 run_config 状态。test/full 继续走 DataHub。
+- **C2 demo 快速入口**：`run_topic6_c2.py --demo-fast` 用一次批量模型调用完成小样本
+  事件归并，直接产出原契约 `row_id + 一级事件名`；完整 00→x4 链仍用于 test/full。
+- **Phase E 去重**：整轮改为只调用一次 `pipeline_e.py`，复用其内部 E1~E4 并发，
+  避免四次 `run_stats.py`、四个子 Agent 冷启动和重复自检。
+- **附带修复**：修正 C2 四平台并发时 `_run_command` 参数重复传递，并统一 Coordinator
+  读取真实状态路径 `C2_事件归档/c2_run/c2_status.json`。
+
+### 单任务单卡片与 Phase F 发布契约修复
+
+- **卡片合并**：进度与 HC1/HC2/HC3 审核态复用同一条飞书消息；HC 到来时 patch
+  主卡，回调处理后继续把该卡更新为运行或终态。按 job 串行 card patch，避免 SSE
+  进度与审核回调相互覆盖；主卡初始化失败时才降级补发一张。审核通过或提交备注后
+  会在启动下一段 SSE 前立即恢复运行卡和已有工具进度，不等待下一条 progress 事件。
+- **卡片协议统一**：运行卡此前使用 schema v1，审核卡使用 schema v2；进入审核态后
+  再恢复运行卡会被飞书以 `230099 / schemaV2 card can not change schemaV1` 拒绝。
+  现已将运行、等待审核和最终状态全部统一为 schema v2，保证同一消息可双向切换状态。
+- **审核记录保留**：HC 回调除审核结果、备注和时间外，新增持久化审核人显示名；恢复
+  运行后在独立“审核记录”区展示 `HC1 · ✅ 通过 · 审核人 · 时间`，后续 HC2/HC3
+  按发生顺序追加，不占用最近工具调用行数。旧记录因历史上未保存审核人会明确显示
+  “审核人未记录”，不做不可靠推断。
+- **Phase F 目录与身份**：统一由应用身份动态创建报告目录，不再依赖
+  `FEISHU_HOTREPORT_FOLDER_TOKEN`；操作人改读 Gateway 注入的
+  `FEISHU_USER_OPEN_ID`，沙箱不再依赖 `CC_SESSION_KEY` 自行发送重复通知。
+- **URL 与结果判断**：文档 URL 直接读取 `drive +import` 响应，不再硬编码租户域名；
+  同时强制检查 JSON `ok == true`，避免把“退出码为 0 的业务失败”误判为成功。
+- **权限与凭证安全**：补充 `docs:document.media:upload`、
+  `docs:document:import` 权限要求；Coordinator 禁止枚举环境或打印 Secret、Token、
+  API Key，避免敏感值进入 Session 轨迹。
+- **文档可访问性**：补充 `docs:permission.member:create`、
+  `docs:permission.member:transfer`、`docs:permission.member:retrieve`。Phase F 只允许
+  Bot 身份发布，禁止缺 scope 时降级 Device Flow；导入后先给任务发起人 `edit`，再转移
+  owner，并逐项校验授权 JSON，任一步失败均不得进入 HC3。
+- **目录响应解析**：`drive +create-folder` 的 token 位于 `data.folder_token`；旧 Prompt
+  误读 `data.token`，导致目录创建成功后仍被判空并触发临场 OAuth 降级，现已修正。
+- **验证**：Topic6 / Gateway 完整测试集 `413 passed`。
+
+### C2 单入口、并发状态与 C0 成本优化
+
+- **触发现象**：最新轨迹中 C2 占 71 次模型请求里的 48 次、产生 47 次 bash 调度，
+  且运行二十多分钟仍未完成；原文档还把 01~04 放在 x0 前按平台执行，与
+  `x0_merge_platforms.py` 实际只合并 `clean_titles.jsonl` 的契约冲突。
+- **C2 拓扑与入口**：新增 `run_topic6_c2.py`，固定为四平台并行 00 → x0 →
+  merged 目录统一执行 01~07 → x2 → x3 → x4，并直接产出
+  `c2_event_result_r{N}.xlsx`。Coordinator 只启动一次后台入口，不再临场编排十多个命令。
+- **可靠恢复**：入口用 `c2_status.json` 记录阶段；输入、Chat 模型、Embedding 模型和
+  x2 策略组成运行签名。签名不变时续跑，变化时清理旧阶段产物重跑；项目级进程锁阻止
+  重复 runner 并发写缓存。
+- **真正并发**：R1~R5 五个委派发出后立即后台启动 C2，六路同时运行；不再等待五路
+  DataHub 任务结束后才开始 C2。
+- **模型隔离**：Environment 分设 `DATAHUB_MODEL_ID=Doubao-Seed-Evolving`、
+  `C2_CHAT_MODEL_ID=doubao-seed-evolving` 和
+  `EMBEDDING_MODEL_ID=doubao-embedding-vision-251215`，避免跨 API 混用模型 ID。
+- **状态一致性**：新增 `run_config_state.py`，通过文件锁、YAML 深合并和
+  `os.replace` 原子更新并发任务状态；DataHub、C0 合并/筛选、C2 和宽表合并均写入成功
+  或失败状态，不再由多个 Agent 直接覆盖 `run_config.yaml`。
+- **C0 Prompt**：活跃版升级为 v5，在保留 9 字段输出契约和关键边界的前提下，从
+  44,649 字符压缩到 11,263 字符（减少 74.8%）。该项只完成静态契约校验，仍需用真实
+  DataHub 结果在 HC1 与 v4 对比后确认质量。
+- **验证**：Topic6 聚焦测试 `20 passed`，加入 Gateway 全局单任务测试后仓库全量
+  `409 passed`。
 
 ### HC3 状态一致性与轨迹问题收口
 
+- **Gateway 全局单任务**：此前只按 `(chat_id, thread_id, user_open_id)` 防止同一用户重复
+  触发，不同用户仍会并行创建 Session。现在整个 Topic6 Gateway 只允许一个
+  `running` / `wait_hc` Job；新触发在创建方舟 Session 前即被拒绝，并提示等待前一任务
+  结束。启动检查使用异步锁串行化，避免同时到达的消息穿透检查。
 - **HC3 卡片错显 HC1**：Gateway 先把数据库阶段更新为 HC3，但发送审核卡时复用了更新前的 Job 快照。审核卡现直接以 `hc_kind` 渲染阶段，Runner 在写库后也会重新读取 Job。
 - **备注补充消息未续跑**：点击“备注”后再 @bot 的正文此前会落入默认帮助回复。Gateway 现优先识别等待补充说明的 HC，将正文作为 `HCx remark` 注入原 Session 并继续执行。
 - **备注交互改为卡片内完成**：HC 卡片增加必填多行备注输入框和“提交备注并继续”按钮，表单提交后直接携带 `form_value.remark_note` 续跑，不再要求用户二次 @bot；文本补充入口仍作为兼容兜底保留。

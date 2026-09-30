@@ -34,7 +34,7 @@
 
 | task | Prompt 文件 | 输入取列 | 输出关键字段 |
 |---|---|---|---|
-| `c0` | `/mnt/skills/topic6-annotation/prompts/C0_基础事实/{prompt_version}.md` | 平台、标题、描述 | 是否营销可用、内容概述、行业归属、商业实体、消费群体、地域、金融相关、其他兜底 |
+| `c0` | `/mnt/skills/topic6-annotation/prompts/C0_基础事实/{prompt_version}.md` | 平台、标题、描述 | 商业实体、热点驱动词、行业归属、营销触发方式、营销维度、平台原生形式、不可用原因、是否营销可用、判断说明 |
 | `c3` | `/mnt/skills/topic6-annotation/prompts/节点标注/{prompt_version}.md` | 标题、描述 | 关联节点、是否节日营销、涉及品牌、是否节点定制营销 |
 | `r1` | `/mnt/skills/topic6-annotation/prompts/R1_平台借势/{prompt_version}.md` | 平台、标题、描述 | 是否平台玩法、判断说明 |
 | `r2` | `/mnt/skills/topic6-annotation/prompts/R2_商业合作/{prompt_version}.md` | 标题、描述 | 是否商业合作、合作类型、判断说明 |
@@ -53,7 +53,7 @@
      --prompt-file /mnt/skills/topic6-annotation/prompts/{task_dir}/{prompt_version}.md \
      --input {input_path} \
      --project-dir /workspace/Projects/{project_dir} \
-     --model-id Doubao-Seed-Evolving \
+     --model-id "$DATAHUB_MODEL_ID" \
      --run-id {整数轮次}
    ```
 2. **读取 completion_meta 自检**:脚本结束后读取对应 `{task}_completion_meta.json`
@@ -104,4 +104,6 @@
 - 严禁写入 `/workspace/Projects/{project_dir}/` 之外的路径(除了 `/tmp` 临时文件)
 - 普通错误立即 `end_turn` 交回协调器,不要自作主张重试或降级
 - 唯一例外是 `invalid model_id`:从脚本打印的 `/api/v1/model/list` 结果中选择大小写完全一致的同名候选,修正 `--model-id` 后最多重试 1 次;仍失败则立即回报两次 stderr
+- `$DATAHUB_MODEL_ID` 默认是大小写敏感的 `Doubao-Seed-Evolving`；不得改用 C2 的小写 `$C2_CHAT_MODEL_ID`
+- `datahub_annotate.py` 会原子更新本任务的 run_config 状态块；不要再用 `edit`/`write` 直接修改 `run_config.yaml`
 - 不要输出多段 `agent.message.delta` 长文本回显,一次 JSON 结果即可

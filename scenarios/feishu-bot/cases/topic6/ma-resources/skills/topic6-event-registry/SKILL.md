@@ -1,6 +1,6 @@
 ---
 name: topic6-event-registry
-version: 2.1.0
+version: 2.2.0
 description: 把微博/抖音/B站/知乎的热搜与资讯标题归档成营销洞察可用的事件表，产出一级标准事件名、二级宣传角度、事件关系与可跨周累积的 Event Registry；单平台内聚合与四平台合并成「全网事件」都由本 Skill 负责。当用户提到热搜聚类、热点事件归类、事件归档、标准事件名、传播事件、宣传角度、话题角度挖掘、选题方向拆解、跨平台热点合并、这周全网有哪些事、热搜标题清洗、提问外壳剥离、非事件过滤、事件知识库、同一活动不同环节归并、同组合不同成员区分，或要把热搜榜整理成周报可用的事件洞察时，就应使用此 Skill。也适用于现有聚类结果出现巨型簇、误并、碎片过多、事件名只能靠空词覆盖成员，需要改成归档式重跑的场景。不负责纯文本相似度去重、无监督聚类和跨平台热度排名。
 ---
 
@@ -196,12 +196,29 @@ Base URL 必须包含版本前缀（方舟示例：`https://ark.cn-beijing.volce
 
 ## 跨平台合并（可选，x0~x4）
 
-四个平台各自跑完阶段 00~04 之后接上这一层。**x 层不是新流程，是复用 05~07 再加两道复核。**
+四个平台只分别执行阶段 00，因为标题清洗规则按平台区分；随后立即 x0 合库，
+阶段 01~07 在 merged 目录统一执行。`x0_merge_platforms.py` 只读取
+`work/clean_titles.jsonl`，不会合并各平台的 01~04 产物。
 
 ```bash
-# 1. 合库。各平台跑到 04 为止，然后合成一个目录
+# Topic6 调用方优先使用封装入口（含并发、续跑、状态和最终 XLSX）
+python3 $S/run_topic6_c2.py \
+  --project-dir <项目目录> --mode demo --run-id 1
+
+# 仅限 50 条样本的流程演示:一次批量归并直接产出同契约 XLSX
+python3 $S/run_topic6_c2.py \
+  --project-dir <项目目录> --mode demo --run-id 1 --demo-fast
+
+
+`--demo-fast` 跳过完整 00→x4 质量链，只用于 demo；test/full 不得启用。
+C2 进度文件位于 `04_标注/C2_事件归档/c2_run/c2_status.json`。
+# 手工执行时：四平台并行完成 00 后立即合库
 python3 $S/x0_merge_platforms.py --out-dir merged --from 微博 抖音 B站 知乎
 cd merged
+python3 $S/01_eventness.py --run-dir .
+python3 $S/02_extract_frames.py --run-dir .
+python3 $S/03_normalize_entities.py --run-dir .
+python3 $S/04_build_embeddings.py --run-dir .
 python3 $S/05_recall_candidates.py --run-dir . --top-k 60
 python3 $S/06_build_blocks.py --run-dir . --cap 60
 python3 $S/07_block_archive.py --run-dir . --concurrency 7

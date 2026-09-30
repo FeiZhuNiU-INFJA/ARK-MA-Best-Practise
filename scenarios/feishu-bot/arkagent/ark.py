@@ -34,11 +34,11 @@ DEBUG_MA_REQUEST_IDS_PATH = Path(".dbg/oauth-vault-token-limit.ma_request_ids.js
 # 方舟沙箱是干净的 cloud 环境，agent_toolset 的 shell 里默认没有 lark-cli——建 Environment 时
 # 用 setup_script 把对应架构的二进制拉到 /usr/local/bin，Session 起来后 shell 里就能直接 `lark-cli ...`。
 # SHA256 校验防止镜像被替换；用 npmmirror 国内镜像加速。
-LARK_CLI_VERSION = "1.0.94"
+LARK_CLI_VERSION = "1.0.95"
 LARK_CLI_SETUP_SCRIPT = f"""set -e
 case "$(uname -m)" in
-  x86_64) ARCH=amd64; SHA=60f505be65b43b5e58b01ec671199723483c5f630a03dfdd32d89f7f40f47d53 ;;
-  aarch64|arm64) ARCH=arm64; SHA=87ddcba89557936958d8dcba4269d02837a32bb605dc0ac9c1aea8d653cbb7a3 ;;
+  x86_64) ARCH=amd64; SHA=7da92d426b7d000908c76a36b87a7d0357c270debf4c7149bbc6010b20d2541e ;;
+  aarch64|arm64) ARCH=arm64; SHA=063012a63bb22479855e335d922cc588b883e00d115de51da76a8ffe22db987a ;;
   *) echo "unsupported architecture" >&2; exit 1 ;;
 esac
 ARCHIVE=/tmp/lark-cli.tar.gz

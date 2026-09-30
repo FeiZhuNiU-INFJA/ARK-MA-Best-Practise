@@ -50,7 +50,7 @@
 | **F 合并发布** | `prompt/07` | 拼接（`pipeline_f.py`）→ 自校验 → 推飞书 → 立即授权 4 人 | 发布成功，URL 写入 run_config |
 | **☑ HC3 报告审核** | `prompt/07` | 飞书文档人工审核 | **不可跳过** |
 | **G UI 发布** | `prompt/08` | 调 `$artifact-template-bluefocus-hotspot-web-report` 生成网页版 | 产出 `index.html` |
-| **H 妙搭发布** | `prompt/09` | 调 `miaoda-web-publish` skill 把 G 产出的 index.html 发到妙搭拿公网链接 | release_status=finished 且 online_url 非空，**固定关卡，不可跳过**；流程结束 |
+| **H 妙搭发布** | `prompt/09` | 调 `miaoda-web-publish` Skill，把 G 的 index.html 发到妙搭 | release_status=finished 且 online_url 非空，**固定关卡，不可跳过**；流程结束 |
 
 Phase C 的详细执行步骤（Prompt 路径 / DataHub 命令 / 筛选熔断 / 补标注闭环）在
 `skill/annotation/SKILL.md`「六、执行流程」，本文件只维护跨阶段时序，不重复其内容。

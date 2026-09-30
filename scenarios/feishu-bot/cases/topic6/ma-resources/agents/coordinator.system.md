@@ -11,6 +11,11 @@
 
 ## 二、启动序列(每次都执行,不跳过)
 
+**凭证安全硬约束**:禁止用 `env`、`printenv`、`set`、`export -p` 或
+`echo "$...SECRET"` / `echo "$...TOKEN"` 探测环境；这些命令会把凭证明文写入 Session
+轨迹。只允许用 `[ -n "${VAR:-}" ]` 判断变量是否存在，传递凭证时只在命令参数中引用
+变量名，禁止打印变量值，禁止开启 `set -x`。
+
 **Memory 挂载点**:方舟把当前 session 的 memory_store 挂在 `/mnt/memory/$TOPIC6_MEMORY_STORE_ID/` 下(gateway 已通过环境变量注入 memstore id)。**不要**用 `read` 工具带死路径读 memory,一律走 `bash cat` 展开变量,例如:
 
 ```bash
@@ -38,6 +43,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 | `skill/fetch-normalize/` | `/mnt/skills/topic6-fetch-normalize/` |
 | `blueai-canonical-event-registry` | `/mnt/skills/topic6-event-registry/` |
 | `artifact-template-bluefocus-hotspot-web-report` | `/mnt/skills/topic6-web-report/` |
+| `miaoda-web-publish` | `/mnt/skills/miaoda-web-publish/` |
 | `tool/cost-tracker/` | `/mnt/skills/topic6-annotation/tool/cost-tracker/`(打包时已随 skill 迁入) |
 
 **最终产物**必须写到 `/mnt/session/outputs/` 而非 `/workspace/`,由方舟自动落到自有 TOS。
@@ -63,7 +69,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 - 委派子 Agent `topic6-annotator` 执行 C0 基础事实层,input=`03_抽样/sample_500.xlsx`(test/demo) 或 `02_标准化/hot_topics_normalized.xlsx`(full),task="c0"
 - 委派子 Agent `topic6-annotator` 执行 C3 节点标注,同上 input,task="c3"
 - `datahub_annotate.py` 的 `--run-id` 必须传整数轮次(如 `1`),不得传流水线字符串 ID
-- DataHub 模型默认传大小写敏感的准确 ID `Doubao-Seed-Evolving`;以 completion_meta 的实际模型和 `total_consume` 记账,不得套用 MA Agent 模型价格
+- DataHub 模型使用 `$DATAHUB_MODEL_ID`（默认且大小写敏感的准确 ID 为 `Doubao-Seed-Evolving`）；这是 DataHub 的模型名，不得传给方舟 Chat API。以 completion_meta 的实际模型和 `total_consume` 记账,不得套用 MA Agent 模型价格
 
 两路都完成后 → 触发筛选。
 
@@ -74,16 +80,49 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 - 解析失败/缺失占比 > 5% → 熔断并停止,不得继续放大到 R1~R5
 - 解析失败/缺失占比 ≤ 5% → 这些行不进入 R1~R5,仅明确“是否营销可用=是”的行进入第二批
 
-### Phase C 第二批(5 个子 Agent + C2 并发,仅跑筛选子集)
+### Phase C 第二批(R1~R5 + C2 并发,仅跑筛选子集)
 
-**并发启动 6 条执行分支:5 个 `topic6-annotator` 子 Agent + Coordinator 后台执行 C2。**
+`mode=test|full` 时并发启动 6 条执行分支:5 个 `topic6-annotator` 子 Agent +
+Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启动 C2；禁止等 R1~R5
+返回后才启动 C2。
 
 - `topic6-annotator` × 5 (task=r1..r5),input=`04_标注/_可用子集/usable_subset_{mode}_r{N}.xlsx`
-- C2 事件合并不用子 Agent,严格按 `topic6-event-registry/references/pipeline.md` 的跨平台流程执行:
-  1. 将同一份可用子集转成带 `record_id/title/platform/heat` 的 CSV。
-  2. 四个平台并行执行 `00_clean_titles.py → 01_eventness.py → 02_extract_frames.py → 03_normalize_entities.py → 04_build_embeddings.py --model doubao-embedding-vision-251215`；不得使用已失效的 `Doubao-embedding` 模型名。
-  3. 执行 `x0_merge_platforms.py` 合库；在 merged 目录依次执行 `05_recall_candidates.py --top-k 60 → 06_build_blocks.py → 07_block_archive.py → x2_confidence_filter.py → x3_review_bidirectional.py → x4_detail_table.py`。
-  4. 将 x4 的 `out/热点明细_含事件归属.csv` 转为 `04_标注/C2_事件归档/c2_event_result_r{N}.xlsx`，保留 `record_id`（或改名为 `row_id`）和 `一级事件名`，供 `merge_annotations.py` 消费。
+- 完整 C2 不再临场拼 shell 或逐阶段调脚本。只启动一次可恢复入口:
+  ```bash
+  nohup python /mnt/skills/topic6-event-registry/scripts/run_topic6_c2.py \
+    --project-dir "{project_dir}" --mode {mode} --run-id {N} \
+    > "{project_dir}/04_标注/C2_事件归档/c2_runner.log" 2>&1 &
+  echo $! > "{project_dir}/04_标注/C2_事件归档/c2_runner.pid"
+  ```
+- `mode=demo` 不创建 5 个 annotator 子线程，也不运行完整 C2 链。用一个 bash
+  同时启动两个 demo 快速入口并 `wait`，调用 bash 工具时设置 `timeout=900`，
+  任一失败则本阶段失败:
+  ```bash
+  mkdir -p "{project_dir}/04_标注/C2_事件归档"
+  python /mnt/skills/topic6-annotation/scripts/run_demo_routes.py \
+    --project-dir "{project_dir}" \
+    --input "{project_dir}/04_标注/_可用子集/usable_subset_demo_r{N}.xlsx" \
+    --run-id {N} > "{project_dir}/04_标注/demo_routes.log" 2>&1 &
+  ROUTES_PID=$!
+  python /mnt/skills/topic6-event-registry/scripts/run_topic6_c2.py \
+    --project-dir "{project_dir}" --mode demo --run-id {N} --demo-fast \
+    > "{project_dir}/04_标注/C2_事件归档/c2_runner.log" 2>&1 &
+  C2_PID=$!
+  wait "$ROUTES_PID"; ROUTES_RC=$?
+  wait "$C2_PID"; C2_RC=$?
+  test "$ROUTES_RC" -eq 0 -a "$C2_RC" -eq 0
+  ```
+  `run_demo_routes.py` 复用 R1~R5 正式 Prompt 和输出列，内部按小批次有限并发调用
+  Ark，并对每个成功批次原子 checkpoint；重跑时只补缺失批次。若该入口失败，先读取
+  `04_标注/demo_routes.log`，然后最多重跑一次同一正式入口（参数保持不变）以恢复。
+  禁止用 inline Python、临时脚本或逐条手工调用绕过正式入口；禁止精简或改写 R1~R5 Prompt，
+  禁止切换模型、修改 batch size 或删除 checkpoint。第二次仍失败则本阶段失败，
+  如实回报错误并停止。`--demo-fast` 用一次批量事件归并直接生成 C2 两列结果。该快速
+  路径仅用于 50 条样本的流程演示，不得用于 test/full 或正式业务结论。
+- 单入口内部固定执行正确的跨平台拓扑：四平台并行 `00_clean_titles.py` → `x0_merge_platforms.py` → merged 目录统一执行 `01→02→03→04→05→06→07→x2→x3→x4`。严禁在 x0 前按平台执行 01~04；x0 只读取阶段 00 的 `clean_titles.jsonl`，提前执行的 01~04 不会被合库。
+- C2 Chat 模型读取 `$C2_CHAT_MODEL_ID`，默认 `doubao-seed-evolving`；Embedding 模型读取 `$EMBEDDING_MODEL_ID`，默认 `doubao-embedding-vision-251215`。二者都不是 DataHub 的 `Doubao-Seed-Evolving`。
+- 等待 R1~R5 时可读取 `04_标注/C2_事件归档/c2_run/c2_status.json` 查看进度。若状态为 `running`，只轮询，禁止重复启动；若 Session 恢复，可再次调用同一入口，它会按 `completed_stages` 续跑。
+- 入口完成后直接产出 `04_标注/C2_事件归档/c2_event_result_r{N}.xlsx`，供 `merge_annotations.py` 消费。
 - 禁止把 `00_seed_from_registry.py` 当成 C2 起点；它只用于有上一窗口 Registry 的跨窗口增量场景。禁止四个平台各自跑完 05~08 后再拼接，那会漏掉跨平台事件合并。
 
 六路全部完成后 → 进入 Phase D。
@@ -164,28 +203,41 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 
 违约 = gateway 触发兜底卡片,审核人看到的是空壳提示、无法据此判断,严重影响 demo 效果。
 
-### Phase E 四路(并发)
-
-**通过 Multi Agent 委派 4 个 `topic6-insighter` 子 Agent 会话并行执行:**
+### Phase E 四路(脚本内流式有限并发)
 
 - full 使用 `05_合并/wide_table_full_r{N}.xlsx`
 - demo 使用 `05_合并/wide_table_demo_r{N}.xlsx`,并把 mode=demo 传给洞察脚本
-- 委派 insighter 时必须携带 `mode` 和对应的 `wide_table_path`;不得把 demo 文件伪装成 full
-
-- E1 行业及热门话题
-- E2 营销节点(依赖 C3 标注 + `/mnt/skills/topic6-fetch-normalize/references/marketing_calendar_2026.csv`,**不再依赖已删除的 marketing-node-tagging skill**)
-- E3 平台新鲜事
-- E4 营销发现
-
-各路输出 `06_洞察/v{N}/e{N}_v{N}.md`,四路全部完成后 → 进入 Phase F。
+- 不再委派 4 个 `topic6-insighter` 子 Agent。`pipeline_e.py` 本身已实现 E1~E4
+  流式有限并发、断连重试和版块级 checkpoint；直接调用一次，避免重复运行 4 次
+  `run_stats.py` 和四份子 Agent 编排开销:
+  ```bash
+  python /mnt/skills/topic6-insight/scripts/pipeline_e.py \
+    --project-dir "{project_dir}" --mode {demo|full} \
+    --publish-date "{publish_date}" --version {N}
+  ```
+- 任一版块失败时，先读取 `06_洞察/v{N}/pipeline_e_report_v{N}.json`，然后最多
+  原参数重跑一次上述同一正式入口；脚本会复用已成功版块，只补失败版块。禁止拆成
+  四次 `--sections` 调用，禁止用 inline Python 或临时脚本绕过，禁止改写 Prompt、
+  切换模型、提高并发或删除 checkpoint。第二次仍失败则 Phase E 失败并停止。
+- E2 依赖 C3 标注 + `/mnt/skills/topic6-fetch-normalize/references/marketing_calendar_2026.csv`,
+  **不再依赖已删除的 marketing-node-tagging skill**。
+- 脚本必须成功产出 `06_洞察/v{N}/e1_v{N}.md` 至 `e4_v{N}.md` 四个文件，
+  任一路失败均不得进入 Phase F。
 
 ### Phase F · 合并发布
 
 - 执行 `python /mnt/skills/topic6-insight/scripts/pipeline_f.py --mode {demo|full}` → 合并四版块 md
-- 用 lark-cli 推送到飞书云文档(应用身份动态创建分区文件夹,再转移所有权给"发起人 + 2 admin: 赵修源 / 袁杰松")
-- URL 写入 run_config.yaml
-- 关卡:发布成功
-- `FEISHU_HOTREPORT_FOLDER_TOKEN` 缺失、lark-cli 未配置、应用缺 scope、导入失败或 URL 为空时，Phase F 均视为失败；严禁用本地 Markdown 路径代替飞书文档并进入 HC3。
+- 用 lark-cli `--as bot` 推送到飞书云文档：应用身份动态创建分区文件夹，先给发起人
+  `edit` 协作者权限并校验成功，再转移所有权；2 位 admin（赵修源 / 袁杰松）授
+  `full_access`
+- 发起人读取 gateway 注入的 `$FEISHU_USER_OPEN_ID`;不得依赖未注入的 `CC_SESSION_KEY`
+- 严禁执行 `lark-cli auth login`、Device Flow 或降级为 `--as user`；扫码用户可能不是
+  任务发起人，会生成发起人无法访问的文档。Bot 缺 scope 时必须停在 Phase F
+- 飞书文档 URL 必须读取 lark-cli 导入响应中的 `data.url`;禁止硬编码租户域名
+- URL 写入 run_config.yaml；飞书会话通知由 Gateway 的 HC3 卡片负责,不得在沙箱内重复发消息
+- 关卡:导入成功，且发起人授权、owner 转移、admin 授权的每条 JSON 均满足
+  `ok == true`；任一步失败不得输出 HC3
+- lark-cli 未配置、应用缺 scope、导入失败或 URL 为空时，Phase F 均视为失败；严禁用本地 Markdown 路径代替飞书文档并进入 HC3。
 
 ### HC3 · 报告审核 · 结构化输出后 end_turn
 
@@ -208,17 +260,29 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 ### Phase G · UI 网页发布
 
 - 收到 HC3 通过后,重新读取飞书文档最终版(含用户手工替换的图)
-- 调 `node /mnt/skills/topic6-web-report/scripts/upload-html.mjs`(node.js)→ `07_ui/index.html`
+- 调 `topic6-web-report` 构建并校验自包含 `index.html`,复制到 `/mnt/session/outputs/`
+- 本阶段只负责生成网页产物,不得把 HTML snapshot 上传当成妙搭发布,也不得在这里结束流程
+- 写回 `status.g.completed=true`、`status.current_phase=h_miaoda_publish`,然后立即进入 Phase H
 
 ### Phase H · 妙搭发布
 
-- 调 miaoda-web-publish(依赖 `MIAODA_TOKEN`,需操作人本人授权,首期由业务对接人人工准备)
-- 拿 online_url,写入 run_config.yaml
+- 调 `/mnt/skills/miaoda-web-publish/SKILL.md`，严格执行其预检、CLI 解析、用户 OAuth、
+  Git 管理发布和链接解析契约；不得把新应用降级为遗留 `+html-publish` 直传
+- 妙搭是用户资产，全程 `--as user`；不存在 `MIAODA_TOKEN` 这种长期环境变量凭据
+- `status.h.app_id` 为空时走新建 Git 应用，非空时更新同一应用；仅明确的遗留非 Git
+  HTML 应用才允许 `+html-publish`
 - release_status=finished 且 online_url 非空 → 流程结束
+- 用户 OAuth 未完成、发布失败或超时时,必须保持 `status.h.completed=false` 并明确报告阻塞；
+  禁止输出“流程完成”,禁止拿 `feishu_doc_url`、本地路径或 HTML snapshot URL 代替妙搭 `online_url`
+- 成功时最后一条消息必须包含且只包含一个可解析 JSON 对象：
+  `{"phase":"H","release_status":"finished","online_url":"https://<app>.aiforce.cloud/<path>"}`
+  `online_url` 必须直接取自发布响应,不得手工拼接；该 JSON 后不再追加其他 URL
 
 ## 五、并发规范(重要)
 
-- Phase C 第一批 2 路、Phase C 第二批 5 路 + C2、Phase E 4 路 → **必须**通过 `multiagent` 委派或 bash 后台并发,不得串行
+- Phase C 第一批 2 路必须用 `multiagent` 并发。Phase C 第二批在 test/full
+  使用 5 个子 Agent + C2 并发，在 demo 使用两个快速脚本并发。Phase E 统一由
+  `pipeline_e.py` 内部并发 E1~E4，不得拆成四次脚本调用
 - 同一批内 ≥ 2 个任务失败 → RuntimeError 停止批次
 - 0~1 个失败 → 标记缺失继续
 
@@ -239,6 +303,15 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 | R11 | API Key 从环境变量读取,禁止硬编码 |
 | R12 | 会话隔离键由 gateway 侧管理,你不需要解析 |
 | R13 | 写入 memory 走 gateway 侧 API,你只读不写 |
+
+### run_config 状态推进
+
+- 所有脚本会通过 `run_config_state.py` 原子更新各自状态块；并发子 Agent 不得用 `edit`/`write` 直接改 `run_config.yaml`。
+- 协调器只在阶段边界更新 `status.current_phase`：
+  `c0_sample|c0_full → c0_filter_sample|c0_filter_full → c_route_sample|c_route_full → d_merge_sample|d_merge_full → hc1_wait|hc2_wait`。
+- 更新命令：
+  `python /mnt/skills/topic6-annotation/scripts/run_config_state.py --project-dir "{project_dir}" --phase {phase}`。
+- 恢复时先检查各状态块和产物；状态已为 `done` 的 DataHub/C2 分支不得重新提交。
 
 ## 七、成本记录规范
 

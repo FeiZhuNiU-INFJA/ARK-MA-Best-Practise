@@ -96,6 +96,7 @@ class HcEvent:
     card_message_id: str = ""  # 飞书卡片 message_id,便于事后 patch
     user_decision: str = ""  # pass | reject | remark
     user_note: str = ""
+    operator_label: str = ""
     created_at: int = 0
     resolved_at: Optional[int] = None
 
@@ -155,6 +156,7 @@ class PipelineStore:
                 card_message_id TEXT NOT NULL DEFAULT '',
                 user_decision TEXT NOT NULL DEFAULT '',
                 user_note TEXT NOT NULL DEFAULT '',
+                operator_label TEXT NOT NULL DEFAULT '',
                 created_at INTEGER NOT NULL,
                 resolved_at INTEGER,
                 FOREIGN KEY (job_id) REFERENCES pipeline_jobs(job_id) ON DELETE CASCADE
@@ -165,6 +167,16 @@ class PipelineStore:
 
             CREATE INDEX IF NOT EXISTS idx_hc_events_card
                 ON pipeline_hc_events(card_message_id);
+
+            CREATE TABLE IF NOT EXISTS user_oauth (
+                open_id       TEXT PRIMARY KEY,
+                vault_id      TEXT NOT NULL,
+                credential_id TEXT NOT NULL,
+                refresh_token TEXT NOT NULL,
+                expires_at    INTEGER NOT NULL,
+                scopes        TEXT NOT NULL,
+                updated_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            );
             """
         )
         # 老库补列:progress_card_message_id 是后加的,SQLite 没有 IF NOT EXISTS 语法。
@@ -172,6 +184,13 @@ class PipelineStore:
         if "progress_card_message_id" not in cols:
             self._conn.execute(
                 "ALTER TABLE pipeline_jobs ADD COLUMN progress_card_message_id TEXT NOT NULL DEFAULT ''"
+            )
+        hc_cols = {
+            r[1] for r in self._conn.execute("PRAGMA table_info(pipeline_hc_events)").fetchall()
+        }
+        if "operator_label" not in hc_cols:
+            self._conn.execute(
+                "ALTER TABLE pipeline_hc_events ADD COLUMN operator_label TEXT NOT NULL DEFAULT ''"
             )
 
     def _protect_files(self) -> None:
@@ -183,6 +202,62 @@ class PipelineStore:
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+    # ---- user_oauth -------------------------------------------------------
+
+    def get_user_oauth(self, open_id: str) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT vault_id, credential_id, refresh_token, expires_at, scopes
+                FROM user_oauth WHERE open_id = ?
+                """,
+                (open_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "open_id": open_id,
+            "vault_id": row[0],
+            "credential_id": row[1],
+            "refresh_token": row[2],
+            "expires_at": int(row[3]),
+            "scopes": tuple(filter(None, str(row[4]).split(" "))),
+        }
+
+    def save_user_oauth(
+        self,
+        open_id: str,
+        vault_id: str,
+        credential_id: str,
+        refresh_token: str,
+        expires_at: int,
+        scopes: tuple[str, ...],
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO user_oauth (
+                    open_id, vault_id, credential_id,
+                    refresh_token, expires_at, scopes
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(open_id) DO UPDATE SET
+                    vault_id=excluded.vault_id,
+                    credential_id=excluded.credential_id,
+                    refresh_token=excluded.refresh_token,
+                    expires_at=excluded.expires_at,
+                    scopes=excluded.scopes,
+                    updated_at=strftime('%s', 'now')
+                """,
+                (
+                    open_id,
+                    vault_id,
+                    credential_id,
+                    refresh_token,
+                    expires_at,
+                    " ".join(scopes),
+                ),
+            )
 
     # ---- pipeline_jobs -----------------------------------------------------
 
@@ -252,6 +327,19 @@ class PipelineStore:
                 ORDER BY started_at DESC LIMIT 1
                 """,
                 (chat_id, thread_id or "", user_open_id, STATUS_RUNNING, STATUS_WAIT_HC),
+            ).fetchone()
+        return self._row_to_job(row) if row else None
+
+    def get_active_job(self) -> Optional[PipelineJob]:
+        """返回整个 Topic6 Gateway 最新的活跃任务。"""
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT * FROM pipeline_jobs
+                WHERE status IN (?, ?)
+                ORDER BY started_at DESC LIMIT 1
+                """,
+                (STATUS_RUNNING, STATUS_WAIT_HC),
             ).fetchone()
         return self._row_to_job(row) if row else None
 
@@ -365,15 +453,16 @@ class PipelineStore:
         event_id: int,
         user_decision: str,
         user_note: str = "",
+        operator_label: str = "",
     ) -> None:
         with self._lock:
             self._conn.execute(
                 """
                 UPDATE pipeline_hc_events
-                SET user_decision = ?, user_note = ?, resolved_at = ?
+                SET user_decision = ?, user_note = ?, operator_label = ?, resolved_at = ?
                 WHERE id = ?
                 """,
-                (user_decision, user_note, _now(), event_id),
+                (user_decision, user_note, operator_label, _now(), event_id),
             )
 
     def get_hc_event(self, event_id: int) -> Optional[HcEvent]:
@@ -417,6 +506,19 @@ class PipelineStore:
             ).fetchone()
         return self._row_to_hc(row) if row else None
 
+    def list_resolved_hc_for_job(self, job_id: str) -> list[HcEvent]:
+        """按发生顺序返回任务已完成的审核记录，供运行卡持续展示。"""
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM pipeline_hc_events
+                WHERE job_id = ? AND resolved_at IS NOT NULL
+                ORDER BY created_at ASC, id ASC
+                """,
+                (job_id,),
+            ).fetchall()
+        return [self._row_to_hc(row) for row in rows]
+
     # ---- row -> dataclass --------------------------------------------------
 
     @staticmethod
@@ -453,6 +555,9 @@ class PipelineStore:
             card_message_id=row["card_message_id"],
             user_decision=row["user_decision"],
             user_note=row["user_note"],
+            operator_label=(
+                row["operator_label"] if "operator_label" in row.keys() else ""
+            ),
             created_at=row["created_at"],
             resolved_at=row["resolved_at"],
         )

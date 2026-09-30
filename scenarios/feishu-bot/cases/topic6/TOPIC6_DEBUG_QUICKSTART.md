@@ -50,6 +50,20 @@ topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 - [ ] `docx:document` — 读写飞书文档正文(Phase F 拉草稿、Phase H 写回)
 - [ ] `docx:document.content:read` — 仅读文档内容(部分租户单独开)
 - [ ] `space:folder:create` — 创建云空间文件夹；在“应用身份权限”中搜索“创建云空间文件夹”。不要误选 `drive:drive:version` 等文档版本权限
+- [ ] `docs:document.media:upload` — 上传 Phase F 导入所需的 Markdown 临时素材
+- [ ] `docs:document:import` — 创建并查询云文档导入任务
+- [ ] `docs:permission.member:create` — 把报告发起人和管理员添加为文档协作者
+- [ ] `docs:permission.member:transfer` — 将报告所有权转给任务发起人
+- [ ] `docs:permission.member:retrieve` — 授权后查询协作者列表做结果复核
+
+**妙搭用户身份(Phase H 必需)**
+
+- [ ] `auth:user.id:read` — 扫码后识别授权用户的 `open_id`
+- [ ] `spark:app:read` — 查询妙搭应用与发布状态
+- [ ] `spark:app:write` — 创建/更新妙搭应用并发起发布
+
+以上三项需在开发者后台为应用开通；用户再通过 §2.3 的脚本扫码同意。脚本还会申请
+`offline_access` 以便 Gateway 自动续期。
 
 **可选**
 
@@ -89,8 +103,9 @@ FEISHU_APP_SECRET=xxx
 ```
 
 `create_all.sh` 会默认将 `FEISHU_APP_ID/FEISHU_APP_SECRET` 复用为沙箱使用的
-`LARK_APP_ID/LARK_APP_SECRET`。只有 Gateway 与沙箱需要使用不同飞书应用时，
-才在配置中显式设置 `LARK_APP_ID` 和 `LARK_APP_SECRET`。
+`LARK_APP_ID/LARK_APP_SECRET`，并把 App ID 同步为 lark-cli 使用的
+`LARKSUITE_CLI_APP_ID`。只有 Gateway 与沙箱需要使用不同飞书应用时，才在配置中
+显式设置 `LARK_APP_ID` 和 `LARK_APP_SECRET`。
 
 ### 2.2 业务侧 API Key(向业务对接人获取)
 
@@ -104,15 +119,30 @@ DATAHUB_ENDPOINT=https://bmc-data-hub.bluemediagroup.cn/...
 DATAHUB_API_KEY=<业务对接人给的 Key>
 ```
 
-### 2.3 可选/延后
+### 2.3 妙搭用户授权(每位操作人首次使用前)
 
-```env
-# Phase H 妙搭发布,当前未启用,留空即可
-MIAODA_TOKEN=
+Phase H 不使用 `MIAODA_TOKEN`，也不读取 Gateway 主机上的 lark-cli 登录态。运行
+Topic6 专用脚本，由操作人扫码后把短期 access token 写入其专属 Ark Vault：
 
-# 自有 TOS Bucket——调试期不必配,environment.json 里已禁用 output_storage
-# TOPIC6_TOS_BUCKET=
+```bash
+cd scenarios/feishu-bot
+python cases/topic6/authorize_miaoda_user.py
 ```
+
+脚本通过 token 自动查询扫码者的 `open_id`，所以不需要传 open_id。管理员希望
+防止扫错账号时，可用：
+
+```bash
+python cases/topic6/authorize_miaoda_user.py --expected-open-id ou_xxx
+```
+
+refresh token 仅保存在权限为 `0600` 的 Topic6 SQLite 数据库中，不会进入 MA
+沙箱或日志。Gateway 在新建 Session 前按消息发送者查找并按需刷新 token；任务启动后
+每分钟检查一次，并在过期前 15 分钟原地更新同一 Vault Credential。保活覆盖
+`running` 和 `wait_hc`，不会改变 Session ID、Vault ID 或 Credential ID。未授权用户
+会在任务启动前收到提示。
+
+自有 TOS Bucket 调试期不必配置，`environment.json` 已禁用 output storage。
 
 ### 2.4 白名单(建议设,防误触)
 
@@ -135,7 +165,7 @@ set -a; source ~/.arkagent/cases/topic6/config.env; set +a
 ```bash
 cd scenarios/feishu-bot/cases/topic6
 
-# 3.1 打包 5 个 Skill zip → tools/out/*.zip
+# 3.1 打包 6 个 Skill zip → tools/out/*.zip
 ./tools/pack_skills.sh
 
 # 3.2 上传 Skill → 写回 ma-resources/skill_ids.json
@@ -159,7 +189,7 @@ python3 tools/upload_skills.py
 以下流程会:
 
 - 运行完整测试
-- 重新打包并强制上传全部 5 个 Skills
+- 重新打包并强制上传全部 6 个 Skills
 - 原地更新 Environment
 - 更新已有 Memory 内容
 - 删除并重建 Annotator、Insighter、Coordinator
@@ -177,7 +207,7 @@ python3 tools/upload_skills.py
 
 | 组件 | 更新方式 | ID |
 |---|---|---|
-| 5 个 Skills | 强制重新上传 | **变化** |
+| 6 个 Skills | 强制重新上传 | **变化** |
 | Annotator / Insighter / Coordinator | 删除同名旧 Agent 后重建 | **变化** |
 | Environment | 按名称原地更新 | **不变** |
 | Memory Store | 按名称原地更新 | **不变** |
@@ -188,8 +218,14 @@ Gateway 仍持有旧 ID，所以脚本结束后必须重启：
 
 ```bash
 cd /Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot
+python cases/topic6/authorize_miaoda_user.py  # 每位妙搭发布人首次执行一次
 python -m arkagent run --case topic6
 ```
+
+Skill 和 Coordinator Prompt 只在创建 Session 时挂载。`update_ma.sh` 前已经启动的
+Session 不会热更新；验证 `run_demo_routes.py` 的小批次 checkpoint 修复时，必须在
+Gateway 重启后从飞书新建任务，不能继续恢复旧 Session。
+
 ---
 
 ## 4. 确认 topic6 资源 ID
@@ -248,6 +284,10 @@ topic6 触发词：热点报告 / 热点周报(可加 test/demo/full 指定模�
 
 demo 在 HC1 通过后直接进入洞察与报告阶段,不会触发全量标注和 HC2。
 
+Phase E 默认以最多 2 路并发流式生成 E1~E4。若某版块在断连重试后仍失败，使用相同
+参数重新执行 `pipeline_e.py`；脚本会读取 `06_洞察/v{N}/pipeline_e_checkpoint_v{N}.json`
+并只补失败版块。不要删除 checkpoint，也不要拆成四次 `--sections` 调用。
+
 正常应该看到:
 
 1. Bot 回复"已收到,启动 topic6 pipeline...";
@@ -267,6 +307,8 @@ demo 在 HC1 通过后直接进入洞察与报告阶段,不会触发全量标注
 | Skill 找不到                      | `skill_ids.json` 有 null 项,重跑 `upload_skills.py`                                                                                                              |
 | HC 卡片点击后无响应               | Feishu Bot 后台"事件订阅"里是否开启`card.action.trigger` 权限                                                                                                      |
 | SSE 中断/超时                     | 单会话默认 10 分钟,超长任务加大`SESSION_TIMEOUT_MS`(毫秒)                                                                                                          |
+| Phase E `Connection error`        | 先看 `pipeline_e_report_v{N}.json`；按原参数重跑一次正式入口，成功版块会命中 checkpoint，只补失败版块                                                             |
+| Phase H `token_expired`           | 确认 Gateway 已更新并重启；临近过期时日志应出现 `topic6 user token refreshed`，同一 Session 无需重新挂 Vault                                                       |
 | 图片抓取失败                      | 已知风险点,飞书`im.v1.images.get` 并发大图不稳定,重跑一次 Phase G 即可                                                                                             |
 
 ---

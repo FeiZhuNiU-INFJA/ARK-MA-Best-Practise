@@ -18,9 +18,13 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from run_config_state import update_run_config
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -95,7 +99,7 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
     print(f"\n[filter] ✅ 可用子集: {out_file}")
     print(f"[filter] R1~R5 将只处理 {kept_count} 行, 而不是全部 {total} 行")
 
-    return {
+    result = {
         "mode": mode, "run_id": run_id, "total_rows": total,
         "usable_count": usable_count,
         "parse_error_excluded": parse_error_count,
@@ -107,6 +111,20 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
         "merged_source": str(merged_file),
         "out_file": str(out_file),
     }
+    update_run_config(
+        proj,
+        {"c0_filter": {
+            "status": "done",
+            "run_id": run_id,
+            "total_rows": total,
+            "usable_count": usable_count,
+            "parse_error_excluded": parse_error_count,
+            "missing_excluded": missing_count,
+            "unresolved_ratio": round(unresolved_ratio, 4),
+            "subset_file": str(out_file),
+        }},
+    )
+    return result
 
 
 def main() -> int:
@@ -121,6 +139,18 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:
+        try:
+            update_run_config(
+                args.project_dir,
+                {"c0_filter": {
+                    "status": "failed",
+                    "run_id": args.run_id,
+                    "error": str(exc),
+                    "failed_at": datetime.now().astimezone().isoformat(),
+                }},
+            )
+        except Exception as status_error:
+            print(f"[WARN] 写入失败状态失败: {status_error}", file=sys.stderr)
         print(f"\n[ERROR] {exc}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)

@@ -41,6 +41,16 @@ cd /Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/to
 
 该脚本会完成测试、Skill 打包上传、Environment/Memory 更新、Agent 重建和资源 ID 回写；Gateway 仍需手动重启。详见[快速调试与完整配置](./TOPIC6_DEBUG_QUICKSTART.md#34-全量更新所有-topic-6-资源)。
 
+每位需要触发报告并发布到妙搭的用户，首次使用前在 Gateway 主机运行：
+
+```bash
+cd /Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot
+python cases/topic6/authorize_miaoda_user.py
+```
+
+脚本会打开飞书授权页，并在扫码成功后自动读取扫码者的 `open_id`；无需手工传
+`open_id`。需要防止扫错账号时，可额外传 `--expected-open-id ou_xxx` 做校验。
+
 ## 系统组成
 
 Topic 6 使用 `1 Coordinator + 2 类子 Agent`：
@@ -60,6 +70,7 @@ Topic 6 使用 `1 Coordinator + 2 类子 Agent`：
 | `topic6-event-registry` | C2 事件识别与跨平台合并 |
 | `topic6-insight` | E1-E4 洞察生成与报告合并 |
 | `topic6-web-report` | 网页版报告生成 |
+| `miaoda-web-publish` | 妙搭 HTML 应用发布与发布状态确认 |
 
 运行中间产物位于 `/workspace/Projects/<project_dir>/`，最终交付物写入 `/mnt/session/outputs/`。
 

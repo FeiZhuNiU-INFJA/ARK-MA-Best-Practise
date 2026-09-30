@@ -13,6 +13,7 @@ dependencies = [
     "qrcode>=7.4",
     "lark-channel-sdk>=1.4",
     "mcp>=1.2,<2",
+    "pyyaml>=6.0",
     "uvicorn>=0.30",
     "starlette>=0.37",
 ]
