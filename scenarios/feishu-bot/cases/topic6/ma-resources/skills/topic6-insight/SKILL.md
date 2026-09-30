@@ -44,7 +44,7 @@ topic6-insight/
 ```bash
 python /mnt/skills/topic6-insight/scripts/pipeline_e.py \
   --project-dir /workspace/Projects/W35_20260824-20260830 \
-  --mode full \
+  --mode skip_sampling \
   --publish-date 2026-08-31 \
   --model ep-your-endpoint-id
 ```
@@ -87,7 +87,7 @@ python /mnt/skills/topic6-insight/scripts/pipeline_f.py \
   - `ARK_API_KEY`(fallback `OPENAI_API_KEY`)
   - `ARK_BASE_URL`(fallback `OPENAI_BASE_URL`) — MA 环境请指向火山方舟 endpoint
   - `MARKETING_CALENDAR_PATH`(可选,默认 `/mnt/skills/topic6-fetch-normalize/references/marketing_calendar_2026.csv`)
-- 上游数据:正式模式使用 `{project_dir}/05_合并/wide_table_full_r{N}.xlsx`,演示模式使用 `wide_table_demo_r{N}.xlsx`
+- 上游数据:正式模式使用 `{project_dir}/05_合并/wide_table_skip_sampling_r{N}.xlsx`,演示模式使用 `wide_table_demo_r{N}.xlsx`
 - 跨 skill 依赖: cost-tracker 调用 `/mnt/skills/topic6-annotation/tool/cost-tracker/cost_tracker.py`
 
 ## 架构要点
@@ -100,8 +100,8 @@ python /mnt/skills/topic6-insight/scripts/pipeline_f.py \
 
 ## 前置约束
 
-- 支持 `--mode full` 正式交付和 `--mode demo` 50 条样本演示。
-- `--mode test` 仅用于标注校准,直接拒绝生成洞察。
+- 支持 `--mode skip_sampling` 正式全量交付和 `--mode demo` 50 条样本演示。
+- `--mode full` 的 500 条结果仅用于标注校准,直接拒绝生成洞察。
 - demo 产出的所有报告必须注明“基于 50 条分层样本,仅供流程演示,不可作为正式全量结论”。
 - 同一项目按 v1、v2... 迭代,每轮独立子目录,不覆盖历史。
-- 对应模式的上游宽表 `05_合并/wide_table_{full|demo}_r{N}.xlsx` 必须存在,来源 topic6-annotation。
+- 对应模式的上游宽表 `05_合并/wide_table_{skip_sampling|demo}_r{N}.xlsx` 必须存在,来源 topic6-annotation。

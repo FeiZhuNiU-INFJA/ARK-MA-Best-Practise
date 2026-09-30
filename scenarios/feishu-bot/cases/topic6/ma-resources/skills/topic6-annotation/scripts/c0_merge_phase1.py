@@ -11,7 +11,7 @@ MA 精简版:
 
 CLI:
   python c0_merge_phase1.py --project-dir /workspace/Projects/W35 \\
-    --mode test --run-id 1
+    --mode full --run-id 1
 """
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
 
     base_file = (
         proj / "03_抽样" / "sample_500.xlsx"
-        if mode in {"test", "demo"}
+        if mode in {"full", "demo"}
         else proj / "02_标准化" / "hot_topics_normalized.xlsx"
     )
     if not base_file.exists():
@@ -139,7 +139,11 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--project-dir", required=True)
-    p.add_argument("--mode", default="test", choices=["test", "demo", "full"])
+    p.add_argument(
+        "--mode",
+        default="full",
+        choices=["demo", "full", "skip_sampling"],
+    )
     p.add_argument("--run-id", type=int, required=True)
     args = p.parse_args()
     try:

@@ -1096,13 +1096,14 @@ def test_run_config_state_deep_merges_parallel_task_results(tmp_path):
     assert config["status"]["c2_cluster"]["stage"] == "01_eventness"
 
 
-def test_coordinator_uses_50_rows_for_demo_and_500_for_test():
+def test_coordinator_uses_50_rows_for_demo_and_500_for_full():
     coordinator = COORDINATOR_PROMPT.read_text(encoding="utf-8")
 
-    assert "mode=test" in coordinator
+    assert "mode=full" in coordinator
     assert "sample_500.py --size 500" in coordinator
     assert "mode=demo" in coordinator
     assert "sample_500.py --size 50" in coordinator
+    assert "mode=skip_sampling" in coordinator
 
 
 def test_coordinator_uses_cross_platform_c2_flow_and_merge_contract():
@@ -1142,7 +1143,7 @@ def test_coordinator_uses_demo_fast_paths_and_single_insight_entry():
 def test_pipeline_overview_documents_demo_execution_differences():
     overview = PIPELINE_OVERVIEW.read_text(encoding="utf-8")
 
-    assert "test / demo / full 模式" in overview
+    assert "demo / full / skip_sampling 模式" in overview
     assert "分层抽样 50 条" in overview
     assert "R1~R5 Ark 批量 + C2 单次归并" in overview
     assert "跳过全量与 HC2" in overview

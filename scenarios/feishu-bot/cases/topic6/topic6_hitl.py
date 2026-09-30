@@ -41,13 +41,13 @@ _HC_META = {
         "template": "blue",
         "icon": "checkbox-checked_outlined",
         "title": "HC1 · 小样本人工审核",
-        "subtitle": "test 模式 500 条 / demo 模式 50 条,需要人工确认标注结果",
+        "subtitle": "full 模式 500 条 / demo 模式 50 条,需要人工确认标注结果",
     },
     "HC2": {
         "template": "green",
         "icon": "check-square_outlined",
         "title": "HC2 · 全量分布审核",
-        "subtitle": "full 模式跑完全量数据,需要人工核对分布/异常",
+        "subtitle": "全量数据已完成,需要人工核对分布/异常",
     },
     "HC3": {
         "template": "purple",

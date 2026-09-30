@@ -1,6 +1,6 @@
 # topic6 · 调试快速上手
 
-按顺序过一遍就能起服务、在飞书里跑通 `热点周报 test`。所有命令默认在仓库根目录 `ark-agent-feishu-bot/` 下执行,`cd` 位置在每步开头标注。
+按顺序过一遍就能起服务、在飞书里跑通 `热点周报 full`。所有命令默认在仓库根目录 `ark-agent-feishu-bot/` 下执行,`cd` 位置在每步开头标注。
 
 ---
 
@@ -185,7 +185,7 @@ python -m arkagent run --case topic6
 在飞书 Bot 私聊或群里发送:
 
 ```
-热点周报 test
+热点周报 full
 ```
 
 需要只跑 50 条样本并继续生成演示报告时发送：
@@ -195,6 +195,12 @@ python -m arkagent run --case topic6
 ```
 
 demo 在 HC1 通过后直接进入洞察与报告阶段,不会触发全量标注和 HC2。
+
+需要跳过 500 条采样校准、直接跑全量时发送：
+
+```text
+热点周报 skip_sampling
+```
 
 Phase E 默认以最多 2 路并发流式生成 E1~E4。若某版块在断连重试后仍失败，使用相同
 参数重新执行 `pipeline_e.py`；脚本会读取 `06_洞察/v{N}/pipeline_e_checkpoint_v{N}.json`

@@ -41,7 +41,7 @@ description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础
 ```
 {project_dir}/
 ├── 02_标准化/hot_topics_normalized.xlsx    # (topic6-fetch-normalize 产出, 本 skill 读取)
-├── 03_抽样/sample_500.xlsx                 # (topic6-fetch-normalize 产出, test/demo 模式用)
+├── 03_抽样/sample_500.xlsx                 # (topic6-fetch-normalize 产出, full/demo 模式用)
 ├── 04_标注/
 │   ├── C0_基础事实/
 │   │   ├── c0_submit_meta.json         # datahub_annotate 上传+建任务后写
@@ -67,7 +67,7 @@ description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础
 2. `c0_merge_phase1.py`: LEFT JOIN 到基础表 → phase1_merged
 3. `c0_filter_usable.py`: 按"是否营销可用"筛出 R1~R5 输入子集
 4. **第二批 (可用子集并行)**:
-   - test/full: R1~R5 各跑一次 `datahub_annotate.py --task rN --input 04_标注/_可用子集/...`
+   - full/skip_sampling: R1~R5 各跑一次 `datahub_annotate.py --task rN --input 04_标注/_可用子集/...`
    - demo: 单次运行 `run_demo_routes.py`，默认每批 5 行、最多 2 个 Ark 请求并发，
      每批成功即写 checkpoint，并保持相同输出列
 5. C2 事件归档 (由 topic6-event-registry skill 完成, 不在本 skill 内)
@@ -88,7 +88,7 @@ description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础
 - Prompt 上传给 DataHub 时通过 `--prompt-file` 显式传绝对路径, 不再靠脚本自动扫描 prompts 目录。
 - `c0_filter_usable.py` 只把 C0 明确判定为“是”的记录送入 R1~R5；解析失败/缺失记录不进入五路下游。失败占比超过 5% 时熔断。
 - DataHub 成功态没有 `result_url` 时,`datahub_annotate.py` 自动分页读取 `result_list`,不需要子 Agent 手工下载。
-- `run_demo_routes.py` 只允许用于 50 条样本的 demo 流程；test/full 必须继续走
+- `run_demo_routes.py` 只允许用于 50 条样本的 demo 流程；full/skip_sampling 必须继续走
   DataHub 单行标注，以保持正式质量口径。
 - demo checkpoint 位于各 R1~R5 目录的 `{route}_demo_checkpoint_r{N}.json`。输入、
   模型、Prompt、run_id 或 batch size 不匹配时自动失效；匹配时重跑只补缺失批次。

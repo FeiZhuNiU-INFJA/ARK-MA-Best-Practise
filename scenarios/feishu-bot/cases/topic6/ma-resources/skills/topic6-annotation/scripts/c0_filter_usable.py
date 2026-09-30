@@ -10,7 +10,7 @@ MA 精简版:
 
 CLI:
   python c0_filter_usable.py --project-dir /workspace/Projects/W35 \\
-    --mode test --run-id 1
+    --mode full --run-id 1
 """
 from __future__ import annotations
 
@@ -130,7 +130,11 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--project-dir", required=True)
-    p.add_argument("--mode", default="test", choices=["test", "demo", "full"])
+    p.add_argument(
+        "--mode",
+        default="full",
+        choices=["demo", "full", "skip_sampling"],
+    )
     p.add_argument("--run-id", type=int, required=True)
     args = p.parse_args()
     try:

@@ -11,8 +11,8 @@ MA 适配要点：
   - cost-tracker 从 topic6-annotation skill 挂载路径调用（annotation/insight 共用同一份）
 
 设计原则：
-  - full 模式用于正式交付；demo 模式允许基于 50 条抽样数据生成演示报告
-  - test 模式只用于标注校准，不生成洞察
+  - skip_sampling 数据阶段用于正式交付；demo 模式允许基于 50 条抽样数据生成演示报告
+  - full 模式先做 500 条标注校准，不直接生成洞察
   - 同一项目洞察按版本迭代（v1、v2...），每轮单独一个子目录
 
 用法：
@@ -910,12 +910,16 @@ def _strip_markdown_fence(text: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="E 阶段洞察生成 pipeline(full 正式交付 / demo 抽样演示)",
+        description="E 阶段洞察生成 pipeline(skip_sampling 正式全量 / demo 抽样演示)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--project-dir", required=True,
                         help="项目目录(绝对路径,或相对 /workspace)")
-    parser.add_argument("--mode", choices=["test", "demo", "full"], default="full")
+    parser.add_argument(
+        "--mode",
+        choices=["demo", "full", "skip_sampling"],
+        default="skip_sampling",
+    )
     parser.add_argument("--publish-date", default=None)
     parser.add_argument("--model", default="doubao-seed-evolving",
                         help="LLM 模型 ID(MA 环境请传火山方舟 endpoint id)")
@@ -930,10 +934,10 @@ def main():
     if args.max_workers < 1 or args.max_attempts < 1:
         parser.error("--max-workers 和 --max-attempts 必须为正整数")
 
-    if args.mode == "test":
+    if args.mode == "full":
         print(
-            "[pipeline_e] ❌ 不允许在 test 模式下生成洞察。\n"
-            "  test 仅用于标注校准；如需基于 50 条样本生成演示报告,请使用 --mode demo。",
+            "[pipeline_e] ❌ 不允许直接基于 full 模式的 500 条校准宽表生成洞察。\n"
+            "  请先完成全量阶段并使用 --mode skip_sampling；如需 50 条演示报告,请使用 --mode demo。",
             file=sys.stderr,
         )
         sys.exit(1)

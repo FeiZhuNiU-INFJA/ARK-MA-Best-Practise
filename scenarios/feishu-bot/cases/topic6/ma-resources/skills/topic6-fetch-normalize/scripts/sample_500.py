@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-sample_500.py — 分层随机抽样 500 条(test 模式用)
+sample_500.py — 分层随机抽样(full 模式 500 条，demo 模式 50 条)
 
   - --project-dir 支持绝对路径;相对路径以 /workspace 为根
   - 固定随机种子 42,结果可复现

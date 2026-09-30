@@ -416,7 +416,7 @@ flowchart LR
         <h3>触发方式</h3>
         <ul>
           <li>在群里 @Bot 或私聊 Bot,发一句包含 <code>热点报告</code> / <code>热点周报</code> 的消息</li>
-          <li>可选参数:<code>mode=test</code>(500 抽样)或 <code>mode=full</code></li>
+          <li>可选参数:<code>mode=full</code>(先 500 条校准再跑全量)、<code>mode=skip_sampling</code>(跳过采样)或 <code>mode=demo</code></li>
           <li>后续 HC1 / HC2 / HC3 阶段,点击 Bot 发来的交互卡片按钮(通过 / 打回 / 备注)</li>
         </ul>
         <h3>权限</h3>
@@ -610,7 +610,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         <h3>下发契约(对子 Agent)</h3>
         <div class="stream">multiagent.delegate(agent=topic6-annotator, message={
   <span class="k">"task"</span>: <span class="s">"c0"</span>,
-  <span class="k">"mode"</span>: <span class="s">"test"</span>,
+  <span class="k">"mode"</span>: <span class="s">"full"</span>,
   <span class="k">"project_dir"</span>: <span class="s">"W40..."</span>,
   <span class="k">"input_path"</span>: <span class="s">"..."</span>,
   <span class="k">"output_path"</span>: <span class="s">"..."</span>,
@@ -668,7 +668,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         <h3>并发形态</h3>
         <ul>
           <li>Phase E 一次委派 <b>4 路并发</b>(section=e1..e4)</li>
-          <li>test 模式收到 → 直接返回 failed(抽样数据洞察不可信)</li>
+          <li>full 模式的 500 条校准结果收到 → 直接返回 failed(抽样数据洞察不可信)</li>
         </ul>
         <h3>用到的 MA 组件</h3>
         <ul>
@@ -686,7 +686,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
     S1: {
       title: "Skill · topic6-fetch-normalize",
       tags: ['<span class="tag skill">Custom Skill</span>'],
-      desc: "Phase A+B 取数与标准化,以及 test 模式抽样。",
+      desc: "Phase A+B 取数与标准化,以及 full 模式的 500 条抽样。",
       content: `
         <h3>Skill 目录</h3>
         <p>${maLink('skills/topic6-fetch-normalize/SKILL.md')} → 沙箱 <code>/mnt/skills/topic6-fetch-normalize/</code></p>
@@ -871,7 +871,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         <h3>/mnt/session/outputs/</h3>
         <ul>
           <li><b>最终产物挂载点</b>:方舟平台自动落到自有 TOS,便于外部下载</li>
-          <li>典型内容:HC1/HC2 卡片引用的 wide_table_test/full_r{N}.xlsx · Phase G 的 index.html</li>
+          <li>典型内容:HC1/HC2 卡片引用的 wide_table_full/skip_sampling_r{N}.xlsx · Phase G 的 index.html</li>
         </ul>
         <h3>项目目录命名</h3>
         <p><code>W{周次}热点周报_{起日}-{止日}</code>(见 topic6-annotation/prompt/run_config契约.md)</p>

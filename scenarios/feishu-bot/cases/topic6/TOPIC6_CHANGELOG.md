@@ -13,6 +13,16 @@
 
 ## 2026-09-30
 
+### 运行模式重命名
+
+- **触发现象**：原 `full` 实际会跳过 500 条采样校准，名称容易被理解为客户完整流程；
+  原 `test` 才是包含 HC1、全量重跑和 HC2 的完整模式。
+- **调整**：三种模式统一为 `demo`、`full`、`skip_sampling`。`full` 对应原 `test`，
+  `skip_sampling` 对应原 `full`；全量阶段产物使用
+  `wide_table_skip_sampling_r{N}.xlsx`，避免与 `full` 的 500 条校准产物重名。
+- **影响范围**：Gateway 触发词、Coordinator/子 Agent Prompt、C/D/E/F 脚本参数、
+  HC 文案、流水线图和调试文档同步更新。
+
 ### 活跃任务用户 Token 保活
 
 - **触发现象**：Session `sesn-20260930023459-r9zoi` 从 10:34 运行至 12:39；Phase G

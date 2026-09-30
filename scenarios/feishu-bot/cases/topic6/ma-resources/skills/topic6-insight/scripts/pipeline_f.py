@@ -94,7 +94,11 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--project-dir", required=True, help="项目目录(绝对路径,或相对 /workspace)")
-    parser.add_argument("--mode", choices=["demo", "full"], default="full")
+    parser.add_argument(
+        "--mode",
+        choices=["demo", "skip_sampling"],
+        default="skip_sampling",
+    )
     parser.add_argument("--version", type=int, default=None, help="要合并的洞察轮次;不传时自动取06_洞察/下最新一轮")
     parser.add_argument("--period-label", default=None, help="覆盖周期标签,如 2026-W35")
     parser.add_argument("--date-start", default=None, help="覆盖起始日期,如 2026-08-24")

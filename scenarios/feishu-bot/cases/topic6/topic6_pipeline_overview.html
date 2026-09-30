@@ -426,9 +426,9 @@ flowchart TD
     START([用户消息 · 热点报告/周报<br/>· 定时任务触发 · 取数周期默认]):::entry --> INIT[启动序列<br/>读 MEMORY / 建项目]:::step
     INIT --> A[Phase A+B<br/>取数 + 标准化]:::step
     A --> SAMPLE{运行模式}:::step
-    SAMPLE -- test · 500 条 --> S[分层抽样<br/>test 500 / demo 50]:::step
+    SAMPLE -- full · 500 条 --> S[分层抽样<br/>full 500 / demo 50]:::step
     SAMPLE -- demo · 50 条 --> S
-    SAMPLE -- full --> CIN[Phase C 第一批输入<br/>C0 / C3 共用]:::step
+    SAMPLE -- skip_sampling --> CIN[Phase C 第一批输入<br/>C0 / C3 共用]:::step
     S --> CIN
 
     subgraph C_BATCH1 [Phase C 第一批 · 并发]
@@ -466,9 +466,9 @@ flowchart TD
     C2 --> D
     D[Phase D · 合并<br/>row_id LEFT JOIN 七路]:::step
 
-    D -- test / demo --> HC1[HC1 小样本验收<br/>test 500 / demo 50]:::hc
-    D -- full --> HC2
-    HC1 -- test 通过 --> FULL[C→D 全量重跑]:::step
+    D -- full / demo --> HC1[HC1 小样本验收<br/>full 500 / demo 50]:::hc
+    D -- skip_sampling --> HC2
+    HC1 -- full 通过 --> FULL[C→D 全量重跑]:::step
     FULL --> HC2[HC2 全量验收]:::hc
     HC1 -- demo 通过<br/>跳过全量与 HC2 --> E_RUN[Phase E 单入口<br/>脚本内四路并发]:::step
     HC2 -- 通过 --> E_RUN
@@ -537,7 +537,7 @@ flowchart TD
         <h3>做了什么</h3>
         <ul>
           <li>匹配触发词,识别用户想跑的周次(默认上一个自然周)</li>
-          <li>解析可选参数:test 或 full 模式、指定周次等</li>
+          <li>解析可选参数:demo、full 或 skip_sampling 模式、指定周次等</li>
         </ul>
         <h3>关键文件</h3>
         <p>${link('prompt/00_角色与触发.md')}</p>
@@ -661,7 +661,7 @@ week_num   : W37</div>
       `
     },
     SAMPLE: {
-      title: "分支 · test / demo / full 模式",
+      title: "分支 · demo / full / skip_sampling 模式",
       tags: ['<span class="tag">路由</span>'],
       desc: "决定样本规模、HC 路由，以及第二批是否启用 demo 快速路径。",
       content: `
@@ -670,9 +670,9 @@ week_num   : W37</div>
         <table>
           <thead><tr><th>模式</th><th>输入规模</th><th>第二批</th><th>审核与用途</th></tr></thead>
           <tbody>
-            <tr><td><b>test</b></td><td>分层抽样 500 条</td><td>R1~R5 DataHub + 完整 C2</td><td>HC1 通过后重跑全量,再经 HC2;用于标注质量校准</td></tr>
+            <tr><td><b>full</b></td><td>先分层抽样 500 条,再跑全量</td><td>R1~R5 DataHub + 完整 C2</td><td>HC1 通过后重跑全量,再经 HC2;客户完整模式</td></tr>
             <tr><td><b>demo</b></td><td>分层抽样 50 条</td><td>R1~R5 Ark 批量 + C2 单次归并</td><td>HC1 通过后直接进 E,跳过全量与 HC2;仅验证流程</td></tr>
-            <tr><td><b>full</b></td><td>标准化全量</td><td>R1~R5 DataHub + 完整 C2</td><td>不经 HC1,完成后进入 HC2;用于正式交付</td></tr>
+            <tr><td><b>skip_sampling</b></td><td>标准化全量</td><td>R1~R5 DataHub + 完整 C2</td><td>跳过 500 条采样与 HC1,完成后进入 HC2</td></tr>
           </tbody>
         </table>
         <div class="note"><b>demo 质量边界</b>:报告必须注明“基于 50 条分层样本,仅供流程演示,不可作为正式全量结论”。快速路径只改变执行方式,输出文件和 28 列宽表契约保持一致。</div>
@@ -680,21 +680,21 @@ week_num   : W37</div>
         <div class="ma-block">
           <h4>决策位置</h4>
           <ul>
-            <li>用户消息里的 <code>test</code> / <code>demo</code> / <code>full</code> 由 ${gwLink('topic6_runner.py')} 解析并写入 <code>run_config.yaml</code></li>
+            <li>用户消息里的 <code>demo</code> / <code>full</code> / <code>skip_sampling</code> 由 ${gwLink('topic6_runner.py')} 解析并写入 <code>run_config.yaml</code></li>
             <li>Coordinator 在 System Prompt §四 · 抽样处读 <code>mode</code>,决定跑不跑 sample_500</li>
           </ul>
         </div>
       `
     },
     S: {
-      title: "分层抽样 · test 500 / demo 50",
+      title: "分层抽样 · full 500 / demo 50",
       tags: ['<span class="tag">脚本</span>', '<span class="tag time">秒级</span>'],
-      desc: "按平台分层抽样(seed=42):test 500 条,demo 50 条。",
+      desc: "按平台分层抽样(seed=42):full 500 条,demo 50 条。",
       content: `
         <h3>做了什么</h3>
         <ul>
           <li>按 <code>platform</code> 列分层</li>
-          <li>各平台按行数占比 + 最大余数法(Hamilton)分配配额,test 总数 500,demo 总数 50</li>
+          <li>各平台按行数占比 + 最大余数法(Hamilton)分配配额,full 总数 500,demo 总数 50</li>
           <li>平台行数不足配额时,取该平台全量,余量追加给最大平台</li>
           <li>固定 seed=42,结果可复现</li>
         </ul>
@@ -714,7 +714,7 @@ week_num   : W37</div>
             <li>输入:<code>/workspace/Projects/{PROJECT_DIR}/02_标准化/hot_topics_normalized.xlsx</code></li>
             <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/03_抽样/sample_500.xlsx</code></li>
             <li>关键参数:<code>--seed 42</code> · Hamilton 分层配额</li>
-            <li>数量参数:test 用 <code>--size 500</code>,demo 用 <code>--size 50</code></li>
+            <li>数量参数:full 用 <code>--size 500</code>,demo 用 <code>--size 50</code></li>
           </ul>
         </div>
       `
@@ -726,9 +726,9 @@ week_num   : W37</div>
       content: `
         <h3>输入文件</h3>
         <ul>
-          <li>test:<code>03_抽样/sample_500.xlsx</code>,实际 500 条</li>
+          <li>full:<code>03_抽样/sample_500.xlsx</code>,实际 500 条</li>
           <li>demo:<code>03_抽样/sample_500.xlsx</code>,文件名保持兼容,实际 50 条</li>
-          <li>full:<code>02_标准化/hot_topics_normalized.xlsx</code>,标准化全量</li>
+          <li>skip_sampling:<code>02_标准化/hot_topics_normalized.xlsx</code>,标准化全量</li>
         </ul>
         <div class="note">C3 不读取 C0 的结果。两路从同一输入表独立开始,完成后才在筛选前汇合。</div>
       `
@@ -811,9 +811,9 @@ week_num   : W37</div>
         <h3>输入规模(容易误解的点)</h3>
         <div class="note">
           C3 <b>不是"永远全量"</b>,而是"跟 C0 走同一份输入":<br>
-          · <b>test 模式</b>:输入 = sample_500(500 条),C3 也只跑 500 条<br>
+          · <b>full 模式</b>:输入 = sample_500(500 条),C3 也只跑 500 条<br>
           · <b>demo 模式</b>:输入 = sample_500(实际 50 条),C3 也只跑 50 条<br>
-          · <b>full 模式</b>:输入 = 标准化全量表,C3 才跑全量<br>
+          · <b>skip_sampling 模式</b>:输入 = 标准化全量表,C3 才跑全量<br>
           “独立全量”指的是<b>不被 C0 筛选切掉</b>,而不是跨模式恒定全量。
         </div>
         <h3>每行实际送给 C3 LLM 的字段</h3>
@@ -904,7 +904,7 @@ week_num   : W37</div>
     },
     R1: {
       title: "R1 · 平台玩法",
-      tags: ['<span class="tag">test/full · DataHub</span>', '<span class="tag">demo · Ark 批量</span>'],
+      tags: ['<span class="tag">full/skip_sampling · DataHub</span>', '<span class="tag">demo · Ark 批量</span>'],
       desc: "二分类:这条热搜是否代表某个平台的原生玩法(挑战/BGM/模板/拍摄手法等)。",
       content: `
         <h3>输出</h3>
@@ -925,7 +925,7 @@ week_num   : W37</div>
         <div class="ma-block">
           <h4>按模式选择执行通道</h4>
           <ul>
-            <li>test/full:Coordinator 委派 5 个 <code>topic6-annotator</code>,各自执行一次 DataHub 标注</li>
+            <li>full/skip_sampling:Coordinator 委派 5 个 <code>topic6-annotator</code>,各自执行一次 DataHub 标注</li>
             <li>demo:Coordinator 只启动一次 ${maLink('skills/topic6-annotation/scripts/run_demo_routes.py')},脚本内部并发 R1~R5 五个 Ark 批量请求</li>
             <li>Prompt:${maLink('skills/topic6-annotation/prompts/R1_平台借势/v2.md')}</li>
             <li>两种通道都产出 <code>R1_平台借势/r1_postprocess_r{N}.xlsx</code>,下游合并契约不变</li>
@@ -937,7 +937,7 @@ week_num   : W37</div>
     },
     R2: {
       title: "R2 · 商业合作",
-      tags: ['<span class="tag">test/full · DataHub</span>', '<span class="tag">demo · Ark 批量</span>'],
+      tags: ['<span class="tag">full/skip_sampling · DataHub</span>', '<span class="tag">demo · Ark 批量</span>'],
       desc: "二分类:是否涉及品牌代言 / 联名 / 赞助等商业合作动态。",
       content: `
         <h3>输出</h3>
@@ -947,7 +947,7 @@ week_num   : W37</div>
         <h3>MA 复刻</h3>
         <div class="ma-block">
           <ul>
-            <li>test/full:子 Agent + DataHub;demo:<code>run_demo_routes.py</code> 的五路并发之一</li>
+            <li>full/skip_sampling:子 Agent + DataHub;demo:<code>run_demo_routes.py</code> 的五路并发之一</li>
             <li>Prompt:${maLink('skills/topic6-annotation/prompts/R2_商业合作/v1.md')}</li>
             <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/r2_raw.jsonl</code></li>
           </ul>
@@ -956,7 +956,7 @@ week_num   : W37</div>
     },
     R3: {
       title: "R3 · 风险预警",
-      tags: ['<span class="tag">test/full · DataHub</span>', '<span class="tag">demo · Ark 批量</span>'],
+      tags: ['<span class="tag">full/skip_sampling · DataHub</span>', '<span class="tag">demo · Ark 批量</span>'],
       desc: "二分类:是否包含品牌/明星塌房、产品质量、舆情危机等风险信号。",
       content: `
         <h3>输出</h3>
@@ -966,7 +966,7 @@ week_num   : W37</div>
         <h3>MA 复刻</h3>
         <div class="ma-block">
           <ul>
-            <li>test/full:子 Agent + DataHub;demo:<code>run_demo_routes.py</code> 的五路并发之一</li>
+            <li>full/skip_sampling:子 Agent + DataHub;demo:<code>run_demo_routes.py</code> 的五路并发之一</li>
             <li>Prompt:${maLink('skills/topic6-annotation/prompts/R3_风险预警/v1.md')}</li>
             <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/r3_raw.jsonl</code></li>
           </ul>
@@ -975,7 +975,7 @@ week_num   : W37</div>
     },
     R4: {
       title: "R4 · 营销发现",
-      tags: ['<span class="tag">test/full · DataHub</span>', '<span class="tag">demo · Ark 批量</span>'],
+      tags: ['<span class="tag">full/skip_sampling · DataHub</span>', '<span class="tag">demo · Ark 批量</span>'],
       desc: "二分类:是否是值得被同行学习的营销创意/案例(创意借鉴)。",
       content: `
         <h3>输出</h3>
@@ -985,7 +985,7 @@ week_num   : W37</div>
         <h3>MA 复刻</h3>
         <div class="ma-block">
           <ul>
-            <li>test/full:子 Agent + DataHub;demo:<code>run_demo_routes.py</code> 的五路并发之一</li>
+            <li>full/skip_sampling:子 Agent + DataHub;demo:<code>run_demo_routes.py</code> 的五路并发之一</li>
             <li>Prompt:${maLink('skills/topic6-annotation/prompts/R4_创意借鉴/v2.md')}</li>
             <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/r4_raw.jsonl</code>(供 E4 洞察消费)</li>
           </ul>
@@ -994,7 +994,7 @@ week_num   : W37</div>
     },
     R5: {
       title: "R5 · 消费者行为",
-      tags: ['<span class="tag">test/full · DataHub</span>', '<span class="tag">demo · Ark 批量</span>'],
+      tags: ['<span class="tag">full/skip_sampling · DataHub</span>', '<span class="tag">demo · Ark 批量</span>'],
       desc: "二分类:是否反映了消费者情绪/偏好/购买决策变化。",
       content: `
         <h3>输出</h3>
@@ -1004,7 +1004,7 @@ week_num   : W37</div>
         <h3>MA 复刻</h3>
         <div class="ma-block">
           <ul>
-            <li>test/full:子 Agent + DataHub;demo:<code>run_demo_routes.py</code> 的五路并发之一</li>
+            <li>full/skip_sampling:子 Agent + DataHub;demo:<code>run_demo_routes.py</code> 的五路并发之一</li>
             <li>Prompt:${maLink('skills/topic6-annotation/prompts/R5_消费者行为/v2.md')}</li>
             <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/r5_raw.jsonl</code></li>
           </ul>
@@ -1013,7 +1013,7 @@ week_num   : W37</div>
     },
     C2: {
       title: "C2 · 事件合并",
-      tags: ['<span class="tag">test/full · 完整链</span>', '<span class="tag">demo · 单次归并</span>'],
+      tags: ['<span class="tag">full/skip_sampling · 完整链</span>', '<span class="tag">demo · 单次归并</span>'],
       desc: "把同一起真实事件的多条热搜标题聚成「事件簇」(如 iPhone17 发布相关的 20 条热搜聚成一簇)。",
       content: `
         <h3>做了什么</h3>
@@ -1028,7 +1028,7 @@ week_num   : W37</div>
 {<span class="k">"row_id"</span>:<span class="s">"W37_douyin_034"</span>, <span class="k">"事件簇"</span>:<span class="s">"iPhone17 发布会"</span>}
 {<span class="k">"row_id"</span>:<span class="s">"W37_bili_087"</span>,  <span class="k">"事件簇"</span>:<span class="s">"iPhone17 发布会"</span>}</div>
         <p class="sample-note">同一起事件的多条热搜共享簇名,便于报告中按事件维度聚合展示。</p>
-        <div class="note"><b>模式差异</b>:test/full 运行完整的跨平台 00→x4 质量链；demo 用一次批量 LLM 归并 50 条样本中的可用子集,直接生成相同两列契约。demo 结果只用于流程演示。</div>
+        <div class="note"><b>模式差异</b>:full/skip_sampling 运行完整的跨平台 00→x4 质量链；demo 用一次批量 LLM 归并 50 条样本中的可用子集,直接生成相同两列契约。demo 结果只用于流程演示。</div>
         <h3>关键文件</h3>
         <p>
           ${link('assets_from_customer/blueai-canonical-event-registry/SKILL.md', 'external · blueai-canonical-event-registry v2.1.0')}
@@ -1039,7 +1039,7 @@ week_num   : W37</div>
         <div class="ma-block">
           <h4>承担者:Coordinator 自己 bash</h4>
           <ul>
-            <li>test/full:<code>run_topic6_c2.py --mode {mode}</code>,固定执行四平台 00 并发 → x0 → merged 01~07 → x2~x4</li>
+            <li>full/skip_sampling:<code>run_topic6_c2.py --mode {mode}</code>,固定执行四平台 00 并发 → x0 → merged 01~07 → x2~x4</li>
             <li>demo:<code>run_topic6_c2.py --mode demo --demo-fast</code>,与 <code>run_demo_routes.py</code> 并发</li>
             <li>状态:<code>04_标注/C2_事件归档/c2_run/c2_status.json</code>;输出:<code>C2_事件归档/c2_event_result_r{N}.xlsx</code></li>
           </ul>
@@ -1106,7 +1106,7 @@ heat_score   : 87.4
     HC1: {
       title: "HC1 · 小样本验收",
       tags: ['<span class="tag hc">人工不可跳过</span>'],
-      desc: "用户审核 test 的 500 条或 demo 的 50 条结果,并按模式进入不同后续路径。",
+      desc: "用户审核 full 的 500 条或 demo 的 50 条结果,并按模式进入不同后续路径。",
       content: `
         <h3>做了什么</h3>
         <p>Agent 把小样本标注结果分布(各字段命中率、抽几条示例)展示给用户,用户判断:</p>
@@ -1116,7 +1116,7 @@ heat_score   : 87.4
           <li>是否需要跑补标注闭环</li>
         </ul>
         <p>用户选 <b>A(通过)/B(打回重跑)/C(改 Prompt)</b>。</p>
-        <div class="note"><b>通过后的分流</b>:test 进入 C→D 全量重跑并等待 HC2；demo 直接使用 <code>wide_table_demo_r{N}.xlsx</code> 进入 Phase E,跳过全量和 HC2。</div>
+        <div class="note"><b>通过后的分流</b>:full 进入 C→D 全量重跑并等待 HC2；demo 直接使用 <code>wide_table_demo_r{N}.xlsx</code> 进入 Phase E,跳过全量和 HC2。</div>
         <h3>MA 复刻映射</h3>
         <div class="note">首期改造为<b>飞书交互卡片</b>(HC1/HC2/HC3 均保留人工)——Coordinator 输出结构化 JSON 后 end_turn,gateway 侧渲染卡片,不再走 AskUserQuestion。</div>
         <h3>关键文件</h3>
@@ -1129,9 +1129,9 @@ heat_score   : 87.4
           </ul>
           <div class="sample">{
   <span class="k">"hc"</span>: <span class="s">"HC1"</span>,
-  <span class="k">"mode"</span>: <span class="s">"test | demo"</span>,
+  <span class="k">"mode"</span>: <span class="s">"full | demo"</span>,
   <span class="k">"project_dir"</span>: <span class="s">"W40..."</span>,
-  <span class="k">"wide_table_path"</span>: <span class="s">"/mnt/session/outputs/.../wide_table_test_r1.xlsx"</span>,
+  <span class="k">"wide_table_path"</span>: <span class="s">"/mnt/session/outputs/.../wide_table_full_r1.xlsx"</span>,
   <span class="k">"distribution_summary"</span>: {...},
   <span class="k">"issues_detected"</span>: []
 }</div>
@@ -1169,17 +1169,17 @@ heat_score   : 87.4
           · <b>必须跑全量</b>——"数据量也是 Agent 处理能力的一部分"<br>
           · <b>七路标注不建议精简</b><br>
           · 允许优化的方向:① 内部服务协商提高并发或换标注通道;② 基于原始 C2 skill 优化归类算法(聚类是耗时难关)<br>
-          · 上述约束适用于 test/full 正式质量链；demo 是明确隔离的 50 条流程演示,不得冒充正式结论
+          · 上述约束适用于 full/skip_sampling 正式质量链；demo 是明确隔离的 50 条流程演示,不得冒充正式结论
         </div>
         <h3>产物</h3>
-        <p><code>05_合并/wide_table_full_r{N}.xlsx</code></p>
+        <p><code>05_合并/wide_table_skip_sampling_r{N}.xlsx</code></p>
         <h3>MA 复刻</h3>
         <div class="ma-block">
           <h4>循环复用同一套 Agent + Skill</h4>
           <ul>
             <li>Coordinator 收到"HC1 pass"后,把 <code>input_path</code> 从 <code>03_抽样/sample_500.xlsx</code> 换成 <code>02_标准化/hot_topics_normalized.xlsx</code></li>
             <li>重跑 Phase C 第一批(2 路 annotator 并发)→ 筛选 → 第二批(5 路 annotator + coordinator 自跑 C2)→ Phase D</li>
-            <li>Prompt/Skill/Agent 完全同 test,只是输入换全量、输出目录 <code>wide_table_full_r{N}.xlsx</code></li>
+            <li>Prompt/Skill/Agent 完全同 full,只是输入换全量、执行 mode 改为 <code>skip_sampling</code>,输出 <code>wide_table_skip_sampling_r{N}.xlsx</code></li>
             <li>System Prompt §四 · C→D 全量段:${maLink('agents/coordinator.system.md', 'coordinator.system.md#C→D 全量')}</li>
           </ul>
         </div>
@@ -1245,7 +1245,7 @@ heat_score   : 87.4
         <div class="ma-block">
           <h4>承担者:pipeline_e.py 内部并发任务</h4>
           <ul>
-            <li>Coordinator 只调用一次 <code>pipeline_e.py --mode demo|full</code></li>
+            <li>Coordinator 只调用一次 <code>pipeline_e.py --mode demo|skip_sampling</code></li>
             <li>脚本只运行一次 <code>run_stats.py</code>,随后在同一进程内异步并发 E1~E4</li>
           </ul>
           <h4>Skill · topic6-insight</h4>
@@ -1591,16 +1591,16 @@ heat_score   : 87.4
     C_BATCH2: {
       title: "Phase C · 第二批(并发)",
       tags: ['<span class="tag">按模式选通道</span>', '<span class="tag time">demo 目标 1~3min</span>'],
-      desc: "只处理筛选子集:test/full 走正式链,demo 走两个并发快速入口。",
+      desc: "只处理筛选子集:full/skip_sampling 走正式链,demo 走两个并发快速入口。",
       content: `
         <h3>并发规范</h3>
-        <p><b>test/full</b>:5 个 annotator DataHub 子任务 + Coordinator 完整 C2 并发。</p>
+        <p><b>full/skip_sampling</b>:5 个 annotator DataHub 子任务 + Coordinator 完整 C2 并发。</p>
         <p><b>demo</b>:<code>run_demo_routes.py</code> 与 <code>run_topic6_c2.py --demo-fast</code> 两个脚本并发；前者内部再并发 R1~R5 五个批量请求。</p>
         <p>点击图中任一子节点查看单路详情。</p>
         <h3>MA 复刻拓扑</h3>
         <div class="ma-block">
           <ul>
-            <li>test/full 输入:<code>usable_subset_{mode}_r{N}.xlsx</code>;输出由五路 DataHub 与完整 C2 生成</li>
+            <li>full/skip_sampling 输入:<code>usable_subset_{mode}_r{N}.xlsx</code>;输出由五路 DataHub 与完整 C2 生成</li>
             <li>demo 输入:<code>usable_subset_demo_r{N}.xlsx</code>;两个快速入口同时启动并等待全部成功</li>
             <li>两种模式最终都生成同名 postprocess/XLSX 文件,Phase D 无需区分上游通道</li>
           </ul>
@@ -1617,10 +1617,10 @@ heat_score   : 87.4
         <h3>按模式输入</h3>
         <ul>
           <li>demo:<code>wide_table_demo_r{N}.xlsx</code>,HC1 通过后直接进入</li>
-          <li>test/full:<code>wide_table_full_r{N}.xlsx</code>,HC2 通过后进入</li>
+          <li>full/skip_sampling:<code>wide_table_skip_sampling_r{N}.xlsx</code>,HC2 通过后进入</li>
         </ul>
         <h3>执行入口</h3>
-        <p>${maLink('skills/topic6-insight/scripts/pipeline_e.py')} · <code>--mode demo|full --version {N}</code></p>
+        <p>${maLink('skills/topic6-insight/scripts/pipeline_e.py')} · <code>--mode demo|skip_sampling --version {N}</code></p>
       `
     },
     E_BATCH: {
@@ -1636,7 +1636,7 @@ heat_score   : 87.4
           <ul>
             <li>Coordinator 一次执行 ${maLink('skills/topic6-insight/scripts/pipeline_e.py')},不再委派 4 个 Insighter</li>
             <li><code>run_stats.py</code> 只执行一次；E1~E4 由 <code>asyncio.gather</code> 并发</li>
-            <li>demo 可在 HC1 后直接进入；test 必须完成全量和 HC2 后进入</li>
+            <li>demo 可在 HC1 后直接进入；full 必须完成全量和 HC2 后进入</li>
             <li>四个输出文件全部存在且脚本成功后,Coordinator 才进入 Phase F</li>
           </ul>
         </div>

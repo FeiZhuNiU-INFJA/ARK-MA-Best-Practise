@@ -8,7 +8,7 @@ merge_annotations.py — 七路标注宽表合并 (C0 + R1~R5 + C2 + C3)
 
 输入 (相对 project_dir):
   02_标准化/hot_topics_normalized.xlsx
-  03_抽样/sample_500.xlsx                     (test/demo 模式过滤 row_id)
+  03_抽样/sample_500.xlsx                     (full/demo 模式过滤 row_id)
   04_标注/{C0,R1..R5,C3}_*/{task}_postprocess_r{run_id}.xlsx
   04_标注/C2_事件归档/c2_event_result_r{run_id}.xlsx
 
@@ -18,7 +18,7 @@ merge_annotations.py — 七路标注宽表合并 (C0 + R1~R5 + C2 + C3)
 
 CLI:
   python merge_annotations.py --project-dir /workspace/Projects/W35 \\
-    --mode test --run-id 1
+    --mode full --run-id 1
 """
 from __future__ import annotations
 
@@ -122,7 +122,7 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
     base_rows = len(df_base)
     print(f"[merge] 基础表: {base_rows} 行")
 
-    if mode in {"test", "demo"}:
+    if mode in {"full", "demo"}:
         sample_file = proj / "03_抽样" / "sample_500.xlsx"
         if sample_file.exists():
             sample_ids = set(pd.read_excel(sample_file, usecols=["row_id"])["row_id"])
@@ -269,7 +269,7 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
         "out_file": str(out_file),
         "health_summary_file": str(summary_file),
     }
-    status_key = "d_full" if mode == "full" else "d_test"
+    status_key = "d_full" if mode == "skip_sampling" else "d_sample"
     update_run_config(
         proj,
         {status_key: {
@@ -288,7 +288,11 @@ def run(project_dir: str, mode: str, run_id: int) -> dict:
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--project-dir", required=True)
-    p.add_argument("--mode", default="test", choices=["test", "demo", "full"])
+    p.add_argument(
+        "--mode",
+        default="full",
+        choices=["demo", "full", "skip_sampling"],
+    )
     p.add_argument("--run-id", type=int, required=True)
     args = p.parse_args()
     try:
@@ -297,7 +301,7 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:
-        status_key = "d_full" if args.mode == "full" else "d_test"
+        status_key = "d_full" if args.mode == "skip_sampling" else "d_sample"
         try:
             update_run_config(
                 args.project_dir,
