@@ -10,7 +10,8 @@
     {"type": "custom", "skill_id": "${skill_id.topic6-annotation}", "version": "${version.topic6-annotation}"},
     {"type": "custom", "skill_id": "${skill_id.topic6-insight}", "version": "${version.topic6-insight}"},
     {"type": "custom", "skill_id": "${skill_id.topic6-event-registry}", "version": "${version.topic6-event-registry}"},
-    {"type": "custom", "skill_id": "${skill_id.topic6-web-report}", "version": "${version.topic6-web-report}"}
+    {"type": "custom", "skill_id": "${skill_id.topic6-web-report}", "version": "${version.topic6-web-report}"},
+    {"type": "custom", "skill_id": "${skill_id.miaoda-web-publish}", "version": "${version.miaoda-web-publish}"}
   ],
   "tools": [
     {"type": "agent_toolset_20260701"},

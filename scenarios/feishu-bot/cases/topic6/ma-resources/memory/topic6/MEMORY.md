@@ -37,6 +37,7 @@
 | `topic6-insight` | v1(内含 E1=v1 / E2=v3 / E3=v1 / E4=v6 + _tagging=v1) | `/mnt/skills/topic6-insight/` | Phase E:E1~E4 四版块洞察;Ark(OpenAI 兼容)接口 |
 | `topic6-event-registry` | v2.2.0 | `/mnt/skills/topic6-event-registry/` | Phase C:C2 事件合并；跨平台单入口、断点续跑与运行签名 |
 | `topic6-web-report` | v1.1.0 | `/mnt/skills/topic6-web-report/` | Phase G:UI 网页版报告 |
+| `miaoda-web-publish` | v1.0.1 | `/mnt/skills/miaoda-web-publish/` | Phase H:妙搭 Git 发布与链接确认 |
 
 ---
 

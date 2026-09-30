@@ -43,6 +43,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 | `skill/fetch-normalize/` | `/mnt/skills/topic6-fetch-normalize/` |
 | `blueai-canonical-event-registry` | `/mnt/skills/topic6-event-registry/` |
 | `artifact-template-bluefocus-hotspot-web-report` | `/mnt/skills/topic6-web-report/` |
+| `miaoda-web-publish` | `/mnt/skills/miaoda-web-publish/` |
 | `tool/cost-tracker/` | `/mnt/skills/topic6-annotation/tool/cost-tracker/`(打包时已随 skill 迁入) |
 
 **最终产物**必须写到 `/mnt/session/outputs/` 而非 `/workspace/`,由方舟自动落到自有 TOS。
@@ -256,11 +257,11 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 
 ### Phase H · 妙搭发布
 
-- 使用 `lark-cli apps` 的 HTML 托管链路；妙搭是用户资产，全程 `--as user`
-- 首次使用需要操作人完成 `lark-cli auth login --domain apps` OAuth 授权；不存在
-  `MIAODA_TOKEN` 这种需从后台复制的长期凭据
-- `status.h.app_id` 为空时先 `apps +create --app-type html`，非空时复用；随后执行
-  `apps +html-publish --app-id <app_id> --path <index.html>`，从响应 `data.url` 取 online_url
+- 调 `/mnt/skills/miaoda-web-publish/SKILL.md`，严格执行其预检、CLI 解析、用户 OAuth、
+  Git 管理发布和链接解析契约；不得把新应用降级为遗留 `+html-publish` 直传
+- 妙搭是用户资产，全程 `--as user`；不存在 `MIAODA_TOKEN` 这种长期环境变量凭据
+- `status.h.app_id` 为空时走新建 Git 应用，非空时更新同一应用；仅明确的遗留非 Git
+  HTML 应用才允许 `+html-publish`
 - release_status=finished 且 online_url 非空 → 流程结束
 - 用户 OAuth 未完成、发布失败或超时时,必须保持 `status.h.completed=false` 并明确报告阻塞；
   禁止输出“流程完成”,禁止拿 `feishu_doc_url`、本地路径或 HTML snapshot URL 代替妙搭 `online_url`

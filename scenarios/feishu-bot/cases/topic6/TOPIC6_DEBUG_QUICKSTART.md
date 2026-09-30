@@ -56,6 +56,15 @@ topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 - [ ] `docs:permission.member:transfer` — 将报告所有权转给任务发起人
 - [ ] `docs:permission.member:retrieve` — 授权后查询协作者列表做结果复核
 
+**妙搭用户身份(Phase H 必需)**
+
+- [ ] `auth:user.id:read` — 扫码后识别授权用户的 `open_id`
+- [ ] `spark:app:read` — 查询妙搭应用与发布状态
+- [ ] `spark:app:write` — 创建/更新妙搭应用并发起发布
+
+以上三项需在开发者后台为应用开通；用户再通过 §2.3 的脚本扫码同意。脚本还会申请
+`offline_access` 以便 Gateway 自动续期。
+
 **可选**
 
 - [ ] `contact:user.id:readonly` — open_id ↔ user_id 反查(若白名单只用 open_id 可省)
@@ -94,8 +103,9 @@ FEISHU_APP_SECRET=xxx
 ```
 
 `create_all.sh` 会默认将 `FEISHU_APP_ID/FEISHU_APP_SECRET` 复用为沙箱使用的
-`LARK_APP_ID/LARK_APP_SECRET`。只有 Gateway 与沙箱需要使用不同飞书应用时，
-才在配置中显式设置 `LARK_APP_ID` 和 `LARK_APP_SECRET`。
+`LARK_APP_ID/LARK_APP_SECRET`，并把 App ID 同步为 lark-cli 使用的
+`LARKSUITE_CLI_APP_ID`。只有 Gateway 与沙箱需要使用不同飞书应用时，才在配置中
+显式设置 `LARK_APP_ID` 和 `LARK_APP_SECRET`。
 
 ### 2.2 业务侧 API Key(向业务对接人获取)
 
@@ -109,14 +119,28 @@ DATAHUB_ENDPOINT=https://bmc-data-hub.bluemediagroup.cn/...
 DATAHUB_API_KEY=<业务对接人给的 Key>
 ```
 
-### 2.3 可选/延后
+### 2.3 妙搭用户授权(每位操作人首次使用前)
 
-```text
-# Phase H 不使用环境变量 Token。
-# 首次发布由操作人执行 lark-cli auth login --domain apps 完成用户 OAuth。
-# 自有 TOS Bucket——调试期不必配,environment.json 里已禁用 output_storage
-# TOPIC6_TOS_BUCKET=
+Phase H 不使用 `MIAODA_TOKEN`，也不读取 Gateway 主机上的 lark-cli 登录态。运行
+Topic6 专用脚本，由操作人扫码后把短期 access token 写入其专属 Ark Vault：
+
+```bash
+cd scenarios/feishu-bot
+python cases/topic6/authorize_miaoda_user.py
 ```
+
+脚本通过 token 自动查询扫码者的 `open_id`，所以不需要传 open_id。管理员希望
+防止扫错账号时，可用：
+
+```bash
+python cases/topic6/authorize_miaoda_user.py --expected-open-id ou_xxx
+```
+
+refresh token 仅保存在权限为 `0600` 的 Topic6 SQLite 数据库中，不会进入 MA
+沙箱或日志。Gateway 在每次新建 Session 前按消息发送者查找并按需刷新 token；
+未授权用户会在任务启动前收到提示。
+
+自有 TOS Bucket 调试期不必配置，`environment.json` 已禁用 output storage。
 
 ### 2.4 白名单(建议设,防误触)
 
@@ -139,7 +163,7 @@ set -a; source ~/.arkagent/cases/topic6/config.env; set +a
 ```bash
 cd scenarios/feishu-bot/cases/topic6
 
-# 3.1 打包 5 个 Skill zip → tools/out/*.zip
+# 3.1 打包 6 个 Skill zip → tools/out/*.zip
 ./tools/pack_skills.sh
 
 # 3.2 上传 Skill → 写回 ma-resources/skill_ids.json
@@ -163,7 +187,7 @@ python3 tools/upload_skills.py
 以下流程会:
 
 - 运行完整测试
-- 重新打包并强制上传全部 5 个 Skills
+- 重新打包并强制上传全部 6 个 Skills
 - 原地更新 Environment
 - 更新已有 Memory 内容
 - 删除并重建 Annotator、Insighter、Coordinator
@@ -181,7 +205,7 @@ python3 tools/upload_skills.py
 
 | 组件 | 更新方式 | ID |
 |---|---|---|
-| 5 个 Skills | 强制重新上传 | **变化** |
+| 6 个 Skills | 强制重新上传 | **变化** |
 | Annotator / Insighter / Coordinator | 删除同名旧 Agent 后重建 | **变化** |
 | Environment | 按名称原地更新 | **不变** |
 | Memory Store | 按名称原地更新 | **不变** |
@@ -192,6 +216,7 @@ Gateway 仍持有旧 ID，所以脚本结束后必须重启：
 
 ```bash
 cd /Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot
+python cases/topic6/authorize_miaoda_user.py  # 每位妙搭发布人首次执行一次
 python -m arkagent run --case topic6
 ```
 ---

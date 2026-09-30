@@ -20,6 +20,11 @@ from topic6_runner import (
     normalize_user_text,
     parse_trigger,
 )
+from topic6_user_oauth import (
+    FeishuOAuth,
+    Topic6UserAuthorization,
+    UserAuthorizationRequired,
+)
 
 from config import Topic6Config
 
@@ -35,6 +40,7 @@ class Topic6Gateway:
         store: GatewayStore,
         runner: Topic6Runner,
         hitl: Topic6Hitl,
+        user_authorization: Topic6UserAuthorization,
         reply,
         loop: asyncio.AbstractEventLoop,
     ) -> None:
@@ -42,6 +48,7 @@ class Topic6Gateway:
         self._store = store
         self._runner = runner
         self._hitl = hitl
+        self._user_authorization = user_authorization
         self._reply = reply
         self._loop = loop
         self._authorized = set(config.authorized_open_ids)
@@ -109,14 +116,18 @@ class Topic6Gateway:
                 return
 
             try:
+                user_vault_id = await self._user_authorization.vault_id(
+                    message.user_open_id
+                )
                 await self._runner.start_job(
                     chat_id=message.chat_id,
                     thread_id=message.thread_id,
                     user_open_id=message.user_open_id,
                     mode=mode,
                     user_message=text,
+                    user_vault_id=user_vault_id,
                 )
-            except Topic6RunnerError as error:
+            except (Topic6RunnerError, UserAuthorizationRequired) as error:
                 await self._reply(message.chat_id, str(error))
             self._store.complete_event(message.event_id, "completed")
         except Exception as error:  # noqa: BLE001
@@ -140,6 +151,11 @@ def build_gateway(config: Topic6Config, ark, sender, loop: asyncio.AbstractEvent
 
     pipeline_db = config.pipeline_db_path or None
     pipeline_store = PipelineStore(pipeline_db)
+    user_authorization = Topic6UserAuthorization(
+        pipeline_store,
+        ark,
+        FeishuOAuth(config.feishu_app_id, config.feishu_app_secret),
+    )
     runner = Topic6Runner(
         ark,
         sender,
@@ -158,4 +174,6 @@ def build_gateway(config: Topic6Config, ark, sender, loop: asyncio.AbstractEvent
     async def reply(chat_id: str, text: str) -> None:
         await loop.run_in_executor(None, sender.send_to_chat, chat_id, text)
 
-    return Topic6Gateway(config, store, runner, hitl, reply, loop)
+    return Topic6Gateway(
+        config, store, runner, hitl, user_authorization, reply, loop
+    )

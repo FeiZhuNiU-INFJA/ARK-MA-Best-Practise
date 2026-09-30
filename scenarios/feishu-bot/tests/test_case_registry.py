@@ -80,6 +80,18 @@ def test_feishu_lock_path_scoped_by_app_id(tmp_path):
     assert get_feishu_lock_path("cli_abc", env) == str(tmp_path / "feishu.cli_abc.lock")
 
 
+def test_feishu_lock_path_can_use_separate_directory(tmp_path):
+    state_dir = tmp_path / "state"
+    lock_dir = tmp_path / "locks"
+    env = {"ARKAGENT_HOME": str(state_dir), "ARKAGENT_LOCK_DIR": str(lock_dir)}
+    assert get_feishu_lock_path("cli_abc", env) == str(
+        lock_dir / "feishu.cli_abc.lock"
+    )
+    assert get_case_paths("topic6", env).config_path == str(
+        state_dir / "cases" / "topic6" / "config.env"
+    )
+
+
 def test_feishu_lock_path_rejects_bad_app_id():
     with pytest.raises(ValueError, match="非法 FEISHU_APP_ID"):
         get_feishu_lock_path("")

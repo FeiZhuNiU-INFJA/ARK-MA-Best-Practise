@@ -37,6 +37,7 @@ SKILLS = [
     ("topic6-insight", "topic6-insight.zip", "topic6 · E1~E4 分版块洞察"),
     ("topic6-event-registry", "topic6-event-registry.zip", "topic6 · C2 事件合并 (blueai-canonical-event-registry v2.2.0)"),
     ("topic6-web-report", "topic6-web-report.zip", "topic6 · Phase G 网页生成 (v1.1.0)"),
+    ("miaoda-web-publish", "miaoda-web-publish.zip", "topic6 · Phase H 妙搭网页发布 (v1.0.1)"),
 ]
 
 

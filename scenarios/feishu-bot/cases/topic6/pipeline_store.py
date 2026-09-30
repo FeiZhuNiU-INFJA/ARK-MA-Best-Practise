@@ -167,6 +167,16 @@ class PipelineStore:
 
             CREATE INDEX IF NOT EXISTS idx_hc_events_card
                 ON pipeline_hc_events(card_message_id);
+
+            CREATE TABLE IF NOT EXISTS user_oauth (
+                open_id       TEXT PRIMARY KEY,
+                vault_id      TEXT NOT NULL,
+                credential_id TEXT NOT NULL,
+                refresh_token TEXT NOT NULL,
+                expires_at    INTEGER NOT NULL,
+                scopes        TEXT NOT NULL,
+                updated_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            );
             """
         )
         # 老库补列:progress_card_message_id 是后加的,SQLite 没有 IF NOT EXISTS 语法。
@@ -192,6 +202,62 @@ class PipelineStore:
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+    # ---- user_oauth -------------------------------------------------------
+
+    def get_user_oauth(self, open_id: str) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT vault_id, credential_id, refresh_token, expires_at, scopes
+                FROM user_oauth WHERE open_id = ?
+                """,
+                (open_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "open_id": open_id,
+            "vault_id": row[0],
+            "credential_id": row[1],
+            "refresh_token": row[2],
+            "expires_at": int(row[3]),
+            "scopes": tuple(filter(None, str(row[4]).split(" "))),
+        }
+
+    def save_user_oauth(
+        self,
+        open_id: str,
+        vault_id: str,
+        credential_id: str,
+        refresh_token: str,
+        expires_at: int,
+        scopes: tuple[str, ...],
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO user_oauth (
+                    open_id, vault_id, credential_id,
+                    refresh_token, expires_at, scopes
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(open_id) DO UPDATE SET
+                    vault_id=excluded.vault_id,
+                    credential_id=excluded.credential_id,
+                    refresh_token=excluded.refresh_token,
+                    expires_at=excluded.expires_at,
+                    scopes=excluded.scopes,
+                    updated_at=strftime('%s', 'now')
+                """,
+                (
+                    open_id,
+                    vault_id,
+                    credential_id,
+                    refresh_token,
+                    expires_at,
+                    " ".join(scopes),
+                ),
+            )
 
     # ---- pipeline_jobs -----------------------------------------------------
 

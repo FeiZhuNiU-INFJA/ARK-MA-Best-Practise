@@ -1,0 +1,4 @@
+interface:
+  display_name: "妙搭网页发布与数据查询"
+  short_description: "基于飞书妙搭稳定发布现有 HTML，并查询发布与访问数据"
+  default_prompt: "使用 $miaoda-web-publish 校验并发布这个现有 HTML 到飞书妙搭，返回可访问链接。"

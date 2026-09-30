@@ -73,7 +73,7 @@ init → ab → sample → c0_sample → c0_filter_sample → c_route_sample →
 | `e` | `prompt/06` | 四路并发洞察 |
 | `f` | `prompt/07` | 合并 + 自校验 + 飞书发布 |
 | `g_ui_publish` | `prompt/08` | 网页版发布（产出自包含 index.html） |
-| `h_miaoda_publish` | `prompt/09` | 妙搭公网发布（用户 OAuth + `lark-cli apps +html-publish`，固定关卡） |
+| `h_miaoda_publish` | `prompt/09` | 妙搭公网发布（`miaoda-web-publish` Skill，固定关卡，非可选） |
 | `done` | — | 流程结束 |
 
 > **2026-09-20 三处修正**：

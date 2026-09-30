@@ -240,6 +240,7 @@ class Topic6Runner:
         user_open_id: str,
         mode: str,
         user_message: str,
+        user_vault_id: str = "",
     ) -> PipelineJob:
         """全局串行检查并启动任务；同一 Gateway 只允许一个活跃 Job。"""
         async with self._start_lock:
@@ -249,6 +250,7 @@ class Topic6Runner:
                 user_open_id=user_open_id,
                 mode=mode,
                 user_message=user_message,
+                user_vault_id=user_vault_id,
             )
 
     async def _start_job_locked(
@@ -259,6 +261,7 @@ class Topic6Runner:
         user_open_id: str,
         mode: str,
         user_message: str,
+        user_vault_id: str = "",
     ) -> PipelineJob:
         """创建 MA Session、落库并启动 SSE 消费任务。
 
@@ -290,10 +293,17 @@ class Topic6Runner:
             # 方舟把每个 memstore 挂在 /mnt/memory/{memstore_id}/ 下(多 store 隔离),
             # 注入 ID 供 Agent bash 展开路径,例如 cat /mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md
             env_overrides["TOPIC6_MEMORY_STORE_ID"] = self._config.memory_store_id
+        vault_ids = list(
+            dict.fromkeys(
+                vault_id
+                for vault_id in (*self._config.vault_ids, user_vault_id)
+                if vault_id
+            )
+        )
         session_id = await self._ark.create_session(
             self._config.coordinator_agent_id,
             self._config.environment_id,
-            vault_ids=list(self._config.vault_ids),
+            vault_ids=vault_ids,
             env_overrides=env_overrides,
             resources=resources,
         )

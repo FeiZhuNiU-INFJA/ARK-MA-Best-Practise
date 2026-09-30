@@ -27,6 +27,7 @@
 | `blueai-canonical-event-registry/` | `ma-resources/skills/topic6-event-registry/` | 适配迁入 | C2 事件归档；主体原样保留，LLM Relay 改接 Ark OpenAI 兼容协议 |
 | `topic6/skill/insight/` | `ma-resources/skills/topic6-insight/` | 适配迁入 | Phase E+F；保留活跃 Prompt，脚本改为 MA 沙箱路径和 Ark API |
 | `artifact-template-bluefocus-hotspot-web-report/` | `ma-resources/skills/topic6-web-report/` | 适配迁入 | Phase G；模板和素材原样保留，Skill 名称改为 `topic6-web-report` |
+| `miaoda-web-publish/` | `ma-resources/skills/miaoda-web-publish/` | 原样迁入 | Phase H；保留用户 OAuth、Git 发布和恢复契约 |
 | `topic6/CLAUDE.md` + `topic6/prompt/*.md` + `其他相关引用/Agent.Producer_CLAUDE.md` | `ma-resources/agents/coordinator.system.md` | 重新编排 | 原单 Agent 主流程改成 Coordinator + 子 Agent + 结构化 HC |
 | `topic6/skill/annotation/SKILL.md` + 标注阶段契约 | `ma-resources/agents/annotator.system.md` | MA 新增 | 抽出单路 C0/C3/R1-R5 标注子 Agent |
 | `topic6/skill/insight/SKILL.md` + Phase E 契约 | `ma-resources/agents/insighter.system.md` | MA 新增 | 抽出单版块 E1-E4 洞察子 Agent |
@@ -143,6 +144,15 @@ MA 根目录：`ma-resources/skills/topic6-web-report/`
 | `assets/source/assets/rank-{1,2,3}.svg` | 同名文件 | 原样迁入 | 3 个排名图标 SHA-256 一致 |
 | `assets/source/.openai/hosting.json` | 同名文件 | 原样迁入 | 隐藏配置文件，SHA-256 一致 |
 
+### Phase H `miaoda-web-publish`
+
+客户根目录：`assets_from_customer/miaoda-web-publish/`
+MA 根目录：`ma-resources/skills/miaoda-web-publish/`
+
+`SKILL.md`、`agents/`、`references/`、`scripts/` 和 `CHANGELOG.md` 全部原样迁入；
+Prompt 仅把客户侧 `Agent.Producer/.claude/skills/...` 引用适配为 MA 挂载路径
+`/mnt/skills/miaoda-web-publish/`。发布身份仍为用户 OAuth，不引入 `MIAODA_TOKEN`。
+
 ## 七、Agent、Memory 与 MA 部署资源
 
 | MA 文件 | 客户原始文件/依据 | 状态 | 说明 |
@@ -173,7 +183,7 @@ MA 根目录：`ma-resources/skills/topic6-web-report/`
 | `pipeline_store.py` | 无 | MA 新增 | 作业、Session、HC 事件状态持久化 |
 | `topic6_hitl.py` | 原流程中的 HC1/HC2/HC3 规则 | MA 新增 | 飞书审核卡片回调和继续执行 |
 | `topic6_progress_card.py` | 无 | MA 新增 | 飞书进度卡片渲染 |
-| `tools/pack_skills.sh` | 无 | MA 新增 | 校验并打包 5 个 Skill |
+| `tools/pack_skills.sh` | 无 | MA 新增 | 校验并打包 6 个 Skill |
 | `tools/upload_skills.py` | 无 | MA 新增 | 上传 SkillHub 并回填 ID/版本 |
 | `tools/out/*.zip`、`*.sha256` | 无 | 运行产物 | 可由 `pack_skills.sh` 重建 |
 | `README.md`、`TOPIC6_CHANGELOG.md`、`TOPIC6_DEBUG_QUICKSTART.md` | 无直接对应 | MA 新增 | MA 维护、约束变更和调试文档 |
@@ -195,7 +205,6 @@ MA 根目录：`ma-resources/skills/topic6-web-report/`
 | `topic6/tool/hot-topics-mcp/契约.md` | 未直接迁入 | MCP 定义落实在 `coordinator.json` |
 | `topic6/tool/lark-cli/契约.md` | 未直接迁入 | 发布职责由 Coordinator 与飞书接入层承担 |
 | `topic6/tool/web-report/md2source.py`、`README.md` | 未迁移 | MA 网页 Skill 直接按 `source.example.json` 构造 `source.json` |
-| `Agent.Producer/.claude/skills/miaoda-web-publish/` | 客户包未包含，仅在 `prompt/09` 被引用 | MA 直接使用用户 OAuth + `lark-cli apps +html-publish` |
 | `topic6/其他相关引用/authorized_users.json`、`permission_registry.json`、`permission-model.md`、`topic_registry.json`、`根_CLAUDE.md` | 未迁移 | 权限、Topic 路由和会话隔离由 Gateway/MA 资源配置承担 |
 | 所有 `.DS_Store`、`__pycache__/` | 未迁移/忽略 | 本地系统或解释器缓存，不属于源码 |
 

@@ -11,6 +11,22 @@
 
 ---
 
+## 2026-09-30
+
+### 妙搭用户 OAuth 预授权与每用户 Vault
+
+- **根因**：MA Session 创建后不能追加 Vault；Gateway 主机上的 lark-cli 登录态也不会
+  自动进入方舟沙箱。仅在 Agent 内提示 `auth login` 会让 Phase H 等到流水线末尾才失败。
+- **授权入口**：新增 `authorize_miaoda_user.py`。Device Flow 完成后通过用户信息接口
+  自动取得扫码者 `open_id`，不要求手工传 ID；可选 `--expected-open-id` 仅用于防止
+  扫错账号，校验失败时不写凭据。
+- **凭据边界**：短期 `LARKSUITE_CLI_USER_ACCESS_TOKEN` 写入每用户独立 Ark Vault；
+  refresh token 只保存在权限为 `0600` 的 Topic6 SQLite 中，不进入 MA 沙箱或日志。
+- **运行时接入**：Gateway 在创建任务前按消息发送者查授权并刷新短 token，再把用户
+  Vault 传给新 Session。未授权或授权失效时直接拒绝启动并提示运行授权脚本。
+- **权限事实**：授权范围限定为 `offline_access`、`auth:user.id:read`、
+  `spark:app:read`、`spark:app:write`，覆盖身份识别、续期和妙搭发布。
+
 ## 2026-09-29
 
 ### Phase H 终态校验与报告链接修复
@@ -23,10 +39,10 @@
   `online_url`，并校验为 HTTPS `*.aiforce.cloud`；否则任务进入 `stopped`，不显示
   “打开报告”完成按钮。
 - **编排收口**：Phase G 只负责构建、校验和落盘 HTML，禁止把 snapshot 上传视为妙搭
-  发布。客户交付只引用、未包含 `miaoda-web-publish` Skill，且原始环境变量清单不存在
-  `MIAODA_TOKEN`；MA 改为使用用户 OAuth + `lark-cli apps +html-publish`。OAuth 未完成
+  发布。补充迁入客户后续提供的 `miaoda-web-publish` v1.0.1，作为第 6 个 Coordinator
+  Skill；按其用户 OAuth + Git 管理发布契约执行，不引入 `MIAODA_TOKEN`。OAuth 未完成
   或发布失败时不得宣称完成。
-- **验证**：完整测试集 `422 passed`。
+- **验证**：完整测试集 `423 passed`；6 个 Skill 已上传并重建 Coordinator。
 
 ### Demo 第二批与洞察阶段提速
 

@@ -18,6 +18,7 @@
         "lunardate>=0.2.2"
       ]
     },
+    "setup_script": "set -e\ncase \"$(uname -m)\" in\n  x86_64) ARCH=amd64; SHA=7da92d426b7d000908c76a36b87a7d0357c270debf4c7149bbc6010b20d2541e ;;\n  aarch64|arm64) ARCH=arm64; SHA=063012a63bb22479855e335d922cc588b883e00d115de51da76a8ffe22db987a ;;\n  *) echo \"unsupported architecture\" >&2; exit 1 ;;\nesac\nARCHIVE=/tmp/lark-cli.tar.gz\ncurl --fail --location --silent --show-error --connect-timeout 10 --max-time 120 \"https://registry.npmmirror.com/-/binary/lark-cli/v1.0.95/lark-cli-1.0.95-linux-$ARCH.tar.gz\" -o \"$ARCHIVE\"\necho \"$SHA  $ARCHIVE\" | sha256sum -c -\ntar -xzf \"$ARCHIVE\" -C /usr/local/bin lark-cli\nchmod 0755 /usr/local/bin/lark-cli\nrm -f \"$ARCHIVE\"",
     "env": {
       "TZ": "Asia/Shanghai",
       "PYTHONUNBUFFERED": "1",
@@ -25,6 +26,7 @@
       "DATAHUB_API_KEY": "${DATAHUB_API_KEY}",
       "LARK_APP_ID": "${LARK_APP_ID}",
       "LARK_APP_SECRET": "${LARK_APP_SECRET}",
+      "LARKSUITE_CLI_APP_ID": "${LARK_APP_ID}",
       "BLUEAI_API_KEY": "${BLUEAI_API_KEY}",
       "ARK_API_KEY": "${ARK_API_KEY}",
       "ARK_BASE_URL": "${ARK_BASE_URL}",
