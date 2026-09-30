@@ -1,6 +1,7 @@
 """Topic6 妙搭用户 OAuth、Vault 与 Gateway 接入测试。"""
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import sys
 import time
@@ -193,6 +194,119 @@ async def test_expired_token_is_refreshed_in_place(tmp_path):
     store.close()
 
 
+async def test_concurrent_refresh_updates_same_credential_once(tmp_path):
+    store = PipelineStore(str(tmp_path / "topic6.db"))
+    store.save_user_oauth(
+        "ou-scanned",
+        "vlt-existing",
+        "cred-existing",
+        "refresh-old",
+        1,
+        APPS_USER_SCOPES,
+    )
+    ark = FakeArk()
+    oauth = FakeOAuth()
+    authorization = Topic6UserAuthorization(store, ark, oauth)
+
+    vault_ids = await asyncio.gather(
+        authorization.vault_id("ou-scanned"),
+        authorization.vault_id("ou-scanned"),
+        authorization.vault_id("ou-scanned"),
+    )
+
+    assert vault_ids == ["vlt-existing"] * 3
+    assert oauth.refresh_count == 1
+    assert ark.updated == [
+        ("vlt-existing", "cred-existing", "access-refreshed")
+    ]
+    store.close()
+
+
+async def test_gateway_keeps_token_alive_until_job_is_terminal(monkeypatch):
+    auth_calls = []
+    statuses = iter(["running", "wait_hc", "done"])
+    job = SimpleNamespace(
+        job_id="job-1",
+        user_open_id="ou-scanned",
+        ma_session_id="sesn-stable",
+    )
+
+    class EventStore:
+        pass
+
+    class PipelineState:
+        def get_job(self, job_id):
+            assert job_id == "job-1"
+            return SimpleNamespace(status=next(statuses))
+
+    class UserAuth:
+        async def vault_id(self, open_id):
+            auth_calls.append(open_id)
+            return "vlt-user"
+
+    async def no_sleep(_delay):
+        return None
+
+    monkeypatch.setattr(gateway_module.asyncio, "sleep", no_sleep)
+    gateway = Topic6Gateway(
+        SimpleNamespace(authorized_open_ids=()),
+        EventStore(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+        UserAuth(),
+        None,
+        None,
+        pipeline_store=PipelineState(),
+    )
+
+    await gateway._keep_user_token_alive(job, "vlt-user")
+
+    assert auth_calls == ["ou-scanned", "ou-scanned"]
+    assert job.ma_session_id == "sesn-stable"
+
+
+async def test_gateway_token_keepalive_retries_temporary_refresh_failure(monkeypatch):
+    attempts = 0
+    statuses = iter(["running", "running", "done"])
+    job = SimpleNamespace(
+        job_id="job-1",
+        user_open_id="ou-scanned",
+        ma_session_id="sesn-stable",
+    )
+
+    class PipelineState:
+        def get_job(self, _job_id):
+            return SimpleNamespace(status=next(statuses))
+
+    class UserAuth:
+        async def vault_id(self, _open_id):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise UserAuthorizationRequired("temporary refresh failure")
+            return "vlt-user"
+
+    async def no_sleep(_delay):
+        return None
+
+    monkeypatch.setattr(gateway_module.asyncio, "sleep", no_sleep)
+    gateway = Topic6Gateway(
+        SimpleNamespace(authorized_open_ids=()),
+        SimpleNamespace(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+        UserAuth(),
+        None,
+        None,
+        pipeline_store=PipelineState(),
+    )
+
+    await gateway._keep_user_token_alive(job, "vlt-user")
+
+    assert attempts == 2
+    assert job.ma_session_id == "sesn-stable"
+
+
 async def test_missing_authorization_is_rejected_before_job_start():
     replies = []
 
@@ -230,6 +344,8 @@ async def test_missing_authorization_is_rejected_before_job_start():
 
 async def test_gateway_passes_scanned_users_vault_to_runner():
     calls = []
+    keepalive_calls = []
+    job = SimpleNamespace(job_id="job-1")
 
     class Store:
         def complete_event(self, *_args):
@@ -238,6 +354,7 @@ async def test_gateway_passes_scanned_users_vault_to_runner():
     class Runner:
         async def start_job(self, **kwargs):
             calls.append(kwargs)
+            return job
 
     class Hitl:
         async def handle_remark_message(self, **_kwargs):
@@ -260,8 +377,14 @@ async def test_gateway_passes_scanned_users_vault_to_runner():
         reply,
         None,
     )
+    gateway._start_token_keepalive = (
+        lambda started_job, vault_id: keepalive_calls.append(
+            (started_job.job_id, vault_id)
+        )
+    )
     await gateway._process(_message())
     assert calls[0]["user_vault_id"] == "vlt-user"
+    assert keepalive_calls == [("job-1", "vlt-user")]
 
 
 async def test_runner_mounts_static_and_user_vaults_on_new_session(tmp_path):

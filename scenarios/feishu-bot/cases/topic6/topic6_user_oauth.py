@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import re
 import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 
 import httpx
+
+log = logging.getLogger("arkagent.case.topic6.oauth")
 
 USER_ACCESS_TOKEN_ENV = "LARKSUITE_CLI_USER_ACCESS_TOKEN"
 USER_CREDENTIAL_NAME = "topic6-miaoda-user-access-token"
@@ -19,7 +22,8 @@ APPS_USER_SCOPES = (
     "spark:app:write",
 )
 MAX_VAULT_SECRET_BYTES = 4096
-REFRESH_EARLY_MS = 5 * 60_000
+# 给 Vault 周期性重新解析留出传播窗口，避免长任务在 Phase H 临界过期。
+REFRESH_EARLY_MS = 15 * 60_000
 
 
 class UserAuthorizationRequired(RuntimeError):
@@ -230,6 +234,14 @@ class Topic6UserAuthorization:
                 tokens.refresh_token,
                 tokens.expires_at,
                 tuple(current["scopes"]),
+            )
+            log.info(
+                "topic6 user token refreshed user=%s vault=%s "
+                "credential=%s expires_at=%s",
+                open_id,
+                current["vault_id"],
+                current["credential_id"],
+                tokens.expires_at,
             )
             return current["vault_id"]
 

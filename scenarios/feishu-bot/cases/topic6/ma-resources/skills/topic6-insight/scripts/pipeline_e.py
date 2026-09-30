@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 E 阶段洞察生成 pipeline（MA 版）
-四路并发调用 LLM，生成 4 个版块的报告洞察。
+有限并发调用 LLM，生成 4 个可断点恢复的报告洞察版块。
 
 MA 适配要点：
   - 删掉 PROJECT_ROOT.parents[1] 上溯（MA 沙箱下 skill 路径 /mnt/skills/topic6-insight/，
@@ -34,9 +34,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import io
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -56,6 +58,9 @@ SHARED_ROLE_STYLE = PROMPTS_DIR / "_shared" / "role_style.md"
 E_DATA_SCRIPT = SKILL_DIR / "01_统计" / "run_stats.py"
 COST_TRACKER = Path("/mnt/skills/topic6-annotation/tool/cost-tracker/cost_tracker.py")
 WORKSPACE_ROOT = Path("/workspace")
+CHECKPOINT_VERSION = 1
+DEFAULT_MAX_WORKERS = 2
+DEFAULT_MAX_ATTEMPTS = 5
 
 
 def _rel_to_proj(p: Path, proj: Path) -> str:
@@ -179,63 +184,134 @@ def fill_prompt(template: str, data: str) -> str:
 # LLM 调用（OpenAI 兼容 endpoint，MA 走火山方舟）
 # ---------------------------------------------------------------------------
 
-async def call_llm_async(
-    client: AsyncOpenAI,
+async def _stream_completion(
+    api_key: str,
+    base_url: str,
     section: dict,
     prompt: str,
     model: str,
+) -> dict:
+    client = AsyncOpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        max_retries=0,
+        timeout=600.0,
+    )
+    content_parts = []
+    input_tokens = output_tokens = 0
+    stop_reason = None
+    try:
+        stream = await client.chat.completions.create(
+            model=model,
+            max_tokens=section["max_tokens"],
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+        async for chunk in stream:
+            usage = getattr(chunk, "usage", None)
+            if usage:
+                input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+                output_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+            choices = getattr(chunk, "choices", None) or []
+            if not choices:
+                continue
+            choice = choices[0]
+            delta = getattr(choice, "delta", None)
+            content = getattr(delta, "content", None) if delta else None
+            if content:
+                content_parts.append(content)
+            if getattr(choice, "finish_reason", None):
+                stop_reason = choice.finish_reason
+    finally:
+        await client.close()
+    content = "".join(content_parts)
+    if not content.strip():
+        raise ValueError("Ark stream returned empty content")
+    return {
+        "content": content,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "stop_reason": stop_reason,
+    }
+
+
+async def call_llm_async(
+    api_key: str,
+    base_url: str,
+    section: dict,
+    prompt: str,
+    model: str,
+    *,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
 ) -> dict:
     sid = section["id"]
     name = section["name"]
     t0 = time.time()
 
-    print(f"[{sid}] 开始调用 LLM({name})...")
-    try:
-        resp = await client.chat.completions.create(
-            model=model,
-            max_tokens=section["max_tokens"],
-            messages=[{"role": "user", "content": prompt}],
-        )
-        elapsed = time.time() - t0
-        choice = resp.choices[0]
-        content = choice.message.content or ""
-        input_tokens = getattr(resp.usage, "prompt_tokens", 0) if resp.usage else 0
-        output_tokens = getattr(resp.usage, "completion_tokens", 0) if resp.usage else 0
-        stop_reason = choice.finish_reason
+    print(f"[{sid}] 开始流式调用 LLM({name})...")
+    last_error = None
+    for attempt in range(max_attempts):
+        try:
+            response = await _stream_completion(
+                api_key, base_url, section, prompt, model
+            )
+            elapsed = time.time() - t0
+            print(
+                f"[{sid}] ✅ 完成，耗时 {elapsed:.1f}s，"
+                f"input={response['input_tokens']} / "
+                f"output={response['output_tokens']}"
+            )
+            if response["stop_reason"] == "length":
+                print(
+                    f"[{sid}] ⚠️ finish_reason=length，疑似被截断——"
+                    f"输出可能不完整，建议调大 SECTIONS 里 {sid} 的 "
+                    "max_tokens 后重跑",
+                    file=sys.stderr,
+                )
+            return {
+                "id": sid,
+                "name": name,
+                "status": "ok",
+                **response,
+                "elapsed_s": round(elapsed, 1),
+                "model": model,
+            }
+        except Exception as error:
+            last_error = error
+            status_code = getattr(error, "status_code", None)
+            if (
+                status_code is not None
+                and status_code != 429
+                and not 500 <= status_code < 600
+            ):
+                break
+            if attempt < max_attempts - 1:
+                delay = min(30.0, 2 ** attempt) + random.uniform(0.0, 0.5)
+                print(
+                    f"[{sid}] 第 {attempt + 1}/{max_attempts} 次调用失败："
+                    f"{error}；{delay:.1f}s 后重试",
+                    file=sys.stderr,
+                )
+                await asyncio.sleep(delay)
 
-        print(f"[{sid}] ✅ 完成，耗时 {elapsed:.1f}s，"
-              f"input={input_tokens} / output={output_tokens}")
-        if stop_reason == "length":
-            print(f"[{sid}] ⚠️ finish_reason=length，疑似被截断——"
-                  f"输出可能不完整，建议调大 SECTIONS 里 {sid} 的 max_tokens 后重跑", file=sys.stderr)
-
-        return {
-            "id": sid,
-            "name": name,
-            "status": "ok",
-            "content": content,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "elapsed_s": round(elapsed, 1),
-            "model": model,
-            "stop_reason": stop_reason,
-        }
-
-    except Exception as e:
-        elapsed = time.time() - t0
-        print(f"[{sid}] ❌ LLM 调用失败({elapsed:.1f}s)：{e}", file=sys.stderr)
-        return {
-            "id": sid,
-            "name": name,
-            "status": "error",
-            "error": str(e),
-            "content": "",
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "elapsed_s": round(elapsed, 1),
-            "model": model,
-            "stop_reason": None,
-        }
+    elapsed = time.time() - t0
+    print(
+        f"[{sid}] ❌ LLM 调用失败({elapsed:.1f}s)：{last_error}",
+        file=sys.stderr,
+    )
+    return {
+        "id": sid,
+        "name": name,
+        "status": "error",
+        "error": str(last_error),
+        "content": "",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "elapsed_s": round(elapsed, 1),
+        "model": model,
+        "stop_reason": None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +327,7 @@ def build_e2_prompt_data(flags: dict) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-async def build_e2_task(client: AsyncOpenAI, sec: dict, insight_dir: Path, model: str) -> dict:
+async def build_e2_task(llm_call, sec: dict, insight_dir: Path) -> dict:
     sid, name = sec["id"], sec["name"]
     flags_path = insight_dir / sec["data_file"]
     if not flags_path.exists():
@@ -282,7 +358,7 @@ async def build_e2_task(client: AsyncOpenAI, sec: dict, insight_dir: Path, model
     except ValueError as e:
         return await _error_result(sec, str(e))
 
-    result = await call_llm_async(client, sec, prompt, model)
+    result = await llm_call(sec, prompt)
     if result["status"] != "ok":
         return result
 
@@ -472,7 +548,7 @@ def _render_e4_data_with_tags(
     return "\n\n---\n\n".join(parts)
 
 
-async def _run_e4_tagging(client: AsyncOpenAI, tagging_input: str, model: str) -> dict:
+async def _run_e4_tagging(llm_call, tagging_input: str) -> dict:
     if not E4_TAGGING_PROMPT_PATH.exists():
         raise FileNotFoundError(f"打标 Prompt 不存在：{E4_TAGGING_PROMPT_PATH}")
     template = E4_TAGGING_PROMPT_PATH.read_text(encoding="utf-8")
@@ -480,10 +556,10 @@ async def _run_e4_tagging(client: AsyncOpenAI, tagging_input: str, model: str) -
         template = template.split(PROMPT_START_MARKER, 1)[1].lstrip("\n")
     prompt = fill_prompt(template, tagging_input)
     fake_sec = {"id": "e4_tagging", "name": "E4候选打标", "max_tokens": E4_TAGGING_MAX_TOKENS}
-    return await call_llm_async(client, fake_sec, prompt, model)
+    return await llm_call(fake_sec, prompt)
 
 
-async def build_e4_task(client: AsyncOpenAI, sec: dict, insight_dir: Path, model: str) -> dict:
+async def build_e4_task(llm_call, sec: dict, insight_dir: Path) -> dict:
     sid = sec["id"]
     data_path = insight_dir / sec["data_file"]
     if not data_path.exists():
@@ -504,7 +580,7 @@ async def build_e4_task(client: AsyncOpenAI, sec: dict, insight_dir: Path, model
             print(f"[{sid}] 舆情风险/合作动态均无候选,跳过打标")
         else:
             try:
-                tag_result = await _run_e4_tagging(client, tagging_input, model)
+                tag_result = await _run_e4_tagging(llm_call, tagging_input)
             except FileNotFoundError as e:
                 print(f"[{sid}] ⚠️ {e},跳过打标,退回全量候选", file=sys.stderr)
                 tag_result = {"status": "error", "error": str(e)}
@@ -516,7 +592,7 @@ async def build_e4_task(client: AsyncOpenAI, sec: dict, insight_dir: Path, model
                 tag_output_tokens = tag_result["output_tokens"]
                 tag_elapsed = tag_result["elapsed_s"]
                 audit_path = insight_dir / E4_TAGGING_AUDIT_FILE
-                audit_path.write_text(tag_result["content"], encoding="utf-8")
+                _atomic_text(tag_result["content"], audit_path)
                 print(f"[{sid}] 打标完成(舆情风险{len(risk_tags)}条/合作动态{len(coop_tags)}条已标记),"
                       f"审计文件：{audit_path.name}")
             else:
@@ -532,11 +608,104 @@ async def build_e4_task(client: AsyncOpenAI, sec: dict, insight_dir: Path, model
     except ValueError as e:
         return await _error_result(sec, str(e))
 
-    write_result = await call_llm_async(client, sec, prompt, model)
+    write_result = await llm_call(sec, prompt)
     write_result["input_tokens"] += tag_input_tokens
     write_result["output_tokens"] += tag_output_tokens
     write_result["elapsed_s"] = round(write_result["elapsed_s"] + tag_elapsed, 1)
     return write_result
+
+
+def _atomic_text(text: str, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temp.write_text(text, encoding="utf-8")
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
+def _atomic_json(value: dict, path: Path) -> None:
+    _atomic_text(
+        json.dumps(value, ensure_ascii=False, indent=2),
+        path,
+    )
+
+
+def _write_section_output(sec: dict, result: dict, output_path: Path) -> None:
+    body = _strip_markdown_fence(result["content"])
+    if sec["id"] != "e2":
+        body = _strip_leading_heading(body, sec["section_title"])
+    _atomic_text(f"{sec['section_title']}\n\n{body}\n", output_path)
+
+
+def _pipeline_signature(
+    insight_dir: Path,
+    *,
+    model: str,
+    mode: str,
+    data_run_id: int | None,
+) -> str:
+    digest = hashlib.sha256()
+    digest.update(
+        json.dumps(
+            {
+                "checkpoint_version": CHECKPOINT_VERSION,
+                "model": model,
+                "mode": mode,
+                "data_run_id": data_run_id,
+            },
+            sort_keys=True,
+        ).encode()
+    )
+    input_paths = [SHARED_ROLE_STYLE, E4_TAGGING_PROMPT_PATH]
+    input_paths.extend(
+        insight_dir / sec["data_file"]
+        for sec in SECTIONS
+    )
+    input_paths.append(insight_dir / E4_CANDIDATES_FILE)
+    for sec in SECTIONS:
+        input_paths.extend(
+            sorted((PROMPTS_DIR / sec["prompt_dir"]).glob("v*.md"))
+        )
+    for path in input_paths:
+        digest.update(str(path).encode())
+        if path.exists():
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def _load_checkpoint(
+    path: Path,
+    *,
+    signature: str,
+    model: str,
+    mode: str,
+    version_tag: str,
+) -> dict:
+    try:
+        checkpoint = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        checkpoint = {}
+    valid = (
+        checkpoint.get("checkpoint_version") == CHECKPOINT_VERSION
+        and checkpoint.get("run_signature") == signature
+        and checkpoint.get("model") == model
+        and checkpoint.get("mode") == mode
+        and checkpoint.get("version") == version_tag
+        and isinstance(checkpoint.get("sections"), dict)
+    )
+    if not valid:
+        checkpoint = {
+            "checkpoint_version": CHECKPOINT_VERSION,
+            "run_signature": signature,
+            "model": model,
+            "mode": mode,
+            "version": version_tag,
+            "sections": {},
+        }
+        _atomic_json(checkpoint, path)
+    return checkpoint
 
 
 async def run_all_sections(
@@ -544,6 +713,12 @@ async def run_all_sections(
     insight_dir: Path,
     model: str,
     sections: list,
+    *,
+    checkpoint: dict,
+    checkpoint_path: Path,
+    max_workers: int = DEFAULT_MAX_WORKERS,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    reuse_completed: bool = True,
 ) -> list:
     api_key = os.environ.get("ARK_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
@@ -553,45 +728,73 @@ async def run_all_sections(
     if not base_url:
         raise EnvironmentError("ARK_BASE_URL / OPENAI_BASE_URL 均未设置")
 
-    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    semaphore = asyncio.Semaphore(max_workers)
 
-    tasks = []
-    for sec in sections:
+    async def llm_call(sec: dict, prompt: str) -> dict:
+        async with semaphore:
+            return await call_llm_async(
+                api_key,
+                base_url,
+                sec,
+                prompt,
+                model,
+                max_attempts=max_attempts,
+            )
+
+    async def run_section(sec: dict) -> dict:
+        cached = checkpoint["sections"].get(sec["id"])
+        output_path = insight_dir / sec["output_file"]
+        if (
+            reuse_completed
+            and isinstance(cached, dict)
+            and cached.get("status") == "ok"
+            and cached.get("content")
+            and output_path.exists()
+        ):
+            print(f"[{sec['id']}] checkpoint 命中，跳过 LLM")
+            return {**cached, "cached": True}
+
+        if not reuse_completed and cached is not None:
+            checkpoint["sections"].pop(sec["id"], None)
+            _atomic_json(checkpoint, checkpoint_path)
+
         if sec["id"] == "e2":
-            tasks.append(asyncio.create_task(build_e2_task(client, sec, insight_dir, model)))
-            continue
-        if sec["id"] == "e4":
-            tasks.append(asyncio.create_task(build_e4_task(client, sec, insight_dir, model)))
-            continue
+            result = await build_e2_task(llm_call, sec, insight_dir)
+        elif sec["id"] == "e4":
+            result = await build_e4_task(llm_call, sec, insight_dir)
+        else:
+            try:
+                template = load_prompt_template(sec["prompt_dir"])
+            except FileNotFoundError as error:
+                print(f"[{sec['id']}] ❌ {error}", file=sys.stderr)
+                return await _error_result(sec, str(error))
 
-        try:
-            template = load_prompt_template(sec["prompt_dir"])
-        except FileNotFoundError as e:
-            print(f"[{sec['id']}] ❌ {e}", file=sys.stderr)
-            tasks.append(asyncio.create_task(_error_result(sec, str(e))))
-            continue
+            data_path = insight_dir / sec["data_file"]
+            if not data_path.exists():
+                error = f"数据文件不存在：{data_path}"
+                print(f"[{sec['id']}] ❌ {error}", file=sys.stderr)
+                return await _error_result(sec, error)
 
-        data_path = insight_dir / sec["data_file"]
-        if not data_path.exists():
-            err = f"数据文件不存在：{data_path}"
-            print(f"[{sec['id']}] ❌ {err}", file=sys.stderr)
-            tasks.append(asyncio.create_task(_error_result(sec, err)))
-            continue
+            data = data_path.read_text(encoding="utf-8")
+            try:
+                prompt = fill_prompt(template, data)
+            except ValueError as error:
+                print(f"[{sec['id']}] ❌ {error}", file=sys.stderr)
+                return await _error_result(sec, str(error))
+            result = await llm_call(sec, prompt)
 
-        data = data_path.read_text(encoding="utf-8")
+        if result["status"] == "ok" and result.get("content"):
+            _write_section_output(sec, result, output_path)
+            checkpoint["sections"][sec["id"]] = result
+            _atomic_json(checkpoint, checkpoint_path)
+            print(f"[{sec['id']}] checkpoint 已写入")
+        return result
 
-        try:
-            prompt = fill_prompt(template, data)
-        except ValueError as e:
-            print(f"[{sec['id']}] ❌ {e}", file=sys.stderr)
-            tasks.append(asyncio.create_task(_error_result(sec, str(e))))
-            continue
-
-        tasks.append(asyncio.create_task(call_llm_async(client, sec, prompt, model)))
-
-    results = await asyncio.gather(*tasks)
-    await client.close()
-    return list(results)
+    return list(
+        await asyncio.gather(
+            *(asyncio.create_task(run_section(sec)) for sec in sections)
+        )
+    )
 
 
 async def _error_result(sec: dict, err: str) -> dict:
@@ -642,7 +845,11 @@ def record_costs(project_dir: Path, results: list, model: str, mode: str) -> Non
         return
 
     for r in results:
-        if r["status"] != "ok" or r["input_tokens"] == 0:
+        if (
+            r["status"] != "ok"
+            or r["input_tokens"] == 0
+            or r.get("cached")
+        ):
             continue
         price_in, price_out = _price_of(r["model"])
         raw_cost = (
@@ -716,7 +923,12 @@ def main():
     parser.add_argument("--skip-data-prep", action="store_true")
     parser.add_argument("--data-run-id", type=int, default=None)
     parser.add_argument("--sections", default=None)
+    parser.add_argument("--max-workers", type=int, default=DEFAULT_MAX_WORKERS)
+    parser.add_argument("--max-attempts", type=int, default=DEFAULT_MAX_ATTEMPTS)
     args = parser.parse_args()
+
+    if args.max_workers < 1 or args.max_attempts < 1:
+        parser.error("--max-workers 和 --max-attempts 必须为正整数")
 
     if args.mode == "test":
         print(
@@ -765,8 +977,8 @@ def main():
 
     if (round_dir / f"e1_{version_tag}.md").exists():
         print(
-            f"[pipeline_e] ⚠️  {version_tag} 已存在,将覆盖。\n"
-            f"  若要保留旧版本,请改用 --version {version + 1}"
+            f"[pipeline_e] {version_tag} 已存在，将按 checkpoint "
+            "复用已完成版块。"
         )
 
     sections = [
@@ -792,19 +1004,32 @@ def main():
                 file=sys.stderr,
             )
             sys.exit(1)
-        print(f"[pipeline_e] --skip-data-prep：从 {prev_round_dir.name} 复制数据文件...")
-        for sec in SECTIONS:
-            src = prev_round_dir / sec["data_file"]
-            if src.exists():
-                shutil.copy(src, round_dir / sec["data_file"])
-            else:
-                print(f"[pipeline_e] ⚠️ {prev_round_dir.name} 下缺 {sec['data_file']},跳过复制", file=sys.stderr)
-        audit_src = prev_round_dir / "e3_word_freq_audit.md"
-        if audit_src.exists():
-            shutil.copy(audit_src, round_dir / "e3_word_freq_audit.md")
-        candidates_src = prev_round_dir / E4_CANDIDATES_FILE
-        if candidates_src.exists():
-            shutil.copy(candidates_src, round_dir / E4_CANDIDATES_FILE)
+        if prev_round_dir.resolve() == round_dir.resolve():
+            print(
+                f"[pipeline_e] --skip-data-prep：直接复用 {version_tag} "
+                "已有数据文件。"
+            )
+        else:
+            print(
+                f"[pipeline_e] --skip-data-prep：从 "
+                f"{prev_round_dir.name} 复制数据文件..."
+            )
+            for sec in SECTIONS:
+                src = prev_round_dir / sec["data_file"]
+                if src.exists():
+                    shutil.copy(src, round_dir / sec["data_file"])
+                else:
+                    print(
+                        f"[pipeline_e] ⚠️ {prev_round_dir.name} 下缺 "
+                        f"{sec['data_file']},跳过复制",
+                        file=sys.stderr,
+                    )
+            audit_src = prev_round_dir / "e3_word_freq_audit.md"
+            if audit_src.exists():
+                shutil.copy(audit_src, round_dir / "e3_word_freq_audit.md")
+            candidates_src = prev_round_dir / E4_CANDIDATES_FILE
+            if candidates_src.exists():
+                shutil.copy(candidates_src, round_dir / E4_CANDIDATES_FILE)
     else:
         print("[pipeline_e] Step 1：运行 01_统计/run_stats.py 预处理数据...")
         cmd = [
@@ -823,11 +1048,39 @@ def main():
             print("[pipeline_e] ❌ run_stats.py 失败,终止", file=sys.stderr)
             sys.exit(1)
 
-    print(f"\n[pipeline_e] Step 2：并发调用 4 路 LLM(模型：{args.model})...")
+    signature = _pipeline_signature(
+        round_dir,
+        model=args.model,
+        mode=args.mode,
+        data_run_id=data_run_id,
+    )
+    checkpoint_path = round_dir / f"pipeline_e_checkpoint_{version_tag}.json"
+    checkpoint = _load_checkpoint(
+        checkpoint_path,
+        signature=signature,
+        model=args.model,
+        mode=args.mode,
+        version_tag=version_tag,
+    )
+
+    print(
+        f"\n[pipeline_e] Step 2：流式调用 4 路 LLM"
+        f"(模型：{args.model}，最大并发：{args.max_workers})..."
+    )
     t_start = time.time()
 
     results = asyncio.run(
-        run_all_sections(proj, round_dir, args.model, sections)
+        run_all_sections(
+            proj,
+            round_dir,
+            args.model,
+            sections,
+            checkpoint=checkpoint,
+            checkpoint_path=checkpoint_path,
+            max_workers=args.max_workers,
+            max_attempts=args.max_attempts,
+            reuse_completed=not bool(args.sections),
+        )
     )
 
     total_elapsed = time.time() - t_start
@@ -838,12 +1091,7 @@ def main():
     ok_count = 0
     for sec, result in zip(sections, results):
         if result["status"] == "ok" and result["content"]:
-            body = _strip_markdown_fence(result["content"])
-            if sec["id"] != "e2":
-                body = _strip_leading_heading(body, sec["section_title"])
-            content = f"{sec['section_title']}\n\n{body}\n"
             out_path = round_dir / sec["output_file"]
-            out_path.write_text(content, encoding="utf-8")
             print(f"  ✅ {sec['id']}：{out_path.name}")
             ok_count += 1
         else:
@@ -864,7 +1112,7 @@ def main():
         "sections": results,
     }
     report_path = round_dir / f"pipeline_e_report_{version_tag}.json"
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_json(report, report_path)
     print(f"\n[pipeline_e] 执行报告：{report_path.relative_to(proj)}")
 
     print("[pipeline_e] Step 5：记录成本...")

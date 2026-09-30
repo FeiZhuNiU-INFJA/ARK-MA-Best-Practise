@@ -137,8 +137,10 @@ python cases/topic6/authorize_miaoda_user.py --expected-open-id ou_xxx
 ```
 
 refresh token 仅保存在权限为 `0600` 的 Topic6 SQLite 数据库中，不会进入 MA
-沙箱或日志。Gateway 在每次新建 Session 前按消息发送者查找并按需刷新 token；
-未授权用户会在任务启动前收到提示。
+沙箱或日志。Gateway 在新建 Session 前按消息发送者查找并按需刷新 token；任务启动后
+每分钟检查一次，并在过期前 15 分钟原地更新同一 Vault Credential。保活覆盖
+`running` 和 `wait_hc`，不会改变 Session ID、Vault ID 或 Credential ID。未授权用户
+会在任务启动前收到提示。
 
 自有 TOS Bucket 调试期不必配置，`environment.json` 已禁用 output storage。
 
@@ -219,6 +221,11 @@ cd /Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot
 python cases/topic6/authorize_miaoda_user.py  # 每位妙搭发布人首次执行一次
 python -m arkagent run --case topic6
 ```
+
+Skill 和 Coordinator Prompt 只在创建 Session 时挂载。`update_ma.sh` 前已经启动的
+Session 不会热更新；验证 `run_demo_routes.py` 的小批次 checkpoint 修复时，必须在
+Gateway 重启后从飞书新建任务，不能继续恢复旧 Session。
+
 ---
 
 ## 4. 确认 topic6 资源 ID
@@ -277,6 +284,10 @@ topic6 触发词：热点报告 / 热点周报(可加 test/demo/full 指定模�
 
 demo 在 HC1 通过后直接进入洞察与报告阶段,不会触发全量标注和 HC2。
 
+Phase E 默认以最多 2 路并发流式生成 E1~E4。若某版块在断连重试后仍失败，使用相同
+参数重新执行 `pipeline_e.py`；脚本会读取 `06_洞察/v{N}/pipeline_e_checkpoint_v{N}.json`
+并只补失败版块。不要删除 checkpoint，也不要拆成四次 `--sections` 调用。
+
 正常应该看到:
 
 1. Bot 回复"已收到,启动 topic6 pipeline...";
@@ -296,6 +307,8 @@ demo 在 HC1 通过后直接进入洞察与报告阶段,不会触发全量标注
 | Skill 找不到                      | `skill_ids.json` 有 null 项,重跑 `upload_skills.py`                                                                                                              |
 | HC 卡片点击后无响应               | Feishu Bot 后台"事件订阅"里是否开启`card.action.trigger` 权限                                                                                                      |
 | SSE 中断/超时                     | 单会话默认 10 分钟,超长任务加大`SESSION_TIMEOUT_MS`(毫秒)                                                                                                          |
+| Phase E `Connection error`        | 先看 `pipeline_e_report_v{N}.json`；按原参数重跑一次正式入口，成功版块会命中 checkpoint，只补失败版块                                                             |
+| Phase H `token_expired`           | 确认 Gateway 已更新并重启；临近过期时日志应出现 `topic6 user token refreshed`，同一 Session 无需重新挂 Vault                                                       |
 | 图片抓取失败                      | 已知风险点,飞书`im.v1.images.get` 并发大图不稳定,重跑一次 Phase G 即可                                                                                             |
 
 ---

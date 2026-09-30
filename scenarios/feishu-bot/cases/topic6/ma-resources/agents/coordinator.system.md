@@ -112,9 +112,13 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
   wait "$C2_PID"; C2_RC=$?
   test "$ROUTES_RC" -eq 0 -a "$C2_RC" -eq 0
   ```
-  `run_demo_routes.py` 复用 R1~R5 正式 Prompt 和输出列，但把五路批量 Ark 请求
-  并发执行；`--demo-fast` 用一次批量事件归并直接生成 C2 两列结果。该快速路径仅用于
-  50 条样本的流程演示，不得用于 test/full 或正式业务结论。
+  `run_demo_routes.py` 复用 R1~R5 正式 Prompt 和输出列，内部按小批次有限并发调用
+  Ark，并对每个成功批次原子 checkpoint；重跑时只补缺失批次。若该入口失败，先读取
+  `04_标注/demo_routes.log`，然后最多重跑一次同一正式入口（参数保持不变）以恢复。
+  禁止用 inline Python、临时脚本或逐条手工调用绕过正式入口；禁止精简或改写 R1~R5 Prompt，
+  禁止切换模型、修改 batch size 或删除 checkpoint。第二次仍失败则本阶段失败，
+  如实回报错误并停止。`--demo-fast` 用一次批量事件归并直接生成 C2 两列结果。该快速
+  路径仅用于 50 条样本的流程演示，不得用于 test/full 或正式业务结论。
 - 单入口内部固定执行正确的跨平台拓扑：四平台并行 `00_clean_titles.py` → `x0_merge_platforms.py` → merged 目录统一执行 `01→02→03→04→05→06→07→x2→x3→x4`。严禁在 x0 前按平台执行 01~04；x0 只读取阶段 00 的 `clean_titles.jsonl`，提前执行的 01~04 不会被合库。
 - C2 Chat 模型读取 `$C2_CHAT_MODEL_ID`，默认 `doubao-seed-evolving`；Embedding 模型读取 `$EMBEDDING_MODEL_ID`，默认 `doubao-embedding-vision-251215`。二者都不是 DataHub 的 `Doubao-Seed-Evolving`。
 - 等待 R1~R5 时可读取 `04_标注/C2_事件归档/c2_run/c2_status.json` 查看进度。若状态为 `running`，只轮询，禁止重复启动；若 Session 恢复，可再次调用同一入口，它会按 `completed_stages` 续跑。
@@ -199,17 +203,22 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 
 违约 = gateway 触发兜底卡片,审核人看到的是空壳提示、无法据此判断,严重影响 demo 效果。
 
-### Phase E 四路(脚本内并发)
+### Phase E 四路(脚本内流式有限并发)
 
 - full 使用 `05_合并/wide_table_full_r{N}.xlsx`
 - demo 使用 `05_合并/wide_table_demo_r{N}.xlsx`,并把 mode=demo 传给洞察脚本
 - 不再委派 4 个 `topic6-insighter` 子 Agent。`pipeline_e.py` 本身已实现 E1~E4
-  异步并发；直接调用一次，避免重复运行 4 次 `run_stats.py` 和四份子 Agent 编排开销:
+  流式有限并发、断连重试和版块级 checkpoint；直接调用一次，避免重复运行 4 次
+  `run_stats.py` 和四份子 Agent 编排开销:
   ```bash
   python /mnt/skills/topic6-insight/scripts/pipeline_e.py \
     --project-dir "{project_dir}" --mode {demo|full} \
     --publish-date "{publish_date}" --version {N}
   ```
+- 任一版块失败时，先读取 `06_洞察/v{N}/pipeline_e_report_v{N}.json`，然后最多
+  原参数重跑一次上述同一正式入口；脚本会复用已成功版块，只补失败版块。禁止拆成
+  四次 `--sections` 调用，禁止用 inline Python 或临时脚本绕过，禁止改写 Prompt、
+  切换模型、提高并发或删除 checkpoint。第二次仍失败则 Phase E 失败并停止。
 - E2 依赖 C3 标注 + `/mnt/skills/topic6-fetch-normalize/references/marketing_calendar_2026.csv`,
   **不再依赖已删除的 marketing-node-tagging skill**。
 - 脚本必须成功产出 `06_洞察/v{N}/e1_v{N}.md` 至 `e4_v{N}.md` 四个文件，

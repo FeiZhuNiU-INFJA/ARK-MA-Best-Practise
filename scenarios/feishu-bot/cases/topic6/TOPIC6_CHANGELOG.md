@@ -13,6 +13,47 @@
 
 ## 2026-09-30
 
+### 活跃任务用户 Token 保活
+
+- **触发现象**：Session `sesn-20260930023459-r9zoi` 从 10:34 运行至 12:39；Phase G
+  已完成，但 Phase H 调用 `lark-cli apps +list --as user` 返回
+  `99991677 token_expired`，最终因没有妙搭 `online_url` 被 Gateway 标记为 stopped。
+- **根因**：Gateway 原先只在创建 Session 前检查并刷新一次用户 Token。长任务超过约
+  2 小时后，已挂用户 Vault 中的短期 access token 过期。
+- **修复**：Gateway 为每个活跃 Job 启动保活协程，每分钟检查一次，覆盖 `running` 与
+  `wait_hc`；在过期前 15 分钟使用 refresh token 原地更新同一个 Vault Credential。
+  刷新失败会记录日志并继续重试，任务终态或 `/new` 取消后停止保活。
+- **身份稳定性**：全程保持原 `session_id`、Vault ID 和 Credential ID，不动态追加
+  Vault。方舟运行时周期性重新解析已挂 Vault 的凭据轮换。
+
+### Phase E 流式有限并发与版块级恢复
+
+- **触发现象**：Session `sesn-20260930023459-r9zoi` 中，旧 `pipeline_e.py` 使用非流式
+  四路并发，E1~E4 同时出现 `Connection error`；用相同 Prompt 单独流式调用 E1 可成功。
+- **调用优化**：E1~E4 改为默认最多 2 路并发的流式响应；断连、429 和 5xx 最多尝试
+  5 次，指数退避且每次创建全新 `AsyncOpenAI` 客户端，避免复用失效连接。
+- **可靠恢复**：每个成功版块立即原子写入 Markdown 和
+  `pipeline_e_checkpoint_v{N}.json`。相同输入、模型、Prompt 和版本重跑时只补失败版块，
+  已完成版块不重复调用或计费；显式 `--sections` 仍表示强制重跑指定版块。
+- **编排约束**：Coordinator 只可原参数重跑正式入口一次，禁止 inline Python、拆成
+  四次调用、改写 Prompt、切模型、提高并发或删除 checkpoint。
+- **生效方式**：执行 `update_ma.sh` 更新 Skill 和 Coordinator，重启 Gateway 后创建
+  新 Session；已有 Session 不会自动获得更新后的资源快照。
+
+### Demo R1~R5 小批次恢复与失败收口
+
+- **触发现象**：Session `sesn-20260930023459-r9zoi` 中，R1~R5 直接 Ark 批量请求出现
+  `Remote end closed connection without response`。旧入口五路各发一个长请求，且要
+  等五路全部成功后才统一落盘；任一路失败会丢失其余已成功结果。
+- **执行优化**：`run_demo_routes.py` 保持原 R1~R5 Prompt 和输出契约，改为默认每批
+  5 行、最多 2 请求并发。断连、超时、429 和 5xx 最多重试 5 次，使用指数退避与抖动，
+  每次重试创建新请求。
+- **可靠恢复**：每个成功 chunk 立即原子写 JSON checkpoint；每个 route 完成后立即写
+  raw/postprocess/completion_meta、run_config 和成本，不再等待其他 route。重跑按输入、
+  模型、Prompt、run_id 和 batch size 只补缺失 chunk，已完成 route 直接复用。
+- **编排约束**：Coordinator 失败后只可按原参数重跑正式入口一次，禁止 inline Python、
+  改写 Prompt、切模型、修改 batch size 或删除 checkpoint 来绕过问题。
+
 ### 妙搭用户 OAuth 预授权与每用户 Vault
 
 - **根因**：MA Session 创建后不能追加 Vault；Gateway 主机上的 lark-cli 登录态也不会

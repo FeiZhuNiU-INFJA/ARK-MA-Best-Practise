@@ -1,12 +1,12 @@
 ---
 name: topic6-insight
 version: 1.0.0
-description: 社媒热点周刊 Phase E+F 洞察生成：从 Phase C 交付的标注宽表出发，四路并发（E1 平台借势 / E2 商业合作 / E3 风险预警 / E4 创意借鉴）调用 Ark OpenAI 兼容接口生成周报四大版块，再由 pipeline_f 拼接成完整草稿。当用户需要基于标注结果生成周报正文洞察时使用。
+description: 社媒热点周刊 Phase E+F 洞察生成：从 Phase C 交付的标注宽表出发，流式有限并发生成 E1~E4 四个可断点恢复的周报版块，再由 pipeline_f 拼接成完整草稿。当用户需要基于标注结果生成周报正文洞察时使用。
 ---
 
 # topic6-insight
 
-> MA 版洞察生成技能 — 从标注宽表出发,四路并发生成周报四大版块。
+> MA 版洞察生成技能 — 从标注宽表出发,流式有限并发生成周报四大版块。
 > Fork自 topic6 原 `skill/insight/`,重写为 MA 沙箱口径。
 
 ## 目录结构
@@ -15,7 +15,7 @@ description: 社媒热点周刊 Phase E+F 洞察生成：从 Phase C 交付的�
 topic6-insight/
 ├── SKILL.md                    本文件
 ├── scripts/
-│   ├── pipeline_e.py           入口: 数据预处理 + 4 路并发 LLM 生成洞察
+│   ├── pipeline_e.py           入口: 数据预处理 + 流式有限并发生成洞察
 │   └── pipeline_f.py           入口: 拼接 4 个版块为完整周报
 ├── 01_统计/                    数据预处理模块(pipeline_e.py 会调用 run_stats.py)
 │   ├── run_stats.py            编排入口: 宽表 → 4 版块数据
@@ -49,9 +49,11 @@ python /mnt/skills/topic6-insight/scripts/pipeline_e.py \
   --model ep-your-endpoint-id
 ```
 
-该入口一次完成数据预处理，并在进程内并发 E1~E4。正常整轮不得拆成四次
-`--sections eN` 调用，否则会重复执行统计预处理和 Agent 编排；`--sections` 只用于
-审核打回后的单版块重跑。
+该入口一次完成数据预处理，并在进程内以默认最大并发 2 流式调用 E1~E4。每次调用
+失败最多尝试 5 次（429、5xx、断连等可恢复错误使用指数退避和全新客户端），每个成功
+版块立即原子写入 Markdown 和 checkpoint。相同参数重跑时会复用成功版块，只补失败
+版块。正常整轮不得拆成四次 `--sections eN` 调用；`--sections` 只用于审核打回后的
+单版块强制重跑。
 
 关键参数:
 - `--project-dir`: 项目目录(绝对路径,或相对 `/workspace`)
@@ -60,11 +62,14 @@ python /mnt/skills/topic6-insight/scripts/pipeline_e.py \
 - `--version N`: 强制指定洞察版本(默认自增)
 - `--sections e1,e2`: 只跑指定版块
 - `--skip-data-prep`: 跳过统计脚本,从上一轮复制数据
+- `--max-workers`: LLM 最大并发数,默认 2
+- `--max-attempts`: 每次版块调用最大尝试次数,默认 5
 
 产出目录 `{project_dir}/06_洞察/v{N}/`:
 - `e1_v{N}.md` ~ `e4_v{N}.md`
 - `e1_data.md` / `e3_data.md` / `e4_data.md`
 - `e2_flags.json` / `e4_candidates.json` / `e4_tagging_audit.md` / `e3_word_freq_audit.md`
+- `pipeline_e_checkpoint_v{N}.json`
 - `pipeline_e_report_v{N}.json`
 
 ### 步骤 2: 拼接完整周报
@@ -88,7 +93,8 @@ python /mnt/skills/topic6-insight/scripts/pipeline_f.py \
 ## 架构要点
 
 1. 项目路径从 `--project-dir` 传入,不做目录上溯推导。
-2. LLM SDK 走 OpenAI 兼容 endpoint(`openai.AsyncOpenAI`)。
+2. LLM SDK 走 OpenAI 兼容 endpoint(`openai.AsyncOpenAI`)，使用流式响应、有限并发、
+   指数退避重试和版块级原子 checkpoint。
 3. `cost_tracker.py` 从 topic6-annotation skill 挂载路径调用,两个 skill 共用一份账本。
 4. E2 `MARKETING_CALENDAR_PATH` 默认指向 topic6-fetch-normalize 的共享 CSV 日历，也兼容旧 Markdown 表格。
 
