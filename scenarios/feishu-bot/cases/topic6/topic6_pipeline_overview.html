@@ -85,8 +85,8 @@
   .detail-pane {
     min-width: 0;
     overflow-y: auto;
-    padding: 20px 24px;
-    background: var(--card-bg);
+    padding: 0 20px 24px;
+    background: #f8fafc;
   }
   .mermaid {
     cursor: default;
@@ -107,10 +107,25 @@
     filter: drop-shadow(0 0 6px rgba(37,99,235,0.4));
   }
 
+  .detail-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin: 0 -20px 18px;
+    padding: 20px 20px 16px;
+    background: rgba(255, 255, 255, 0.96);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 8px 20px rgba(30, 64, 175, 0.05);
+    backdrop-filter: blur(8px);
+  }
   .detail-pane h2 {
-    font-size: 18px;
-    margin: 0 0 4px 0;
+    font-size: 20px;
+    margin: 0 0 6px;
     color: var(--primary);
+    line-height: 1.3;
+  }
+  .detail-tags {
+    margin-bottom: 8px;
   }
   .detail-pane .tag {
     display: inline-block;
@@ -125,12 +140,97 @@
   .detail-pane .tag.hc { background: #ffedd5; color: #9a3412; }
   .detail-pane .tag.final { background: #d1fae5; color: #065f46; }
   .detail-pane .tag.time { background: #f3f4f6; color: #4b5563; }
-  .detail-pane h3 {
+  .detail-sections {
+    display: grid;
+    gap: 14px;
+  }
+  .detail-section {
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .detail-section-head {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .detail-section-index {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 4px;
+    background: #eef2f7;
+    color: #475569;
+    font: 700 12px/1 "SF Mono", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .detail-section-title {
+    margin: 0;
+    color: #1f2937;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+  .detail-section-caption {
+    margin: 2px 0 0;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.35;
+  }
+  .detail-section-body {
+    padding: 2px 14px 14px;
+  }
+  .detail-section.customer {
+    border-color: #e7dcc4;
+    background: #fffdf8;
+  }
+  .detail-section.customer .detail-section-head {
+    border-bottom-color: #eee3cb;
+    background: #fffbeb;
+  }
+  .detail-section.customer .detail-section-index {
+    background: #fef3c7;
+    color: #92400e;
+  }
+  .detail-section.ma {
+    border: 2px solid #2563eb;
+    background: #f8fbff;
+    box-shadow: 0 10px 24px rgba(37, 99, 235, 0.12);
+  }
+  .detail-section.ma .detail-section-head {
+    padding: 14px;
+    border-bottom-color: #bfdbfe;
+    background: #dbeafe;
+  }
+  .detail-section.ma .detail-section-index {
+    background: #2563eb;
+    color: #fff;
+  }
+  .detail-section.ma .detail-section-title {
+    color: #1d4ed8;
+    font-size: 17px;
+  }
+  .detail-section.ma .detail-section-caption {
+    color: #1e40af;
+    font-weight: 500;
+  }
+  .detail-section.ma .detail-section-body {
+    padding-top: 6px;
+  }
+  .detail-empty {
+    margin: 12px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .detail-section-body h3 {
     font-size: 14px;
-    margin: 20px 0 6px 0;
+    margin: 16px 0 6px;
     color: var(--secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
     font-weight: 600;
     border-bottom: 1px solid var(--border);
     padding-bottom: 3px;
@@ -152,8 +252,9 @@
   .detail-pane th { background: var(--code-bg); color: var(--secondary); }
   .detail-pane .desc {
     color: var(--secondary);
-    margin: 8px 0 12px 0;
+    margin: 0;
     font-size: 13px;
+    line-height: 1.5;
   }
   code {
     background: var(--code-bg);
@@ -243,7 +344,11 @@
       padding: 16px;
     }
     .detail-pane {
-      padding: 18px;
+      padding: 0 16px 20px;
+    }
+    .detail-header {
+      margin-inline: -16px;
+      padding-inline: 16px;
     }
   }
 
@@ -269,7 +374,11 @@
       padding: 12px;
     }
     .detail-pane {
-      padding: 16px;
+      padding: 0 14px 18px;
+    }
+    .detail-header {
+      margin-inline: -14px;
+      padding: 16px 14px 14px;
     }
     .mermaid {
       min-width: 680px;
@@ -287,7 +396,11 @@
       padding: 10px;
     }
     .detail-pane {
-      padding: 14px;
+      padding: 0 12px 16px;
+    }
+    .detail-header {
+      margin-inline: -12px;
+      padding-inline: 12px;
     }
   }
 </style>
@@ -1532,18 +1645,101 @@ heat_score   : 87.4
   };
 
   const detailEl = document.getElementById("detail");
+
+  function splitDetailContent(content) {
+    const source = document.createElement("template");
+    source.innerHTML = content || "";
+
+    const groups = {
+      overview: document.createElement("div"),
+      customer: document.createElement("div"),
+      ma: document.createElement("div")
+    };
+    let activeGroup = "overview";
+
+    Array.from(source.content.childNodes).forEach(node => {
+      if (node.nodeType === Node.ELEMENT_NODE && node.tagName === "H3") {
+        const heading = node.textContent.replace(/\s+/g, " ").trim();
+        if (heading.includes("MA 复刻")) {
+          activeGroup = "ma";
+          return;
+        }
+        if (heading.startsWith("关键文件")) {
+          activeGroup = "customer";
+          return;
+        }
+        activeGroup = "overview";
+      }
+      groups[activeGroup].appendChild(node.cloneNode(true));
+    });
+
+    return groups;
+  }
+
+  function createDetailSection(kind, index, title, caption, content, emptyText) {
+    const section = document.createElement("section");
+    section.className = `detail-section ${kind}`;
+    section.innerHTML = `
+      <div class="detail-section-head">
+        <span class="detail-section-index">${index}</span>
+        <div>
+          <h3 class="detail-section-title">${title}</h3>
+          <p class="detail-section-caption">${caption}</p>
+        </div>
+      </div>
+      <div class="detail-section-body"></div>
+    `;
+    const body = section.querySelector(".detail-section-body");
+    if (content.textContent.trim() || content.children.length) {
+      body.appendChild(content);
+    } else {
+      body.innerHTML = `<p class="detail-empty">${emptyText}</p>`;
+    }
+    return section;
+  }
+
   function renderDetail(key) {
     const d = DETAILS[key];
     if (!d) {
       detailEl.innerHTML = `<p class="placeholder">该节点暂无详细说明<br><code>${key}</code></p>`;
       return;
     }
+    const groups = splitDetailContent(d.content);
     detailEl.innerHTML = `
-      <h2>${d.title}</h2>
-      <div>${(d.tags||[]).join(" ")}</div>
-      <p class="desc">${d.desc || ""}</p>
-      ${d.content || ""}
+      <div class="detail-header">
+        <h2>${d.title}</h2>
+        <div class="detail-tags">${(d.tags||[]).join(" ")}</div>
+        <p class="desc">${d.desc || ""}</p>
+      </div>
+      <div class="detail-sections"></div>
     `;
+    const sections = detailEl.querySelector(".detail-sections");
+    sections.append(
+      createDetailSection(
+        "overview",
+        "01",
+        "节点职责与输入输出",
+        "这个节点做什么，以及它接收和产出什么",
+        groups.overview,
+        "该节点未单独列出输入输出说明。"
+      ),
+      createDetailSection(
+        "customer",
+        "02",
+        "客户原始文件",
+        "原流程中与该节点直接关联的 Prompt、Skill 与脚本",
+        groups.customer,
+        "该节点未单独关联客户原始文件。"
+      ),
+      createDetailSection(
+        "ma",
+        "03",
+        "MA 复刻",
+        "在 MA 中由谁执行、使用哪些资源、如何衔接上下游",
+        groups.ma,
+        "该节点暂未补充 MA 复刻实现。"
+      )
+    );
     detailEl.scrollTop = 0;
   }
 
@@ -1578,6 +1774,18 @@ heat_score   : 87.4
           renderDetail(id);
         });
       });
+
+      const requestedKey = new URLSearchParams(window.location.search).get("node");
+      const initialKey = requestedKey && DETAILS[requestedKey] ? requestedKey : "START";
+      const initialNode = Array.from(svg.querySelectorAll(".node")).find(nodeEl => {
+        const match = (nodeEl.id || "").match(/flowchart-(.+?)-\d+$/);
+        return match && match[1] === initialKey;
+      });
+      if (initialNode) {
+        initialNode.classList.add("selected");
+        currentSelected = initialNode;
+      }
+      renderDetail(initialKey);
     }, 400);
   });
 </script>

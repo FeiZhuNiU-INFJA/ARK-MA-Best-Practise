@@ -76,11 +76,76 @@
     min-height: 0;
   }
   .diagram-pane {
+    position: relative;
     min-width: 0;
     overflow: auto;
     padding: 20px;
     background: var(--bg);
     border-right: 1px solid var(--border);
+    outline: none;
+  }
+  .diagram-pane:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--primary);
+  }
+  .diagram-toolbar {
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    width: max-content;
+    margin-bottom: 10px;
+    padding: 4px;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(30, 64, 175, 0.1);
+    backdrop-filter: blur(8px);
+  }
+  .zoom-button {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: #334155;
+    font: 600 18px/1 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    cursor: pointer;
+    transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  }
+  .zoom-button:hover {
+    background: #eff6ff;
+    color: var(--primary);
+  }
+  .zoom-button:active {
+    transform: translateY(1px);
+  }
+  .zoom-button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+  }
+  .zoom-button:disabled {
+    color: #cbd5e1;
+    cursor: not-allowed;
+  }
+  .zoom-button:disabled:hover {
+    background: transparent;
+  }
+  .zoom-level {
+    width: 48px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .zoom-divider {
+    width: 1px;
+    height: 20px;
+    margin: 0 4px;
+    background: var(--border);
   }
   .detail-pane {
     min-width: 0;
@@ -90,12 +155,14 @@
   }
   .mermaid {
     cursor: default;
-    min-width: 780px;
+    width: max-content;
+    min-width: 100%;
     margin: 0;
   }
   .mermaid svg {
     display: block;
     margin: 0 auto;
+    max-width: none;
   }
   .mermaid .node { cursor: pointer; transition: opacity 0.2s; }
   .mermaid .node:hover { opacity: 0.75; }
@@ -237,7 +304,16 @@
 </header>
 
 <div class="layout">
-  <div class="diagram-pane">
+  <div class="diagram-pane" id="diagram-pane" tabindex="0" aria-label="MA 架构图，可缩放">
+    <div class="diagram-toolbar" role="toolbar" aria-label="架构图缩放">
+      <button class="zoom-button" id="zoom-out" type="button" title="缩小（-）" aria-label="缩小架构图">−</button>
+      <button class="zoom-button zoom-level" id="zoom-reset" type="button" title="恢复 100%（0）" aria-label="恢复架构图到 100%">
+        <span id="zoom-level" aria-live="polite">100%</span>
+      </button>
+      <button class="zoom-button" id="zoom-in" type="button" title="放大（+）" aria-label="放大架构图">+</button>
+      <span class="zoom-divider" aria-hidden="true"></span>
+      <button class="zoom-button" id="zoom-fit" type="button" title="适应窗口（F）" aria-label="使架构图适应窗口">⛶</button>
+    </div>
     <pre class="mermaid" id="diagram">
 flowchart LR
     USER(["用户 · 飞书群/私聊"]):::entry
@@ -825,6 +901,74 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
     setTimeout(() => {
       const svg = document.querySelector("#diagram svg");
       if (!svg) return;
+      const diagramPane = document.getElementById("diagram-pane");
+      const zoomLevel = document.getElementById("zoom-level");
+      const zoomOut = document.getElementById("zoom-out");
+      const zoomIn = document.getElementById("zoom-in");
+      const zoomReset = document.getElementById("zoom-reset");
+      const zoomFit = document.getElementById("zoom-fit");
+      const viewBox = svg.viewBox.baseVal;
+      const baseWidth = viewBox.width || svg.getBoundingClientRect().width;
+      const baseHeight = viewBox.height || svg.getBoundingClientRect().height;
+      const minZoom = 0.1;
+      const maxZoom = 2.5;
+      const zoomStep = 0.1;
+      let zoom = 1;
+
+      svg.style.maxWidth = "none";
+
+      function applyZoom(nextZoom, preserveCenter = true) {
+        const previousWidth = diagramPane.scrollWidth;
+        const previousHeight = diagramPane.scrollHeight;
+        const centerX = (diagramPane.scrollLeft + diagramPane.clientWidth / 2) / previousWidth;
+        const centerY = (diagramPane.scrollTop + diagramPane.clientHeight / 2) / previousHeight;
+
+        zoom = Math.min(maxZoom, Math.max(minZoom, nextZoom));
+        svg.style.width = `${baseWidth * zoom}px`;
+        svg.style.height = `${baseHeight * zoom}px`;
+        zoomLevel.textContent = `${Math.round(zoom * 100)}%`;
+        zoomOut.disabled = zoom <= minZoom;
+        zoomIn.disabled = zoom >= maxZoom;
+
+        requestAnimationFrame(() => {
+          if (preserveCenter) {
+            diagramPane.scrollLeft = centerX * diagramPane.scrollWidth - diagramPane.clientWidth / 2;
+            diagramPane.scrollTop = centerY * diagramPane.scrollHeight - diagramPane.clientHeight / 2;
+          } else {
+            diagramPane.scrollTo({ left: 0, top: 0 });
+          }
+        });
+      }
+
+      function fitDiagram() {
+        const availableWidth = Math.max(1, diagramPane.clientWidth - 40);
+        const availableHeight = Math.max(1, diagramPane.clientHeight - 72);
+        applyZoom(Math.min(availableWidth / baseWidth, availableHeight / baseHeight), false);
+      }
+
+      zoomOut.addEventListener("click", () => applyZoom(zoom - zoomStep));
+      zoomIn.addEventListener("click", () => applyZoom(zoom + zoomStep));
+      zoomReset.addEventListener("click", () => applyZoom(1));
+      zoomFit.addEventListener("click", fitDiagram);
+
+      diagramPane.addEventListener("wheel", event => {
+        if (!event.ctrlKey && !event.metaKey) return;
+        event.preventDefault();
+        applyZoom(zoom + (event.deltaY < 0 ? zoomStep : -zoomStep));
+      }, { passive: false });
+
+      diagramPane.addEventListener("keydown", event => {
+        if (event.target.closest("a, button")) return;
+        if (event.key === "+" || event.key === "=") applyZoom(zoom + zoomStep);
+        else if (event.key === "-") applyZoom(zoom - zoomStep);
+        else if (event.key === "0") applyZoom(1);
+        else if (event.key.toLowerCase() === "f") fitDiagram();
+        else return;
+        event.preventDefault();
+      });
+
+      applyZoom(1, false);
+
       let currentSelected = null;
       svg.querySelectorAll(".node").forEach(nodeEl => {
         nodeEl.style.cursor = "pointer";
