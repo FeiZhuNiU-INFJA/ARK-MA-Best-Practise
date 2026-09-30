@@ -6,9 +6,26 @@
 
 ## 0. 前置
 
-- 已装好 `python3` / `curl` / `jq` / `node`（`arkagent init` 内部会调 Node 子进程完成飞书应用扫码建站）。
+- 已装好 `conda` / `curl` / `jq` / `node`（`arkagent init` 内部会调 Node 子进程完成飞书应用扫码建站）。
 - 方舟账号:已开通 Managed Agents,拿到 `ARK_API_KEY`。
 - topic6 数据源 MCP:已部署或本地起好 mock,拿到 `HOT_TOPICS_MCP_URL`。
+
+### 0.1 Python 环境(首次)
+
+在仓库根目录创建 Topic6 独立的 Python 3.11 环境，并安装项目及开发依赖：
+
+```bash
+cd /Users/bytedance/workspace/ark-agent-feishu-bot
+conda create -n topic6 python=3.11 -y
+conda activate topic6
+python -m pip install -e ".[dev]"
+```
+
+后续每次打开新终端，先执行：
+
+```bash
+conda activate topic6
+```
 
 ---
 
