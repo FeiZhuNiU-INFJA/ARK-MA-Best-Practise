@@ -48,10 +48,16 @@ log = logging.getLogger("arkagent.topic6.runner")
 # 触发词:精确匹配 prompt/00_角色与触发.md;命中即启动 topic6 pipeline。
 TRIGGER_KEYWORDS = ("热点报告", "热点周报")
 
-# 模式关键词(用户消息里带就用,不带默认 test)。
-MODE_TEST_KEYWORDS = ("test", "小样本", "试跑")
+# 模式关键词(用户消息里带就用,不带默认 full)。
 MODE_DEMO_KEYWORDS = ("demo", "演示")
-MODE_FULL_KEYWORDS = ("full", "全量", "正式")
+# 旧 test 触发词保留为 full 的兼容别名，但不再作为内部 mode 值。
+MODE_FULL_KEYWORDS = ("full", "完整", "正式", "test", "小样本", "试跑")
+MODE_SKIP_SAMPLING_KEYWORDS = (
+    "skip_sampling",
+    "skip-sampling",
+    "跳过采样",
+    "跳过抽样",
+)
 
 # 进度卡片 patch 节流:同一卡片至少间隔多少秒才发一次 patch,避免飞书频控。
 PROGRESS_MIN_INTERVAL_SEC = 4.0
@@ -66,17 +72,19 @@ def normalize_user_text(text: str, mentioned_bot: bool = False) -> str:
 
 
 def parse_trigger(text: str) -> Optional[str]:
-    """返回 mode(test|demo|full),不是触发消息返回 None。"""
+    """返回 mode(demo|full|skip_sampling),不是触发消息返回 None。"""
     if not text:
         return None
     lower = text.strip().lower()
     if not any(kw in text for kw in TRIGGER_KEYWORDS):
         return None
-    if any(kw in lower for kw in MODE_FULL_KEYWORDS):
-        return "full"
+    if any(kw in lower for kw in MODE_SKIP_SAMPLING_KEYWORDS):
+        return "skip_sampling"
     if any(kw in lower for kw in MODE_DEMO_KEYWORDS):
         return "demo"
-    return "test"
+    if any(kw in lower for kw in MODE_FULL_KEYWORDS):
+        return "full"
+    return "full"
 
 
 # ---- 事件解析 --------------------------------------------------------------
@@ -106,7 +114,7 @@ def extract_hc_payload(text: str) -> Optional[dict]:
 
     coordinator.system.md 已强制约定 HC1/HC2/HC3 在 end_turn 前必须落一个如下 JSON:
 
-        {"hc": "HC1", "mode": "test", "project_dir": "...", ...}
+        {"hc": "HC1", "mode": "full", "project_dir": "...", ...}
 
     正文中允许穿插其它文本,但 JSON 块本身必须完整可解析。逐个尝试正文中的 ``{``
     起点并交给 ``JSONDecoder.raw_decode``，从而正确处理嵌套对象；找不到合法 HC

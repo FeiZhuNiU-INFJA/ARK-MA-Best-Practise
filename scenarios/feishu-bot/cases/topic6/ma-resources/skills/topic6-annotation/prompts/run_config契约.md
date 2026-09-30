@@ -3,7 +3,7 @@
 > 迁移首轮：抽取自 `Projects/_项目模板/run_config.yaml` 的注释。
 > **模板文件本身保留在原地**（新建项目仍复制它），本文件只把「状态机定义」这部分编排知识提出来。
 >
-> ✅ 2026-09-21：模板的 `c3_node` 过期预筛说明、`d_test`/`d_full` 输出路径注释、
+> ✅ 2026-09-21：模板的 `c3_node` 过期预筛说明、`d_sample`/`d_full` 输出路径注释、
 > `current_phase` 值域与版本字段均已修正，与本文件一致。
 
 ---
@@ -64,7 +64,7 @@ init → ab → sample → c0_sample → c0_filter_sample → c_route_sample →
 |---|---|---|
 | `init` | — | 项目目录刚建，run_config 已写入 period |
 | `ab` | `prompt/02` | 取数 + 清洗 + 标准化（一条命令完成） |
-| `sample` | `prompt/03` | 分层抽样，test 500 条、demo 50 条 |
+| `sample` | `prompt/03` | 分层抽样，full 500 条、demo 50 条；skip_sampling 跳过 |
 | `c0_sample` / `c0_full` | `prompt/04` | 第一批：C0 + C3 并发 |
 | `c0_filter_sample` / `c0_filter_full` | `prompt/04` | 筛选「营销可用」子集（纯脚本零成本） |
 | `c_route_sample` / `c_route_full` | `prompt/04` | 第二批：R1~R5 + C2 并发，只吃子集 |
@@ -77,7 +77,7 @@ init → ab → sample → c0_sample → c0_filter_sample → c_route_sample →
 | `done` | — | 流程结束 |
 
 > **2026-09-20 三处修正**：
-> ① 补入 `sample` 一环 —— 原值域没有抽样，而 test 模式必经此步（`prompt/03`）；
+> ① 补入 `sample` 一环 —— 原值域没有抽样，而 full 模式必经此步（`prompt/03`）；
 > ② 补入 `d_merge_sample` / `d_merge_full` —— 原值域里 Phase D 没有名字，D 跑完到 HC1 之间状态无定义；
 > ③ **全部改小写** —— 原定义写 `HC1_wait` 大写，但 `prompt/04,05,07` 共 5 处实际写入都是小写，
 > 大小写不一致会让字符串比较全部落空。统一为小写，与 `hc1_passed` 等字段风格一致。
@@ -114,7 +114,7 @@ R1~R5 与 C2 只处理这个子集（不是全量），C3 不受此筛选影响�
 | `c0_merge` `c0_filter` | prompt/04 筛选 | status / run_id / usable_count / parse_error_excluded / missing_excluded |
 | `c0_retry` | prompt/04 熔断后 | triggered / attempt / max_attempts / still_unresolved / force_accept_used |
 | `r1_platform`…`r5_consumer` `c2_cluster` | prompt/04 第二批 | 同 c0_base，`input_file` = `c0_filter.subset_file` |
-| `d_test` `d_full` | prompt/05 | completed / output_file |
+| `d_sample` `d_full` | prompt/05 | completed / output_file |
 | `hc1_passed` `hc2_passed` `hc3_passed` | 三个人工关卡 | 布尔 + 时间戳 |
 | `e_insights` | prompt/06 | status / round_version / e1_file~e4_file / report_file |
 | `f` | prompt/07 | completed / merged_report_file / feishu_doc_url / published_at |

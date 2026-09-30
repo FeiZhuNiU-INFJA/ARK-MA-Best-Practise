@@ -1,6 +1,6 @@
 # topic6 · 调试快速上手
 
-按顺序过一遍就能起服务、在飞书里跑通 `热点周报 test`。所有命令默认在仓库根目录 `ark-agent-feishu-bot/` 下执行,`cd` 位置在每步开头标注。
+按顺序过一遍就能起服务、在飞书里跑通 `热点周报 full`。所有命令默认在仓库根目录 `ark-agent-feishu-bot/` 下执行,`cd` 位置在每步开头标注。
 
 ---
 
@@ -25,7 +25,7 @@ topic6 专用轻量初始化:只问方舟 API Key + 扫码建飞书应用,写入
 - `FEISHU_APP_ID` / `FEISHU_APP_SECRET`
 
 **不会**创建 digital-employee Agent,也不要求 mock MCP 地址——那些是另一场景的东西。
-topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
+topic6 的 MA 资源统一由第 3 步的 `update_ma.sh` 创建和更新。
 
 > 注意:不要跑不带参数的 `arkagent init`,那是 digital-employee 场景专用,会强制要求输入 mock MCP 公网地址。
 
@@ -87,7 +87,7 @@ topic6 的 MA 资源在第 2 步用 `create_all.sh` 单独建。
 
 ---
 
-## 2. 环境变量清单(跑 create_all.sh 前必须齐)
+## 2. 环境变量清单(跑 update_ma.sh 前必须齐)
 
 **全部写到 `~/.arkagent/cases/topic6/config.env`**(该文件已在 §1 由 `init --topic6` 生成,追加即可,不会入库)。
 
@@ -102,7 +102,7 @@ FEISHU_APP_ID=cli_xxx
 FEISHU_APP_SECRET=xxx
 ```
 
-`create_all.sh` 会默认将 `FEISHU_APP_ID/FEISHU_APP_SECRET` 复用为沙箱使用的
+`update_ma.sh` 会默认将 `FEISHU_APP_ID/FEISHU_APP_SECRET` 复用为沙箱使用的
 `LARK_APP_ID/LARK_APP_SECRET`，并把 App ID 同步为 lark-cli 使用的
 `LARKSUITE_CLI_APP_ID`。只有 Gateway 与沙箱需要使用不同飞书应用时，才在配置中
 显式设置 `LARK_APP_ID` 和 `LARK_APP_SECRET`。
@@ -150,130 +150,42 @@ refresh token 仅保存在权限为 `0600` 的 Topic6 SQLite 数据库中，不�
 AUTHORIZED_OPEN_IDS=ou_xxx ou_yyy   # 空格或逗号分隔
 ```
 
-### 加载到 shell(每次开新终端都要跑)
+### 手工执行子脚本时加载到 shell
 
 ```bash
 set -a; source ~/.arkagent/cases/topic6/config.env; set +a
 ```
 
-`set -a` 让 source 出来的所有变量自动 export,省去挨个 export。跑 `pack_skills.sh` / `upload_skills.py` / `create_all.sh` 都依赖这一步。
+正常使用 `update_ma.sh` 时不需要执行这一步，脚本会自动读取配置。只有绕过统一入口、
+单独调试 `pack_skills.sh`、`upload_skills.py` 或 `create_all.sh` 时才需要手工加载。
 
 ---
 
-## 3. 建 topic6 MA 资源(首次)
+## 3. 更新资源并启动 Gateway
+
+首次部署和后续更新都使用同一个入口。在 `scenarios/feishu-bot` 目录执行：
 
 ```bash
-cd scenarios/feishu-bot/cases/topic6
-
-# 3.1 打包 6 个 Skill zip → tools/out/*.zip
-./tools/pack_skills.sh
-
-# 3.2 上传 Skill → 写回 ma-resources/skill_ids.json
-python3 tools/upload_skills.py
-
-# 3.3 建 Environment / Memory Store / Annotator / Insighter / Coordinator
-./ma-resources/create_all.sh
-```
-
- `create_all.sh` 会打印:
-
-- `ENVIRONMENT_ID`
-- `MEMORY_STORE_ID`
-- `AGENT_ANNOTATOR_ID` / `AGENT_INSIGHTER_ID`
-- `AGENT_COORDINATOR_ID`（脚本会自动回写 config.env）
-
-后续只是改 Prompt / Skill,直接重跑 `./ma-resources/create_all.sh` 即可——3 个 Agent 每次都会强制重建,skill_id / prompt 都会一并生效。仅当 `environment.json` 或 memory md 文件也改过时,才分别加上 `--update-env` / `--update-memory`。
-
-### 3.4 全量更新所有 Topic 6 资源
-
-以下流程会:
-
-- 运行完整测试
-- 重新打包并强制上传全部 6 个 Skills
-- 原地更新 Environment
-- 更新已有 Memory 内容
-- 删除并重建 Annotator、Insighter、Coordinator
-- 自动回写新的资源 ID
-
-在任意目录执行均可:
-
-```bash
-/Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/update_ma.sh
-```
-
-脚本默认读取 `~/.arkagent/cases/topic6/config.env`，并自动使用当前
-`nio-ma-demo` 环境；若未激活但本机有 `conda`，则自动通过 `conda run` 执行。
-它不会停止或重启 Gateway。更新完成后手动重启：
-
-| 组件 | 更新方式 | ID |
-|---|---|---|
-| 6 个 Skills | 强制重新上传 | **变化** |
-| Annotator / Insighter / Coordinator | 删除同名旧 Agent 后重建 | **变化** |
-| Environment | 按名称原地更新 | **不变** |
-| Memory Store | 按名称原地更新 | **不变** |
-| 飞书 App / Vault | 不由脚本更新 | **不变** |
-
-Coordinator 的新 ID 会自动回写 `~/.arkagent/cases/topic6/config.env`。运行中的
-Gateway 仍持有旧 ID，所以脚本结束后必须重启：
-
-```bash
-cd /Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot
-python cases/topic6/authorize_miaoda_user.py  # 每位妙搭发布人首次执行一次
+./cases/topic6/update_ma.sh
 python -m arkagent run --case topic6
 ```
 
-Skill 和 Coordinator Prompt 只在创建 Session 时挂载。`update_ma.sh` 前已经启动的
-Session 不会热更新；验证 `run_demo_routes.py` 的小批次 checkpoint 修复时，必须在
-Gateway 重启后从飞书新建任务，不能继续恢复旧 Session。
+`update_ma.sh` 已包含完整测试、Skill 打包上传、Environment 与 Memory 更新、Agent
+重建以及 Gateway 配置回写，不需要再手工执行这些子步骤。
+
+注意：
+
+- 妙搭 OAuth 仅需每位发布人首次按第 2.3 节授权，不必每次更新后重复执行。
+- Skill 和 Prompt 不会热更新到已有 Session；Gateway 启动后需从飞书新建任务验证。
 
 ---
 
-## 4. 确认 topic6 资源 ID
-
-`create_all.sh` 会打印以下 ID:
-
-- `ENVIRONMENT_ID`
-- `MEMORY_STORE_ID`
-- `AGENT_ANNOTATOR_ID`
-- `AGENT_INSIGHTER_ID`
-- `AGENT_COORDINATOR_ID`
-
-如果 `~/.arkagent/cases/topic6/config.env` 已存在,脚本会自动更新:
-
-```env
-TOPIC6_COORDINATOR_AGENT_ID=<AGENT_COORDINATOR_ID>
-TOPIC6_ENVIRONMENT_ID=<ENVIRONMENT_ID>
-TOPIC6_MEMORY_STORE_ID=<MEMORY_STORE_ID>
-```
-
-更新完成后重新加载配置,或重启 Gateway 使新 ID 生效。
-
----
-
-## 5. 起服务
-
-```bash
-cd scenarios/feishu-bot
-python3 -m arkagent run --case topic6
-```
-
-启动日志出现下面这行才算 topic6 装配成功:
-
-```
-- topic6 场景：已启用(coordinator=xxx, env=xxx)
-topic6 触发词：热点报告 / 热点周报(可加 test/demo/full 指定模式)
-```
-
-想拉更详细日志:`ARKAGENT_LOG_LEVEL=DEBUG python3 -m arkagent run --case topic6`。
-
----
-
-## 5. 冒烟测试
+## 4. 冒烟测试
 
 在飞书 Bot 私聊或群里发送:
 
 ```
-热点周报 test
+热点周报 full
 ```
 
 需要只跑 50 条样本并继续生成演示报告时发送：
@@ -283,6 +195,12 @@ topic6 触发词：热点报告 / 热点周报(可加 test/demo/full 指定模�
 ```
 
 demo 在 HC1 通过后直接进入洞察与报告阶段,不会触发全量标注和 HC2。
+
+需要跳过 500 条采样校准、直接跑全量时发送：
+
+```text
+热点周报 skip_sampling
+```
 
 Phase E 默认以最多 2 路并发流式生成 E1~E4。若某版块在断连重试后仍失败，使用相同
 参数重新执行 `pipeline_e.py`；脚本会读取 `06_洞察/v{N}/pipeline_e_checkpoint_v{N}.json`
@@ -298,13 +216,13 @@ Phase E 默认以最多 2 路并发流式生成 E1~E4。若某版块在断连重
 
 ---
 
-## 6. 常见故障排查
+## 5. 常见故障排查
 
 | 现象                              | 排查方向                                                                                                                                                             |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 日志"topic6 场景:未启用"          | 检查`TOPIC6_COORDINATOR_AGENT_ID` 是否已写入 config.env、拼写是否正确                                                                                              |
-| Coordinator 拉不到 hot-topics MCP | `HOT_TOPICS_MCP_URL` 未 export 就跑了 `create_all.sh`,MCP URL 被空值渲染进 Agent 定义;重新 export 后加 `--update-env` 重跑 `create_all.sh`(Agent 会自动重建) |
-| Skill 找不到                      | `skill_ids.json` 有 null 项,重跑 `upload_skills.py`                                                                                                              |
+| Coordinator 拉不到 hot-topics MCP | 检查 `config.env` 中的 `HOT_TOPICS_MCP_URL`，修正后重跑 `./cases/topic6/update_ma.sh`                                                                          |
+| Skill 找不到                      | 重跑 `./cases/topic6/update_ma.sh`                                                                                                                              |
 | HC 卡片点击后无响应               | Feishu Bot 后台"事件订阅"里是否开启`card.action.trigger` 权限                                                                                                      |
 | SSE 中断/超时                     | 单会话默认 10 分钟,超长任务加大`SESSION_TIMEOUT_MS`(毫秒)                                                                                                          |
 | Phase E `Connection error`        | 先看 `pipeline_e_report_v{N}.json`；按原参数重跑一次正式入口，成功版块会命中 checkpoint，只补失败版块                                                             |
@@ -320,7 +238,7 @@ Phase E 默认以最多 2 路并发流式生成 E1~E4。若某版块在断连重
 - 配置字段 [config.py](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent/config.py)
 - topic6 运行器 [topic6_runner.py](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent/gateway/topic6_runner.py)
 - HITL 卡片 [topic6_hitl.py](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent/gateway/topic6_hitl.py)
-- 资源建 [create_all.sh](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources/create_all.sh)
+- 统一更新入口 [update_ma.sh](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/update_ma.sh)
 - Coordinator Prompt [coordinator.system.md](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources/agents/coordinator.system.md)
 - 架构全景 HTML [topic6_ma_architecture.html](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/topic6_ma_architecture.html)
 - Pipeline 对照 HTML [topic6_pipeline_overview.html](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/topic6_pipeline_overview.html)

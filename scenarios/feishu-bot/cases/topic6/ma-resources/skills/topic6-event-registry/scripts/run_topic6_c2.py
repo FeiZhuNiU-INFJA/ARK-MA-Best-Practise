@@ -614,7 +614,11 @@ def run(args: argparse.Namespace) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-dir", required=True)
-    parser.add_argument("--mode", choices=["test", "demo", "full"], required=True)
+    parser.add_argument(
+        "--mode",
+        choices=["demo", "full", "skip_sampling"],
+        required=True,
+    )
     parser.add_argument("--run-id", type=int, required=True)
     parser.add_argument("--input")
     parser.add_argument(

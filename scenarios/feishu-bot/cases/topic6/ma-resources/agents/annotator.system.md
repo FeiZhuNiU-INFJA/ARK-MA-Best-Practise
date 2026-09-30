@@ -11,7 +11,7 @@
 ```json
 {
   "task": "c0",
-  "mode": "test",
+  "mode": "full",
   "project_dir": "W40热点周报_20260921-20260927",
   "input_path": "/workspace/Projects/W40热点周报_20260921-20260927/03_抽样/sample_500.xlsx",
   "output_path": "/workspace/Projects/W40热点周报_20260921-20260927/04_标注/c0_raw.jsonl",
@@ -24,7 +24,7 @@
 | 字段 | 取值 | 说明 |
 |---|---|---|
 | `task` | `c0` / `c3` / `r1` / `r2` / `r3` / `r4` / `r5` | 决定用哪条 Prompt、取哪些列、写什么字段 |
-| `mode` | `test` / `demo` / `full` | 只影响文案回显,不改变标注逻辑 |
+| `mode` | `demo` / `full` / `skip_sampling` | 只影响文案回显,不改变标注逻辑 |
 | `project_dir` | 形如 `W{周次}热点周报_{起日}-{止日}` | 项目目录名 |
 | `input_path` | 绝对路径 | 待标注的 xlsx,行数 = 需要标注的样本量 |
 | `output_path` | 兼容字段 | 脚本按 task/run_id 写固定目录,不要把本字段传给 CLI |

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import http.client
 import json
 import os
 import random
@@ -13,12 +12,11 @@ import re
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -33,7 +31,7 @@ MODEL_PRICING_CNY = {
 }
 CHECKPOINT_VERSION = 1
 DEFAULT_BATCH_SIZE = 5
-DEFAULT_MAX_WORKERS = 2
+DEFAULT_MAX_WORKERS = 5
 DEFAULT_MAX_ATTEMPTS = 5
 
 ROUTES = {
@@ -146,17 +144,28 @@ def _request_route(
     encoded_body = json.dumps(body, ensure_ascii=False).encode()
     last_error: Exception | None = None
     for attempt in range(max_attempts):
-        request = urllib.request.Request(
-            _api_url(base_url),
-            data=encoded_body,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-        )
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                payload = json.load(response)
+            # A fresh client per attempt prevents a disconnected keep-alive
+            # socket from poisoning subsequent retries.
+            with httpx.Client(
+                timeout=httpx.Timeout(timeout),
+                limits=httpx.Limits(
+                    max_connections=1,
+                    max_keepalive_connections=0,
+                ),
+                http2=False,
+            ) as client:
+                response = client.post(
+                    _api_url(base_url),
+                    content=encoded_body,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                        "Connection": "close",
+                    },
+                )
+                response.raise_for_status()
+                payload = response.json()
             choices = payload.get("choices") or []
             if not choices:
                 raise ValueError("Ark response has no choices")
@@ -175,17 +184,16 @@ def _request_route(
                 "input_tokens": int(usage.get("prompt_tokens") or 0),
                 "output_tokens": int(usage.get("completion_tokens") or 0),
             }
-        except urllib.error.HTTPError as error:
+        except httpx.HTTPStatusError as error:
             last_error = error
-            if error.code != 429 and not 500 <= error.code < 600:
+            status_code = error.response.status_code
+            if status_code != 429 and not 500 <= status_code < 600:
                 raise RuntimeError(
-                    f"{route_name} Ark HTTP {error.code}: {error.reason}"
+                    f"{route_name} Ark HTTP {status_code}: "
+                    f"{error.response.text[:300]}"
                 ) from error
         except (
-            urllib.error.URLError,
-            http.client.HTTPException,
-            ConnectionError,
-            OSError,
+            httpx.TransportError,
             json.JSONDecodeError,
             ValueError,
         ) as error:
@@ -625,89 +633,72 @@ def run(
         )
 
     errors: dict[str, list[str]] = {}
-    finalized = set()
 
-    def finalize_if_ready(route_name: str) -> None:
-        if route_name in finalized:
-            return
+    def run_route(route_name: str) -> dict:
+        """Process one route serially; separate routes run concurrently."""
+        route = ROUTES[route_name]
         chunks = route_chunks[route_name]
         checkpoint = checkpoints[route_name]
-        if not all(
-            _chunk_is_complete(checkpoint["chunks"].get(str(index)), chunk_rows)
-            for index, chunk_rows in enumerate(chunks)
-        ):
-            return
-        finalized.add(route_name)
-        try:
-            summary[route_name] = _finalize_route(
-                project,
-                frame,
-                route_name,
-                checkpoint,
-                model=model,
-                run_id=run_id,
-                signature=signature,
-            )
-            print(f"[demo-routes] {route_name} complete", flush=True)
-        except Exception as error:
-            errors.setdefault(route_name, []).append(str(error))
-
-    for route_name in active_routes:
-        finalize_if_ready(route_name)
-
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {}
-        for route_name in active_routes:
-            route = ROUTES[route_name]
-            checkpoint = checkpoints[route_name]
-            for chunk_index, chunk_rows in enumerate(route_chunks[route_name]):
-                if _chunk_is_complete(
-                    checkpoint["chunks"].get(str(chunk_index)), chunk_rows
-                ):
-                    print(
-                        f"[demo-routes] {route_name} chunk {chunk_index + 1}/"
-                        f"{len(route_chunks[route_name])} checkpoint hit",
-                        flush=True,
-                    )
-                    continue
-                future = pool.submit(
-                    _request_route,
-                    route_name,
-                    route,
-                    chunk_rows,
-                    model=model,
-                    base_url=base_url,
-                    api_key=api_key,
-                    max_attempts=max_attempts,
-                )
-                futures[future] = (route_name, chunk_index, chunk_rows)
-
-        for future in as_completed(futures):
-            route_name, chunk_index, chunk_rows = futures[future]
-            try:
-                call = future.result()
-                checkpoint = checkpoints[route_name]
-                checkpoint["chunks"][str(chunk_index)] = {
-                    "row_ids": [str(row["row_id"]) for row in chunk_rows],
-                    "normalized": call["normalized"],
-                    "input_tokens": call["input_tokens"],
-                    "output_tokens": call["output_tokens"],
-                    "completed_at": datetime.now().astimezone().isoformat(),
-                }
-                _atomic_json(
-                    checkpoint,
-                    _task_paths(project, route_name, run_id)["checkpoint"],
-                )
+        for chunk_index, chunk_rows in enumerate(chunks):
+            if _chunk_is_complete(
+                checkpoint["chunks"].get(str(chunk_index)), chunk_rows
+            ):
                 print(
                     f"[demo-routes] {route_name} chunk {chunk_index + 1}/"
-                    f"{len(route_chunks[route_name])} complete",
+                    f"{len(chunks)} checkpoint hit",
                     flush=True,
                 )
-                finalize_if_ready(route_name)
+                continue
+            call = _request_route(
+                route_name,
+                route,
+                chunk_rows,
+                model=model,
+                base_url=base_url,
+                api_key=api_key,
+                max_attempts=max_attempts,
+            )
+            checkpoint["chunks"][str(chunk_index)] = {
+                "row_ids": [str(row["row_id"]) for row in chunk_rows],
+                "normalized": call["normalized"],
+                "input_tokens": call["input_tokens"],
+                "output_tokens": call["output_tokens"],
+                "completed_at": datetime.now().astimezone().isoformat(),
+            }
+            _atomic_json(
+                checkpoint,
+                _task_paths(project, route_name, run_id)["checkpoint"],
+            )
+            print(
+                f"[demo-routes] {route_name} chunk {chunk_index + 1}/"
+                f"{len(chunks)} complete",
+                flush=True,
+            )
+        result = _finalize_route(
+            project,
+            frame,
+            route_name,
+            checkpoint,
+            model=model,
+            run_id=run_id,
+            signature=signature,
+        )
+        print(f"[demo-routes] {route_name} complete", flush=True)
+        return result
+
+    with ThreadPoolExecutor(
+        max_workers=min(max_workers, len(active_routes))
+    ) as pool:
+        futures = {
+            pool.submit(run_route, route_name): route_name
+            for route_name in active_routes
+        }
+        for future in as_completed(futures):
+            route_name = futures[future]
+            try:
+                summary[route_name] = future.result()
             except Exception as error:
-                errors.setdefault(route_name, []).append(
-                    f"chunk {chunk_index + 1}: {error}"
-                )
+                errors.setdefault(route_name, []).append(str(error))
 
     incomplete = [name for name in active_routes if name not in summary]
     if incomplete:

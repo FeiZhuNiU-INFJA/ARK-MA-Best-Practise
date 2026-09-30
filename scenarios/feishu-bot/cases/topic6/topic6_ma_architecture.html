@@ -76,11 +76,76 @@
     min-height: 0;
   }
   .diagram-pane {
+    position: relative;
     min-width: 0;
     overflow: auto;
     padding: 20px;
     background: var(--bg);
     border-right: 1px solid var(--border);
+    outline: none;
+  }
+  .diagram-pane:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--primary);
+  }
+  .diagram-toolbar {
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    width: max-content;
+    margin-bottom: 10px;
+    padding: 4px;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(30, 64, 175, 0.1);
+    backdrop-filter: blur(8px);
+  }
+  .zoom-button {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: #334155;
+    font: 600 18px/1 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    cursor: pointer;
+    transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  }
+  .zoom-button:hover {
+    background: #eff6ff;
+    color: var(--primary);
+  }
+  .zoom-button:active {
+    transform: translateY(1px);
+  }
+  .zoom-button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+  }
+  .zoom-button:disabled {
+    color: #cbd5e1;
+    cursor: not-allowed;
+  }
+  .zoom-button:disabled:hover {
+    background: transparent;
+  }
+  .zoom-level {
+    width: 48px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .zoom-divider {
+    width: 1px;
+    height: 20px;
+    margin: 0 4px;
+    background: var(--border);
   }
   .detail-pane {
     min-width: 0;
@@ -90,12 +155,14 @@
   }
   .mermaid {
     cursor: default;
-    min-width: 780px;
+    width: max-content;
+    min-width: 100%;
     margin: 0;
   }
   .mermaid svg {
     display: block;
     margin: 0 auto;
+    max-width: none;
   }
   .mermaid .node { cursor: pointer; transition: opacity 0.2s; }
   .mermaid .node:hover { opacity: 0.75; }
@@ -237,7 +304,16 @@
 </header>
 
 <div class="layout">
-  <div class="diagram-pane">
+  <div class="diagram-pane" id="diagram-pane" tabindex="0" aria-label="MA 架构图，可缩放">
+    <div class="diagram-toolbar" role="toolbar" aria-label="架构图缩放">
+      <button class="zoom-button" id="zoom-out" type="button" title="缩小（-）" aria-label="缩小架构图">−</button>
+      <button class="zoom-button zoom-level" id="zoom-reset" type="button" title="恢复 100%（0）" aria-label="恢复架构图到 100%">
+        <span id="zoom-level" aria-live="polite">100%</span>
+      </button>
+      <button class="zoom-button" id="zoom-in" type="button" title="放大（+）" aria-label="放大架构图">+</button>
+      <span class="zoom-divider" aria-hidden="true"></span>
+      <button class="zoom-button" id="zoom-fit" type="button" title="适应窗口（F）" aria-label="使架构图适应窗口">⛶</button>
+    </div>
     <pre class="mermaid" id="diagram">
 flowchart LR
     USER(["用户 · 飞书群/私聊"]):::entry
@@ -340,7 +416,7 @@ flowchart LR
         <h3>触发方式</h3>
         <ul>
           <li>在群里 @Bot 或私聊 Bot,发一句包含 <code>热点报告</code> / <code>热点周报</code> 的消息</li>
-          <li>可选参数:<code>mode=test</code>(500 抽样)或 <code>mode=full</code></li>
+          <li>可选参数:<code>mode=full</code>(先 500 条校准再跑全量)、<code>mode=skip_sampling</code>(跳过采样)或 <code>mode=demo</code></li>
           <li>后续 HC1 / HC2 / HC3 阶段,点击 Bot 发来的交互卡片按钮(通过 / 打回 / 备注)</li>
         </ul>
         <h3>权限</h3>
@@ -534,7 +610,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         <h3>下发契约(对子 Agent)</h3>
         <div class="stream">multiagent.delegate(agent=topic6-annotator, message={
   <span class="k">"task"</span>: <span class="s">"c0"</span>,
-  <span class="k">"mode"</span>: <span class="s">"test"</span>,
+  <span class="k">"mode"</span>: <span class="s">"full"</span>,
   <span class="k">"project_dir"</span>: <span class="s">"W40..."</span>,
   <span class="k">"input_path"</span>: <span class="s">"..."</span>,
   <span class="k">"output_path"</span>: <span class="s">"..."</span>,
@@ -592,7 +668,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         <h3>并发形态</h3>
         <ul>
           <li>Phase E 一次委派 <b>4 路并发</b>(section=e1..e4)</li>
-          <li>test 模式收到 → 直接返回 failed(抽样数据洞察不可信)</li>
+          <li>full 模式的 500 条校准结果收到 → 直接返回 failed(抽样数据洞察不可信)</li>
         </ul>
         <h3>用到的 MA 组件</h3>
         <ul>
@@ -610,7 +686,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
     S1: {
       title: "Skill · topic6-fetch-normalize",
       tags: ['<span class="tag skill">Custom Skill</span>'],
-      desc: "Phase A+B 取数与标准化,以及 test 模式抽样。",
+      desc: "Phase A+B 取数与标准化,以及 full 模式的 500 条抽样。",
       content: `
         <h3>Skill 目录</h3>
         <p>${maLink('skills/topic6-fetch-normalize/SKILL.md')} → 沙箱 <code>/mnt/skills/topic6-fetch-normalize/</code></p>
@@ -795,7 +871,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         <h3>/mnt/session/outputs/</h3>
         <ul>
           <li><b>最终产物挂载点</b>:方舟平台自动落到自有 TOS,便于外部下载</li>
-          <li>典型内容:HC1/HC2 卡片引用的 wide_table_test/full_r{N}.xlsx · Phase G 的 index.html</li>
+          <li>典型内容:HC1/HC2 卡片引用的 wide_table_full/skip_sampling_r{N}.xlsx · Phase G 的 index.html</li>
         </ul>
         <h3>项目目录命名</h3>
         <p><code>W{周次}热点周报_{起日}-{止日}</code>(见 topic6-annotation/prompt/run_config契约.md)</p>
@@ -825,6 +901,74 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
     setTimeout(() => {
       const svg = document.querySelector("#diagram svg");
       if (!svg) return;
+      const diagramPane = document.getElementById("diagram-pane");
+      const zoomLevel = document.getElementById("zoom-level");
+      const zoomOut = document.getElementById("zoom-out");
+      const zoomIn = document.getElementById("zoom-in");
+      const zoomReset = document.getElementById("zoom-reset");
+      const zoomFit = document.getElementById("zoom-fit");
+      const viewBox = svg.viewBox.baseVal;
+      const baseWidth = viewBox.width || svg.getBoundingClientRect().width;
+      const baseHeight = viewBox.height || svg.getBoundingClientRect().height;
+      const minZoom = 0.1;
+      const maxZoom = 2.5;
+      const zoomStep = 0.1;
+      let zoom = 1;
+
+      svg.style.maxWidth = "none";
+
+      function applyZoom(nextZoom, preserveCenter = true) {
+        const previousWidth = diagramPane.scrollWidth;
+        const previousHeight = diagramPane.scrollHeight;
+        const centerX = (diagramPane.scrollLeft + diagramPane.clientWidth / 2) / previousWidth;
+        const centerY = (diagramPane.scrollTop + diagramPane.clientHeight / 2) / previousHeight;
+
+        zoom = Math.min(maxZoom, Math.max(minZoom, nextZoom));
+        svg.style.width = `${baseWidth * zoom}px`;
+        svg.style.height = `${baseHeight * zoom}px`;
+        zoomLevel.textContent = `${Math.round(zoom * 100)}%`;
+        zoomOut.disabled = zoom <= minZoom;
+        zoomIn.disabled = zoom >= maxZoom;
+
+        requestAnimationFrame(() => {
+          if (preserveCenter) {
+            diagramPane.scrollLeft = centerX * diagramPane.scrollWidth - diagramPane.clientWidth / 2;
+            diagramPane.scrollTop = centerY * diagramPane.scrollHeight - diagramPane.clientHeight / 2;
+          } else {
+            diagramPane.scrollTo({ left: 0, top: 0 });
+          }
+        });
+      }
+
+      function fitDiagram() {
+        const availableWidth = Math.max(1, diagramPane.clientWidth - 40);
+        const availableHeight = Math.max(1, diagramPane.clientHeight - 72);
+        applyZoom(Math.min(availableWidth / baseWidth, availableHeight / baseHeight), false);
+      }
+
+      zoomOut.addEventListener("click", () => applyZoom(zoom - zoomStep));
+      zoomIn.addEventListener("click", () => applyZoom(zoom + zoomStep));
+      zoomReset.addEventListener("click", () => applyZoom(1));
+      zoomFit.addEventListener("click", fitDiagram);
+
+      diagramPane.addEventListener("wheel", event => {
+        if (!event.ctrlKey && !event.metaKey) return;
+        event.preventDefault();
+        applyZoom(zoom + (event.deltaY < 0 ? zoomStep : -zoomStep));
+      }, { passive: false });
+
+      diagramPane.addEventListener("keydown", event => {
+        if (event.target.closest("a, button")) return;
+        if (event.key === "+" || event.key === "=") applyZoom(zoom + zoomStep);
+        else if (event.key === "-") applyZoom(zoom - zoomStep);
+        else if (event.key === "0") applyZoom(1);
+        else if (event.key.toLowerCase() === "f") fitDiagram();
+        else return;
+        event.preventDefault();
+      });
+
+      applyZoom(1, false);
+
       let currentSelected = null;
       svg.querySelectorAll(".node").forEach(nodeEl => {
         nodeEl.style.cursor = "pointer";

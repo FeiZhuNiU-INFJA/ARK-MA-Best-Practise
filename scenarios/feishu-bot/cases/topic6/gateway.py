@@ -96,7 +96,7 @@ class Topic6Gateway:
                 if cancelled is None:
                     await self._reply(
                         message.chat_id,
-                        "[/new] 收到。当前会话没有活跃任务,可发送「热点周报 test」「热点周报 demo」或「热点周报 full」开新一轮。",
+                        "[/new] 收到。当前会话没有活跃任务,可发送「热点周报 demo」「热点周报 full」或「热点周报 skip_sampling」开新一轮。",
                     )
                 else:
                     self._stop_token_keepalive(cancelled.job_id)
@@ -120,7 +120,7 @@ class Topic6Gateway:
             if mode is None:
                 await self._reply(
                     message.chat_id,
-                    "当前 Bot 仅启用 topic6 场景。发送「热点周报 test」(500 条标注校准)、「热点周报 demo」(50 条出报告)或「热点周报 full」(全量)触发;发送 /new 可取消当前任务。",
+                    "当前 Bot 仅启用 topic6 场景。发送「热点周报 demo」(50 条出报告)、「热点周报 full」(先 500 条校准再跑全量)或「热点周报 skip_sampling」(跳过 500 条采样,直接跑全量)触发;发送 /new 可取消当前任务。",
                 )
                 self._store.complete_event(message.event_id, "completed")
                 return

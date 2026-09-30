@@ -15,7 +15,7 @@ CLI:
     --phase C --task c0_基础事实标注 --round 1 --prompt-version v1 \\
     --model-id gpt-4o-mini --platform OpenAI \\
     --input-tokens 450000 --output-tokens 50000 \\
-    --raw-cost 0.075 --currency USD --row-count 500 --mode test
+    --raw-cost 0.075 --currency USD --row-count 500 --mode full
 
   # finalize
   python cost_tracker.py --project-dir /workspace/Projects/W35 finalize \\

@@ -27,7 +27,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 1. `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"` → 决定后续还读哪些 memory 文件
 2. `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/错误案例库.md"` → 历史踩坑,防重蹈覆辙
 3. `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md"` → 确认 C0 / R1~R5 / C2 / C3 各任务当前活跃 Prompt 版本
-4. 解析用户消息,确定运行参数(周次、mode=test|demo|full)
+4. 解析用户消息,确定运行参数(周次、mode=demo|full|skip_sampling)
 5. 检查 `/workspace/` 下是否已有 `Projects/{PROJECT_DIR}/run_config.yaml`
    - 存在:从 `status.current_phase` 断点续跑
    - 不存在:创建新项目目录(名格式见 `/mnt/skills/topic6-annotation/prompts/run_config契约.md`)并写入初始 run_config.yaml
@@ -56,17 +56,18 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 - 调 `/mnt/skills/topic6-fetch-normalize/` 脚本做 log1p + P1/P99 归一化 → `02_标准化/hot_topics_normalized.xlsx`
 - 关卡:行数 > 200,四平台均有数据,各平台最高分 > 90,无 NaN
 
-### 抽样(test / demo 模式)
+### 抽样(full / demo 模式)
 
-- `mode=test`:调 `/mnt/skills/topic6-fetch-normalize/scripts/sample_500.py --size 500` → `03_抽样/sample_500.xlsx`
+- `mode=full`:调 `/mnt/skills/topic6-fetch-normalize/scripts/sample_500.py --size 500` → `03_抽样/sample_500.xlsx`
 - `mode=demo`:调 `/mnt/skills/topic6-fetch-normalize/scripts/sample_500.py --size 50` → `03_抽样/sample_500.xlsx`
+- `mode=skip_sampling`:跳过本阶段,直接使用标准化全量数据
 - `sample_500.xlsx` 是兼容既有合并和断点恢复逻辑的固定文件名；实际行数必须以 `status.sample.sample_rows` 为准
 
 ### Phase C 第一批(并发)
 
 **你必须通过 Multi Agent 委派两个子 Agent 并行执行:**
 
-- 委派子 Agent `topic6-annotator` 执行 C0 基础事实层,input=`03_抽样/sample_500.xlsx`(test/demo) 或 `02_标准化/hot_topics_normalized.xlsx`(full),task="c0"
+- 委派子 Agent `topic6-annotator` 执行 C0 基础事实层,input=`03_抽样/sample_500.xlsx`(full/demo) 或 `02_标准化/hot_topics_normalized.xlsx`(skip_sampling),task="c0"
 - 委派子 Agent `topic6-annotator` 执行 C3 节点标注,同上 input,task="c3"
 - `datahub_annotate.py` 的 `--run-id` 必须传整数轮次(如 `1`),不得传流水线字符串 ID
 - DataHub 模型使用 `$DATAHUB_MODEL_ID`（默认且大小写敏感的准确 ID 为 `Doubao-Seed-Evolving`）；这是 DataHub 的模型名，不得传给方舟 Chat API。以 completion_meta 的实际模型和 `total_consume` 记账,不得套用 MA Agent 模型价格
@@ -82,7 +83,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 
 ### Phase C 第二批(R1~R5 + C2 并发,仅跑筛选子集)
 
-`mode=test|full` 时并发启动 6 条执行分支:5 个 `topic6-annotator` 子 Agent +
+`mode=full|skip_sampling` 时并发启动 6 条执行分支:5 个 `topic6-annotator` 子 Agent +
 Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启动 C2；禁止等 R1~R5
 返回后才启动 C2。
 
@@ -112,13 +113,15 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
   wait "$C2_PID"; C2_RC=$?
   test "$ROUTES_RC" -eq 0 -a "$C2_RC" -eq 0
   ```
-  `run_demo_routes.py` 复用 R1~R5 正式 Prompt 和输出列，内部按小批次有限并发调用
-  Ark，并对每个成功批次原子 checkpoint；重跑时只补缺失批次。若该入口失败，先读取
+  `run_demo_routes.py` 复用 R1~R5 正式 Prompt 和输出列，内部固定并发启动 R1~R5
+  五个 route worker；每个 worker 内按小批次串行调用 Ark，并对每个成功批次原子
+  checkpoint，重跑时只补缺失批次。它与 C2 快速入口并发，因此第二批共六路并行。
+  若该入口失败，先读取
   `04_标注/demo_routes.log`，然后最多重跑一次同一正式入口（参数保持不变）以恢复。
   禁止用 inline Python、临时脚本或逐条手工调用绕过正式入口；禁止精简或改写 R1~R5 Prompt，
   禁止切换模型、修改 batch size 或删除 checkpoint。第二次仍失败则本阶段失败，
   如实回报错误并停止。`--demo-fast` 用一次批量事件归并直接生成 C2 两列结果。该快速
-  路径仅用于 50 条样本的流程演示，不得用于 test/full 或正式业务结论。
+  路径仅用于 50 条样本的流程演示，不得用于 full/skip_sampling 或正式业务结论。
 - 单入口内部固定执行正确的跨平台拓扑：四平台并行 `00_clean_titles.py` → `x0_merge_platforms.py` → merged 目录统一执行 `01→02→03→04→05→06→07→x2→x3→x4`。严禁在 x0 前按平台执行 01~04；x0 只读取阶段 00 的 `clean_titles.jsonl`，提前执行的 01~04 不会被合库。
 - C2 Chat 模型读取 `$C2_CHAT_MODEL_ID`，默认 `doubao-seed-evolving`；Embedding 模型读取 `$EMBEDDING_MODEL_ID`，默认 `doubao-embedding-vision-251215`。二者都不是 DataHub 的 `Doubao-Seed-Evolving`。
 - 等待 R1~R5 时可读取 `04_标注/C2_事件归档/c2_run/c2_status.json` 查看进度。若状态为 `running`，只轮询，禁止重复启动；若 Session 恢复，可再次调用同一入口，它会按 `completed_stages` 续跑。
@@ -132,7 +135,7 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 - 执行 `python /mnt/skills/topic6-annotation/scripts/merge_annotations.py` → `05_合并/wide_table_{mode}_r{N}.xlsx`(28 列宽表)
 - 关卡:输出行数 = 输入行数,row_id 唯一
 
-### HC1 · 小样本验收(test / demo) · 结构化输出后 end_turn
+### HC1 · 小样本验收(full / demo) · 结构化输出后 end_turn
 
 **⚠️ 硬约束(必须逐条遵守):**
 
@@ -147,7 +150,7 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 ```json
 {
   "hc": "HC1",
-  "mode": "{test|demo}",
+  "mode": "{full|demo}",
   "project_dir": "{PROJECT_DIR}",
   "wide_table_path": "/mnt/session/outputs/{PROJECT_DIR}/05_合并/wide_table_{mode}_r1.xlsx",
   "distribution_summary": {
@@ -170,13 +173,14 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 
 用户通过卡片按钮回复 `HC1 通过` / `HC1 打回:xxx` / `HC1 备注:xxx` 后,你会收到新的 `user.message`。
 
-- `mode=test`:收到“通过”后进入 C→D 全量,再经过 HC2。
+- `mode=full`:收到“通过”后进入 C→D 全量,再经过 HC2。
 - `mode=demo`:收到“通过”后**直接进入 Phase E**,使用 `wide_table_demo_r{N}.xlsx`;严禁重跑全量 C→D,跳过 HC2。demo 报告必须注明“基于 50 条分层样本,仅供流程演示,不可作为正式全量结论”。
-- `mode=full`:初始阶段直接跑全量 C→D,不进入 HC1,完成后进入 HC2。
+- `mode=skip_sampling`:初始阶段直接跑全量 C→D,不进入 HC1,完成后进入 HC2。
 
-### C→D 全量(仅当 test 模式通过 HC1,或初始 mode=full)
+### C→D 全量(仅当 full 模式通过 HC1,或初始 mode=skip_sampling)
 
 - 重复 Phase C 第一批 → 筛选 → Phase C 第二批 → Phase D,输入换成全量 `02_标准化/hot_topics_normalized.xlsx`
+- 全量阶段调用脚本时统一传 `mode=skip_sampling`,产物写为 `wide_table_skip_sampling_r{N}.xlsx`;若原始运行模式是 full,run_config 顶层 `mode` 仍保持 full
 
 ### HC2 · 全量验收
 
@@ -187,9 +191,9 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 ```json
 {
   "hc": "HC2",
-  "mode": "full",
+  "mode": "{full|skip_sampling}",
   "project_dir": "{PROJECT_DIR}",
-  "wide_table_path": "/mnt/session/outputs/{PROJECT_DIR}/05_合并/wide_table_full_r1.xlsx",
+  "wide_table_path": "/mnt/session/outputs/{PROJECT_DIR}/05_合并/wide_table_skip_sampling_r1.xlsx",
   "distribution_summary": {
     "rows": 3950,
     "cols": 28,
@@ -205,14 +209,14 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 
 ### Phase E 四路(脚本内流式有限并发)
 
-- full 使用 `05_合并/wide_table_full_r{N}.xlsx`
+- full / skip_sampling 使用 `05_合并/wide_table_skip_sampling_r{N}.xlsx`
 - demo 使用 `05_合并/wide_table_demo_r{N}.xlsx`,并把 mode=demo 传给洞察脚本
 - 不再委派 4 个 `topic6-insighter` 子 Agent。`pipeline_e.py` 本身已实现 E1~E4
   流式有限并发、断连重试和版块级 checkpoint；直接调用一次，避免重复运行 4 次
   `run_stats.py` 和四份子 Agent 编排开销:
   ```bash
   python /mnt/skills/topic6-insight/scripts/pipeline_e.py \
-    --project-dir "{project_dir}" --mode {demo|full} \
+    --project-dir "{project_dir}" --mode {demo|skip_sampling} \
     --publish-date "{publish_date}" --version {N}
   ```
 - 任一版块失败时，先读取 `06_洞察/v{N}/pipeline_e_report_v{N}.json`，然后最多
@@ -226,7 +230,7 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 
 ### Phase F · 合并发布
 
-- 执行 `python /mnt/skills/topic6-insight/scripts/pipeline_f.py --mode {demo|full}` → 合并四版块 md
+- 执行 `python /mnt/skills/topic6-insight/scripts/pipeline_f.py --mode {demo|skip_sampling}` → 合并四版块 md
 - 用 lark-cli `--as bot` 推送到飞书云文档：应用身份动态创建分区文件夹，先给发起人
   `edit` 协作者权限并校验成功，再转移所有权；2 位 admin（赵修源 / 袁杰松）授
   `full_access`
@@ -280,7 +284,7 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 
 ## 五、并发规范(重要)
 
-- Phase C 第一批 2 路必须用 `multiagent` 并发。Phase C 第二批在 test/full
+- Phase C 第一批 2 路必须用 `multiagent` 并发。Phase C 第二批在 full/skip_sampling
   使用 5 个子 Agent + C2 并发，在 demo 使用两个快速脚本并发。Phase E 统一由
   `pipeline_e.py` 内部并发 E1~E4，不得拆成四次脚本调用
 - 同一批内 ≥ 2 个任务失败 → RuntimeError 停止批次
@@ -291,7 +295,7 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 | 规则 | 摘要 |
 |---|---|
 | R01 | 触发词精确匹配「热点报告/热点周报」 |
-| R02 | test 走 HC1→HC2→HC3；demo 走 HC1→HC3、明确跳过全量与 HC2；full 走 HC2→HC3 |
+| R02 | full 走 HC1→HC2→HC3；demo 走 HC1→HC3、明确跳过全量与 HC2；skip_sampling 走 HC2→HC3 |
 | R03 | 每个 LLM 任务完成后立即调 cost_tracker |
 | R04 | 所有路径基于 `/workspace` / `/mnt/*`,不硬编码绝对路径外的固定盘符 |
 | R05 | 每次启动必读 `/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md`(走 bash cat),不沿用上次会话记忆 |

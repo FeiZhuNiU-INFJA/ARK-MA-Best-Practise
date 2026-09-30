@@ -13,6 +13,26 @@
 
 ## 2026-09-30
 
+### Demo 第二批恢复六路并发
+
+- **触发现象**：`run_demo_routes.py` 虽使用线程池，但默认只有 2 个 worker，且按
+  R1 的全部 chunk、R2 的全部 chunk依次提交，运行效果接近逐路推进，不符合
+  R1~R5 与 C2 六路并发的流程定义。
+- **调整**：改为 5 个 route worker 并发执行 R1~R5；每个 route 内仍按 5 条一批
+  串行处理并逐批 checkpoint。Coordinator 同时启动 C2，因此共六路并发。
+- **边界**：本次仅更新本地资源，不影响已创建的 Session；需后续执行
+  `update_ma.sh` 并新建 Session 才会生效。
+
+### 运行模式重命名
+
+- **触发现象**：原 `full` 实际会跳过 500 条采样校准，名称容易被理解为客户完整流程；
+  原 `test` 才是包含 HC1、全量重跑和 HC2 的完整模式。
+- **调整**：三种模式统一为 `demo`、`full`、`skip_sampling`。`full` 对应原 `test`，
+  `skip_sampling` 对应原 `full`；全量阶段产物使用
+  `wide_table_skip_sampling_r{N}.xlsx`，避免与 `full` 的 500 条校准产物重名。
+- **影响范围**：Gateway 触发词、Coordinator/子 Agent Prompt、C/D/E/F 脚本参数、
+  HC 文案、流水线图和调试文档同步更新。
+
 ### 活跃任务用户 Token 保活
 
 - **触发现象**：Session `sesn-20260930023459-r9zoi` 从 10:34 运行至 12:39；Phase G
@@ -46,8 +66,11 @@
   `Remote end closed connection without response`。旧入口五路各发一个长请求，且要
   等五路全部成功后才统一落盘；任一路失败会丢失其余已成功结果。
 - **执行优化**：`run_demo_routes.py` 保持原 R1~R5 Prompt 和输出契约，改为默认每批
-  5 行、最多 2 请求并发。断连、超时、429 和 5xx 最多重试 5 次，使用指数退避与抖动，
-  每次重试创建新请求。
+  5 行、最多 2 请求并发。断连、超时、429 和 5xx 最多重试 5 次，使用指数退避与抖动。
+- **传输层修正**：Session `sesn-20260930045929-siwtz` 证明仅创建新的
+  `urllib.Request` 不会隔离底层失效连接，R1 第二个 chunk 起仍持续断连。正式入口改用
+  `httpx`，每次 attempt 都创建并关闭独立 Client，禁用 keep-alive 与 HTTP/2；
+  Environment 显式预装 `httpx>=0.27`。
 - **可靠恢复**：每个成功 chunk 立即原子写 JSON checkpoint；每个 route 完成后立即写
   raw/postprocess/completion_meta、run_config 和成本，不再等待其他 route。重跑按输入、
   模型、Prompt、run_id 和 batch size 只补缺失 chunk，已完成 route 直接复用。

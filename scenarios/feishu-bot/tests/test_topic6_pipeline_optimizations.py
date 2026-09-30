@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-import http.client
 import importlib.util
 import json
 import subprocess
 import sys
+import threading
 import types
-import urllib.error
 from pathlib import Path
 
+import httpx
 import pandas as pd
 import pytest
 
@@ -537,16 +537,24 @@ def test_demo_routes_retry_disconnect_429_and_5xx(monkeypatch):
     module = _load_demo_routes_module()
     route = module.ROUTES["r2"]
     rows = [{"row_id": "a"}]
+    request = httpx.Request(
+        "POST", "https://ark.example/chat/completions"
+    )
     outcomes = [
-        http.client.RemoteDisconnected("remote closed"),
-        urllib.error.HTTPError(
-            "https://ark.example/chat/completions", 429, "rate limited", {}, None
+        httpx.RemoteProtocolError("remote closed"),
+        httpx.Response(
+            429,
+            text="rate limited",
+            request=request,
         ),
-        urllib.error.HTTPError(
-            "https://ark.example/chat/completions", 503, "unavailable", {}, None
+        httpx.Response(
+            503,
+            text="unavailable",
+            request=request,
         ),
-        _FakeHttpResponse(
-            {
+        httpx.Response(
+            200,
+            json={
                 "usage": {"prompt_tokens": 10, "completion_tokens": 3},
                 "choices": [
                     {
@@ -567,20 +575,33 @@ def test_demo_routes_retry_disconnect_429_and_5xx(monkeypatch):
                         },
                     }
                 ],
-            }
+            },
+            request=request,
         ),
     ]
-    requests = []
+    clients = []
 
-    def fake_urlopen(request, timeout):
-        assert timeout == 600
-        requests.append(request)
-        outcome = outcomes.pop(0)
-        if isinstance(outcome, Exception):
-            raise outcome
-        return outcome
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.closed = False
+            self.posts = []
+            clients.append(self)
 
-    monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            self.closed = True
+
+        def post(self, url, **kwargs):
+            self.posts.append((url, kwargs))
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+    monkeypatch.setattr(module.httpx, "Client", FakeClient)
     monkeypatch.setattr(module.time, "sleep", lambda _delay: None)
     monkeypatch.setattr(module.random, "uniform", lambda _start, _end: 0)
 
@@ -594,10 +615,70 @@ def test_demo_routes_retry_disconnect_429_and_5xx(monkeypatch):
         max_attempts=4,
     )
 
-    assert len(requests) == 4
-    assert len({id(request) for request in requests}) == 4
+    assert len(clients) == 4
+    assert all(client.closed for client in clients)
+    assert all(len(client.posts) == 1 for client in clients)
+    assert all(client.kwargs["http2"] is False for client in clients)
+    assert all(
+        client.posts[0][1]["headers"]["Connection"] == "close"
+        for client in clients
+    )
     assert result["normalized"][0]["r2_是否商业合作"] == "是"
     assert result["input_tokens"] == 10
+
+
+def test_demo_routes_start_all_five_routes_concurrently(tmp_path, monkeypatch):
+    module = _load_demo_routes_module()
+    project = tmp_path / "project"
+    source = project / "usable.xlsx"
+    project.mkdir()
+    source.write_bytes(b"stable input signature")
+    frame = pd.DataFrame(
+        [{"row_id": "a", "platform": "微博", "title": "A", "desc": "A desc"}]
+    )
+    barrier = threading.Barrier(len(module.ROUTES), timeout=2)
+    started = []
+    lock = threading.Lock()
+
+    monkeypatch.setattr(module.pd, "read_excel", lambda _path: frame.copy())
+    monkeypatch.setenv("ARK_API_KEY", "test-key")
+    monkeypatch.setenv("ARK_BASE_URL", "https://ark.example")
+    monkeypatch.setattr(module, "_record_cost", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        module,
+        "_finalize_route",
+        lambda *_args, **_kwargs: {"rows": 1},
+    )
+
+    def fake_request(route_name, route, rows, **_kwargs):
+        with lock:
+            started.append(route_name)
+        barrier.wait()
+        return {
+            "route": route_name,
+            "normalized": [
+                {
+                    "row_id": rows[0]["row_id"],
+                    f"{route_name}_{route['label']}": "否",
+                    f"{route_name}_判断说明": "测试判断",
+                    f"{route_name}_parse_error": 0,
+                }
+            ],
+            "input_tokens": 1,
+            "output_tokens": 1,
+        }
+
+    monkeypatch.setattr(module, "_request_route", fake_request)
+
+    result = module.run(
+        str(project),
+        str(source),
+        "doubao-seed-evolving",
+        1,
+    )
+
+    assert set(started) == set(module.ROUTES)
+    assert set(result) == set(module.ROUTES)
 
 
 def test_demo_routes_persist_completed_routes_and_resume_missing_chunk(
@@ -1070,13 +1151,14 @@ def test_run_config_state_deep_merges_parallel_task_results(tmp_path):
     assert config["status"]["c2_cluster"]["stage"] == "01_eventness"
 
 
-def test_coordinator_uses_50_rows_for_demo_and_500_for_test():
+def test_coordinator_uses_50_rows_for_demo_and_500_for_full():
     coordinator = COORDINATOR_PROMPT.read_text(encoding="utf-8")
 
-    assert "mode=test" in coordinator
+    assert "mode=full" in coordinator
     assert "sample_500.py --size 500" in coordinator
     assert "mode=demo" in coordinator
     assert "sample_500.py --size 50" in coordinator
+    assert "mode=skip_sampling" in coordinator
 
 
 def test_coordinator_uses_cross_platform_c2_flow_and_merge_contract():
@@ -1116,7 +1198,7 @@ def test_coordinator_uses_demo_fast_paths_and_single_insight_entry():
 def test_pipeline_overview_documents_demo_execution_differences():
     overview = PIPELINE_OVERVIEW.read_text(encoding="utf-8")
 
-    assert "test / demo / full 模式" in overview
+    assert "demo / full / skip_sampling 模式" in overview
     assert "分层抽样 50 条" in overview
     assert "R1~R5 Ark 批量 + C2 单次归并" in overview
     assert "跳过全量与 HC2" in overview
@@ -1154,6 +1236,7 @@ def test_environment_preinstalls_openai_for_insight_pipeline():
     environment = json.loads(ENVIRONMENT_CONFIG.read_text(encoding="utf-8"))
 
     assert "openai>=1.0" in environment["config"]["packages"]["pip"]
+    assert "httpx>=0.27" in environment["config"]["packages"]["pip"]
     assert environment["config"]["env"]["DATAHUB_MODEL_ID"] == "Doubao-Seed-Evolving"
     assert environment["config"]["env"]["C2_CHAT_MODEL_ID"] == "doubao-seed-evolving"
     assert (

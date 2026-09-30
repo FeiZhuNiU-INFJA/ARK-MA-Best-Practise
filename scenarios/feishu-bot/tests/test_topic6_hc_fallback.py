@@ -35,11 +35,13 @@ normalize_user_text = runner_mod.normalize_user_text
 validate_hc_payload = runner_mod.validate_hc_payload
 
 
-def test_parse_trigger_supports_distinct_demo_mode():
+def test_parse_trigger_supports_three_current_modes():
     assert parse_trigger("热点周报 demo") == "demo"
     assert parse_trigger("热点报告 演示") == "demo"
-    assert parse_trigger("热点周报 test") == "test"
     assert parse_trigger("热点周报 full") == "full"
+    assert parse_trigger("热点周报 test") == "full"
+    assert parse_trigger("热点周报 skip_sampling") == "skip_sampling"
+    assert parse_trigger("热点周报 跳过采样") == "skip_sampling"
 
 
 def test_group_mention_is_removed_before_command_and_trigger_parsing():
@@ -137,8 +139,8 @@ def test_hc3_payload_requires_published_feishu_document():
 
 def test_valid_json_takes_priority_over_fallback():
     # 严格 JSON 存在时,现有 extract_hc_payload 已经吃掉;兜底不会覆盖。
-    text = '{"hc": "HC1", "mode": "test"}'
-    assert extract_hc_payload(text) == {"hc": "HC1", "mode": "test"}
+    text = '{"hc": "HC1", "mode": "full"}'
+    assert extract_hc_payload(text) == {"hc": "HC1", "mode": "full"}
 
 
 def test_extract_hc_payload_supports_nested_json_in_markdown_fence():

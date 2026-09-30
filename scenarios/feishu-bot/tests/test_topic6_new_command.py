@@ -98,7 +98,7 @@ def test_cancel_active_job_cancels_task_and_marks_failed(loop, tmp_path):
         thread_id="",
         user_open_id="u1",
         ma_session_id="session-1",
-        mode="test",
+        mode="full",
         project_dir="/workspace/x",
     )
 
@@ -137,7 +137,7 @@ def test_cancel_frees_session_key_for_next_start(loop, tmp_path):
         thread_id="",
         user_open_id="u1",
         ma_session_id="session-1",
-        mode="test",
+        mode="full",
         project_dir="/workspace/x",
     )
     loop.run_until_complete(
@@ -170,8 +170,8 @@ def test_global_active_job_blocks_another_user_and_chat(loop, tmp_path):
                 chat_id="another-chat",
                 thread_id="thread-2",
                 user_open_id="u2",
-                mode="test",
-                user_message="热点周报 test",
+                mode="full",
+                user_message="热点周报 full",
             )
         )
 
@@ -183,7 +183,7 @@ def test_global_active_job_is_released_after_terminal_status(tmp_path):
         thread_id="",
         user_open_id="u1",
         ma_session_id="session-1",
-        mode="test",
+        mode="full",
         project_dir="/workspace/x",
     )
 
@@ -236,7 +236,7 @@ def test_backend_user_interrupt_marks_job_stopped(loop, tmp_path):
         thread_id="",
         user_open_id="u1",
         ma_session_id="session-1",
-        mode="test",
+        mode="full",
         project_dir="/workspace/x",
     )
 
