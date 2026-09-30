@@ -46,8 +46,11 @@
   `Remote end closed connection without response`。旧入口五路各发一个长请求，且要
   等五路全部成功后才统一落盘；任一路失败会丢失其余已成功结果。
 - **执行优化**：`run_demo_routes.py` 保持原 R1~R5 Prompt 和输出契约，改为默认每批
-  5 行、最多 2 请求并发。断连、超时、429 和 5xx 最多重试 5 次，使用指数退避与抖动，
-  每次重试创建新请求。
+  5 行、最多 2 请求并发。断连、超时、429 和 5xx 最多重试 5 次，使用指数退避与抖动。
+- **传输层修正**：Session `sesn-20260930045929-siwtz` 证明仅创建新的
+  `urllib.Request` 不会隔离底层失效连接，R1 第二个 chunk 起仍持续断连。正式入口改用
+  `httpx`，每次 attempt 都创建并关闭独立 Client，禁用 keep-alive 与 HTTP/2；
+  Environment 显式预装 `httpx>=0.27`。
 - **可靠恢复**：每个成功 chunk 立即原子写 JSON checkpoint；每个 route 完成后立即写
   raw/postprocess/completion_meta、run_config 和成本，不再等待其他 route。重跑按输入、
   模型、Prompt、run_id 和 batch size 只补缺失 chunk，已完成 route 直接复用。

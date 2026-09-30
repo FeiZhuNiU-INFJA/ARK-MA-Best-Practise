@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import http.client
 import importlib.util
 import json
 import subprocess
 import sys
 import types
-import urllib.error
 from pathlib import Path
 
+import httpx
 import pandas as pd
 import pytest
 
@@ -537,16 +536,24 @@ def test_demo_routes_retry_disconnect_429_and_5xx(monkeypatch):
     module = _load_demo_routes_module()
     route = module.ROUTES["r2"]
     rows = [{"row_id": "a"}]
+    request = httpx.Request(
+        "POST", "https://ark.example/chat/completions"
+    )
     outcomes = [
-        http.client.RemoteDisconnected("remote closed"),
-        urllib.error.HTTPError(
-            "https://ark.example/chat/completions", 429, "rate limited", {}, None
+        httpx.RemoteProtocolError("remote closed"),
+        httpx.Response(
+            429,
+            text="rate limited",
+            request=request,
         ),
-        urllib.error.HTTPError(
-            "https://ark.example/chat/completions", 503, "unavailable", {}, None
+        httpx.Response(
+            503,
+            text="unavailable",
+            request=request,
         ),
-        _FakeHttpResponse(
-            {
+        httpx.Response(
+            200,
+            json={
                 "usage": {"prompt_tokens": 10, "completion_tokens": 3},
                 "choices": [
                     {
@@ -567,20 +574,33 @@ def test_demo_routes_retry_disconnect_429_and_5xx(monkeypatch):
                         },
                     }
                 ],
-            }
+            },
+            request=request,
         ),
     ]
-    requests = []
+    clients = []
 
-    def fake_urlopen(request, timeout):
-        assert timeout == 600
-        requests.append(request)
-        outcome = outcomes.pop(0)
-        if isinstance(outcome, Exception):
-            raise outcome
-        return outcome
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.closed = False
+            self.posts = []
+            clients.append(self)
 
-    monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            self.closed = True
+
+        def post(self, url, **kwargs):
+            self.posts.append((url, kwargs))
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+    monkeypatch.setattr(module.httpx, "Client", FakeClient)
     monkeypatch.setattr(module.time, "sleep", lambda _delay: None)
     monkeypatch.setattr(module.random, "uniform", lambda _start, _end: 0)
 
@@ -594,8 +614,14 @@ def test_demo_routes_retry_disconnect_429_and_5xx(monkeypatch):
         max_attempts=4,
     )
 
-    assert len(requests) == 4
-    assert len({id(request) for request in requests}) == 4
+    assert len(clients) == 4
+    assert all(client.closed for client in clients)
+    assert all(len(client.posts) == 1 for client in clients)
+    assert all(client.kwargs["http2"] is False for client in clients)
+    assert all(
+        client.posts[0][1]["headers"]["Connection"] == "close"
+        for client in clients
+    )
     assert result["normalized"][0]["r2_是否商业合作"] == "是"
     assert result["input_tokens"] == 10
 
@@ -1154,6 +1180,7 @@ def test_environment_preinstalls_openai_for_insight_pipeline():
     environment = json.loads(ENVIRONMENT_CONFIG.read_text(encoding="utf-8"))
 
     assert "openai>=1.0" in environment["config"]["packages"]["pip"]
+    assert "httpx>=0.27" in environment["config"]["packages"]["pip"]
     assert environment["config"]["env"]["DATAHUB_MODEL_ID"] == "Doubao-Seed-Evolving"
     assert environment["config"]["env"]["C2_CHAT_MODEL_ID"] == "doubao-seed-evolving"
     assert (

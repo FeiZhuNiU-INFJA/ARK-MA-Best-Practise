@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import http.client
 import json
 import os
 import random
@@ -13,12 +12,11 @@ import re
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -146,17 +144,28 @@ def _request_route(
     encoded_body = json.dumps(body, ensure_ascii=False).encode()
     last_error: Exception | None = None
     for attempt in range(max_attempts):
-        request = urllib.request.Request(
-            _api_url(base_url),
-            data=encoded_body,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-        )
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                payload = json.load(response)
+            # A fresh client per attempt prevents a disconnected keep-alive
+            # socket from poisoning subsequent retries.
+            with httpx.Client(
+                timeout=httpx.Timeout(timeout),
+                limits=httpx.Limits(
+                    max_connections=1,
+                    max_keepalive_connections=0,
+                ),
+                http2=False,
+            ) as client:
+                response = client.post(
+                    _api_url(base_url),
+                    content=encoded_body,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                        "Connection": "close",
+                    },
+                )
+                response.raise_for_status()
+                payload = response.json()
             choices = payload.get("choices") or []
             if not choices:
                 raise ValueError("Ark response has no choices")
@@ -175,17 +184,16 @@ def _request_route(
                 "input_tokens": int(usage.get("prompt_tokens") or 0),
                 "output_tokens": int(usage.get("completion_tokens") or 0),
             }
-        except urllib.error.HTTPError as error:
+        except httpx.HTTPStatusError as error:
             last_error = error
-            if error.code != 429 and not 500 <= error.code < 600:
+            status_code = error.response.status_code
+            if status_code != 429 and not 500 <= status_code < 600:
                 raise RuntimeError(
-                    f"{route_name} Ark HTTP {error.code}: {error.reason}"
+                    f"{route_name} Ark HTTP {status_code}: "
+                    f"{error.response.text[:300]}"
                 ) from error
         except (
-            urllib.error.URLError,
-            http.client.HTTPException,
-            ConnectionError,
-            OSError,
+            httpx.TransportError,
             json.JSONDecodeError,
             ValueError,
         ) as error:
