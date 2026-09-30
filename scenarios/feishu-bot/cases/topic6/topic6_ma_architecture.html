@@ -38,6 +38,21 @@
   }
   header h1 { font-size: 18px; margin: 0 0 4px 0; }
   header .subtitle { font-size: 12px; color: var(--muted); }
+  .home-link {
+    float: right;
+    margin: 1px 0 6px 16px;
+    padding: 4px 9px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--secondary);
+    font-size: 12px;
+    text-decoration: none;
+  }
+  .home-link:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    text-decoration: none;
+  }
   .legend {
     display: inline-flex;
     gap: 10px;
@@ -209,6 +224,7 @@
 <body>
 
 <header>
+  <a class="home-link" href="../../../index.html">← 场景索引</a>
   <h1>topic6 · 火山方舟 Managed Agents(MA)架构全景</h1>
   <span class="subtitle">点击左侧任一节点,右侧显示该组件的类型、用到的 MA 能力、以及和其他组件的交互契约</span>
   <span class="legend">
@@ -304,8 +320,14 @@ flowchart LR
 </div>
 
 <script>
-  const MA_BASE = "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources";
-  const GW_BASE = "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent";
+  const IS_LOCAL = window.location.protocol === "file:";
+  const REPO_BASE = "https://github.com/FeiZhuNiU-INFJA/ark-agent-feishu-bot/blob/de/scenarios/feishu-bot";
+  const MA_BASE = IS_LOCAL
+    ? "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources"
+    : `${REPO_BASE}/cases/topic6/ma-resources`;
+  const GW_BASE = IS_LOCAL
+    ? "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent"
+    : `${REPO_BASE}/arkagent`;
   const maLink = (p, label) => `<a class="file-link ma" href="${MA_BASE}/${p}">${label || p}</a>`;
   const gwLink = (p, label) => `<a class="file-link gw" href="${GW_BASE}/${p}">${label || p}</a>`;
 

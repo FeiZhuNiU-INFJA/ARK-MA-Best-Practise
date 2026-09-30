@@ -38,6 +38,21 @@
   }
   header h1 { font-size: 18px; margin: 0 0 4px 0; }
   header .subtitle { font-size: 12px; color: var(--muted); }
+  .home-link {
+    float: right;
+    margin: 1px 0 6px 16px;
+    padding: 4px 9px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--secondary);
+    font-size: 12px;
+    text-decoration: none;
+  }
+  .home-link:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    text-decoration: none;
+  }
   .legend {
     display: inline-flex;
     gap: 10px;
@@ -280,6 +295,7 @@
 <body>
 
 <header>
+  <a class="home-link" href="../../../index.html">← 场景索引</a>
   <h1>topic6 · 热点周报 Pipeline · 交互式全景</h1>
   <span class="subtitle">点击左侧任一节点,右侧显示该节点的详细说明与文件索引</span>
   <span class="legend">
@@ -380,14 +396,22 @@ flowchart TD
 </div>
 
 <script>
+  const IS_LOCAL = window.location.protocol === "file:";
+  const REPO_BASE = "https://github.com/FeiZhuNiU-INFJA/ark-agent-feishu-bot/blob/de/scenarios/feishu-bot";
   const BASE = "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/assets_from_customer/topic6";
-  const link = (path, label) => `<a class="file-link" href="${BASE}/${path}">${label || path}</a>`;
+  const link = (path, label) => IS_LOCAL
+    ? `<a class="file-link" href="${BASE}/${path}">${label || path}</a>`
+    : `<span class="file-link" title="客户原始资产未发布">${label || path}</span>`;
 
   // MA 复刻资源根目录 · 指向本仓库 ma-resources/
-  const MA_BASE = "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources";
+  const MA_BASE = IS_LOCAL
+    ? "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources"
+    : `${REPO_BASE}/cases/topic6/ma-resources`;
   const maLink = (path, label) => `<a class="file-link ma" href="${MA_BASE}/${path}">${label || path}</a>`;
   // gateway 侧代码
-  const GW_BASE = "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent/gateway";
+  const GW_BASE = IS_LOCAL
+    ? "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent/gateway"
+    : `${REPO_BASE}/arkagent/gateway`;
   const gwLink = (path, label) => `<a class="file-link ma" href="${GW_BASE}/${path}">${label || path}</a>`;
 
   // 节点详情:key 必须与 mermaid 中节点 id 完全一致
