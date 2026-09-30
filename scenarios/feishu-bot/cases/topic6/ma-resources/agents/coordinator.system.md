@@ -113,8 +113,10 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
   wait "$C2_PID"; C2_RC=$?
   test "$ROUTES_RC" -eq 0 -a "$C2_RC" -eq 0
   ```
-  `run_demo_routes.py` 复用 R1~R5 正式 Prompt 和输出列，内部按小批次有限并发调用
-  Ark，并对每个成功批次原子 checkpoint；重跑时只补缺失批次。若该入口失败，先读取
+  `run_demo_routes.py` 复用 R1~R5 正式 Prompt 和输出列，内部固定并发启动 R1~R5
+  五个 route worker；每个 worker 内按小批次串行调用 Ark，并对每个成功批次原子
+  checkpoint，重跑时只补缺失批次。它与 C2 快速入口并发，因此第二批共六路并行。
+  若该入口失败，先读取
   `04_标注/demo_routes.log`，然后最多重跑一次同一正式入口（参数保持不变）以恢复。
   禁止用 inline Python、临时脚本或逐条手工调用绕过正式入口；禁止精简或改写 R1~R5 Prompt，
   禁止切换模型、修改 batch size 或删除 checkpoint。第二次仍失败则本阶段失败，

@@ -926,7 +926,7 @@ week_num   : W37</div>
           <h4>按模式选择执行通道</h4>
           <ul>
             <li>full/skip_sampling:Coordinator 委派 5 个 <code>topic6-annotator</code>,各自执行一次 DataHub 标注</li>
-            <li>demo:Coordinator 只启动一次 ${maLink('skills/topic6-annotation/scripts/run_demo_routes.py')},脚本内部并发 R1~R5 五个 Ark 批量请求</li>
+            <li>demo:Coordinator 只启动一次 ${maLink('skills/topic6-annotation/scripts/run_demo_routes.py')},脚本内部用 5 个 route worker 并发 R1~R5；每路 chunk 串行并逐批 checkpoint</li>
             <li>Prompt:${maLink('skills/topic6-annotation/prompts/R1_平台借势/v2.md')}</li>
             <li>两种通道都产出 <code>R1_平台借势/r1_postprocess_r{N}.xlsx</code>,下游合并契约不变</li>
             <li>五维判定 ks:${maLink('skills/topic6-annotation/ks/03_五维判定.md')}</li>
@@ -1595,7 +1595,7 @@ heat_score   : 87.4
       content: `
         <h3>并发规范</h3>
         <p><b>full/skip_sampling</b>:5 个 annotator DataHub 子任务 + Coordinator 完整 C2 并发。</p>
-        <p><b>demo</b>:<code>run_demo_routes.py</code> 与 <code>run_topic6_c2.py --demo-fast</code> 两个脚本并发；前者内部再并发 R1~R5 五个批量请求。</p>
+        <p><b>demo</b>:<code>run_demo_routes.py</code> 与 <code>run_topic6_c2.py --demo-fast</code> 两个脚本并发；前者内部再用 5 个 route worker 并发 R1~R5，每路 chunk 串行。</p>
         <p>点击图中任一子节点查看单路详情。</p>
         <h3>MA 复刻拓扑</h3>
         <div class="ma-block">

@@ -68,9 +68,9 @@ description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础
 3. `c0_filter_usable.py`: 按"是否营销可用"筛出 R1~R5 输入子集
 4. **第二批 (可用子集并行)**:
    - full/skip_sampling: R1~R5 各跑一次 `datahub_annotate.py --task rN --input 04_标注/_可用子集/...`
-   - demo: 单次运行 `run_demo_routes.py`，默认每批 5 行、最多 2 个 Ark 请求并发，
-     每批成功即写 checkpoint，并保持相同输出列
-5. C2 事件归档 (由 topic6-event-registry skill 完成, 不在本 skill 内)
+   - demo: 单次运行 `run_demo_routes.py`，默认并发启动 R1~R5 五个 route worker；
+     每个 worker 内按每批 5 行串行调用 Ark，每批成功即写 checkpoint
+5. C2 事件归档与 R1~R5 并发执行 (由 topic6-event-registry skill 完成, 不在本 skill 内)
 6. `merge_annotations.py`: 七路合并到 28 列宽表 + 健康度摘要
 
 ## Prompt 版本

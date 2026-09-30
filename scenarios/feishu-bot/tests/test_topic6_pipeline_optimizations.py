@@ -5,6 +5,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import threading
 import types
 from pathlib import Path
 
@@ -624,6 +625,60 @@ def test_demo_routes_retry_disconnect_429_and_5xx(monkeypatch):
     )
     assert result["normalized"][0]["r2_是否商业合作"] == "是"
     assert result["input_tokens"] == 10
+
+
+def test_demo_routes_start_all_five_routes_concurrently(tmp_path, monkeypatch):
+    module = _load_demo_routes_module()
+    project = tmp_path / "project"
+    source = project / "usable.xlsx"
+    project.mkdir()
+    source.write_bytes(b"stable input signature")
+    frame = pd.DataFrame(
+        [{"row_id": "a", "platform": "微博", "title": "A", "desc": "A desc"}]
+    )
+    barrier = threading.Barrier(len(module.ROUTES), timeout=2)
+    started = []
+    lock = threading.Lock()
+
+    monkeypatch.setattr(module.pd, "read_excel", lambda _path: frame.copy())
+    monkeypatch.setenv("ARK_API_KEY", "test-key")
+    monkeypatch.setenv("ARK_BASE_URL", "https://ark.example")
+    monkeypatch.setattr(module, "_record_cost", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        module,
+        "_finalize_route",
+        lambda *_args, **_kwargs: {"rows": 1},
+    )
+
+    def fake_request(route_name, route, rows, **_kwargs):
+        with lock:
+            started.append(route_name)
+        barrier.wait()
+        return {
+            "route": route_name,
+            "normalized": [
+                {
+                    "row_id": rows[0]["row_id"],
+                    f"{route_name}_{route['label']}": "否",
+                    f"{route_name}_判断说明": "测试判断",
+                    f"{route_name}_parse_error": 0,
+                }
+            ],
+            "input_tokens": 1,
+            "output_tokens": 1,
+        }
+
+    monkeypatch.setattr(module, "_request_route", fake_request)
+
+    result = module.run(
+        str(project),
+        str(source),
+        "doubao-seed-evolving",
+        1,
+    )
+
+    assert set(started) == set(module.ROUTES)
+    assert set(result) == set(module.ROUTES)
 
 
 def test_demo_routes_persist_completed_routes_and_resume_missing_chunk(
