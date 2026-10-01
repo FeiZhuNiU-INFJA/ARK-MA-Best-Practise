@@ -11,7 +11,194 @@
 
 ---
 
+## 2026-10-01
+
+### 网页报告周期抬头禁止回落到 W32 示例值
+
+- **触发现象**：本次 W39 报告正文与妙搭应用标题均正确，但 HTML banner 显示
+  `2026-W32 / 2026-08-03 至 2026-08-09`。
+- **根因**：`pipeline_f.py` 产出半角格式
+  `数据周期:2026-W39 (2026-09-21 ~ 2026-09-27)`，而
+  `build-report.mjs` 只匹配全角冒号和括号；匹配失败后又静默使用模板示例
+  `2026-W32` 及其日期。
+- **修复**：Phase F 统一输出全角中文声明格式；网页构建器兼容历史全角/半角格式，
+  同时删除 W32 周期兜底。周期无法解析时构建直接失败，禁止带错误抬头发布。
+- **验证**：回归用例确认历史半角 W39 输入正确渲染为
+  `2026·W39 / 2026-09-21 至 2026-09-27`，且缺失周期时构建失败、不生成 HTML；
+  原妙搭应用 `app_17f4v8qapgx` 已原地发布 commit `2e2d54a`，线上 HTTP 200，
+  W39 与日期范围均命中、W32 与旧日期均为 0 处。
+- **影响文件**：
+  - `ma-resources/skills/topic6-insight/scripts/pipeline_f.py`
+  - `ma-resources/skills/topic6-web-report/assets/source/build-report.mjs`
+  - `tests/test_topic6_pipeline_optimizations.py`
+
 ## 2026-09-30
+
+### 妙搭新运行时域名兼容
+
+- **触发现象**：Session `sesn-20260930113448-4kfn0` 的 Phase H 发布接口返回
+  `https://bytedance.larkoffice.com/page/...`，该地址实测为 HTTP 404；改用
+  `frontend` 应用发布后，API 返回
+  `https://bytedance.feishuapp.cn/app/app_17f4v8qapgx/`，GET 返回 HTTP 200 且包含
+  完整报告，但 Gateway 因只允许旧 `*.aiforce.cloud` 域名而把成功任务标为 stopped。
+- **修复**：最终 URL 白名单增加妙搭当前 `*.feishuapp.cn/app/app_*` 运行时格式，
+  同时继续拒绝 `*.larkoffice.com/page/*`、伪造后缀域名、query/fragment 和非应用路径。
+  Coordinator 与 Phase H 契约改为接受发布 API 返回的两类运行时域名，并要求用 GET
+  跟随重定向验证 HTTP 200 和报告正文。任务从 stopped 恢复及最终标记 done 时同步
+  清理旧的 `finished_at` / `last_error`，避免成功记录残留历史失败原因。
+- **验证**：当前发布页 GET 返回 HTTP 200，页面包含报告标题和完整正文；补充
+  `feishuapp.cn` 正向用例、三类非运行时 URL 反向用例及终态字段清理用例。
+- **影响文件**：
+  - `pipeline_store.py`
+  - `topic6_runner.py`
+  - `ma-resources/agents/coordinator.system.md`
+  - `ma-resources/skills/topic6-annotation/prompts/09_阶段_H妙搭发布.md`
+  - `tests/test_topic6_new_command.py`
+
+### HC1 后全量阶段的 artifact mode 显式固定
+
+- **触发现象**：顶层运行模式为 `full` 的 Session 通过 HC1 后，筛选产物按既定契约
+  写成 `usable_subset_skip_sampling_r2.xlsx`，但 Coordinator 启动 C2 时误传
+  `--mode full`，转而查找不存在的 `usable_subset_full_r2.xlsx`。
+- **修复**：Coordinator 在 HC1 后的全量 C→D 阶段固定
+  `artifact_mode=skip_sampling`，并明确 C0/C3、筛选、R1~R5、C2 和合并脚本全部
+  使用 `--mode skip_sampling`；顶层 `run_config.mode` 仍保持 `full`。
+- **影响文件**：
+  - `ma-resources/agents/coordinator.system.md`
+  - `tests/test_topic6_pipeline_optimizations.py`
+
+### DataHub 并发输入转换原子化
+
+- **触发现象**：C0/C3 服务端任务 `5041/5042` 同时成功后，并发后处理都把同一份
+  `hot_topics_normalized.xlsx` 转换为 `.hot_topics_normalized_prepared.xlsx`；
+  C0 恰好在 C3 覆写过程中读取该文件，触发 `BadZipFile`。原始 3950 行输入未损坏。
+- **修复**：每个 worker 先写带 PID 和纳秒时间戳的独立 `.tmp.xlsx`，完整写入后再
+  用 `os.replace` 原子发布到共享 prepared 路径；异常时清理该 worker 自己的临时文件。
+- **验证**：新增测试确认转换输出先写独立临时路径，再原子替换最终文件。
+- **影响文件**：
+  - `ma-resources/skills/topic6-annotation/scripts/datahub_annotate.py`
+  - `tests/test_topic6_pipeline_optimizations.py`
+
+### DataHub 内联结果分页参数修正
+
+- **触发现象**：同一 Session 的 C3 任务 `5042` 已进入
+  `TASK_STATUS_SUCCESS`，但 DataHub 未提供 `result_url`，worker 改读
+  `result_list` 时四次都拿到第一页 1000 行，无法组成预期的 3950 行结果。
+- **根因与修复**：DataHub 查询接口的页码参数是 `page_num`；旧实现误传 `page`，
+  服务端忽略后始终返回第一页。现保留内部 `page` 参数名，但请求时正确映射为
+  `page_num`，并继续用 `page_size=1000` 分页下载。
+- **验证**：新增 HTTP 参数级回归测试，明确第二页请求必须携带
+  `{"page_num": 2, "page_size": 1000}`。
+- **影响文件**：
+  - `ma-resources/skills/topic6-annotation/scripts/datahub_annotate.py`
+  - `tests/test_topic6_pipeline_optimizations.py`
+
+### DataHub 全量 worker 轮询上限延长
+
+- **触发现象**：Session `sesn-20260930113448-4kfn0` 的全量 C3 服务端任务 `5042`
+  持续处于 `TASK_STATUS_RUNNING` 且失败数为 0，但本地 worker 在约 7200 秒后因
+  `POLL_TIMEOUT=7200` 主动退出；C0 同样可能在服务端完成前撞到该上限。
+- **修复**：把 DataHub worker 的单任务轮询上限从 2 小时提升到 24 小时。Coordinator
+  仍通过 `wait_datahub_batch.py` 做最长 105 秒的短检查，因此不会增加单次 MA 工具
+  调用时长；worker 恢复继续绑定原 task id，不重复上传或创建计费任务。
+- **验证**：增加回归断言锁定 24 小时上限；运行中 Session 已临时按同一上限恢复
+  `5041/5042`，正式资源待本轮完成后部署。
+- **影响文件**：
+  - `ma-resources/skills/topic6-annotation/scripts/datahub_annotate.py`
+  - `tests/test_topic6_pipeline_optimizations.py`
+
+### DataHub 任务查询瞬时故障重试
+
+- **触发现象**：Session `sesn-20260930113448-4kfn0` 的全量 C0 服务端任务 `5041`
+  仍为 `TASK_STATUS_RUNNING`，但 worker 在一次 `GET /api/v1/task/5041` 返回 HTTP
+  503 后直接退出；批次检查器因此把健康的远端任务误报为失败。
+- **修复**：`datahub_annotate.py` 查询任务状态时，对连接错误、HTTP 429 和 5xx 最多
+  重试 5 次并指数退避；其他 4xx 与 DataHub 业务错误仍立即失败，避免掩盖确定性问题。
+  worker 重启时还会校验已有 `submit_meta` 的 task、run、源输入、Prompt 和模型；全部
+  一致才绑定原 task id 继续轮询与后处理，不重复上传或创建计费任务。新建任务的
+  `submit_meta` 改为原子落盘，避免中断后读到半份 JSON。
+- **验证**：覆盖“首次 503、第二次成功”和“恢复原 task id 时不上传、不建任务”；
+  相关 DataHub worker 聚焦用例 `4 passed`，Python 编译与 `git diff --check` 通过。
+- **影响文件**：
+  - `ma-resources/skills/topic6-annotation/scripts/datahub_annotate.py`
+  - `tests/test_topic6_pipeline_optimizations.py`
+
+### DataHub 长任务改为单 worker + 短时批次检查
+
+- **触发现象**：Session `sesn-20260930111343-s4s9r` 中，C0 的 bash 已显式传
+  `timeout=7200`，C3 也声明前台执行，但方舟仍在约 120 秒把两条命令转为后台任务。
+  子 Agent 随后继续创建 `tail --pid`、`while sleep` 等等待命令；这些等待命令也会在
+  120 秒后再次转后台，旧的“长时间前台等待”约束无法阻止后台槽累积。
+- **根因**：`timeout` 是调用方期望值，不会覆盖当前 MA bash 工具约 120 秒的强制
+  detach 阈值。让子 Agent 等待一个小时级 DataHub 任务，本身就与运行时边界冲突。
+- **修复**：`datahub_annotate.py --launch-background` 幂等启动每路唯一 worker 后立即
+  返回，Annotator 随即 `end_turn`，不再自行等待。Coordinator 使用
+  `wait_datahub_batch.py` 统一检查 C0/C3 或 R1~R5；单次最多等待 105 秒，返回
+  `running` 后原参数重调，且 bash 工具显式设置 `timeout=115`，因此不会产生后台
+  等待进程。worker 完成时直接按真实 completion_meta 幂等记录成本。
+- **影响文件**：
+  - `ma-resources/skills/topic6-annotation/scripts/datahub_annotate.py`
+  - `ma-resources/skills/topic6-annotation/scripts/wait_datahub_batch.py`
+  - `ma-resources/skills/topic6-annotation/tool/cost-tracker/cost_tracker.py`
+  - `ma-resources/agents/annotator.system.md`
+  - `ma-resources/agents/coordinator.system.md`
+  - `ma-resources/skills/topic6-annotation/SKILL.md`
+  - `tests/test_topic6_pipeline_optimizations.py`
+
+### DataHub worker 幂等键覆盖输入文件
+
+- **触发现象**：Session `sesn-20260930113448-4kfn0` 通过 HC1 后进入 3950 行全量
+  C0/C3，但 worker 因发现同一 `task + run_id=1` 的 500 行样本 completion_meta，
+  立即返回 `done`，险些复用样本结果。
+- **根因与修复**：样本与全量在同一 pipeline 中允许共用 run_id，旧后台启动器却只用
+  run_id 判断完成。现将源输入绝对路径写入 completion_meta，并要求幂等命中同时满足
+  run_id 与输入文件一致；兼容旧 completion_meta 时会从
+  `.<stem>_prepared.xlsx` 反推源文件再比较。
+- **成本一致性**：DataHub worker 不再自动写成本；Coordinator 在批次完成后统一读取
+  completion_meta，并使用 `datahub:{task}:r{N}:{mode}` record-id 幂等追加，避免恢复
+  或人工检查导致双记。
+- **运行中处置**：该 Session 已识别冲突并把全量轮次切到 run_id=2，未使用样本结果
+  进入全量合并；正式修复在下次部署后生效。
+
+### DataHub 长任务禁止后台轮询堆积
+
+- **触发现象**：Session `sesn-20260930072249-tqjt9` 在 HC1 通过后的 3950 行全量
+  C0/C3 阶段，把 `datahub_annotate.py` 放到后台后反复创建 `sleep`、`while ps`
+  和嵌套监控任务。C0 在服务端任务运行约 59 分钟时占满沙箱 32 个后台任务槽，
+  返回 `resource_exhausted`，随后子 Agent 因运行时问题终止。
+- **根因**：Annotator 契约没有规定长命令的 bash 超时和等待方式。默认约 120 秒的
+  工具等待会把较长的 `sleep` 自动转成后台任务；Agent 又持续创建新监控命令，
+  最终后台任务数不断累积。DataHub 任务本身当时仍为 `TASK_STATUS_RUNNING`。
+- **修复**：C0/C3/R1~R5 的 `datahub_annotate.py` 统一使用单次前台 bash 工具调用，
+  显式设置 `timeout=7200`；禁止 `run_in_background=true`，禁止额外创建
+  `sleep`、`while ps` 或其它后台轮询任务。工具调用自身失败时立即按失败契约回报，
+  不再通过监控进程续命。
+- **影响文件**：
+  - `ma-resources/agents/annotator.system.md`
+  - `ma-resources/agents/coordinator.system.md`
+  - `tests/test_topic6_pipeline_optimizations.py`
+
+### HC 结构化载荷与 C2 长响应稳定性
+
+- **HC1 触发现象**：Session `sesn-20260930072249-tqjt9` 完成 500 行样本校验后，
+  Agent 只输出“输出 HC1 结构化卡片：”便结束本轮，没有真正输出 JSON。Gateway
+  因此触发 `__fallback__` 占位卡，卡片只显示模式与项目目录，缺少宽表路径和分布指标。
+- **HC1 根因与修复**：Coordinator Prompt 同时要求“HC 消息第一个字符为 JSON”和
+  “可先输出进度、再新起一条 message”，但 MA 运行时不保证同轮创建第二条 assistant
+  message。现改为 HC1/HC2/HC3 轮只能输出一条完整 JSON，闭合后立即 `end_turn`；
+  Gateway 兜底同时从已输出的核验摘要恢复行列数、C0/R1~R5 有效率和契约化宽表路径，
+  未出现的指标不猜测。
+- **C2 触发现象**：同一 Session 的完整 C2 在 `00_clean_titles` 调方舟
+  `chat/completions` 时，多次于约 60 秒收到
+  `Remote end closed connection without response`；短请求成功，长请求非流式失败，
+  沙箱临时改成流式后恢复并完成 12 个阶段。
+- **C2 根因与修复**：`topic6-event-registry/scripts/relay.py` 原先使用 urllib
+  非流式等待完整响应，长推理期间没有响应字节而被中间层关闭。现正式改为 SSE 流式
+  请求，启用 `stream_options.include_usage`，逐块聚合正文、usage 与 finish_reason，
+  保留断连重试和 `max_tokens` 截断检查。
+- **验证与生效方式**：完整测试集 `439 passed`，Python 编译与 `git diff --check`
+  通过。改动只影响后续上传的 Skill/Agent 和重启后的 Gateway；当前运行 Session
+  继续使用其创建时的资源快照。
 
 ### Demo 第二批恢复六路并发
 

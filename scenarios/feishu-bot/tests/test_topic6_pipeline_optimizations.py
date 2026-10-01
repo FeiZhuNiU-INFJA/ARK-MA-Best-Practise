@@ -31,6 +31,11 @@ PIPELINE_F_SCRIPT = (
     / "scripts"
     / "pipeline_f.py"
 )
+WEB_REPORT_DIR = (
+    TOPIC6_DIR / "ma-resources" / "skills" / "topic6-web-report"
+)
+WEB_REPORT_BUILDER = WEB_REPORT_DIR / "assets" / "source" / "build-report.mjs"
+WEB_REPORT_EXAMPLE = WEB_REPORT_DIR / "assets" / "source" / "source.example.json"
 PIPELINE_E_SCRIPT = PIPELINE_F_SCRIPT.with_name("pipeline_e.py")
 COORDINATOR_PROMPT = (
     TOPIC6_DIR / "ma-resources" / "agents" / "coordinator.system.md"
@@ -67,6 +72,9 @@ RUN_CONFIG_STATE_SCRIPT = (
     / "topic6-annotation"
     / "scripts"
     / "run_config_state.py"
+)
+WAIT_DATAHUB_BATCH_SCRIPT = RUN_CONFIG_STATE_SCRIPT.with_name(
+    "wait_datahub_batch.py"
 )
 ENVIRONMENT_CONFIG = TOPIC6_DIR / "ma-resources" / "environment.json"
 C0_V4_PROMPT = (
@@ -145,6 +153,16 @@ def _load_run_config_state_module():
     return module
 
 
+def _load_wait_datahub_batch_module():
+    spec = importlib.util.spec_from_file_location(
+        "topic6_wait_datahub_batch", WAIT_DATAHUB_BATCH_SCRIPT
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 def _load_pipeline_f_module():
     spec = importlib.util.spec_from_file_location("topic6_pipeline_f", PIPELINE_F_SCRIPT)
     module = importlib.util.module_from_spec(spec)
@@ -203,18 +221,46 @@ class _FakeHttpResponse:
         return self._body
 
 
+class _FakeStreamingHttpResponse:
+    def __init__(self, chunks):
+        self._lines = [
+            f"data: {json.dumps(chunk)}\n".encode()
+            for chunk in chunks
+        ] + [b"data: [DONE]\n"]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def __iter__(self):
+        return iter(self._lines)
+
+
 def test_relay_appends_resource_to_versioned_ark_base_url(monkeypatch):
     module = _load_relay_module()
     requested_urls = []
+    requested_bodies = []
 
     def fake_urlopen(request, timeout):
         assert timeout == 600
         requested_urls.append(request.full_url)
-        return _FakeHttpResponse(
-            {
-                "usage": {"prompt_tokens": 2, "completion_tokens": 1},
-                "choices": [{"finish_reason": "stop", "message": {"content": "ok"}}],
-            }
+        requested_bodies.append(json.loads(request.data))
+        return _FakeStreamingHttpResponse(
+            [
+                {
+                    "choices": [
+                        {"finish_reason": None, "delta": {"content": "o"}}
+                    ]
+                },
+                {
+                    "usage": {"prompt_tokens": 2, "completion_tokens": 1},
+                    "choices": [
+                        {"finish_reason": "stop", "delta": {"content": "k"}}
+                    ],
+                },
+            ]
         )
 
     monkeypatch.setenv("ARK_BASE_URL", "https://ark.example/api/v3/")
@@ -223,6 +269,8 @@ def test_relay_appends_resource_to_versioned_ark_base_url(monkeypatch):
 
     assert module.Relay("test-model", 10, "system").call("hello") == "ok"
     assert requested_urls == ["https://ark.example/api/v3/chat/completions"]
+    assert requested_bodies[0]["stream"] is True
+    assert requested_bodies[0]["stream_options"] == {"include_usage": True}
 
 
 def test_vision_embedder_uses_multimodal_protocol_one_text_per_request(monkeypatch):
@@ -316,6 +364,44 @@ def test_extract_result_rows_flattens_nested_data_and_result_alias():
     assert rows[0]["llm_result"] == '{"是否营销可用": "是"}'
 
 
+def test_prepare_input_publishes_converted_workbook_atomically(tmp_path, monkeypatch):
+    module = _load_annotate_module()
+    source = tmp_path / "input.xlsx"
+    source.touch()
+    writes = []
+    replacements = []
+
+    class _FakeFrame:
+        columns = ["hottopic_desc"]
+
+        def rename(self, *, columns):
+            assert columns == {"hottopic_desc": "desc"}
+            self.columns = ["desc"]
+            return self
+
+        def to_excel(self, path, index=False):
+            assert index is False
+            writes.append(path)
+            path.write_text("complete workbook", encoding="utf-8")
+
+    monkeypatch.setattr(module.pd, "read_excel", lambda _path: _FakeFrame())
+
+    def fake_replace(source_path, destination_path):
+        replacements.append((source_path, destination_path))
+        destination_path.write_bytes(source_path.read_bytes())
+        source_path.unlink()
+
+    monkeypatch.setattr(module.os, "replace", fake_replace)
+
+    prepared = module._prepare_input(source)
+
+    assert prepared == tmp_path / ".input_prepared.xlsx"
+    assert writes[0] != prepared
+    assert writes[0].name.endswith(".tmp.xlsx")
+    assert replacements == [(writes[0], prepared)]
+    assert prepared.read_text(encoding="utf-8") == "complete workbook"
+
+
 def test_download_inline_results_reads_paginated_result_list(tmp_path, monkeypatch):
     module = _load_annotate_module()
     written_rows = []
@@ -355,6 +441,66 @@ def test_download_inline_results_reads_paginated_result_list(tmp_path, monkeypat
     )
 
     assert [row["row_id"] for row in written_rows] == ["T0001", "T0002"]
+
+
+def test_get_task_retries_transient_503(monkeypatch):
+    module = _load_annotate_module()
+    attempts = []
+    delays = []
+
+    class _Response:
+        def __init__(self, status_code, body=None):
+            self.status_code = status_code
+            self._body = body or {}
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise module.requests.HTTPError(
+                    f"{self.status_code} unavailable", response=self
+                )
+
+        def json(self):
+            return self._body
+
+    responses = [
+        _Response(503),
+        _Response(200, {"code": 0, "data": {"task_status": "TASK_STATUS_RUNNING"}}),
+    ]
+
+    def fake_get(*_args, **_kwargs):
+        attempts.append(True)
+        return responses.pop(0)
+
+    monkeypatch.setattr(module.requests, "get", fake_get)
+    monkeypatch.setattr(module.time, "sleep", delays.append)
+
+    result = module._get_task("secret", 5041)
+
+    assert result["task_status"] == "TASK_STATUS_RUNNING"
+    assert len(attempts) == 2
+    assert delays == [module.TASK_QUERY_RETRY_BASE_SECONDS]
+
+
+def test_get_task_uses_datahub_page_num_parameter(monkeypatch):
+    module = _load_annotate_module()
+    requested_params = []
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"code": 0, "data": {"result_list": []}}
+
+    def fake_get(*_args, **kwargs):
+        requested_params.append(kwargs["params"])
+        return _Response()
+
+    monkeypatch.setattr(module.requests, "get", fake_get)
+
+    module._get_task("secret", 5042, page=2, page_size=1000)
+
+    assert requested_params == [{"page_num": 2, "page_size": 1000}]
 
 
 def test_validate_model_id_prints_list_and_returns_exact_match(capsys):
@@ -1161,6 +1307,234 @@ def test_coordinator_uses_50_rows_for_demo_and_500_for_full():
     assert "mode=skip_sampling" in coordinator
 
 
+def test_datahub_agents_use_one_worker_and_short_batch_waits():
+    coordinator = COORDINATOR_PROMPT.read_text(encoding="utf-8")
+    annotator = ANNOTATOR_PROMPT.read_text(encoding="utf-8")
+
+    assert "--launch-background" in annotator
+    assert "立即按下方 JSON 契约 `end_turn`" in annotator
+    assert "严禁自己等待、轮询、监控或启动第二个 worker" in annotator
+    assert "wait_datahub_batch.py" in coordinator
+    assert "--tasks c0,c3" in coordinator
+    assert "--tasks r1,r2,r3,r4,r5" in coordinator
+    assert "--wait-seconds 105" in coordinator
+    assert coordinator.count("`timeout=115`") >= 2
+    assert "低于方舟 bash 约 120 秒的强制后台阈值" in coordinator
+
+
+def test_datahub_background_launch_is_idempotent(tmp_path, monkeypatch):
+    module = _load_annotate_module()
+    calls = []
+
+    class FakeProcess:
+        pid = __import__("os").getpid()
+
+    def fake_popen(command, **kwargs):
+        calls.append((command, kwargs))
+        return FakeProcess()
+
+    monkeypatch.setattr(module.subprocess, "Popen", fake_popen)
+    args = types.SimpleNamespace(
+        task="c0",
+        project_dir=str(tmp_path),
+        input=str(tmp_path / "input.xlsx"),
+        prompt_file=str(tmp_path / "prompt.md"),
+        model_id="Doubao-Seed-Evolving",
+        run_id=1,
+        mode="full",
+    )
+
+    first = module.launch_background(args)
+    second = module.launch_background(args)
+
+    assert first["status"] == "submitted"
+    assert second["status"] == "running"
+    assert len(calls) == 1
+    assert "--launch-background" not in calls[0][0]
+    assert calls[0][1]["start_new_session"] is True
+
+
+def test_datahub_background_launch_does_not_reuse_different_input(
+    tmp_path, monkeypatch
+):
+    module = _load_annotate_module()
+    task_dir = tmp_path / "04_标注" / "C0_基础事实"
+    task_dir.mkdir(parents=True)
+    sample = tmp_path / "03_抽样" / "sample_500.xlsx"
+    full = tmp_path / "02_标准化" / "hot_topics_normalized.xlsx"
+    sample.parent.mkdir(parents=True)
+    full.parent.mkdir(parents=True)
+    sample.touch()
+    full.touch()
+    (task_dir / "c0_completion_meta.json").write_text(
+        json.dumps(
+            {
+                "run_id": 1,
+                "input_file": str(sample.with_name(".sample_500_prepared.xlsx")),
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls = []
+
+    class FakeProcess:
+        pid = __import__("os").getpid()
+
+    def fake_popen(command, **_kwargs):
+        calls.append(command)
+        return FakeProcess()
+
+    monkeypatch.setattr(module.subprocess, "Popen", fake_popen)
+    args = types.SimpleNamespace(
+        task="c0",
+        project_dir=str(tmp_path),
+        input=str(full),
+        prompt_file=str(tmp_path / "prompt.md"),
+        model_id="Doubao-Seed-Evolving",
+        run_id=1,
+        mode="skip_sampling",
+    )
+
+    result = module.launch_background(args)
+
+    assert result["status"] == "submitted"
+    assert len(calls) == 1
+
+
+def test_datahub_worker_allows_day_long_server_tasks():
+    module = _load_annotate_module()
+    assert module.POLL_TIMEOUT == 24 * 60 * 60
+
+
+def test_datahub_worker_resumes_matching_submitted_task(tmp_path, monkeypatch):
+    module = _load_annotate_module()
+    input_path = tmp_path / "input.xlsx"
+    prompt_path = tmp_path / "prompt.md"
+    pd.DataFrame({"desc": ["example"]}).to_excel(input_path, index=False)
+    prompt_path.write_text("prompt", encoding="utf-8")
+    task_dir = tmp_path / "04_标注" / "C0_基础事实"
+    task_dir.mkdir(parents=True)
+    (task_dir / "c0_submit_meta.json").write_text(
+        json.dumps(
+            {
+                "task": "c0",
+                "task_id": 5041,
+                "run_id": 2,
+                "model_id": "Doubao-Seed-Evolving",
+                "platform": "ByteDance",
+                "input_price": 0,
+                "output_price": 0,
+                "currency": "CNY",
+                "prompt_file": str(prompt_path),
+                "input_file": str(input_path),
+                "source_input_file": str(input_path),
+                "created_at": "2026-09-30T22:00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    polled = []
+
+    monkeypatch.setenv("DATAHUB_API_KEY", "test-key")
+    monkeypatch.setattr(
+        module,
+        "_list_models",
+        lambda _key: [
+            {
+                "model_id": "Doubao-Seed-Evolving",
+                "platform": "ByteDance",
+                "input_price": 0,
+                "output_price": 0,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        module,
+        "_upload_file",
+        lambda *_args, **_kwargs: pytest.fail("resume must not upload input"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_create_task",
+        lambda *_args, **_kwargs: pytest.fail("resume must not create a task"),
+    )
+
+    def fake_poll(_api_key, task_id):
+        polled.append(task_id)
+        return {"result_url": "https://example.test/result.xlsx"}
+
+    def fake_download(_url, output):
+        pd.DataFrame({"llm_result": ['{"是否营销可用":"是"}']}).to_excel(
+            output, index=False
+        )
+
+    monkeypatch.setattr(module, "_poll_until_done", fake_poll)
+    monkeypatch.setattr(module, "_download_result", fake_download)
+    monkeypatch.setattr(
+        module,
+        "_postprocess",
+        lambda frame, _task: (
+            frame,
+            {
+                "status": "pass",
+                "total": 1,
+                "valid": 1,
+                "invalid": 0,
+                "valid_rate": 1.0,
+            },
+        ),
+    )
+    monkeypatch.setattr(module, "update_run_config", lambda *_args, **_kwargs: None)
+
+    result = module.annotate(
+        "c0",
+        str(tmp_path),
+        str(input_path),
+        str(prompt_path),
+        "Doubao-Seed-Evolving",
+        run_id=2,
+    )
+
+    assert polled == [5041]
+    assert result["task_id"] == 5041
+    assert result["source_input_file"] == str(input_path.resolve())
+
+
+def test_wait_datahub_batch_reports_running_complete_and_failed(tmp_path):
+    module = _load_wait_datahub_batch_module()
+    c0_dir = tmp_path / "04_标注" / "C0_基础事实"
+    c3_dir = tmp_path / "04_标注" / "C3_节点标注"
+    c0_dir.mkdir(parents=True)
+    c3_dir.mkdir(parents=True)
+    (c0_dir / "c0_worker_r1.pid").write_text(
+        str(__import__("os").getpid()),
+        encoding="utf-8",
+    )
+    (c3_dir / "c3_worker_r1.pid").write_text(
+        str(__import__("os").getpid()),
+        encoding="utf-8",
+    )
+
+    running = module.inspect_batch(tmp_path, ["c0", "c3"], 1)
+    assert running["status"] == "running"
+
+    for task, directory in (("c0", c0_dir), ("c3", c3_dir)):
+        (directory / f"{task}_completion_meta.json").write_text(
+            json.dumps(
+                {"run_id": 1, "total": 500, "valid_rate": 0.99}
+            ),
+            encoding="utf-8",
+        )
+    complete = module.inspect_batch(tmp_path, ["c0", "c3"], 1)
+    assert complete["status"] == "complete"
+
+    (c3_dir / "c3_completion_meta.json").unlink()
+    (c3_dir / "c3_worker_r1.pid").write_text("99999999", encoding="utf-8")
+    failed = module.inspect_batch(tmp_path, ["c0", "c3"], 1)
+    assert failed["status"] == "failed"
+    assert failed["tasks"]["c3"]["status"] == "missing"
+
+
 def test_coordinator_uses_cross_platform_c2_flow_and_merge_contract():
     coordinator = COORDINATOR_PROMPT.read_text(encoding="utf-8")
 
@@ -1174,6 +1548,8 @@ def test_coordinator_uses_cross_platform_c2_flow_and_merge_contract():
     assert all(step in coordinator for step in required_steps)
     assert "严禁在 x0 前按平台执行 01~04" in coordinator
     assert "禁止把 `00_seed_from_registry.py` 当成 C2 起点" in coordinator
+    assert "`run_topic6_c2.py` 和合并脚本一律传 `--mode skip_sampling`" in coordinator
+    assert "严禁继续把顶层 `mode=full` 传给 C2" in coordinator
     assert "`feishu_doc_url` 必须是非空的飞书 `/docx/` URL" in coordinator
     assert "严禁用本地 Markdown 路径代替飞书文档并进入 HC3" in coordinator
     assert "output=`04_标注/c2_raw.jsonl`" not in coordinator
@@ -1297,4 +1673,50 @@ def test_pipeline_f_marks_demo_report_as_sample_only(tmp_path):
 
     assert result.returncode == 0, result.stderr
     report = project / "07_报告" / "热点报告_2026-W39_v1.md"
-    assert "基于 50 条分层样本生成" in report.read_text(encoding="utf-8")
+    report_text = report.read_text(encoding="utf-8")
+    assert "基于 50 条分层样本生成" in report_text
+    assert "> 数据范围：微博、知乎、抖音、B站" in report_text
+    assert "> 数据周期：2026-W39（2026-09-21 ~ 2026-09-27）" in report_text
+
+
+def test_web_report_uses_actual_period_and_has_no_w32_fallback(tmp_path):
+    blocks = json.loads(WEB_REPORT_EXAMPLE.read_text(encoding="utf-8"))
+    blocks[0]["text"] = (
+        "数据范围:微博、知乎、抖音、B站\n"
+        "数据周期:2026-W39 (2026-09-21 ~ 2026-09-27)"
+    )
+    source = tmp_path / "source.example.json"
+    output = tmp_path / "index.html"
+    source.write_text(json.dumps(blocks, ensure_ascii=False), encoding="utf-8")
+
+    result = subprocess.run(
+        ["node", str(WEB_REPORT_BUILDER), str(source), str(output)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    html = output.read_text(encoding="utf-8")
+    assert "2026·W39" in html
+    assert "2026-09-21 至 2026-09-27" in html
+    assert "2026·W32" not in html
+
+
+def test_web_report_rejects_missing_period_instead_of_using_example_week(tmp_path):
+    blocks = json.loads(WEB_REPORT_EXAMPLE.read_text(encoding="utf-8"))
+    blocks[0]["text"] = "数据范围：微博、知乎、抖音、B站"
+    source = tmp_path / "source.example.json"
+    output = tmp_path / "index.html"
+    source.write_text(json.dumps(blocks, ensure_ascii=False), encoding="utf-8")
+
+    result = subprocess.run(
+        ["node", str(WEB_REPORT_BUILDER), str(source), str(output)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "Missing report period" in result.stderr
+    assert not output.exists()

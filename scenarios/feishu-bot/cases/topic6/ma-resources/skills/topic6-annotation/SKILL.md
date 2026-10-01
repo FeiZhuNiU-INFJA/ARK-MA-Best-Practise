@@ -21,7 +21,8 @@ description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础
 │   ├── R5_消费者行为/v2.md    # 活跃版 v2 (v1 归档保留)
 │   └── 节点标注/v7.md         # 活跃版 v7
 ├── scripts/          # 一体化脚本 (submit+poll+postprocess 合并)
-│   ├── datahub_annotate.py    # 单任务全流程 (C0/R1~R5/C3)
+│   ├── datahub_annotate.py    # 单任务 worker + 幂等后台启动
+│   ├── wait_datahub_batch.py  # 低于 120 秒阈值的统一批次检查器
 │   ├── run_demo_routes.py     # demo: R1~R5 Ark 小批次、checkpoint 与断点恢复
 │   ├── c0_merge_phase1.py     # C0 + C3 → 04_合并/phase1_merged
 │   ├── c0_filter_usable.py    # 筛选营销可用子集
@@ -63,11 +64,14 @@ description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础
 
 ## 编排顺序 (由 topic6-annotation 子 Agent 委派)
 
-1. **第一批 (全量并行)**: C0 + C3 独立跑 `datahub_annotate.py` 各拿一次 `--task`
+1. **第一批 (全量并行)**: C0 + C3 各用
+   `datahub_annotate.py --launch-background` 幂等启动一次，再由 Coordinator 反复调用
+   `wait_datahub_batch.py --tasks c0,c3 --wait-seconds 105` 统一等待
 2. `c0_merge_phase1.py`: LEFT JOIN 到基础表 → phase1_merged
 3. `c0_filter_usable.py`: 按"是否营销可用"筛出 R1~R5 输入子集
 4. **第二批 (可用子集并行)**:
-   - full/skip_sampling: R1~R5 各跑一次 `datahub_annotate.py --task rN --input 04_标注/_可用子集/...`
+   - full/skip_sampling: R1~R5 各用 `--launch-background` 启动一次，再由 Coordinator
+     调 `wait_datahub_batch.py --tasks r1,r2,r3,r4,r5 --wait-seconds 105`
    - demo: 单次运行 `run_demo_routes.py`，默认并发启动 R1~R5 五个 route worker；
      每个 worker 内按每批 5 行串行调用 Ark，每批成功即写 checkpoint
 5. C2 事件归档与 R1~R5 并发执行 (由 topic6-event-registry skill 完成, 不在本 skill 内)
@@ -88,6 +92,9 @@ description: 社媒热点周刊 Phase C 标注：调用 DataHub 完成 C0 基础
 - Prompt 上传给 DataHub 时通过 `--prompt-file` 显式传绝对路径, 不再靠脚本自动扫描 prompts 目录。
 - `c0_filter_usable.py` 只把 C0 明确判定为“是”的记录送入 R1~R5；解析失败/缺失记录不进入五路下游。失败占比超过 5% 时熔断。
 - DataHub 成功态没有 `result_url` 时,`datahub_annotate.py` 自动分页读取 `result_list`,不需要子 Agent 手工下载。
+- 方舟 bash 长命令约 120 秒会自动转后台；不得用长时间前台调用规避。正式模式只允许
+  `--launch-background` 启动唯一 worker，批次检查器单次最长 105 秒，返回 `running`
+  后由 Coordinator 原参数重调，不创建额外后台等待进程。
 - `run_demo_routes.py` 只允许用于 50 条样本的 demo 流程；full/skip_sampling 必须继续走
   DataHub 单行标注，以保持正式质量口径。
 - demo checkpoint 位于各 R1~R5 目录的 `{route}_demo_checkpoint_r{N}.json`。输入、

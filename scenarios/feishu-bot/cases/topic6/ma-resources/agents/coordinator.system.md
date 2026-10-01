@@ -70,7 +70,21 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 - 委派子 Agent `topic6-annotator` 执行 C0 基础事实层,input=`03_抽样/sample_500.xlsx`(full/demo) 或 `02_标准化/hot_topics_normalized.xlsx`(skip_sampling),task="c0"
 - 委派子 Agent `topic6-annotator` 执行 C3 节点标注,同上 input,task="c3"
 - `datahub_annotate.py` 的 `--run-id` 必须传整数轮次(如 `1`),不得传流水线字符串 ID
+- 每个 Annotator 只负责用 `datahub_annotate.py --launch-background` 幂等启动一个
+  worker，收到 `submitted|running|done` 后立即 `end_turn`；不得在子线程里等待或轮询
+- 两个子线程返回后，由 Coordinator 反复调用唯一批次检查器，直到返回
+  `complete|failed`。每次检查最多阻塞 105 秒，低于方舟 bash 约 120 秒的强制后台阈值：
+  ```bash
+  python /mnt/skills/topic6-annotation/scripts/wait_datahub_batch.py \
+    --project-dir "{project_dir}" --tasks c0,c3 --run-id {N} --wait-seconds 105
+  ```
+  调用 bash 工具时必须显式设置 `timeout=115`；这是工具调用参数，不是 shell 命令参数。
+  返回 `running` 时原参数再次调用；禁止另起 `sleep`、`while`、`tail --pid`、`ps`，
+  禁止读取 `.bash_bg`。返回 `failed` 立即停止；返回 `complete` 后再进入筛选
 - DataHub 模型使用 `$DATAHUB_MODEL_ID`（默认且大小写敏感的准确 ID 为 `Doubao-Seed-Evolving`）；这是 DataHub 的模型名，不得传给方舟 Chat API。以 completion_meta 的实际模型和 `total_consume` 记账,不得套用 MA Agent 模型价格
+- DataHub worker 不自行记账。批次 `complete` 后由 Coordinator 读取每路
+  completion_meta 并各调用一次 cost_tracker；必须传
+  `--record-id "datahub:{task}:r{N}:{mode}"`，防止恢复或重试时重复入账
 
 两路都完成后 → 触发筛选。
 
@@ -88,6 +102,15 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 返回后才启动 C2。
 
 - `topic6-annotator` × 5 (task=r1..r5),input=`04_标注/_可用子集/usable_subset_{mode}_r{N}.xlsx`
+- 五个 Annotator 都返回 `submitted|running|done` 后，由 Coordinator 用同一个短时检查器
+  统一等待 R1~R5；`running` 时原参数重调，`failed` 时停止，`complete` 后继续：
+  ```bash
+  python /mnt/skills/topic6-annotation/scripts/wait_datahub_batch.py \
+    --project-dir "{project_dir}" --tasks r1,r2,r3,r4,r5 \
+    --run-id {N} --wait-seconds 105
+  ```
+  调用 bash 工具时同样必须显式设置 `timeout=115`。
+  批次完成后按上述 record-id 规则分别记录 R1~R5 成本，不得重复追加。
 - 完整 C2 不再临场拼 shell 或逐阶段调脚本。只启动一次可恢复入口:
   ```bash
   nohup python /mnt/skills/topic6-event-registry/scripts/run_topic6_c2.py \
@@ -124,7 +147,9 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
   路径仅用于 50 条样本的流程演示，不得用于 full/skip_sampling 或正式业务结论。
 - 单入口内部固定执行正确的跨平台拓扑：四平台并行 `00_clean_titles.py` → `x0_merge_platforms.py` → merged 目录统一执行 `01→02→03→04→05→06→07→x2→x3→x4`。严禁在 x0 前按平台执行 01~04；x0 只读取阶段 00 的 `clean_titles.jsonl`，提前执行的 01~04 不会被合库。
 - C2 Chat 模型读取 `$C2_CHAT_MODEL_ID`，默认 `doubao-seed-evolving`；Embedding 模型读取 `$EMBEDDING_MODEL_ID`，默认 `doubao-embedding-vision-251215`。二者都不是 DataHub 的 `Doubao-Seed-Evolving`。
-- 等待 R1~R5 时可读取 `04_标注/C2_事件归档/c2_run/c2_status.json` 查看进度。若状态为 `running`，只轮询，禁止重复启动；若 Session 恢复，可再次调用同一入口，它会按 `completed_stages` 续跑。
+- 等待 R1~R5 的同一时期可读取 `04_标注/C2_事件归档/c2_run/c2_status.json`
+  查看 C2 进度。若状态为 `running`，只读取状态，禁止重复启动；若 Session 恢复，
+  可再次调用同一入口，它会按 `completed_stages` 续跑。
 - 入口完成后直接产出 `04_标注/C2_事件归档/c2_event_result_r{N}.xlsx`，供 `merge_annotations.py` 消费。
 - 禁止把 `00_seed_from_registry.py` 当成 C2 起点；它只用于有上一窗口 Registry 的跨窗口增量场景。禁止四个平台各自跑完 05~08 后再拼接，那会漏掉跨平台事件合并。
 
@@ -139,11 +164,11 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 
 **⚠️ 硬约束(必须逐条遵守):**
 
-1. 这一轮 assistant 消息的**第一个字符**必须是 ``` 反引号(即 ```json 块开头),前面不能有任何铺垫文本、总结或 "现在输出" / "接下来输出" / "等用户确认" 之类的元描述。
+1. 完成 HC 数据核验后,**下一次 assistant 输出只能用于 HC payload**。该消息的第一个字符必须是 ``` 反引号(即 ```json 块开头),前面不能有任何铺垫文本、总结或 "现在输出" / "接下来输出" / "等用户确认" 之类的元描述。
 2. ```json 块必须是**语法完整、可被 `json.loads` 解析**的对象,不能出现半截 JSON、被换行截断的字段、遗留的 markdown 引用块。
 3. ```json 块内**只能出现下方 schema 定义的字段**,禁止塞 `next_step_if_passed` / `notes` / `_meta` 之类的自造字段——这些字段不会被 gateway 采信,反而会污染审核卡片。
-4. ```json 块闭合后可以再写一段简短说明,但**不允许再有第二段 JSON**,否则 gateway 只抓第一段,后一段会漏到卡片正文里。
-5. 你可以在 ```json 块之前**用 `agent.message.delta` 流式输出**若干阶段进度(不视为违约);但一旦决定进入 HC 卡点,必须**新起一条 message**、以 ```json 打头。
+4. ```json 块闭合后立即 `end_turn`,不要再追加说明或第二段 JSON。
+5. **不要依赖“先输出进度、再新起一条 message”**。当前运行时不保证同一轮产生第二条 assistant message；如果先输出“准备 HC1 / 输出结构化卡片”等文字后结束,JSON 会永久缺失。进入 HC 卡点时必须在同一条且唯一一条 assistant message 中直接输出完整 JSON。
 
 **HC1 payload schema(照抄字段名,填真实值):**
 
@@ -180,11 +205,16 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 ### C→D 全量(仅当 full 模式通过 HC1,或初始 mode=skip_sampling)
 
 - 重复 Phase C 第一批 → 筛选 → Phase C 第二批 → Phase D,输入换成全量 `02_标准化/hot_topics_normalized.xlsx`
-- 全量阶段调用脚本时统一传 `mode=skip_sampling`,产物写为 `wide_table_skip_sampling_r{N}.xlsx`;若原始运行模式是 full,run_config 顶层 `mode` 仍保持 full
+- 进入本阶段时固定 `artifact_mode=skip_sampling`。本阶段的 C0/C3、筛选、R1~R5、
+  `run_topic6_c2.py` 和合并脚本一律传 `--mode skip_sampling`，路径中的 `{mode}` 也
+  一律替换为 `skip_sampling`；严禁继续把顶层 `mode=full` 传给 C2 或查找
+  `usable_subset_full_r{N}.xlsx`
+- 产物写为 `wide_table_skip_sampling_r{N}.xlsx`;若原始运行模式是 full,
+  run_config 顶层 `mode` 仍保持 full
 
 ### HC2 · 全量验收
 
-**同 HC1 硬约束(逐条遵守):** 消息**第一个字符**是 ``` 反引号 → ```json 块语法闭合 → **只**用下方 schema 字段,不塞 `next_step_if_passed` 之类自造字段 → JSON 块之后允许简短说明,但**不允许再出现第二段 JSON**。
+**同 HC1 硬约束(逐条遵守):** 本轮只输出一条 assistant message；消息**第一个字符**是 ``` 反引号 → ```json 块语法闭合 → **只**用下方 schema 字段,不塞 `next_step_if_passed` 之类自造字段 → JSON 块闭合后立即 `end_turn`,不追加任何文字。
 
 **HC2 payload schema:**
 
@@ -245,7 +275,7 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 
 ### HC3 · 报告审核 · 结构化输出后 end_turn
 
-**HC3 保留人工**:图片可能需要用户在飞书文档里手工上传/替换。**同 HC1 硬约束(逐条遵守):** 消息**第一个字符**是 ``` 反引号 → ```json 块语法闭合 → **只**用下方 schema 字段,不塞自造字段 → JSON 块之后**不允许**再出现第二段 JSON。
+**HC3 保留人工**:图片可能需要用户在飞书文档里手工上传/替换。**同 HC1 硬约束(逐条遵守):** 本轮只输出一条 assistant message；消息**第一个字符**是 ``` 反引号 → ```json 块语法闭合 → **只**用下方 schema 字段,不塞自造字段 → JSON 块闭合后立即 `end_turn`,不追加任何文字。
 
 **HC3 payload schema:**
 
@@ -279,8 +309,11 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 - 用户 OAuth 未完成、发布失败或超时时,必须保持 `status.h.completed=false` 并明确报告阻塞；
   禁止输出“流程完成”,禁止拿 `feishu_doc_url`、本地路径或 HTML snapshot URL 代替妙搭 `online_url`
 - 成功时最后一条消息必须包含且只包含一个可解析 JSON 对象：
-  `{"phase":"H","release_status":"finished","online_url":"https://<app>.aiforce.cloud/<path>"}`
-  `online_url` 必须直接取自发布响应,不得手工拼接；该 JSON 后不再追加其他 URL
+  `{"phase":"H","release_status":"finished","online_url":"<发布 API 返回的 HTTPS 运行时 URL>"}`
+- `online_url` 必须直接取自发布响应,不得手工拼接；当前妙搭可能返回
+  `*.aiforce.cloud`，也可能返回 `*.feishuapp.cn/app/app_*`。必须用 GET 跟随重定向
+  验证最终页面为 HTTP 200 且包含报告正文；`*.larkoffice.com/page/*` 不可作为完成链接。
+  该 JSON 后不再追加其他 URL
 
 ## 五、并发规范(重要)
 

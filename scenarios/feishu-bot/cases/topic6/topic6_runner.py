@@ -26,6 +26,7 @@ import re
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 from typing import Optional
 from urllib.parse import urlsplit
 
@@ -160,6 +161,69 @@ def detect_hc_intent(text: str) -> Optional[str]:
     if not any(kw in text for kw in _HC_INTENT_KEYWORDS):
         return None
     return hc_kind
+
+
+def build_hc_fallback_payload(
+    job: PipelineJob, hc_kind: str, collected_messages: list[str]
+) -> dict:
+    """从 Agent 已输出的核验摘要恢复 HC1/HC2 卡片字段。
+
+    这里只恢复文本中有明确证据的指标；不猜测缺失值。路径按既定产物契约生成，
+    并保留 ``__fallback__``，让卡片明确提示结构化载荷来自 Gateway 兜底。
+    """
+    transcript = "\n".join(collected_messages[-12:])
+    project_name = PurePosixPath(job.project_dir.rstrip("/")).name
+    payload: dict = {
+        "hc": hc_kind,
+        "mode": job.mode,
+        "project_dir": job.project_dir,
+        "__fallback__": True,
+        "agent_message_tail": (collected_messages[-1] if collected_messages else "")[-400:],
+    }
+    if hc_kind not in {"HC1", "HC2"}:
+        return payload
+
+    artifact_mode = job.mode if hc_kind == "HC1" else "skip_sampling"
+    payload["wide_table_path"] = (
+        f"/mnt/session/outputs/{project_name}/05_合并/"
+        f"wide_table_{artifact_mode}_r1.xlsx"
+    )
+
+    summary: dict = {}
+    shape_match = re.search(r"(\d[\d,]*)\s*行\s*[×xX*]\s*(\d+)\s*列", transcript)
+    if shape_match:
+        summary["rows"] = int(shape_match.group(1).replace(",", ""))
+        summary["cols"] = int(shape_match.group(2))
+
+    c0_match = re.search(
+        r"C0.{0,24}?有效率\s*(?:为|=|:|：)?\s*(\d+(?:\.\d+)?)\s*%",
+        transcript,
+        re.IGNORECASE,
+    )
+    if c0_match:
+        summary["c0_valid_rate"] = float(c0_match.group(1)) / 100
+
+    routes_match = re.search(
+        r"R1\s*[~～\-—至到]+\s*R5.{0,48}?有效率.{0,16}?(\d+(?:\.\d+)?)\s*%",
+        transcript,
+        re.IGNORECASE,
+    )
+    if routes_match:
+        route_rate = float(routes_match.group(1)) / 100
+        summary["r1_r5_valid_rates"] = [route_rate] * 5
+
+    marketing_match = re.search(
+        r"营销(?:命中|可用)(?:率)?\s*(?:为|=|:|：)?\s*(\d+(?:\.\d+)?)\s*%",
+        transcript,
+    )
+    if hc_kind == "HC2" and marketing_match:
+        summary["marketing_hit_rate"] = float(marketing_match.group(1)) / 100
+
+    if summary:
+        payload["distribution_summary"] = summary
+    if any(marker in transcript for marker in ("所有 HC", "检查项通过", "无缺失")):
+        payload["issues_detected"] = []
+    return payload
 
 
 def validate_hc_payload(payload: dict) -> Optional[str]:
@@ -503,13 +567,7 @@ class Topic6Runner:
                     job_id,
                     intent_hc,
                 )
-                payload = {
-                    "hc": intent_hc,
-                    "mode": job.mode,
-                    "project_dir": job.project_dir,
-                    "__fallback__": True,
-                    "agent_message_tail": last[-400:],
-                }
+                payload = build_hc_fallback_payload(job, intent_hc, collected)
         if payload:
             hc_kind = str(payload["hc"])
             payload_error = validate_hc_payload(payload)
@@ -745,11 +803,18 @@ def extract_final_online_url(text: str) -> str:
             continue
         parsed = urlsplit(candidate)
         hostname = (parsed.hostname or "").lower()
+        is_aiforce = hostname == "aiforce.cloud" or hostname.endswith(".aiforce.cloud")
+        is_feishuapp = (
+            (hostname == "feishuapp.cn" or hostname.endswith(".feishuapp.cn"))
+            and re.fullmatch(r"/app/app_[A-Za-z0-9]+/?", parsed.path) is not None
+        )
         if (
             parsed.scheme == "https"
             and parsed.query == ""
             and parsed.fragment == ""
-            and (hostname == "aiforce.cloud" or hostname.endswith(".aiforce.cloud"))
+            and parsed.username is None
+            and parsed.password is None
+            and (is_aiforce or is_feishuapp)
         ):
             return candidate
     return ""

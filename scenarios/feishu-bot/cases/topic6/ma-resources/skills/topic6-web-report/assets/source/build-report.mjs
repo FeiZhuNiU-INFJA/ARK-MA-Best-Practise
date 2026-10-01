@@ -753,13 +753,16 @@ const declaration = cleanText(introBlocks.find((block) => /quote_container/u.tes
 const specialNote = cleanText(introBlocks.find((block) => /^⚠️/u.test(cleanText(block.text)))?.text ?? "");
 const sampleMatch = declaration.match(/数据样本：(\d+)\s*条原始热点\s*\/\s*(\d+)\s*条营销可用（([\d.]+)%）/u);
 const platformMatch = declaration.match(/平台分布：([^\n]+)/u);
-const periodMatch = declaration.match(/数据周期：([^（\n]+)（([^）]+)）/u);
+const periodMatch = declaration.match(/数据周期\s*[：:]\s*([^（(\n]+)\s*[（(]([^）)\n]+)[）)]/u);
+if (!periodMatch) {
+  throw new Error("Missing report period. Expected 数据周期：<周期标签>（<开始日期> ~ <结束日期>） in the introductory quote.");
+}
 
 const rawCount = sampleMatch?.[1] ?? "3631";
 const usableCount = sampleMatch?.[2] ?? "1681";
 const usableRate = sampleMatch?.[3] ?? "46.3";
-const periodCode = cleanText(periodMatch?.[1] ?? "2026-W32");
-const periodRange = cleanText(periodMatch?.[2] ?? "2026-08-03 ~ 2026-08-09").replace(/\s*~\s*/u, " 至 ");
+const periodCode = cleanText(periodMatch[1]);
+const periodRange = cleanText(periodMatch[2]).replace(/\s*~\s*/u, " 至 ");
 const monthlyPeriodMatch = periodCode.match(/(20\d{2})(?:年|[-./])\s*(\d{1,2})(?:月)?/u);
 const displayPeriod = reportKind === "monthly" && monthlyPeriodMatch
   ? `${monthlyPeriodMatch[1]}·${monthlyPeriodMatch[2].padStart(2, "0")}`
