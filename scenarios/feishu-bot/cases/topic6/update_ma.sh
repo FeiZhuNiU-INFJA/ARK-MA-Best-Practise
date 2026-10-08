@@ -12,7 +12,7 @@ set -Eeuo pipefail
 TOPIC6_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FEISHU_BOT_DIR="$(cd "$TOPIC6_DIR/../.." && pwd)"
 CONFIG_FILE="${TOPIC6_CONFIG_FILE:-${ARKAGENT_HOME:-$HOME/.arkagent}/cases/topic6/config.env}"
-CONDA_ENV="${TOPIC6_CONDA_ENV:-nio-ma-demo}"
+CONDA_ENV="${TOPIC6_CONDA_ENV:-topic6}"
 CURRENT_STEP="初始化"
 
 on_error() {
