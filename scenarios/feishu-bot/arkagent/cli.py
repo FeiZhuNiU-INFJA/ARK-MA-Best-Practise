@@ -237,9 +237,9 @@ async def _init_topic6() -> None:
     print(f"飞书 Bot 已创建:{feishu_app.app_id}")
     print(f"配置已写入 {case_paths.config_path}(仅含方舟 Key + 飞书凭据)。")
     print("下一步:")
-    print("  1) cd cases/topic6 && ./tools/pack_skills.sh && python3 tools/upload_skills.py")
-    print("  2) ./ma-resources/create_all.sh")
-    print(f"  3) 把输出的 TOPIC6_* ID 追加到 {case_paths.config_path},然后 `arkagent run --case topic6`")
+    print(f"  1) 在 {case_paths.config_path} 补齐 HOT_TOPICS_MCP_URL / BLUEAI_API_KEY / DATAHUB_ENDPOINT / DATAHUB_API_KEY")
+    print("  2) cd cases/topic6 && ./update_ma.sh  # 一键完成 pack/upload/建资源,TOPIC6_* ID 自动回写 config.env")
+    print("  3) arkagent run --case topic6")
 
 
 async def _update_agent(args: list[str] | None = None) -> None:
