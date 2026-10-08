@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="火山方舟 Managed Agents 组件、运行、权限与生命周期交互式架构全景">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 fill=%22%2318232d%22/><text x=%226%22 y=%2221%22 fill=%22white%22 font-size=%2211%22 font-family=%22monospace%22>MA</text></svg>">
+  <title>Managed Agents System Atlas</title>
+  <style>
+    :root {
+      --ink: #15212c;
+      --muted: #5f6e79;
+      --paper: #f3f6f8;
+      --surface: #fff;
+      --surface-subtle: #f8fafb;
+      --line: #dce3e8;
+      --line-strong: #a8b6c0;
+      --control: #175cd3;
+      --control-soft: #eaf2ff;
+      --brand: #175cd3;
+      --runtime: #0f766e;
+      --runtime-soft: #e7f5f2;
+      --guard: #8a5a08;
+      --guard-soft: #fff4d8;
+      --critical: #b93831;
+      --critical-soft: #fcecea;
+      --external: #67577c;
+      --external-soft: #f1eef5;
+      --collab: #7560a8;
+      --plane-fill: rgba(255, 255, 255, .78);
+      --grid-line: #e5eaee;
+      --shadow: 0 24px 64px rgba(30, 50, 64, .16);
+      --body: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html { color-scheme: light; }
+    body {
+      min-width: 320px;
+      margin: 0;
+      overflow: hidden;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--body);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    a { color: inherit; }
+    :focus-visible { outline: 3px solid rgba(36, 107, 206, .35); outline-offset: 3px; }
+    .mono, code { font-family: var(--mono); }
+
+    .app-header {
+      height: 72px;
+      display: grid;
+      grid-template-columns: 252px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 20px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface) 94%, transparent);
+      backdrop-filter: blur(14px);
+      position: relative;
+      z-index: 20;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; text-decoration: none; }
+    .brand-mark {
+      width: 34px; height: 34px; display: grid; place-items: center;
+      background: var(--brand); color: #fff; font: 750 12px/1 var(--mono);
+      border-radius: 5px;
+    }
+    .brand-copy { min-width: 0; }
+    .brand-copy strong { display: block; font-size: 14px; line-height: 1.2; }
+    .brand-copy span { display: block; margin-top: 3px; color: var(--muted); font: 10px/1 var(--mono); }
+    .view-tabs {
+      display: flex; justify-content: center; gap: 3px; min-width: 0;
+      overflow-x: auto; scrollbar-width: none;
+    }
+    .view-tabs::-webkit-scrollbar { display: none; }
+    .tab {
+      min-height: 40px; padding: 0 15px; border: 0; border-bottom: 2px solid transparent;
+      background: transparent; color: var(--muted); cursor: pointer; white-space: nowrap;
+      font-size: 13px; font-weight: 650;
+      border-radius: 5px 5px 0 0;
+      transition: color 150ms ease, background 150ms ease;
+    }
+    .tab:hover { color: var(--ink); background: var(--surface-subtle); }
+    .tab[aria-selected="true"] { color: var(--control); border-bottom-color: var(--control); }
+    .header-actions { display: flex; gap: 8px; }
+    .icon-button, .quiet-button, .filter, .scenario-button {
+      border: 1px solid var(--line); border-radius: 5px; background: var(--surface); cursor: pointer;
+      transition: border-color 150ms ease, background 150ms ease, transform 100ms ease;
+    }
+    .icon-button {
+      width: 36px; height: 36px; display: grid; place-items: center; padding: 0;
+      font: 700 15px/1 var(--mono);
+    }
+    .icon-button:hover, .quiet-button:hover, .filter:hover, .scenario-button:hover { border-color: var(--line-strong); }
+    .icon-button:active, .quiet-button:active, .filter:active, .scenario-button:active { transform: translateY(1px); }
+    .icon-button svg { width: 17px; height: 17px; }
+
+    .app-shell {
+      height: calc(100vh - 72px);
+      display: grid;
+      grid-template-columns: 252px minmax(0, 1fr) 360px;
+    }
+    .side-panel, .detail-panel { min-height: 0; background: var(--surface); }
+    .side-panel { border-right: 1px solid var(--line); padding: 28px 20px; overflow-y: auto; background: var(--surface-subtle); }
+    .detail-panel { border-left: 1px solid var(--line); overflow-y: auto; position: relative; }
+    .canvas-column { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+    .section-kicker {
+      margin: 0 0 8px; color: var(--control); font: 700 10px/1.3 var(--mono);
+    }
+    .side-panel h1 { margin: 0; font-size: 25px; line-height: 1.16; letter-spacing: 0; }
+    .view-summary { margin: 12px 0 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .side-section { margin-top: 24px; padding-top: 17px; border-top: 1px solid var(--line); }
+    .side-section h2 { margin: 0 0 10px; font-size: 12px; }
+    .filter-list, .scenario-list { display: grid; gap: 7px; }
+    .filter, .scenario-button {
+      min-height: 38px; padding: 8px 11px; text-align: left; font-size: 12px;
+      border-color: transparent; background: transparent;
+    }
+    .filter[aria-pressed="true"], .scenario-button[aria-pressed="true"] {
+      border-color: color-mix(in srgb, var(--control) 34%, transparent); background: var(--control-soft); color: var(--control);
+    }
+    .legend { display: grid; gap: 9px; color: var(--muted); font-size: 11px; }
+    .legend span { display: flex; align-items: center; gap: 9px; }
+    .legend i { width: 18px; height: 3px; background: var(--control); }
+    .legend .runtime { background: var(--runtime); }
+    .legend .guard { height: 0; background: none; border-top: 2px dashed var(--guard); }
+    .legend .external { background: var(--external); }
+    .legend .collab { height: 0; background: none; border-top: 2px dashed var(--collab); }
+    .legend-note { margin: 11px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .progress-track { display: none; }
+    .quiet-button { min-height: 34px; padding: 7px 10px; font-size: 12px; font-weight: 650; }
+    .wide { width: 100%; }
+
+    .canvas-toolbar {
+      min-height: 58px; display: flex; align-items: center; justify-content: space-between;
+      gap: 14px; padding: 9px 18px; border-bottom: 1px solid var(--line); background: var(--surface);
+    }
+    .canvas-title { min-width: 0; }
+    .canvas-title strong { display: block; font-size: 13px; }
+    .canvas-title span { display: block; color: var(--muted); font-size: 11px; }
+    .toolbar-buttons { display: flex; gap: 5px; flex: 0 0 auto; }
+    .canvas {
+      flex: 1; min-height: 0; overflow: auto; position: relative;
+      background-color: var(--paper);
+      background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 32px 32px;
+    }
+    .canvas-inner {
+      min-width: 820px; min-height: 650px; width: 100%; height: 100%;
+      transform-origin: top left; transition: transform 160ms ease;
+    }
+    .canvas-inner.content-mode { min-width: 0; }
+    .view { display: none; width: 100%; min-height: 100%; }
+    .view.active { display: block; }
+    #architecture-view { height: 100%; }
+    #architecture-svg { width: 100%; height: 100%; min-height: 650px; display: block; }
+    .plane { fill: var(--plane-fill); stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 5 5; }
+    .plane-label { fill: var(--muted); font: 700 11px var(--mono); letter-spacing: 0; }
+    .edge { fill: none; stroke-width: 2; opacity: .72; transition: opacity 150ms ease, stroke-width 150ms ease; }
+    .edge.control { stroke: var(--control); }
+    .edge.runtime { stroke: var(--runtime); }
+    .edge.security { stroke: var(--guard); stroke-dasharray: 7 5; }
+    .edge.data { stroke: var(--external); }
+    .edge.collab { stroke: var(--collab); stroke-dasharray: 3 4; }
+    .edge-group.is-unrelated { display: none; }
+    .node.is-muted { opacity: .1; }
+    .edge.is-active, .edge-group:focus-within .edge {
+      opacity: 1;
+      stroke-width: 3.5;
+      animation: edge-pulse 1.15s ease-in-out infinite;
+    }
+    .edge-hit { fill: none; stroke: transparent; stroke-width: 16; cursor: pointer; outline: none; }
+    .edge-hit:focus-visible, .node:focus-visible { outline: none; }
+    .edge-label {
+      fill: var(--muted); stroke: var(--paper); stroke-width: 4px; paint-order: stroke;
+      font: 600 10px var(--mono); pointer-events: none;
+    }
+    .node { cursor: pointer; outline: none; transition: opacity 150ms ease; }
+    .node rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.4; rx: 5; }
+    .node.control rect { stroke: var(--control); }
+    .node.runtime rect { stroke: var(--runtime); }
+    .node.guard rect { stroke: var(--guard); }
+    .node.external rect { stroke: var(--external); }
+    .node.session rect { fill: var(--runtime); stroke: var(--runtime); }
+    .node.session text { fill: white; }
+    .node.is-selected rect, .node:focus-visible rect {
+      stroke-width: 3;
+      filter: drop-shadow(0 0 6px rgba(23,92,211,.45));
+      animation: node-pulse 1.15s ease-in-out infinite;
+    }
+    .node-title { fill: var(--ink); font: 700 13px var(--body); pointer-events: none; }
+    .node-subtitle { fill: var(--muted); font: 10px var(--mono); pointer-events: none; }
+    .assembly-edge { animation: assemble-edge 520ms cubic-bezier(.2, .8, .2, 1) both; }
+    @keyframes assemble-edge { from { opacity: .18; } to { opacity: .72; } }
+    @keyframes edge-pulse {
+      0%, 100% { opacity: .5; stroke-width: 2.25; }
+      50% { opacity: 1; stroke-width: 3.75; }
+    }
+    @keyframes node-pulse {
+      0%, 100% { stroke-width: 2; filter: drop-shadow(0 0 1px rgba(23,92,211,.18)); }
+      50% { stroke-width: 3.5; filter: drop-shadow(0 0 8px rgba(23,92,211,.62)); }
+    }
+
+    .content-view { padding: 28px; min-height: 100%; }
+    .scenario-switch { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 22px; }
+    .sequence {
+      display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px;
+    }
+    .sequence-step {
+      position: relative; min-height: 132px; padding: 16px; border: 1px solid var(--line);
+      border-top: 3px solid var(--runtime); border-radius: 5px; background: var(--surface); cursor: pointer;
+      transition: border-color 150ms ease, transform 100ms ease;
+    }
+    .sequence-step:active { transform: translateY(1px); }
+    .sequence-step::after {
+      content: ""; position: absolute; top: 42px; left: calc(100% + 1px); width: 12px;
+      border-top: 1px solid var(--line-strong);
+    }
+    .sequence-step:nth-child(4n)::after, .sequence-step:last-child::after { display: none; }
+    .sequence-step:hover, .sequence-step:focus-visible { border-color: var(--runtime); }
+    .sequence-step h3 { margin: 10px 0 6px; font-size: 14px; }
+    .sequence-step p { margin: 0; color: var(--muted); font-size: 11px; }
+    .sequence-step code { display: inline-block; margin-top: 10px; color: var(--runtime); font-size: 10px; overflow-wrap: anywhere; }
+    .truth-strip {
+      margin-top: 22px; padding: 16px 18px; border-left: 4px solid var(--critical);
+      background: var(--critical-soft); font-size: 13px;
+    }
+    .truth-strip strong { color: var(--critical); }
+
+    .permission-stack { display: grid; gap: 10px; max-width: 900px; margin: 0 auto; }
+    .gate {
+      display: grid; grid-template-columns: 54px 200px minmax(0, 1fr) auto; align-items: center;
+      gap: 16px; padding: 15px 18px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); cursor: pointer;
+      transition: border-color 150ms ease, transform 100ms ease;
+    }
+    .gate:active { transform: translateY(1px); }
+    .gate-index { color: var(--guard); font: 800 11px var(--mono); }
+    .gate h3 { margin: 0; font-size: 14px; }
+    .gate p { min-width: 0; margin: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+    .gate code { color: var(--guard); font-size: 10px; }
+    .gate:hover { border-color: var(--guard); }
+    .warning-note {
+      max-width: 900px; margin: 18px auto 0; padding: 16px 18px;
+      border: 1px solid #e6c67e; background: var(--guard-soft); font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+    .warning-note code { white-space: normal; overflow-wrap: anywhere; }
+
+    .lifecycles { display: grid; gap: 8px; }
+    .life-row {
+      display: grid; grid-template-columns: 130px minmax(580px, 1fr); align-items: stretch;
+      min-height: 82px; border-bottom: 1px solid var(--line);
+    }
+    .life-name { padding: 18px 12px; font-weight: 700; font-size: 13px; background: var(--surface-subtle); }
+    .life-track { display: grid; align-items: center; gap: 7px; padding: 12px; }
+    .life-event {
+      min-width: 0; min-height: 48px; padding: 9px; border: 1px solid var(--line);
+      border-radius: 5px; background: var(--surface); text-align: left; cursor: pointer; font-size: 11px;
+    }
+    .life-event:hover { border-color: var(--control); }
+    .life-event.terminal { border-color: #dfaaa6; color: #8c302a; }
+    .delete-checker {
+      margin-top: 22px; padding: 18px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface);
+    }
+    .delete-checker h2 { margin: 0 0 13px; font-size: 15px; }
+    .impact-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .impact { padding: 10px; border-left: 3px solid var(--runtime); background: var(--runtime-soft); font-size: 11px; }
+    .impact.deleted { border-color: var(--critical); background: var(--critical-soft); }
+    .impact b { display: block; margin-bottom: 3px; }
+
+    .faq-tools { display: flex; gap: 10px; margin-bottom: 18px; }
+    .search-box {
+      flex: 1; min-width: 0; height: 42px; border: 1px solid var(--line); border-radius: 5px;
+      background: var(--surface); padding: 0 13px; color: var(--ink);
+    }
+    .search-box::placeholder { color: color-mix(in srgb, var(--muted) 82%, transparent); }
+    .faq-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .faq-item { border: 1px solid var(--line); border-radius: 5px; background: var(--surface); }
+    .faq-item summary {
+      min-height: 58px; padding: 15px 42px 15px 16px; cursor: pointer; list-style: none;
+      font-size: 13px; font-weight: 700; position: relative;
+    }
+    .faq-item summary::-webkit-details-marker { display: none; }
+    .faq-item summary::after { content: "+"; position: absolute; right: 16px; top: 15px; font: 18px var(--mono); }
+    .faq-item[open] summary::after { content: "-"; }
+    .faq-answer { padding: 0 16px 16px; color: var(--muted); font-size: 12px; }
+    .faq-answer code { color: var(--runtime); }
+    .faq-tag { display: inline-block; margin-top: 10px; color: var(--control); font: 700 9px var(--mono); }
+    .empty { padding: 60px 20px; text-align: center; color: var(--muted); }
+
+    .detail-empty { padding: 40px 28px; }
+    .detail-empty .diagram-key {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 22px;
+    }
+    .key-item { padding: 11px; border: 1px solid var(--line); font-size: 11px; }
+    .detail-content { padding: 30px 26px 38px; }
+    .detail-close { position: sticky; float: right; top: 12px; z-index: 2; }
+    .detail-kind { color: var(--control); font: 700 10px var(--mono); }
+    .detail-content h2 { margin: 8px 42px 10px 0; font-size: 27px; line-height: 1.16; }
+    .detail-summary { margin: 0 0 22px; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .fact-grid { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+    .fact-cell { min-width: 0; padding: 12px; border-bottom: 1px solid var(--line); background: var(--surface-subtle); }
+    .fact-cell:nth-child(odd) { border-right: 1px solid var(--line); }
+    .fact-cell:nth-last-child(-n+2) { border-bottom: 0; }
+    .fact-cell span { display: block; color: var(--muted); font: 9px var(--mono); text-transform: uppercase; }
+    .fact-cell b { display: block; margin-top: 5px; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+    .detail-section { margin-top: 22px; }
+    .detail-section h3 { margin: 0 0 9px; font-size: 12px; }
+    .detail-section ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+    .detail-section li + li { margin-top: 7px; }
+    .pitfall { padding: 12px; border-left: 3px solid var(--guard); background: var(--guard-soft); color: var(--guard); font-size: 11px; }
+    .source-list { display: grid; gap: 7px; }
+    .source-link {
+      display: block; padding: 10px 11px; border: 1px solid var(--line); border-radius: 5px; text-decoration: none;
+      color: var(--control); font-size: 11px;
+    }
+    .source-link:hover { border-color: var(--control); }
+    .engineering-note {
+      margin-top: 22px; padding: 13px; border: 1px dashed var(--external);
+      background: var(--external-soft); font-size: 11px; color: var(--external);
+    }
+
+    .tour-backdrop {
+      position: fixed; inset: 0; z-index: 50; display: none; background: rgba(18, 29, 38, .5);
+    }
+    .tour-backdrop.open { display: block; }
+    .tour-card {
+      position: absolute; left: 50%; top: 50%; width: min(480px, calc(100% - 32px));
+      transform: translate(-50%, -50%); padding: 26px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); box-shadow: var(--shadow);
+    }
+    .tour-count { color: var(--runtime); font: 700 10px var(--mono); }
+    .tour-card h2 { margin: 10px 0; font-size: 22px; }
+    .tour-card p { color: var(--muted); font-size: 13px; }
+    .tour-actions { display: flex; justify-content: space-between; gap: 10px; margin-top: 22px; }
+    .tour-actions div { display: flex; gap: 7px; }
+    .primary { border-color: var(--runtime); background: var(--runtime); color: white; }
+
+    .mobile-detail-backdrop { display: none; }
+    .noscript { margin: 24px; padding: 18px; border: 1px solid var(--guard); background: var(--guard-soft); }
+
+    @media (max-width: 1160px) {
+      .app-shell { grid-template-columns: 210px minmax(0, 1fr) 300px; }
+      .app-header { grid-template-columns: 210px minmax(0, 1fr) auto; }
+      .gate { grid-template-columns: 40px 155px minmax(0, 1fr); }
+      .gate code { display: none; }
+    }
+    @media (max-width: 900px) {
+      body { overflow: auto; }
+      .app-header {
+        height: auto; min-height: 72px; grid-template-columns: minmax(0, 1fr) auto;
+        padding: 10px 14px;
+      }
+      .view-tabs { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
+      .app-shell { height: auto; min-height: calc(100vh - 112px); grid-template-columns: 190px minmax(0, 1fr); }
+      .detail-panel {
+        position: fixed; z-index: 40; left: 0; right: 0; bottom: 0; max-height: 76vh;
+        border: 1px solid var(--line); border-radius: 6px 6px 0 0; box-shadow: var(--shadow); transform: translateY(105%);
+        transition: transform 180ms ease;
+      }
+      .detail-panel.open { transform: translateY(0); }
+      .mobile-detail-backdrop {
+        position: fixed; inset: 0; z-index: 35; background: rgba(24,35,45,.25);
+      }
+      .mobile-detail-backdrop.open { display: block; }
+      .sequence { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+      .sequence-step:nth-child(4n)::after { display: block; }
+      .sequence-step:nth-child(2n)::after { display: none; }
+      .faq-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 640px) {
+      .brand-copy span { display: none; }
+      .view-tabs { gap: 0; }
+      .tab { min-height: 38px; padding: 0 8px; font-size: 12px; }
+      .app-shell { display: block; }
+      .side-panel { border-right: 0; border-bottom: 1px solid var(--line); padding: 20px 15px 16px; }
+      .side-panel h1 { max-width: 340px; font-size: 22px; }
+      .view-summary { max-width: 360px; margin-top: 9px; }
+      .side-section { margin-top: 15px; padding-top: 12px; }
+      .filter-list, .scenario-list { display: flex; overflow-x: auto; }
+      .filter, .scenario-button { flex: 0 0 auto; white-space: nowrap; }
+      .legend-section, .reading-section, .baseline-section { display: none; }
+      .canvas-column { min-height: 680px; }
+      .canvas-toolbar { position: sticky; top: 0; z-index: 5; }
+      .canvas { min-height: 610px; }
+      .canvas-inner { min-width: 820px; min-height: 610px; height: 610px; }
+      .content-view { width: 100vw; min-width: 0; padding: 18px 14px; }
+      #runtime-view, #permissions-view, #lifecycle-view, #faq-view { min-width: 100vw; }
+      .sequence { grid-template-columns: 1fr; }
+      .sequence-step::after { display: none !important; }
+      .gate { grid-template-columns: 34px minmax(0, 1fr); gap: 10px; }
+      .gate p { grid-column: 2; }
+      .life-row { grid-template-columns: 100px minmax(680px, 1fr); }
+      .impact-grid { grid-template-columns: 1fr; }
+      .detail-content { padding: 24px 20px 30px; }
+      .detail-content h2 { font-size: 24px; }
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ink: #e7edf1;
+        --muted: #9cabb5;
+        --paper: #0f161c;
+        --surface: #151e25;
+        --surface-subtle: #111a20;
+        --line: #2a3740;
+        --line-strong: #536570;
+        --control: #6fa4ff;
+        --control-soft: #172b48;
+        --runtime: #4fb6aa;
+        --runtime-soft: #17332f;
+        --guard: #d8a84f;
+        --guard-soft: #3a2d14;
+        --critical: #ef7b73;
+        --critical-soft: #3b211f;
+        --external: #ad99c8;
+        --external-soft: #2d2736;
+        --collab: #a78bfa;
+        --plane-fill: rgba(21, 30, 37, .82);
+        --grid-line: #1b2730;
+        --shadow: 0 24px 64px rgba(0, 0, 0, .42);
+      }
+      html { color-scheme: dark; }
+      .node.session rect { fill: #167d73; stroke: #55bdb2; }
+      .node.session text { fill: #f5fffd; }
+      .edge.control { stroke: #6fa4ff; }
+      .edge.runtime { stroke: #4fb6aa; }
+      .edge.security { stroke: #d8a84f; }
+      .edge.data { stroke: #ad99c8; }
+      .edge.collab { stroke: var(--collab); }
+      .truth-strip strong { color: #ff9b94; }
+      .life-event.terminal { border-color: #7a4945; color: #f39a93; }
+      .pitfall { color: #e4bd70; }
+      .engineering-note { color: #c4b4d7; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="../../index.html" aria-label="返回 MA 场景索引">
+      <span class="brand-mark">MA</span>
+      <span class="brand-copy"><strong>System Atlas</strong><span>ARK MANAGED AGENTS</span></span>
+    </a>
+    <nav class="view-tabs" role="tablist" aria-label="架构视角">
+      <button class="tab" role="tab" data-view="architecture" aria-selected="true">架构总览</button>
+      <button class="tab" role="tab" data-view="runtime" aria-selected="false">一次任务</button>
+      <button class="tab" role="tab" data-view="permissions" aria-selected="false">权限边界</button>
+      <button class="tab" role="tab" data-view="lifecycle" aria-selected="false">生命周期</button>
+      <button class="tab" role="tab" data-view="faq" aria-selected="false">新手问答</button>
+    </nav>
+    <div class="header-actions">
+      <button class="icon-button" id="open-tour" type="button" title="打开导览" aria-label="打开新手导览">?</button>
+      <a class="icon-button" href="火山方舟_ManagedAgents_docs.md" title="打开事实基线文档" aria-label="打开 Managed Agents 文档合集">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v5h5M8 12h8M8 16h8"/></svg>
+      </a>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <aside class="side-panel">
+      <p class="section-kicker" id="view-kicker">系统模型</p>
+      <h1 id="view-title">一个 Session，组装全部能力</h1>
+      <p class="view-summary" id="view-summary">Agent 定义怎么做，Environment 决定在哪跑，Session 把凭据、资源和任务组合成一次隔离运行。</p>
+      <section class="side-section" id="filter-section">
+        <h2>关系筛选</h2>
+        <div class="filter-list" id="relationship-filters"></div>
+      </section>
+      <section class="side-section" id="scenario-section" hidden>
+        <h2>运行分支</h2>
+        <div class="scenario-list" id="scenario-list"></div>
+      </section>
+      <section class="side-section legend-section">
+        <h2>阅读图例</h2>
+        <div class="legend">
+          <span><i></i>定义与绑定</span>
+          <span><i class="runtime"></i>运行与事件</span>
+          <span><i class="guard"></i>权限与凭据</span>
+          <span><i class="external"></i>数据与外部系统</span>
+          <span><i class="collab"></i>角色协作</span>
+        </div>
+        <p class="legend-note">箭头指向被引用、创建或调用的一方，文字表示绑定字段或动作。</p>
+      </section>
+      <section class="side-section reading-section">
+        <h2>建议阅读顺序</h2>
+        <p class="view-summary">定位 → 组装 → 运行 → 权限 → 保留</p>
+        <div class="progress-track" aria-hidden="true"><span id="reading-progress"></span></div>
+        <button class="quiet-button wide" id="restart-tour" type="button" style="margin-top:12px">从头导览</button>
+      </section>
+      <section class="side-section baseline-section">
+        <h2>内容基线</h2>
+        <p class="view-summary"><code>火山方舟_ManagedAgents_docs.md</code><br>校对日期：2026-10-08</p>
+      </section>
+    </aside>
+
+    <main class="canvas-column">
+      <div class="canvas-toolbar">
+        <div class="canvas-title"><strong id="canvas-title">MA 对象关系图</strong><span id="canvas-help">点击节点或连线查看“谁绑定谁、何时生效”</span></div>
+        <div class="toolbar-buttons" id="zoom-controls">
+          <button class="icon-button" id="zoom-out" type="button" title="缩小" aria-label="缩小">−</button>
+          <button class="icon-button" id="zoom-reset" type="button" title="重置缩放" aria-label="重置缩放"><span id="zoom-label">100%</span></button>
+          <button class="icon-button" id="zoom-in" type="button" title="放大" aria-label="放大">+</button>
+          <button class="icon-button" id="zoom-fit" type="button" title="适应窗口" aria-label="适应窗口">⌗</button>
+        </div>
+      </div>
+      <div class="canvas" id="canvas" role="region" tabindex="0" aria-label="Managed Agents 交互画布">
+        <div class="canvas-inner" id="canvas-inner">
+          <section class="view active" id="architecture-view" role="tabpanel">
+            <svg id="architecture-svg" viewBox="0 0 1120 720" role="group" aria-label="Managed Agents 组件关系图，可选择节点和关系查看详情"></svg>
+          </section>
+          <section class="view content-view" id="runtime-view" role="tabpanel"></section>
+          <section class="view content-view" id="permissions-view" role="tabpanel"></section>
+          <section class="view content-view" id="lifecycle-view" role="tabpanel"></section>
+          <section class="view content-view" id="faq-view" role="tabpanel"></section>
+        </div>
+      </div>
+    </main>
+
+    <aside class="detail-panel" id="detail-panel" aria-live="polite">
+      <div class="detail-empty" id="detail-empty">
+        <p class="section-kicker">Select a component</p>
+        <h2>从 Session 开始</h2>
+        <p class="view-summary">选择图中任意组件或关系，查看它的职责、绑定时机、可变性、删除影响与官方出处。</p>
+        <div class="diagram-key">
+          <div class="key-item"><b>定义层</b><br>可复用配置</div>
+          <div class="key-item"><b>运行层</b><br>隔离任务实例</div>
+          <div class="key-item"><b>安全层</b><br>权限与凭据</div>
+          <div class="key-item"><b>数据层</b><br>输入、记忆、产物</div>
+        </div>
+      </div>
+      <div class="detail-content" id="detail-content" hidden></div>
+    </aside>
+  </div>
+  <div class="mobile-detail-backdrop" id="detail-backdrop"></div>
+
+  <div class="tour-backdrop" id="tour" role="dialog" aria-modal="true" aria-labelledby="tour-title">
+    <div class="tour-card">
+      <span class="tour-count" id="tour-count"></span>
+      <h2 id="tour-title"></h2>
+      <p id="tour-text"></p>
+      <div class="tour-actions">
+        <button class="quiet-button" id="tour-skip" type="button">跳过</button>
+        <div><button class="quiet-button" id="tour-prev" type="button">上一步</button><button class="quiet-button primary" id="tour-next" type="button">下一步</button></div>
+      </div>
+    </div>
+  </div>
+
+  <noscript><div class="noscript"><strong>核心模型：</strong>Agent 是可版本化定义，Environment 是运行模板，Session 是隔离运行实例，Events 是应用与 Agent 的通信记录。完整资料请打开 <a href="火山方舟_ManagedAgents_docs.md">官方文档合集</a>。</div></noscript>
+
+  <script>
+    const DOCS = {
+      overview: ["概述与基本概念", "https://docs.volcengine.com/docs/82379/2553713?lang=zh"],
+      agent: ["Agent", "https://docs.volcengine.com/docs/82379/2553716?lang=zh"],
+      skills: ["Skills", "https://docs.volcengine.com/docs/82379/2553717?lang=zh"],
+      mcp: ["MCP", "https://docs.volcengine.com/docs/82379/2553718?lang=zh"],
+      tools: ["Tools", "https://docs.volcengine.com/docs/82379/2553719?lang=zh"],
+      permissions: ["工具权限策略", "https://docs.volcengine.com/docs/82379/2553720?lang=zh"],
+      environment: ["配置云环境", "https://docs.volcengine.com/docs/82379/2553721?lang=zh"],
+      sandbox: ["云沙箱参考", "https://docs.volcengine.com/docs/82379/2553722?lang=zh"],
+      start: ["启动 Session", "https://docs.volcengine.com/docs/82379/2553723?lang=zh"],
+      session: ["管理 Session", "https://docs.volcengine.com/docs/82379/2553724?lang=zh"],
+      events: ["Session 事件流", "https://docs.volcengine.com/docs/82379/2553725?lang=zh"],
+      vault: ["使用 Vaults 认证", "https://docs.volcengine.com/docs/82379/2553726?lang=zh"],
+      files: ["上传与挂载文件", "https://docs.volcengine.com/docs/82379/2553727?lang=zh"],
+      memory: ["持久化记忆", "https://docs.volcengine.com/docs/82379/2553728?lang=zh"],
+      advisor: ["Advisor", "https://docs.volcengine.com/docs/82379/2553729?lang=zh"],
+      multi: ["编排 Multi Agent", "https://docs.volcengine.com/docs/82379/2553730?lang=zh"]
+    };
+
+    const COMPONENTS = {
+      app: { name:"业务应用", kind:"你的系统", plane:"接入层", summary:"创建和管理资源，发送用户事件，消费 SSE，并处理确认、自定义工具与最终结果。", owner:"业务方", createdWhen:"部署应用时", boundWhen:"通过 API 调用 MA", mutable:"由业务方控制", scope:"应用级", retention:"由业务系统决定", facts:["HTTP 200 只代表事件已受理。","实时流中断后，应先重建流，再查询历史补齐空窗。"], pitfalls:["不要先发送消息再建立 SSE。"], sources:["events"] },
+      agent: { name:"Agent", kind:"版本化定义", plane:"控制面", summary:"定义模型、System Prompt、Skills、Tools、MCP 和多智能体关系，是多个 Session 复用的能力模板。", owner:"平台资源", createdWhen:"设计能力时", boundWhen:"创建 Session 时引用", mutable:"更新产生新版本", scope:"多个 Session 复用", retention:"独立于 Session", facts:["稳定 Agent ID 下维护递增版本。","Session 可使用最新版本，也可显式固定版本。","tools、skills、mcp_servers 传入数组时采用整体替换语义。"], pitfalls:["更新 Agent 不会自动改变已有 Session。","主 Agent 省略内置 Toolset 并不等于关闭工具。"], sources:["agent","skills","tools"] },
+      skills: { name:"Skills", kind:"能力包", plane:"控制面", summary:"为 Agent 提供可复用的领域知识、流程和最佳实践，运行时只读挂载到 /mnt/skills。", owner:"平台或团队", createdWhen:"沉淀方法时", boundWhen:"Agent 定义时引用", mutable:"自定义 Skill 可发新版本", scope:"随 Agent 配置", retention:"独立资源", facts:["支持 SkillHub 预置与自定义 Skill。","单个 Agent 最多配置 50 个 Skills。","挂载目录对 Agent 只读。"], pitfalls:["一次性任务应通过 Session 事件传入，不应写进 Skill。"], sources:["skills","sandbox"] },
+      tools: { name:"Tools", kind:"执行能力", plane:"控制面", summary:"让 Agent 操作文件、执行命令、访问网页或调用业务操作；工具范围与权限策略在 Agent 定义中配置。", owner:"方舟或业务方", createdWhen:"定义 Agent 时", boundWhen:"Session 使用 Agent 快照", mutable:"更新 Agent 后生效", scope:"工具集与单工具", retention:"随 Agent 版本", facts:["内置、MCP、自定义工具的执行责任不同。","工具集默认值和单工具 configs 共同决定最终范围。"], pitfalls:["关闭 write/edit 不代表强隔离，bash 与网络仍可能绕过意图限制。"], sources:["tools","permissions"] },
+      environment: { name:"Environment", kind:"运行模板", plane:"控制面", summary:"定义云沙箱类型、依赖包、环境变量、网络与产物存储；多个 Session 可复用模板，但沙箱彼此隔离。", owner:"平台资源", createdWhen:"准备运行环境时", boundWhen:"创建 Session 时引用", mutable:"可更新，无内建版本", scope:"多个 Session 复用", retention:"独立于 Session", facts:["每个 Session 获得独立沙箱实例。","依赖会在使用同一 Environment 的 Session 之间缓存。","已有 Session 使用创建时冻结的配置快照。"], pitfalls:["频繁更新时应在业务侧记录环境版本。"], sources:["environment","sandbox"] },
+      session: { name:"Session", kind:"运行实例", plane:"运行面", summary:"把 Agent、Environment、Vaults 与资源组合成一次隔离运行；跨多轮保留对话历史和可恢复沙箱状态。", owner:"平台资源", createdWhen:"每个任务或会话开始时", boundWhen:"创建即冻结配置快照", mutable:"可改标题/标签，可升级配置", scope:"单次隔离运行", retention:"空闲 14 天后终止", facts:["创建 Session 不会启动工作，发送 user.message 才开始。","正常轮次结束为 idle + end_turn。","可在 running 时继续排队发送消息。"], pitfalls:["idle 也可能是 requires_action 或 retries_exhausted，不能单看状态。"], sources:["start","session","events"], engineering:"生产接入通常需要在业务库维护“终端会话 → session_id”的映射，MA 不替业务方维护渠道会话关系。" },
+      sandbox: { name:"Session 沙箱", kind:"隔离执行环境", plane:"运行面", summary:"每个 Session 的独立 Linux 运行实例，承载文件工具、命令、依赖与中间状态。", owner:"方舟托管", createdWhen:"Session 初始化/恢复时", boundWhen:"由 Environment 配置", mutable:"Session 内可读写允许目录", scope:"单个 Session", retention:"随 Session 快照与终止策略", facts:["/workspace 可读写，AGENTS.md 只读。","/mnt/memory、/mnt/skills、/mnt/session/uploads 只读。","/mnt/session/outputs 与 storage 可读写。"], pitfalls:["Environment 被复用不代表 Session 共享文件系统。"], sources:["sandbox","session"] },
+      events: { name:"Events / SSE", kind:"通信与历史", plane:"运行面", summary:"应用与 Agent 之间的原子消息。SSE 负责实时推送，Events API 负责发送与历史补查。", owner:"Session", createdWhen:"任务交互时", boundWhen:"按 session_id 读写", mutable:"只增不删", scope:"Session 主线程/子线程", retention:"完整事件默认 6 个月", facts:["先建立 SSE 并等待 : ready，再发送事件。","预览帧不进入历史，业务判断以完整事件为准。","事件域包括 user.*、agent.*、session.*、span.*。"], pitfalls:["agent.message 或 SSE 关闭都不是本轮结束判据。"], sources:["events"] },
+      vault: { name:"Vault / Credential", kind:"凭据隔离", plane:"安全层", summary:"为终端用户保存并隔离外部服务凭据，通过 vault_ids 在 Session 级注入。", owner:"平台安全资源", createdWhen:"用户授权或配置密钥时", boundWhen:"创建 Session 时传 vault_ids", mutable:"密钥可轮换，匹配键不可变", scope:"工作空间与用户", retention:"独立资源，删除不可恢复", facts:["每个 Vault 最多 100 个凭据。","MCP URL 或 secret_name 是不可变匹配键。","凭据会在 Session 期间周期性重新解析。"], pitfalls:["同一 Agent 服务不同用户时，应为 Session 绑定对应用户的 Vault。","环境变量凭据在沙箱出口替换，Agent 看不到真实密钥。"], sources:["vault","mcp"] },
+      memory: { name:"Memory Store", kind:"长期记忆", plane:"数据层", summary:"跨 Session 保留偏好、规范和经验；创建 Session 时通过 resources 挂载，并可指定只读或读写。", owner:"平台资源", createdWhen:"需要长期上下文时", boundWhen:"仅创建 Session 时挂载", mutable:"由 access 决定 read_only/read_write", scope:"用户/团队/项目 Store", retention:"独立于 Session", facts:["单 Session 最多挂载 10 个 Store。","单 Store 最多 2,000 条 Memory，单条 100 KiB。","read_write 修改会供后续 Session 继续使用。"], pitfalls:["Memory Store 不能在运行中的 Session 追加或移除。"], sources:["memory"] },
+      files: { name:"Files / TOS", kind:"输入与持久数据", plane:"数据层", summary:"Files API 输入挂到 uploads；TOS 目录挂到 storage；最终交付写到 outputs 并注册为 Session 文件。", owner:"用户与平台", createdWhen:"任务准备或运行中", boundWhen:"resources 或 Environment 存储配置", mutable:"文件资源可运行中追加", scope:"文件、目录或 Session 产物", retention:"取决于默认/自有 TOS", facts:["单 Session 最多挂载 100 个文件。","uploads 只读，storage 与 outputs 可读写。","自有 TOS 产物不随 Session 删除。"], pitfalls:["产物存储 outputs 与输入资源 storage 用途不同。"], sources:["files","environment","sandbox"] },
+      mcp: { name:"MCP Server", kind:"外部工具协议", plane:"外部系统", summary:"把业务系统能力标准化为工具。Server 在 Agent 定义层声明，Credential 在 Session 运行层匹配注入。", owner:"外部系统", createdWhen:"接入外部能力时", boundWhen:"Agent 声明 + Toolset 启用", mutable:"更新 Agent 配置", scope:"每个 MCP Server", retention:"外部服务独立管理", facts:["每个 mcp_toolset 必须引用已声明的 Server 名。","只声明 Server 而不添加 Toolset，不会启用其工具。","MCP 凭据创建时会探测握手。"], pitfalls:["高风险 MCP 工具应收敛白名单并考虑 always_ask。"], sources:["mcp","tools","vault"], engineering:"调试 MCP 时应使用明确需要私有数据的测试任务；模型自身可回答的问题无法证明工具链路可用。" },
+      multi: { name:"Multi Agent", kind:"角色协作", plane:"协作层", summary:"协调器把任务委派给拥有独立模型、提示词、Skills 和 Tools 的子 Agent，再汇总结果。", owner:"Agent 定义", createdWhen:"确需角色边界时", boundWhen:"协调器版本中固定子 Agent", mutable:"更新协调器版本", scope:"Session 子线程", retention:"事件随 Session", facts:["子线程有独立事件流。","主线程和子线程跨流到达顺序不能代表执行顺序。","成功还需确认没有子线程停留或终止。"], pitfalls:["固定步骤调用工具或复用说明时，优先使用 Tool 或 Skill，避免过度拆 Agent。"], sources:["multi"] },
+      advisor: { name:"Advisor", kind:"顾问模型", plane:"协作层", summary:"在复杂任务中为执行 Agent 提供阶段性建议，Agent 评估建议后继续执行，不需要人工介入。", owner:"Agent 定义", createdWhen:"需要额外推理校验时", boundWhen:"作为 evolution 工具配置", mutable:"更新 Agent 版本", scope:"单个 Agent", retention:"调用过程随 Session", facts:["顾问模型接收完整任务上下文。","当前公开事件结构没有独立 Advisor 调用事件。","Advisor Token 费用按顾问模型价格单独计费。"], pitfalls:["应在 System Prompt 中明确何时寻求顾问帮助，避免无目的调用。"], sources:["advisor","tools"] },
+      external: { name:"外部业务系统", kind:"数据与操作目标", plane:"外部系统", summary:"代码托管、协作平台、知识库或企业 API，由 MCP、环境变量凭据或业务自定义工具接入。", owner:"业务方/第三方", createdWhen:"独立运行", boundWhen:"按网络、凭据和工具策略访问", mutable:"由外部系统管理", scope:"系统自身权限", retention:"由外部系统决定", facts:["Agent 能执行凭据授权范围内的任何操作。","应使用最小权限密钥与受限出站主机。"], pitfalls:["平台工具确认不能替代外部系统自身的最小权限设计。"], sources:["mcp","vault","permissions"] }
+    };
+
+    const RELATIONSHIPS = [
+      {id:"app-session",from:"app",to:"session",type:"control",label:"创建 / 管理",detail:"业务应用通过 API 创建 Session，并保存 session_id 作为后续事件、状态和文件操作入口。"},
+      {id:"app-events",from:"app",to:"events",type:"runtime",label:"发送 / 订阅",viaY:380,detail:"应用先建立 SSE 等待 ready，再发送 user.* 事件；断线后新建流并补查历史。"},
+      {id:"agent-session",from:"agent",to:"session",type:"control",label:"agent + version",viaY:290,sourceSide:"left",detail:"Session 创建时引用 Agent 最新版本或固定版本，形成运行配置快照。"},
+      {id:"environment-session",from:"environment",to:"session",type:"control",label:"environment_id",detail:"Environment 提供模板，每个 Session 仍获得独立沙箱。"},
+      {id:"vault-session",from:"vault",to:"session",type:"security",label:"vault_ids[]",detail:"终端用户凭据在 Session 级绑定，同一 Agent 可代表不同用户访问外部系统。"},
+      {id:"memory-session",from:"memory",to:"session",type:"data",label:"resources[]",detail:"Memory Store 只能在 Session 创建时挂载，并显式设置 read_only 或 read_write。"},
+      {id:"files-session",from:"files",to:"session",type:"data",label:"resources[]",viaX:495,targetSide:"bottom",detail:"Files/TOS 作为 Session 输入或共享存储；文件资源可在运行中追加。"},
+      {id:"session-sandbox",from:"session",to:"sandbox",type:"runtime",label:"独立实例",detail:"Session 初始化或恢复隔离沙箱，文件系统不与其他 Session 共享。"},
+      {id:"session-events",from:"session",to:"events",type:"runtime",label:"append-only",detail:"状态、消息、工具调用和结果都通过事件流暴露并持久化完整事件。"},
+      {id:"agent-skills",from:"agent",to:"skills",type:"control",label:"skills[]",detail:"Skill 在 Agent 定义中引用，运行时以只读能力包挂载。"},
+      {id:"agent-tools",from:"agent",to:"tools",type:"control",label:"tools[]",detail:"Agent 显式配置工具集、单工具启停和权限策略。"},
+      {id:"agent-multi",from:"agent",to:"multi",type:"collab",label:"multiagent",detail:"协调器 Agent 固定引用子 Agent ID 与版本，运行时创建独立子线程。"},
+      {id:"agent-advisor",from:"agent",to:"advisor",type:"collab",label:"evolution",detail:"Advisor 作为 evolution 工具挂到 Agent，为复杂任务提供顾问模型建议。"},
+      {id:"tools-mcp",from:"tools",to:"mcp",type:"control",label:"mcp_toolset",viaY:280,detail:"MCP Server 声明与同名 Toolset 配合后，工具才暴露给 Agent。"},
+      {id:"vault-mcp",from:"vault",to:"mcp",type:"security",label:"URL 匹配",viaX:884,detail:"运行时按 mcp_server_url 匹配 Credential；无匹配时尝试匿名连接。"},
+      {id:"mcp-external",from:"mcp",to:"external",type:"data",label:"标准化调用",detail:"MCP Server 将外部系统操作暴露为标准工具。"}
+    ];
+
+    const POSITIONS = {
+      app:[40,300], agent:[315,75], skills:[80,70], tools:[80,160], environment:[315,205],
+      session:[450,315], sandbox:[705,180], events:[705,390], vault:[315,520], memory:[80,500],
+      files:[80,600], mcp:[900,170], multi:[705,70], advisor:[490,140], external:[900,315]
+    };
+
+    const RUNTIME_SCENARIOS = {
+      normal: {label:"正常完成", steps:[
+        ["创建 Session","组合 Agent、Environment、Vaults 与 resources","status: idle"],
+        ["先订阅 SSE","等待服务端返回 : ready","GET events/stream"],
+        ["发送任务","提交 user.message 后进入运行","session.status_running"],
+        ["模型与工具循环","思考、调用工具、读取结果并继续","agent.* / span.*"],
+        ["返回完整回复","agent.message 可用于展示，但尚未结束","agent.message"],
+        ["判定本轮成功","idle 且 stop_reason=end_turn","session.status_idle"]
+      ]},
+      confirm: {label:"工具需确认", steps:[
+        ["发起工具调用","权限策略为 always_ask","agent.tool_use"],
+        ["暂停等待","Session 进入 idle，不代表任务结束","requires_action"],
+        ["遍历待确认事件","读取 stop_reason.event_ids","event_ids[]"],
+        ["批准或拒绝","逐个发送 user.tool_confirmation","allow / deny"],
+        ["恢复运行","全部确认处理完才继续","status_running"],
+        ["完成或降级","Agent 根据结果继续处理","end_turn"]
+      ]},
+      retry: {label:"临时错误重调度", steps:[
+        ["出现临时错误","读取 error.retry_status.type","session.error"],
+        ["平台自动重试","retrying 时不要重复发原任务","retrying"],
+        ["进入重调度","继续保持事件消费","status_rescheduled"],
+        ["恢复运行","平台重建执行上下文","status_running"],
+        ["重试耗尽分支","exhausted 后等待 idle","retries_exhausted"],
+        ["终止分支","terminal 后创建新 Session","status_terminated"]
+      ]},
+      multi: {label:"Multi Agent 委派", steps:[
+        ["协调器拆分任务","主线程选择子 Agent","coordinator"],
+        ["创建子线程","记录 session_thread_id","thread_created"],
+        ["子 Agent 独立执行","模型、Prompt、Skills 与 Tools 独立","child stream"],
+        ["子线程回传","按线程 ID 关联消息","thread_message_sent"],
+        ["协调器汇总","收到全部结果后生成最终回复","agent.message"],
+        ["联合验收","主线程 end_turn 且无子线程停留/终止","verified"]
+      ]}
+    };
+
+    const LIFECYCLES = [
+      {id:"agent",name:"Agent",events:["创建稳定 ID / v1","更新配置 → v2","新 Session 取最新版或固定版","已有 Session 不自动切换","独立删除"]},
+      {id:"environment",name:"Environment",events:["创建唯一名称","多个 Session 复用模板","每个 Session 独立沙箱","更新影响未来 Session","有 idle/running 引用时不可删"]},
+      {id:"session",name:"Session",events:["initializing","idle ↔ running","rescheduling → running","idle → upgrading → idle","failed / terminated"]},
+      {id:"vault",name:"Vault / 凭据",events:["创建 Vault","写入 Credential","Session 周期性重新解析","轮换密钥值","硬删除且不可恢复"]},
+      {id:"memory",name:"Memory Store",events:["创建 Store","预置 Memory","创建 Session 时挂载","按 access 读取或修改","跨 Session 保留"]},
+      {id:"files",name:"文件与产物",events:["上传输入","挂载只读副本","运行中可追加文件","写 outputs","默认存储随 Session 删除 / 自有 TOS 保留"]}
+    ];
+
+    const FAQ_ITEMS = [
+      ["Agent 和 Session 有什么区别？","Agent 是可版本化、可复用的能力定义；Session 是引用某个 Agent 与 Environment 后产生的一次隔离运行实例。","核心对象",["agent","session"]],
+      ["Environment 是模板还是正在运行的沙箱？","是模板。多个 Session 可引用同一个 Environment，但每个 Session 都会获得独立沙箱，文件系统不共享。","核心对象",["environment","sandbox"]],
+      ["Skill、Tool、MCP 应该怎么选？","Skill 沉淀知识与流程；Tool 提供执行动作；MCP 用标准协议接入一组外部系统工具。固定步骤且无需角色边界时，不必拆 Multi Agent。","能力",["skills","tools","mcp"]],
+      ["为什么凭据不写在 Agent 里？","Agent 需要被复用，而终端用户凭据必须隔离。凭据存入 Vault，并在创建 Session 时通过 vault_ids 绑定当前用户。","安全",["vault","agent"]],
+      ["同一个 Agent 如何代表不同用户？","为每个用户维护独立 Vault，创建用户 Session 时绑定对应 vault_id。MCP 或环境变量凭据在运行时按匹配规则注入。","安全",["vault","session"]],
+      ["Session 会自动继承 Agent 新版本吗？","不会。已有 Session 保持创建时的配置快照；新建 Session 可使用最新版，也可固定版本。需要更新存量 Session 时使用升级会话能力。","生命周期",["agent","session"]],
+      ["不同 Session 会共享文件吗？","不会共享沙箱文件系统。跨 Session 共享长期记忆用 Memory Store，共享业务文件可挂载 TOS 资源。","数据",["sandbox","memory","files"]],
+      ["Memory 和 Session 历史有什么区别？","Session 历史记录本次会话的事件和上下文；Memory Store 是可跨 Session 挂载的长期内容，并可按 access 设置只读或读写。","数据",["memory","events"]],
+      ["uploads、storage、outputs 有什么区别？","uploads 是 Files API 输入的只读副本；storage 是 TOS 资源的读写挂载；outputs 是最终交付目录，会注册为 Session 文件。","数据",["files","sandbox"]],
+      ["Session 进入 idle 就成功了吗？","不一定。只有 idle 且 stop_reason.type=end_turn 才是正常结束；requires_action 表示等待确认或外部结果。","运行",["session","events"]],
+      ["什么时候用 Multi Agent？","当多个角色确实需要不同模型、提示词、工具或独立上下文时使用。单 Agent 固定步骤应优先用 Tool，复用操作说明优先用 Skill。","能力",["multi","tools","skills"]],
+      ["MA 和模型 API 怎么选？","需要托管 AgentLoop、沙箱、状态、工具和长程任务时选 MA；研究或深度改写推理循环、每步 tool_use 时选模型 API。","定位",["agent"]],
+      ["SSE 断线后怎么补数据？","先建立新的 SSE 并等待 ready，再分页查询历史事件，用事件 ID 合并去重。反过来会留下新的监听空窗。","运行",["events"]],
+      ["MA 如何计费？","按运行过程中实际消耗的 Tokens、Agent 运行时时长和工具调用次数累加；Advisor 的模型 Token 单独计费。","成本",["agent"]]
+    ];
+
+    const VIEW_META = {
+      architecture:["系统模型","一个 Session，组装全部能力","Agent 定义怎么做，Environment 决定在哪跑，Session 把凭据、资源和任务组合成一次隔离运行。","MA 对象关系图","箭头指向被引用、创建或调用的一方；点击连线查看详情"],
+      runtime:["运行轨迹","一次任务如何真正跑起来","创建 Session 只是完成装配；建立事件流并发送 user.message 后，AgentLoop 才开始工作。","Session 运行轨迹","切换分支，查看正常完成、确认、重调度与委派"],
+      permissions:["安全边界","权限不是一个开关","工具范围、执行确认、文件与网络隔离、外部凭据四层共同决定 Agent 真正能做什么。","四层权限门禁","点击任一门禁查看配置边界与常见误区"],
+      lifecycle:["资源时间线","每种资源活得不一样","定义、实例、凭据、记忆、事件和产物有不同的更新、保留与删除规则。","资源生命周期泳道","横向查看资源从创建、绑定到保留或删除"],
+      faq:["常见问题","新用户最常问的 14 个问题","从对象区别到权限、事件、数据和成本，用答案反查关联组件。","可搜索问答","输入关键词，或展开问题查看结论"]
+    };
+
+    const TOUR = [
+      ["为什么是 MA","Managed Agents 托管 AgentLoop、沙箱、工具执行、上下文和长程任务状态。你主要定义业务行为，并通过事件驱动它。","architecture","agent"],
+      ["四个核心对象","Agent 是定义，Environment 是模板，Session 是实例，Events 是通信。先记住这四个对象，再看扩展能力。","architecture","session"],
+      ["Session 装配台","创建 Session 时，Agent、Environment、Vaults、Memory 与文件资源才被组合到一次运行中。","architecture","session"],
+      ["能力与外部系统","Skills 提供方法，Tools 提供动作，MCP 把外部系统动作标准化，Multi Agent 提供角色协作。","architecture","tools"],
+      ["权限是四层门禁","工具暴露、执行确认、沙箱和网络、凭据注入共同组成真实权限边界。","permissions","tools"],
+      ["运行与保留","成功要看 idle + end_turn；Session、事件、沙箱、产物和 Memory 各自有不同保留期。","lifecycle","session"]
+    ];
+
+    const state = {view:"architecture", filter:"all", scenario:"normal", zoom:1, selected:null, tourIndex:0, lastFocus:null};
+    const $ = id => document.getElementById(id);
+    const esc = value => String(value).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+    function sourceLinks(keys) {
+      return keys.map(key => `<a class="source-link" href="${DOCS[key][1]}" target="_blank" rel="noreferrer">${esc(DOCS[key][0])} ↗</a>`).join("");
+    }
+
+    function nodeBoundaryPoint(from, toward, padding) {
+      const centerX=from[0]+80, centerY=from[1]+29;
+      const towardX=toward[0]+80, towardY=toward[1]+29;
+      const dx=towardX-centerX, dy=towardY-centerY;
+      const scale=Math.min((80+padding)/Math.max(Math.abs(dx),.001),(29+padding)/Math.max(Math.abs(dy),.001));
+      return [centerX+dx*scale,centerY+dy*scale];
+    }
+
+    function renderArchitecture() {
+      const svg = $("architecture-svg");
+      const planes = [
+        [20,28,250,660,"YOUR APP / DATA"],[290,28,360,660,"ARK CONTROL + SESSION"],
+        [675,28,200,660,"SESSION RUNTIME"],[895,28,205,660,"EXTERNAL SYSTEMS"]
+      ];
+      let html = `<defs>
+        <marker id="arrow-control" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" viewBox="0 0 9 9"><path d="M1 1L8 4.5L1 8L2.4 4.5Z" fill="var(--control)"/></marker>
+        <marker id="arrow-runtime" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" viewBox="0 0 9 9"><path d="M1 1L8 4.5L1 8L2.4 4.5Z" fill="var(--runtime)"/></marker>
+        <marker id="arrow-security" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" viewBox="0 0 9 9"><path d="M1 1L8 4.5L1 8L2.4 4.5Z" fill="var(--guard)"/></marker>
+        <marker id="arrow-data" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" viewBox="0 0 9 9"><path d="M1 1L8 4.5L1 8L2.4 4.5Z" fill="var(--external)"/></marker>
+        <marker id="arrow-collab" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" viewBox="0 0 9 9"><path d="M1 1L8 4.5L1 8L2.4 4.5Z" fill="var(--collab)"/></marker>
+      </defs>`;
+      planes.forEach(p => { html += `<rect class="plane" x="${p[0]}" y="${p[1]}" width="${p[2]}" height="${p[3]}" rx="6"/><text class="plane-label" x="${p[0]+14}" y="${p[1]+22}">${p[4]}</text>`; });
+      RELATIONSHIPS.forEach(r => {
+        if(state.filter!=="all"&&state.filter!==r.type) return;
+        const from=POSITIONS[r.from], to=POSITIONS[r.to];
+        let [sx,sy]=nodeBoundaryPoint(from,to,2);
+        let [tx,ty]=nodeBoundaryPoint(to,from,2);
+        let labelX=(sx+tx)/2, labelY=(sy+ty)/2-6, labelAnchor="middle";
+        let path;
+        if(r.viaY!==undefined){
+          const direction=Math.sign((to[0]+80)-(from[0]+80))||1;
+          sx=r.sourceSide==="left"?from[0]-2:(direction>0?from[0]+162:from[0]-2); sy=from[1]+29;
+          tx=direction>0?to[0]-2:to[0]+162; ty=to[1]+29;
+          const sourceDirection=r.sourceSide==="left"?-1:direction;
+          const sourceElbow=sx+sourceDirection*18, targetElbow=tx-direction*18;
+          path=`M${sx},${sy} L${sourceElbow},${sy} L${sourceElbow},${r.viaY} L${targetElbow},${r.viaY} L${targetElbow},${ty} L${tx},${ty}`;
+          labelX=(sourceElbow+targetElbow)/2; labelY=r.viaY-7;
+        }else if(r.viaX!==undefined){
+          sx=from[0]+162; sy=from[1]+29;
+          tx=r.targetSide==="bottom"?r.viaX:to[0]-2;
+          ty=r.targetSide==="bottom"?to[1]+60:to[1]+29;
+          path=`M${sx},${sy} L${r.viaX},${sy} L${r.viaX},${ty} L${tx},${ty}`;
+          labelX=r.viaX-8; labelY=(sy+ty)/2-5; labelAnchor="end";
+        }else{
+          const midX=(sx+tx)/2;
+          path=`M${sx},${sy} C${midX},${sy} ${midX},${ty} ${tx},${ty}`;
+        }
+        html += `<g data-edge="${r.id}" class="edge-group"><path class="edge ${r.type} ${["agent-session","environment-session","vault-session","memory-session","files-session"].includes(r.id)?"assembly-edge":""}" d="${path}" marker-end="url(#arrow-${r.type})"/><path class="edge-hit" d="${path}" tabindex="0" role="button" aria-label="${esc(r.label)}"/><text class="edge-label" x="${labelX}" y="${labelY}" text-anchor="${labelAnchor}">${esc(r.label)}</text></g>`;
+      });
+      Object.entries(COMPONENTS).forEach(([id,c]) => {
+        const [x,y]=POSITIONS[id]; if(!x) return;
+        const klass=id==="session"?"session runtime":c.plane==="控制面"?"control":c.plane==="安全层"?"guard":c.plane==="外部系统"?"external":"runtime";
+        html += `<g class="node ${klass}" data-node="${id}" tabindex="0" role="button" aria-label="${esc(c.name)}"><rect x="${x}" y="${y}" width="160" height="58"/><text class="node-title" x="${x+14}" y="${y+25}">${esc(c.name)}</text><text class="node-subtitle" x="${x+14}" y="${y+43}">${esc(c.kind)}</text></g>`;
+      });
+      svg.innerHTML=html;
+      svg.querySelectorAll("[data-node]").forEach(el => {
+        const activate=()=>selectComponent(el.dataset.node,el);
+        el.addEventListener("click",activate); el.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();activate();}});
+      });
+      svg.querySelectorAll("[data-edge]").forEach(el => {
+        const activate=()=>selectRelationship(el.dataset.edge,el);
+        el.addEventListener("click",activate); el.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();activate();}});
+      });
+    }
+
+    function selectComponent(id, trigger, reveal=true) {
+      state.selected={type:"component",id}; state.lastFocus=trigger||document.activeElement;
+      const visibleRelations=RELATIONSHIPS.filter(r=>state.filter==="all"||r.type===state.filter);
+      document.querySelectorAll(".node").forEach(n=>n.classList.toggle("is-selected",n.dataset.node===id));
+      document.querySelectorAll(".node").forEach(n=>n.classList.toggle("is-muted",n.dataset.node!==id && !visibleRelations.some(r=>(r.from===id&&r.to===n.dataset.node)||(r.to===id&&r.from===n.dataset.node))));
+      document.querySelectorAll("[data-edge]").forEach(group=>{const r=RELATIONSHIPS.find(item=>item.id===group.dataset.edge),connected=r&&(r.from===id||r.to===id);group.classList.toggle("is-unrelated",!connected);group.querySelector(".edge").classList.toggle("is-active",connected);});
+      showComponent(COMPONENTS[id], reveal);
+    }
+
+    function showComponent(c, reveal=true) {
+      $("detail-empty").hidden=true; $("detail-content").hidden=false;
+      $("detail-content").innerHTML=`<button class="icon-button detail-close" type="button" aria-label="关闭详情">×</button>
+        <span class="detail-kind">${esc(c.kind)} · ${esc(c.plane)}</span><h2>${esc(c.name)}</h2><p class="detail-summary">${esc(c.summary)}</p>
+        <div class="fact-grid">
+          <div class="fact-cell"><span>责任主体</span><b>${esc(c.owner)}</b></div><div class="fact-cell"><span>创建时机</span><b>${esc(c.createdWhen)}</b></div>
+          <div class="fact-cell"><span>绑定时机</span><b>${esc(c.boundWhen)}</b></div><div class="fact-cell"><span>可变性</span><b>${esc(c.mutable)}</b></div>
+          <div class="fact-cell"><span>作用域</span><b>${esc(c.scope)}</b></div><div class="fact-cell"><span>保留</span><b>${esc(c.retention)}</b></div>
+        </div>
+        <section class="detail-section"><h3>关键事实</h3><ul>${c.facts.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></section>
+        <section class="detail-section"><h3>容易误解</h3>${c.pitfalls.map(x=>`<div class="pitfall">${esc(x)}</div>`).join("")}</section>
+        ${c.engineering?`<div class="engineering-note"><b>工程经验，非平台稳定契约</b><br>${esc(c.engineering)}</div>`:""}
+        <section class="detail-section"><h3>官方来源</h3><div class="source-list">${sourceLinks(c.sources)}</div></section>`;
+      bindDetailClose(); if(reveal) openMobileDetail();
+    }
+
+    function selectRelationship(id, trigger) {
+      const r=RELATIONSHIPS.find(x=>x.id===id); if(!r)return;
+      state.selected={type:"relationship",id}; state.lastFocus=trigger||document.activeElement;
+      document.querySelectorAll("[data-edge]").forEach(group=>{const selected=group.dataset.edge===id;group.classList.toggle("is-unrelated",!selected);group.querySelector(".edge").classList.toggle("is-active",selected);});
+      document.querySelectorAll(".node").forEach(n=>{n.classList.remove("is-selected");n.classList.toggle("is-muted",n.dataset.node!==r.from&&n.dataset.node!==r.to);});
+      const a=COMPONENTS[r.from], b=COMPONENTS[r.to];
+      $("detail-empty").hidden=true; $("detail-content").hidden=false;
+      $("detail-content").innerHTML=`<button class="icon-button detail-close" type="button" aria-label="关闭详情">×</button>
+        <span class="detail-kind">Relationship · ${esc(r.type)}</span><h2>${esc(a.name)} → ${esc(b.name)}</h2>
+        <p class="detail-summary">${esc(r.detail)}</p>
+        <div class="fact-grid"><div class="fact-cell"><span>起点</span><b>${esc(a.name)}</b></div><div class="fact-cell"><span>终点</span><b>${esc(b.name)}</b></div><div class="fact-cell"><span>绑定字段/动作</span><b>${esc(r.label)}</b></div><div class="fact-cell"><span>关系类型</span><b>${esc(r.type)}</b></div></div>
+        <section class="detail-section"><h3>继续查看</h3><button class="quiet-button" data-jump="${r.from}">${esc(a.name)}</button> <button class="quiet-button" data-jump="${r.to}">${esc(b.name)}</button></section>`;
+      $("detail-content").querySelectorAll("[data-jump]").forEach(x=>x.addEventListener("click",()=>selectComponent(x.dataset.jump,x)));
+      bindDetailClose(); openMobileDetail();
+    }
+
+    function bindDetailClose() { $("detail-content").querySelector(".detail-close").addEventListener("click",closeDetail); }
+    function openMobileDetail(){ if(innerWidth<=900){$("detail-panel").classList.add("open");$("detail-backdrop").classList.add("open");} }
+    function closeDetail(){
+      $("detail-panel").classList.remove("open");$("detail-backdrop").classList.remove("open");
+      state.selected=null;
+      document.querySelectorAll(".node").forEach(n=>n.classList.remove("is-selected","is-muted"));
+      document.querySelectorAll("[data-edge]").forEach(group=>{group.classList.remove("is-unrelated");group.querySelector(".edge").classList.remove("is-active");});
+      $("detail-content").hidden=true;$("detail-empty").hidden=false;
+      if(state.lastFocus&&state.lastFocus.focus)state.lastFocus.focus();
+    }
+
+    function renderRuntime() {
+      const data=RUNTIME_SCENARIOS[state.scenario];
+      $("runtime-view").innerHTML=`<div class="scenario-switch">${Object.entries(RUNTIME_SCENARIOS).map(([k,v])=>`<button class="scenario-button" data-scenario="${k}" aria-pressed="${k===state.scenario}">${v.label}</button>`).join("")}</div>
+        <div class="sequence">${data.steps.map((s,i)=>`<button class="sequence-step" data-runtime="${i}"><h3>${esc(s[0])}</h3><p>${esc(s[1])}</p><code>${esc(s[2])}</code></button>`).join("")}</div>
+        <div class="truth-strip"><strong>完成判据：</strong> 不看 HTTP 200，不以 agent.message 或 SSE 关闭收尾。正常完成必须收到 <code>session.status_idle</code> 且 <code>stop_reason.type=end_turn</code>。</div>`;
+      $("runtime-view").querySelectorAll("[data-scenario]").forEach(b=>b.addEventListener("click",()=>{state.scenario=b.dataset.scenario;renderRuntime();renderScenarioControls();}));
+      $("runtime-view").querySelectorAll("[data-runtime]").forEach((b,i)=>b.addEventListener("click",()=>showRuntimeStep(data.steps[i])));
+    }
+    function showRuntimeStep(s) {
+      $("detail-empty").hidden=true;$("detail-content").hidden=false;
+      $("detail-content").innerHTML=`<button class="icon-button detail-close" type="button" aria-label="关闭详情">×</button><span class="detail-kind">Runtime step</span><h2>${esc(s[0])}</h2><p class="detail-summary">${esc(s[1])}</p><div class="pitfall"><code>${esc(s[2])}</code></div><section class="detail-section"><h3>官方来源</h3>${sourceLinks(["events","session"])}</section>`;
+      bindDetailClose();openMobileDetail();
+    }
+
+    function renderPermissions() {
+      const gates=[
+        ["范围","暴露哪些工具","Agent Toolset 与单工具 configs","enabled / whitelist","tools"],
+        ["确认","执行前是否确认","低风险自动执行，高风险等待批准","always_allow / always_ask","permissions"],
+        ["隔离","沙箱能读写和访问哪里","目录权限、Environment 网络策略共同限制","paths + networking","sandbox"],
+        ["凭据","凭据能注入到哪里","Vault 按用户隔离，匹配 MCP URL 或 secret_name","vault_ids + allowed_hosts","vault"]
+      ];
+      $("permissions-view").innerHTML=`<div class="scenario-switch"><button class="scenario-button permission-example" data-example="readonly">只读文档 Agent</button><button class="scenario-button permission-example" data-example="mcp">可信 MCP 自动调用</button><button class="scenario-button permission-example" data-example="bash">高风险 Bash 需确认</button></div>
+        <div class="permission-stack">${gates.map(g=>`<button class="gate" data-gate="${g[4]}"><span class="gate-index">${g[0]}</span><h3>${g[1]}</h3><p>${g[2]}</p><code>${g[3]}</code></button>`).join("")}</div>
+        <div class="warning-note"><b>强隔离需要组合控制。</b> 关闭 <code>write</code>、<code>edit</code> 或 Web 工具并不够；只要仍有 <code>bash</code>、可读敏感文件或不受限网络，就仍可能读取、修改或外发数据。</div>`;
+      $("permissions-view").querySelectorAll("[data-gate]").forEach(b=>b.addEventListener("click",()=>selectComponent(b.dataset.gate,b)));
+      $("permissions-view").querySelectorAll("[data-example]").forEach(b=>b.addEventListener("click",()=>showPermissionExample(b.dataset.example)));
+    }
+    function showPermissionExample(key){
+      const examples={
+        readonly:["只读文档 Agent","Toolset 默认关闭，仅开启 read / glob / grep，并设 always_allow；Environment 不挂敏感文件，网络按需限制。"],
+        mcp:["可信 MCP 自动调用","先按 MCP configs 收敛工具白名单，再为只读可信工具设置 always_allow；凭据仍按 Session 用户隔离。"],
+        bash:["高风险 Bash 需确认","Toolset 可默认允许低风险工具，但在 bash 的单工具配置中覆盖为 always_ask。"]
+      },x=examples[key];
+      $("detail-empty").hidden=true;$("detail-content").hidden=false;
+      $("detail-content").innerHTML=`<button class="icon-button detail-close" type="button" aria-label="关闭详情">×</button><span class="detail-kind">Permission example</span><h2>${x[0]}</h2><p class="detail-summary">${x[1]}</p><section class="detail-section"><h3>官方来源</h3>${sourceLinks(["tools","permissions","sandbox","vault"])}</section>`;
+      bindDetailClose();openMobileDetail();
+    }
+
+    function renderLifecycle() {
+      $("lifecycle-view").innerHTML=`<div class="lifecycles">${LIFECYCLES.map(row=>`<div class="life-row"><div class="life-name">${esc(row.name)}</div><div class="life-track" style="grid-template-columns:repeat(${row.events.length},minmax(120px,1fr))">${row.events.map((e,i)=>`<button class="life-event ${i===row.events.length-1?"terminal":""}" data-life="${row.id}">${esc(e)}</button>`).join("")}</div></div>`).join("")}</div>
+        <section class="delete-checker"><h2>删除 Session 后，什么还在？</h2><div class="impact-grid">
+          <div class="impact deleted"><b>删除</b>Session 记录、完整事件、关联沙箱与默认存储产物</div>
+          <div class="impact"><b>保留</b>Agent、Environment、Memory、Vault、Skills、独立上传输入文件</div>
+          <div class="impact"><b>按自身规则保留</b>写入自有 TOS Bucket 的产物</div>
+        </div></section>`;
+      $("lifecycle-view").querySelectorAll("[data-life]").forEach(b=>b.addEventListener("click",()=>selectComponent(b.dataset.life,b)));
+    }
+
+    function renderFaq(query="") {
+      const q=query.trim().toLowerCase();
+      const items=FAQ_ITEMS.filter(x=>!q||x.join(" ").toLowerCase().includes(q)||x[3].some(id=>COMPONENTS[id].name.toLowerCase().includes(q)));
+      $("faq-view").innerHTML=`<div class="faq-tools"><input class="search-box" id="faq-search" type="search" value="${esc(query)}" placeholder="搜索：凭据、Session、Memory、SSE…" aria-label="搜索新手问答"><button class="quiet-button" id="faq-clear" type="button">清除</button></div>
+        ${items.length?`<div class="faq-grid">${items.map(x=>`<details class="faq-item"><summary>${esc(x[0])}</summary><div class="faq-answer">${esc(x[1])}<br><span class="faq-tag">${esc(x[2])} · ${x[3].map(id=>esc(COMPONENTS[id].name)).join(" / ")}</span></div></details>`).join("")}</div>`:`<div class="empty"><b>没有匹配的问题</b><br>换一个关键词，或清除筛选查看全部问答。</div>`}`;
+      const input=$("faq-search"); input.addEventListener("input",e=>{const pos=e.target.selectionStart;renderFaq(e.target.value);const n=$("faq-search");n.focus();n.setSelectionRange(pos,pos);});
+      $("faq-clear").addEventListener("click",()=>renderFaq(""));
+    }
+
+    function renderFilters() {
+      const labels={all:"全部关系",control:"定义 / 绑定",runtime:"运行 / 事件",security:"权限 / 凭据",data:"数据流",collab:"协作"};
+      $("relationship-filters").innerHTML=Object.entries(labels).map(([k,v])=>`<button class="filter" data-filter="${k}" aria-pressed="${state.filter===k}">${v}</button>`).join("");
+      $("relationship-filters").querySelectorAll("[data-filter]").forEach(b=>b.addEventListener("click",()=>{state.filter=b.dataset.filter;renderFilters();renderArchitecture();}));
+    }
+    function renderScenarioControls(){
+      $("scenario-list").innerHTML=Object.entries(RUNTIME_SCENARIOS).map(([k,v])=>`<button class="scenario-button" data-side-scenario="${k}" aria-pressed="${state.scenario===k}">${v.label}</button>`).join("");
+      $("scenario-list").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{state.scenario=b.dataset.sideScenario;renderRuntime();renderScenarioControls();}));
+    }
+
+    function switchView(view, updateHash=true) {
+      if(!VIEW_META[view]) view="architecture";
+      state.view=view;
+      document.querySelectorAll(".tab").forEach(t=>t.setAttribute("aria-selected",String(t.dataset.view===view)));
+      document.querySelectorAll(".view").forEach(v=>v.classList.toggle("active",v.id===`${view}-view`));
+      const meta=VIEW_META[view];
+      ["view-kicker","view-title","view-summary","canvas-title","canvas-help"].forEach((id,i)=>$(id).textContent=meta[i]);
+      $("filter-section").hidden=view!=="architecture"; $("scenario-section").hidden=view!=="runtime";
+      $("zoom-controls").hidden=view!=="architecture";
+      $("canvas-inner").classList.toggle("content-mode",view!=="architecture");
+      $("reading-progress").style.width=`${(Object.keys(VIEW_META).indexOf(view)+1)*20}%`;
+      $("canvas-inner").style.transform=view==="architecture"?`scale(${state.zoom})`:"none";
+      if(updateHash) history.replaceState(null,"",`#${view}`);
+      if(view==="architecture")renderArchitecture();
+      if(view==="runtime")renderRuntime();
+      if(view==="permissions")renderPermissions();
+      if(view==="lifecycle")renderLifecycle();
+      if(view==="faq")renderFaq("");
+      $("canvas").scrollTo({left:0,top:0});
+    }
+
+    function setZoom(next) {
+      state.zoom=Math.max(.55,Math.min(1.6,next));
+      $("canvas-inner").style.transform=`scale(${state.zoom})`;
+      $("zoom-label").textContent=`${Math.round(state.zoom*100)}%`;
+    }
+    function fitZoom(){ setZoom(Math.max(.55,Math.min(1,$("canvas").clientWidth/1120))); $("canvas").scrollTo({left:0,top:0}); }
+
+    function openTour(index=0) {
+      state.tourIndex=index; const t=TOUR[index];
+      switchView(t[2]);
+      $("tour-count").textContent=`${String(index+1).padStart(2,"0")} / ${String(TOUR.length).padStart(2,"0")}`;
+      $("tour-title").textContent=t[0];$("tour-text").textContent=t[1];
+      $("tour-prev").disabled=index===0;$("tour-next").textContent=index===TOUR.length-1?"完成":"下一步";
+      $("tour").classList.add("open");$("tour-next").focus();
+    }
+    function closeTour(){ $("tour").classList.remove("open");try{localStorage.setItem("ma-atlas-tour","done");}catch(e){} $("open-tour").focus(); }
+
+    document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>switchView(t.dataset.view)));
+    $("zoom-out").addEventListener("click",()=>setZoom(state.zoom-.1));
+    $("zoom-in").addEventListener("click",()=>setZoom(state.zoom+.1));
+    $("zoom-reset").addEventListener("click",()=>setZoom(1));
+    $("zoom-fit").addEventListener("click",fitZoom);
+    $("canvas").addEventListener("keydown",e=>{if(e.target!==$("canvas"))return;if(e.key==="+"){setZoom(state.zoom+.1);e.preventDefault();}if(e.key==="-"){setZoom(state.zoom-.1);e.preventDefault();}if(e.key==="0"){setZoom(1);e.preventDefault();}});
+    $("detail-backdrop").addEventListener("click",closeDetail);
+    $("open-tour").addEventListener("click",()=>openTour(0));$("restart-tour").addEventListener("click",()=>openTour(0));
+    $("tour-skip").addEventListener("click",closeTour);
+    $("tour-prev").addEventListener("click",()=>openTour(Math.max(0,state.tourIndex-1)));
+    $("tour-next").addEventListener("click",()=>state.tourIndex===TOUR.length-1?closeTour():openTour(state.tourIndex+1));
+    document.addEventListener("keydown",e=>{if(e.key==="Escape"){if($("tour").classList.contains("open"))closeTour();else closeDetail();}});
+    window.addEventListener("hashchange",()=>switchView(location.hash.slice(1),false));
+
+    renderFilters();renderScenarioControls();
+    switchView(location.hash.slice(1)||"architecture",false);
+    state.selected={type:"component",id:"session"};
+    document.querySelector('[data-node="session"]')?.classList.add("is-selected");
+    showComponent(COMPONENTS.session, false);
+    try { if(!location.hash && !localStorage.getItem("ma-atlas-tour")) setTimeout(()=>openTour(0),450); } catch(e) {}
+  </script>
+</body>
+</html>

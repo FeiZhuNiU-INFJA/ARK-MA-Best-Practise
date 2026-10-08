@@ -370,6 +370,27 @@
       align-items: center;
     }
 
+    .atlas-preview {
+      display: grid;
+      grid-template-columns: 0.85fr 1.1fr 0.85fr;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .atlas-session {
+      border-color: var(--teal);
+      background: var(--teal);
+      color: #fff;
+    }
+
+    .atlas-preview .preview-column:first-child .mini-node {
+      border-left: 3px solid var(--blue);
+    }
+
+    .atlas-preview .preview-column:last-child .mini-node {
+      border-left: 3px solid var(--amber);
+    }
+
     .preview-column {
       display: grid;
       gap: 9px;
@@ -637,8 +658,14 @@
 
   <div class="shell">
     <aside class="sidebar" aria-label="场景目录">
-      <p class="sidebar-label">Scenarios / 02</p>
+      <p class="sidebar-label">Atlas + Scenarios / 03</p>
       <ol class="scenario-list">
+        <li class="scenario-item">
+          <span class="scenario-index">SYSTEM ATLAS</span>
+          <span class="scenario-name">Managed Agents 基础</span>
+          <a class="scenario-child" href="common/docs/managed-agents-architecture-atlas.html">打开交互全景</a>
+          <span class="scenario-note">组件 · 运行 · 权限 · 生命周期</span>
+        </li>
         <li class="scenario-item active">
           <span class="scenario-index">SCENARIO 01</span>
           <span class="scenario-name">MA × 飞书 Bot</span>
@@ -685,12 +712,35 @@
         <div class="documents-heading">
           <div>
             <p class="section-label">Key documents</p>
-            <h2 id="documents-title">Topic6 交互式全景</h2>
+            <h2 id="documents-title">MA 交互式全景</h2>
           </div>
           <span>点击图中节点可查看职责、契约与文件索引</span>
         </div>
 
         <div class="document-grid">
+          <article class="document">
+            <div class="document-preview atlas-preview" aria-hidden="true">
+              <div class="preview-column">
+                <span class="mini-node">AGENT</span>
+                <span class="mini-node">ENVIRONMENT</span>
+              </div>
+              <div class="preview-column">
+                <span class="mini-node atlas-session">SESSION</span>
+                <span class="mini-node">EVENTS / SSE</span>
+              </div>
+              <div class="preview-column">
+                <span class="mini-node">VAULT</span>
+                <span class="mini-node">MEMORY</span>
+              </div>
+            </div>
+            <div class="document-body">
+              <p class="doc-type">SYSTEM ATLAS</p>
+              <h3>Managed Agents 架构全景</h3>
+              <p>从通用对象模型出发，交互查看组件关系、一次任务、权限边界、资源生命周期与新手问答。</p>
+              <a class="open-link" href="common/docs/managed-agents-architecture-atlas.html">打开系统地图</a>
+            </div>
+          </article>
+
           <article class="document">
             <div class="document-preview architecture-preview" aria-hidden="true">
               <div class="preview-column">
