@@ -1581,7 +1581,7 @@ def test_pipeline_overview_documents_demo_execution_differences():
     assert "run_demo_routes.py" in overview
     assert "run_topic6_c2.py --mode demo --demo-fast" in overview
     assert "Phase E · 单入口调度" in overview
-    assert "不再委派 4 个 Insighter" in overview
+    assert "中间版曾委派 4 个 Insighter,已废弃" in overview
 
 
 def test_phase_f_uses_runtime_identity_and_response_url_without_secret_output():
