@@ -333,7 +333,7 @@ flowchart LR
       direction TB
       COORD{{"topic6-coordinator<br/>主协调器"}}:::agent
       ANNO{{"topic6-annotator<br/>×2 或 ×5 并发实例"}}:::agent
-      INSI{{"topic6-insighter<br/>×4 并发实例"}}:::agent
+      INSI{{"topic6-insighter<br/>历史存档 · 不委派"}}:::agent
     end
 
     subgraph RES ["MA 平台资源"]
@@ -359,7 +359,7 @@ flowchart LR
 
     RUNNER == "chat.completions.create · stream=true" ==> COORD
     COORD -- "multiagent 委派" --> ANNO
-    COORD -- "multiagent 委派" --> INSI
+    COORD -. "历史存档·不委派" .-> INSI
 
     COORD -.mount.-> S1
     COORD -.mount.-> S2
@@ -367,13 +367,12 @@ flowchart LR
     COORD -.mount.-> S4
     COORD -.mount.-> S5
     ANNO -.mount.-> S2
-    INSI -.mount.-> S4
+    INSI -. "历史存档·未挂载" .- S4
 
     COORD -- "MCP call" --> MCP
     COORD -- "只读" --> MEM
     COORD -->|"bash R/W"| WS
     ANNO -->|"bash R/W"| WS
-    INSI -->|"bash R/W"| WS
 
     COORD == "SSE agent.message.delta" ==> RUNNER
     COORD == "HC1/HC2/HC3 JSON + end_turn" ==> RUNNER
@@ -533,7 +532,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
     STORE: {
       title: "pipeline_store.py · SQLite 持久化",
       tags: ['<span class="tag gateway">Gateway</span>'],
-      desc: "本地 SQLite,记录 job_id ↔ chat_id / open_id / current_phase / hc_remark 等。",
+      desc: "本地 SQLite,三张表承载 job 主表、HC 事件流、用户 OAuth 凭据。",
       content: `
         <h3>关键文件</h3>
         <p>${gwLink('gateway/pipeline_store.py')}</p>
@@ -541,18 +540,46 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         <ul>
           <li>沙箱状态由平台自动持久化,但<b>飞书 chat_id ↔ MA session_id 映射</b>要 gateway 自己维护</li>
           <li>用户手打 <code>HC1 pass</code> 时,先查 store 找 job → 找 session_id → resume</li>
-          <li>断线重连也靠 store 里的 job.status = pending / waiting_hc / done</li>
+          <li>断线重连也靠 store 里的 job.status = running / waiting_hc / done / failed</li>
+          <li>HC 卡片按钮的 remark 文本、operator、decision 单独落 <code>pipeline_hc_events</code>,1:N 挂到 job</li>
+          <li>用户授权的 Vault / credential / refresh_token 落 <code>user_oauth</code>,用 open_id 做 PK</li>
         </ul>
-        <h3>Schema 关键字段</h3>
+        <h3>Schema · pipeline_jobs(任务主表,PK = job_id)</h3>
         <div class="kv">
           <span class="k">job_id</span><span class="v">uuid,PK</span>
-          <span class="k">chat_id / open_id</span><span class="v">飞书标识</span>
-          <span class="k">session_id</span><span class="v">MA 会话 ID(sandbox 状态锚点)</span>
+          <span class="k">chat_id / thread_id / user_open_id</span><span class="v">飞书会话三元组</span>
+          <span class="k">ma_session_id</span><span class="v">MA 会话 ID(沙箱状态锚点)</span>
+          <span class="k">mode</span><span class="v">quick / full / demo 等运行模式</span>
+          <span class="k">project_dir</span><span class="v">沙箱工程目录(/workspace/Projects/...)</span>
           <span class="k">current_phase</span><span class="v">A / C1 / HC1 / E / ...</span>
-          <span class="k">hc_remark</span><span class="v">remark 按钮的暂存文本</span>
-          <span class="k">status</span><span class="v">pending / waiting_hc / done / failed</span>
+          <span class="k">status</span><span class="v">running / waiting_hc / done / failed</span>
+          <span class="k">started_at / updated_at / finished_at</span><span class="v">INTEGER 时间戳</span>
+          <span class="k">last_error</span><span class="v">失败原因文本</span>
+          <span class="k">online_url</span><span class="v">妙搭发布链接(Phase H 产出)</span>
+          <span class="k">progress_card_message_id</span><span class="v">进度卡片的飞书 msg_id,用于就地刷新</span>
         </div>
-        <div class="note">忽略 <code>.db</code> / <code>.sqlite</code> / <code>.db-journal</code>(见 .gitignore)。</div>
+        <h3>Schema · pipeline_hc_events(HC 事件流,1:N → job)</h3>
+        <div class="kv">
+          <span class="k">id</span><span class="v">AUTOINCREMENT,PK</span>
+          <span class="k">job_id</span><span class="v">FK → pipeline_jobs(ON DELETE CASCADE)</span>
+          <span class="k">hc_kind</span><span class="v">HC0 / HC1 / HC2 ...</span>
+          <span class="k">payload</span><span class="v">JSON · 卡片 payload / 本次 HC 摘要</span>
+          <span class="k">card_message_id</span><span class="v">HC 卡片的飞书 msg_id</span>
+          <span class="k">user_decision</span><span class="v">pass / fail / remark</span>
+          <span class="k">user_note</span><span class="v">remark 按钮的暂存文本(原 hc_remark)</span>
+          <span class="k">operator_label</span><span class="v">操作者(open_id 或真实姓名)</span>
+          <span class="k">created_at / resolved_at</span><span class="v">INTEGER 时间戳</span>
+        </div>
+        <h3>Schema · user_oauth(用户授权凭据,PK = open_id)</h3>
+        <div class="kv">
+          <span class="k">open_id</span><span class="v">飞书 open_id,PK</span>
+          <span class="k">vault_id / credential_id</span><span class="v">方舟 Vault 凭据定位</span>
+          <span class="k">refresh_token</span><span class="v">刷新用令牌</span>
+          <span class="k">expires_at</span><span class="v">INTEGER 过期时间戳</span>
+          <span class="k">scopes</span><span class="v">授权范围列表</span>
+          <span class="k">updated_at</span><span class="v">INTEGER 更新时间戳</span>
+        </div>
+        <div class="note">忽略 <code>.db</code> / <code>.sqlite</code> / <code>.db-journal</code>(见 .gitignore);DB 文件及 WAL/SHM 权限强制 0600。</div>
       `
     },
     CFG: {
@@ -566,13 +593,13 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         <div class="kv">
           <span class="k">ARK_API_KEY</span><span class="v">火山方舟主 Key</span>
           <span class="k">ARK_BASE_URL</span><span class="v">Ark OpenAI 兼容接口 endpoint</span>
-          <span class="k">OPENAI_API_KEY / OPENAI_BASE_URL</span><span class="v">Insighter 回退通道</span>
+          <span class="k">OPENAI_API_KEY / OPENAI_BASE_URL</span><span class="v">pipeline_e.py 的 LLM 回退通道(ARK_* 优先,未配置时回退 OPENAI_*)</span>
           <span class="k">FEISHU_APP_ID / SECRET</span><span class="v">飞书应用</span>
           <span class="k">AUTHORIZED_OPEN_IDS</span><span class="v">白名单,逗号分隔</span>
           <span class="k">HOT_TOPICS_MCP_URL</span><span class="v">MCP 服务器地址</span>
           <span class="k">TOPIC6_COORDINATOR_AGENT_ID</span><span class="v">MA Agent ID,create_all.sh 注册后填入</span>
           <span class="k">TOPIC6_ANNOTATOR_AGENT_ID</span><span class="v">同上</span>
-          <span class="k">TOPIC6_INSIGHTER_AGENT_ID</span><span class="v">同上</span>
+          <span class="k">TOPIC6_INSIGHTER_AGENT_ID</span><span class="v">同上(Insighter 为历史存档 Agent,运行时不委派)</span>
           <span class="k">TOPIC6_PIPELINE_DB_PATH</span><span class="v">SQLite 路径</span>
           <span class="k">apps user OAuth</span><span class="v">扫码自动识别 open_id；短 token 存每用户 Ark Vault，refresh token 仅存 Gateway 本地库</span>
         </div>
@@ -598,7 +625,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
           <li><b>MCP Toolset</b>:coordinator.json 的 <code>tools[]</code> 中以 <code>type: mcp_toolset</code> 声明 <code>mcp_server_name: hot-topics</code>,把 MCP 工具直接挂到 Agent 工具集</li>
           <li><b>原生工具</b>:<code>bash</code> / <code>read</code> / <code>write</code> / <code>edit</code>(顺序阶段直接跑脚本)</li>
           <li><b>Memory Store</b>:${maLink('memory-store.json')} 挂载 memory/topic6/{MEMORY, _版本状态, 错误案例库}.md 到 <code>/mnt/memory/topic6/</code>(<b>只读</b>)</li>
-          <li><b>Multiagent 拓扑</b>:coordinator.json 的 <code>multiagent.type=coordinator</code>,可委派 annotator / insighter / self</li>
+          <li><b>Multiagent 拓扑</b>:coordinator.json 的 <code>multiagent.type=coordinator</code>,运行时只委派 annotator 与 self;insighter 为历史存档 Agent,拓扑中保留 id 但不被调度</li>
           <li><b>沙箱工作区</b>:<code>/workspace/Projects/{PROJECT_DIR}/</code>(状态持久化)+ <code>/mnt/session/outputs/</code>(TOS 最终产物)</li>
         </ul>
         <h3>输出契约(对 gateway)</h3>
@@ -656,31 +683,27 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
       `
     },
     INSI: {
-      title: "topic6-insighter · 洞察子 Agent(可并发实例化)",
-      tags: ['<span class="tag agent">MA Agent</span>'],
-      desc: "只做单版块洞察(e1 / e2 / e3 / e4),Phase E 由 coordinator 4 路并发调用。",
+      title: "topic6-insighter · 洞察子 Agent(历史存档,运行时不委派)",
+      tags: ['<span class="tag agent">MA Agent · 历史存档</span>'],
+      desc: "MA 复刻中间版曾按 e1/e2/e3/e4 四路并发委派 Insighter,现已废弃;Phase E 回归客户原方案的脚本内并发(Coordinator 自己 bash 一次 pipeline_e.py)。Agent 定义保留作为历史存档。",
       content: `
-        <h3>Agent 定义</h3>
+        <h3>Agent 定义(历史存档)</h3>
         <p>
           ${maLink('agents/insighter.json')}
           ${maLink('agents/insighter.system.md')}
         </p>
-        <h3>并发形态</h3>
+        <h3>为什么下线</h3>
+        <p>客户原方案(Claude Code)就是扁平的——一个会话自己 bash 一次 <code>pipeline_e.py</code>,脚本内 <code>asyncio.gather</code> 并发 E1~E4,没有子 Agent 层。<br>
+        MA 复刻中间版曾尝试 Coordinator → 4 个 Insighter 子 Agent,每个子 Agent 都要重复启动 <code>pipeline_e.py</code> 和 <code>run_stats.py</code>,冷启动 × 4、重复统计 × 4、回报开销 × 4,收益为负。<b>当前版本已回归客户原方案</b>。</p>
+        <h3>当前 Phase E 真实承担者</h3>
         <ul>
-          <li>Phase E 一次委派 <b>4 路并发</b>(section=e1..e4)</li>
-          <li>full 模式的 500 条校准结果收到 → 直接返回 failed(抽样数据洞察不可信)</li>
+          <li>Coordinator 自己 bash 一次 ${maLink('skills/topic6-insight/scripts/pipeline_e.py')}</li>
+          <li>脚本内 <code>run_stats.py</code> 只执行一次,E1~E4 由 <code>asyncio.gather</code> 并发写作</li>
+          <li>LLM 通道:ARK_* 优先,未配置时回退 OPENAI_*(Insight skill 内所有 anthropic 引用已清理)</li>
+          <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/06_洞察/v{N}/e{N}_v{N}.md</code></li>
         </ul>
-        <h3>用到的 MA 组件</h3>
-        <ul>
-          <li><b>Custom Skill</b>:${maLink('skills/topic6-insight/', 'topic6-insight')} → 沙箱 <code>/mnt/skills/topic6-insight/</code></li>
-          <li><b>原生工具</b>:<code>bash</code> / <code>read</code> / <code>write</code></li>
-          <li><b>LLM 通道</b>:火山方舟 OpenAI 兼容接口(ARK_* 优先,回退 OPENAI_*),Insight skill 内所有 anthropic 引用已清理</li>
-          <li><b>沙箱工作区</b>:输出到 <code>/workspace/Projects/{PROJECT_DIR}/06_洞察/v{N}/e{N}_v{N}.md</code></li>
-        </ul>
-        <h3>输入契约</h3>
-        <p>section / project_dir / wide_table_path / publish_date / insight_version / prompt_version</p>
-        <h3>E2 特殊说明</h3>
-        <div class="note ma">E2 不再依赖已删除的 <code>marketing-node-tagging</code> 外部 skill,判断逻辑内置到 ${maLink('skills/topic6-insight/01_统计/e2_nodes.py', 'e2_nodes.py')},共享 annotation skill 的节点日历基线。</div>
+        <h3>存档状态</h3>
+        <div class="note ma">create_all.sh 仍会注册此 Agent 并把 id 填进 coordinator.json 的 multiagent.sub_agents(占位保留),但 <code>coordinator.system.md §Phase E</code> 已明文"不再委派 topic6-insighter",运行时不会被调度。E2 的节点日历依赖、禁止调 node-tagging skill 等约束已下沉到 ${maLink('skills/topic6-insight/01_统计/e2_nodes.py', 'e2_nodes.py')} 与 ${maLink('skills/topic6-insight/02_洞察/E2_营销节点/v3.md', 'E2_营销节点/v3.md')}。</div>
       `
     },
     S1: {
@@ -781,8 +804,8 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         <p>${maLink('skills/topic6-insight/scripts/pipeline_f.py')}(coordinator 用,拼接四版块 md)</p>
         <h3>挂载在谁上</h3>
         <ul>
-          <li><b>Coordinator</b>(Phase F pipeline_f.py)</li>
-          <li><b>Insighter</b>(Phase E 四路洞察)</li>
+          <li><b>Coordinator</b>(Phase E 一次 bash <code>pipeline_e.py</code>、Phase F pipeline_f.py)</li>
+          <li><s>Insighter</s>(已下线,见该节点详情;历史存档 Agent 不实际挂载)</li>
         </ul>
       `
     },
@@ -851,7 +874,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         </ul>
         <h3>使用范围</h3>
         <ul>
-          <li>只挂 <b>Coordinator</b>,Annotator/Insighter 都不需要</li>
+          <li>只挂 <b>Coordinator</b>,Annotator 不需要(Insighter 为历史存档 Agent,也不挂)</li>
           <li>调用点:Phase A 取数(fetch_hot_topics.py 内部走 MCP)</li>
         </ul>
       `
@@ -863,7 +886,7 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
       content: `
         <h3>/workspace/Projects/{PROJECT_DIR}/</h3>
         <ul>
-          <li>Coordinator / Annotator / Insighter 三方共享的持久化目录</li>
+          <li>Coordinator / Annotator 的持久化目录(Insighter 为历史存档 Agent,运行时不参与写入)</li>
           <li>子目录:<code>01_原始数据/</code> · <code>02_标准化/</code> · <code>03_抽样/</code> · <code>04_标注/</code> · <code>04_筛选/</code> · <code>05_合并/</code> · <code>06_洞察/</code> · <code>07_ui/</code> · <code>08_UI发布/</code> · <code>costs/</code></li>
           <li>状态锚点:<code>run_config.yaml</code>(current_phase / online_url / cost / project_dir)</li>
           <li><b>MA 沙箱状态自动持久化</b>,断点续跑时 coordinator 直接从 <code>run_config.yaml</code> 恢复</li>
