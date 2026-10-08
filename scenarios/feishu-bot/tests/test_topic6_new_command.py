@@ -192,6 +192,30 @@ def test_global_active_job_is_released_after_terminal_status(tmp_path):
     assert store.get_active_job() is None
 
 
+def test_resuming_and_completing_job_clear_stale_terminal_error(tmp_path):
+    store = PipelineStore(str(tmp_path / "topic6.db"))
+    job = store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="full",
+        project_dir="/workspace/x",
+    )
+    store.mark_stopped(job.job_id, "invalid online_url")
+
+    store.resume_running(job.job_id, "H")
+    resumed = store.get_job(job.job_id)
+    assert resumed.status == pipeline_store.STATUS_RUNNING
+    assert resumed.finished_at is None
+    assert resumed.last_error == ""
+
+    store.mark_done(job.job_id, "https://example.feishuapp.cn/app/app_123/")
+    completed = store.get_job(job.job_id)
+    assert completed.status == pipeline_store.STATUS_DONE
+    assert completed.last_error == ""
+
+
 def test_start_job_serializes_simultaneous_triggers(loop, tmp_path):
     runner, _store = _make_runner(tmp_path, loop)
     active_calls = 0
@@ -317,6 +341,28 @@ def test_idle_marks_done_only_for_structured_miaoda_online_url(loop, tmp_path):
     assert reloaded.online_url == "https://topic6-demo.aiforce.cloud/report"
 
 
+def test_idle_accepts_current_feishuapp_runtime_url(loop, tmp_path):
+    runner, store = _make_runner(tmp_path, loop)
+    job = store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="full",
+        project_dir="/workspace/x",
+    )
+    message = """{"phase":"H","release_status":"finished",
+"online_url":"https://bytedance.feishuapp.cn/app/app_17f4v8qapgx/"}"""
+
+    loop.run_until_complete(runner._handle_idle(job.job_id, [message]))
+
+    reloaded = store.get_job(job.job_id)
+    assert reloaded.status == pipeline_store.STATUS_DONE
+    assert reloaded.online_url == (
+        "https://bytedance.feishuapp.cn/app/app_17f4v8qapgx/"
+    )
+
+
 def test_final_online_url_rejects_malformed_doc_url():
     text = (
         '{"feishu_doc_url": '
@@ -324,6 +370,18 @@ def test_final_online_url_rejects_malformed_doc_url():
         '"phase_h_miaoda": "blocked"}'
     )
     assert extract_final_online_url(text) == ""
+
+
+def test_final_online_url_rejects_non_runtime_feishu_urls():
+    assert extract_final_online_url(
+        '{"online_url":"https://bytedance.larkoffice.com/page/token"}'
+    ) == ""
+    assert extract_final_online_url(
+        '{"online_url":"https://bytedance.feishuapp.cn.evil.example/app/app_123"}'
+    ) == ""
+    assert extract_final_online_url(
+        '{"online_url":"https://bytedance.feishuapp.cn/not-an-app"}'
+    ) == ""
 
 
 def test_resume_immediately_restores_single_card_to_running(loop, tmp_path):

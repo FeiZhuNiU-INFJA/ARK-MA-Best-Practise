@@ -89,41 +89,79 @@ class Relay:
             "model": self.model,
             "max_tokens": cap,
             "temperature": self.temperature,
+            "stream": True,
+            "stream_options": {"include_usage": True},
             "messages": [
                 {"role": "system", "content": self.system},
                 {"role": "user", "content": user_text + extra},
             ],
         }
         body = json.dumps(payload_body, ensure_ascii=False).encode()
-        req = urllib.request.Request(
-            api_url(self.base, "chat/completions"), data=body,
-            headers={"Authorization": f"Bearer {self.key}",
-                     "content-type": "application/json"})
+        content_parts: list[str] = []
+        usage: dict = {}
+        finish_reason = ""
         for attempt in range(self.retries):
             try:
+                req = urllib.request.Request(
+                    api_url(self.base, "chat/completions"),
+                    data=body,
+                    headers={
+                        "Authorization": f"Bearer {self.key}",
+                        "content-type": "application/json",
+                        "Accept": "text/event-stream",
+                    },
+                )
+                content_parts = []
+                usage = {}
+                finish_reason = ""
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    payload = json.load(resp)
+                    for raw_line in resp:
+                        line = raw_line.decode("utf-8").strip()
+                        if not line or line.startswith(":"):
+                            continue
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if data == "[DONE]":
+                            break
+                        chunk = json.loads(data)
+                        if chunk.get("error"):
+                            raise RuntimeError(
+                                f"方舟流式响应错误: {chunk['error']!r}"
+                            )
+                        chunk_usage = chunk.get("usage")
+                        if isinstance(chunk_usage, dict):
+                            usage = chunk_usage
+                        choices = chunk.get("choices") or []
+                        if not choices:
+                            continue
+                        choice = choices[0]
+                        if choice.get("finish_reason"):
+                            finish_reason = str(choice["finish_reason"])
+                        delta = choice.get("delta") or {}
+                        content = delta.get("content")
+                        if isinstance(content, str):
+                            content_parts.append(content)
                 break
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+            except (
+                urllib.error.URLError,
+                TimeoutError,
+                OSError,
+                json.JSONDecodeError,
+            ):
                 if attempt == self.retries - 1:
                     raise
                 time.sleep(2 ** attempt)
-        usage = payload.get("usage") or {}
         with self.lock:
             self.calls += 1
             # OpenAI 兼容协议字段名换算成上层聚合期望的 input/output_tokens
             self.usage["input_tokens"] += usage.get("prompt_tokens", 0) or 0
             self.usage["output_tokens"] += usage.get("completion_tokens", 0) or 0
-        choices = payload.get("choices") or []
-        if not choices:
-            raise ValueError("方舟返回 choices 为空")
-        choice = choices[0]
         # 截断必须显式报错。当成解析失败去重试，只会再截断一次。
-        if choice.get("finish_reason") == "length":
+        if finish_reason == "length":
             raise ValueError(f"输出被 max_tokens={cap} 截断，"
                              f"需调大 max_tokens 或减小批量")
-        message = choice.get("message") or {}
-        return message.get("content") or ""
+        return "".join(content_parts)
 
     def cost(self) -> float:
         pin, pout = price_of(self.model)

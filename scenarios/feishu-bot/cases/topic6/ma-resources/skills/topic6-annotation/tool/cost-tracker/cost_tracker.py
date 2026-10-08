@@ -65,6 +65,16 @@ def append_record(record: dict) -> None:
     cost_dir = _cost_dir(record["project_dir"])
     cost_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = cost_dir / JSONL_FILE
+    record_id = str(record.get("record_id", "")).strip()
+    if record_id and jsonl_path.exists():
+        with jsonl_path.open(encoding="utf-8") as existing:
+            for line in existing:
+                try:
+                    if json.loads(line).get("record_id") == record_id:
+                        print(f"[cost_tracker] 已存在，跳过重复记录: {record_id}")
+                        return
+                except (json.JSONDecodeError, AttributeError):
+                    continue
 
     usd_to_cny = float(record.get("usd_to_cny", 7.2))
     currency = record.get("currency", "USD")
@@ -81,6 +91,7 @@ def append_record(record: dict) -> None:
 
     entry = {
         "ts": datetime.now().isoformat(timespec="seconds"),
+        "record_id": record_id,
         "phase": record.get("phase", "?"),
         "task": record.get("task", "?"),
         "round": int(record.get("round", 1)),
@@ -213,6 +224,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--currency", choices=["USD", "CNY"], required=True)
     ap.add_argument("--usd-to-cny", type=float, default=7.2)
     ap.add_argument("--row-count", type=int, default=0)
+    ap.add_argument("--record-id", default="")
 
     fp = sub.add_parser("finalize", help="汇总生成 md 报告")
     fp.add_argument("--usd-to-cny", type=float, default=7.2)
@@ -232,6 +244,7 @@ def main() -> int:
             "input_tokens": args.input_tokens, "output_tokens": args.output_tokens,
             "raw_cost": args.raw_cost,
             "usd_to_cny": args.usd_to_cny, "row_count": args.row_count,
+            "record_id": args.record_id,
         })
     elif args.cmd == "finalize":
         finalize(args.project_dir, args.usd_to_cny, args.period_label)

@@ -511,21 +511,52 @@ flowchart TD
 <script>
   const IS_LOCAL = window.location.protocol === "file:";
   const REPO_BASE = "https://github.com/FeiZhuNiU-INFJA/ark-agent-feishu-bot/blob/de/scenarios/feishu-bot";
-  const BASE = "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/assets_from_customer/topic6";
+  const BASE = IS_LOCAL
+    ? "./assets_from_customer/topic6"
+    : `${REPO_BASE}/cases/topic6/assets_from_customer/topic6`;
   const link = (path, label) => IS_LOCAL
     ? `<a class="file-link" href="${BASE}/${path}">${label || path}</a>`
     : `<span class="file-link" title="客户原始资产未发布">${label || path}</span>`;
 
   // MA 复刻资源根目录 · 指向本仓库 ma-resources/
   const MA_BASE = IS_LOCAL
-    ? "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources"
+    ? "./ma-resources"
     : `${REPO_BASE}/cases/topic6/ma-resources`;
   const maLink = (path, label) => `<a class="file-link ma" href="${MA_BASE}/${path}">${label || path}</a>`;
   // gateway 侧代码
   const GW_BASE = IS_LOCAL
-    ? "file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent/gateway"
+    ? "../../arkagent/gateway"
     : `${REPO_BASE}/arkagent/gateway`;
   const gwLink = (path, label) => `<a class="file-link ma" href="${GW_BASE}/${path}">${label || path}</a>`;
+
+  const dataHubContract = ({ task, input, prompt, llmFields, localAfter }) => `
+    <h3>实际调用契约</h3>
+    <p><b>MA 只提交一个批任务，不会为每行创建 Agent 或发起一条 HTTP 请求。</b>上传的 XLSX 是整份 <code>${input}</code>；DataHub 再对其中每一行执行 Prompt。</p>
+    <div class="sample"># MA sandbox（一个 annotator 子 Agent）
+python /mnt/skills/topic6-annotation/scripts/datahub_annotate.py \\
+  --task ${task} --project-dir /workspace/Projects/{PROJECT_DIR} \\
+  --input ${input} \\
+  --prompt-file /mnt/skills/topic6-annotation/prompts/${prompt} \\
+  --model-id "\${DATAHUB_MODEL_ID:-Doubao-Seed-Evolving}" \\
+  --run-id {N} --launch-background
+
+# worker 的外部调用（每个 ${task} run 各一次）
+POST https://bmc-data-hub.bluemediagroup.cn/api/v1/file/upload
+  multipart: file=&lt;整份 XLSX&gt;
+
+POST https://bmc-data-hub.bluemediagroup.cn/api/v1/task
+{
+  "name": "topic6_${task}_..._r{N}_...",
+  "data_source": {"data_source_id": "&lt;upload 返回值&gt;"},
+  "prompt": {
+    "prompt_text": "&lt;${prompt} 全文&gt;",
+    "prompt_run_config": {"require_llm_result_json": true}
+  },
+  "model": {"model_id": "Doubao-Seed-Evolving"}
+}</div>
+    <p><b>LLM 实际使用的行字段：</b>${llmFields}。其他 XLSX 列随文件上传以保留 <code>row_id</code> 等关联信息，但不会被 Prompt 引用。</p>
+    <p><b>完成后的控制权：</b>MA 每 20 秒查询 <code>GET /api/v1/task/{task_id}</code>；成功后下载 <code>result_url</code>，缺失时分页读取 <code>result_list</code>。${localAfter}</p>
+  `;
 
   // 节点详情:key 必须与 mermaid 中节点 id 完全一致
   const DETAILS = {
@@ -751,8 +782,15 @@ week_num   : W37</div>
           <li>Step8 <b>是否营销可用</b>(全局闸门字段,决定后续 R1~R5 要不要跑)</li>
           <li>Step9 判断说明(40 字内)</li>
         </ul>
+        ${dataHubContract({
+          task: 'c0',
+          input: '03_抽样/sample_500.xlsx（full/demo；全量阶段改为 02_标准化/hot_topics_normalized.xlsx）',
+          prompt: 'C0_基础事实/v5.md',
+          llmFields: '<code>platform</code>、<code>title</code>、<code>desc</code>（源表为 <code>hottopic_desc</code> 时，MA 上传前仅重命名为 <code>desc</code>）',
+          localAfter: 'MA 解析 <code>llm_result</code> JSON，展开 9 个 C0 字段并写入 <code>04_标注/C0_基础事实/c0_postprocess_r{N}.xlsx</code>。'
+        })}
         <h3>输出</h3>
-        <p><code>04_标注/c0_raw.jsonl</code></p>
+        <p><code>04_标注/C0_基础事实/c0_result_raw_r{N}.xlsx</code> → <code>c0_postprocess_r{N}.xlsx</code></p>
         <h3>输出示例(单行 JSONL)</h3>
         <div class="sample">{
   <span class="k">"row_id"</span>: <span class="s">"W37_weibo_001"</span>,
@@ -772,8 +810,8 @@ week_num   : W37</div>
           ${link('prompt/04_阶段_C标注.md')}
           ${link('skill/annotation/SKILL.md')}
           ${link('skill/annotation/prompts/C0_基础事实', 'prompts/C0_基础事实/v5.md')}
-          ${link('skill/annotation/scripts/datahub_submit.py')}
-          ${link('skill/annotation/scripts/datahub_poll.py')}
+          ${maLink('skills/topic6-annotation/scripts/datahub_annotate.py')}
+          ${maLink('skills/topic6-annotation/scripts/wait_datahub_batch.py')}
           ${link('tool/datahub', 'tool/datahub/')}
           ${link('ks/02_营销可用判定.md')}
         </p>
@@ -796,7 +834,7 @@ week_num   : W37</div>
           <h4>路径改写</h4>
           <ul>
             <li class="path"><code>skill/annotation/</code> → <code>/mnt/skills/topic6-annotation/</code></li>
-            <li class="path"><code>Projects/{PROJECT_DIR}/04_标注/c0_raw.jsonl</code> → <code>/workspace/Projects/{PROJECT_DIR}/04_标注/c0_raw.jsonl</code></li>
+            <li class="path"><code>Projects/{PROJECT_DIR}/04_标注/C0_基础事实/c0_postprocess_r{N}.xlsx</code> → <code>/workspace/Projects/{PROJECT_DIR}/04_标注/C0_基础事实/c0_postprocess_r{N}.xlsx</code></li>
           </ul>
         </div>
       `
@@ -822,8 +860,15 @@ week_num   : W37</div>
           <li><code>desc</code>:只用于消歧和补充细节；微博/抖音为空是正常情况</li>
         </ul>
         <p>后处理阶段再结合原始发布时间和营销节点日历,计算“距节点天数 / 是否窗口期内”。</p>
+        ${dataHubContract({
+          task: 'c3',
+          input: '03_抽样/sample_500.xlsx（full/demo；全量阶段改为 02_标准化/hot_topics_normalized.xlsx）',
+          prompt: '节点标注/v7.md',
+          llmFields: '<code>title</code>、<code>desc</code>',
+          localAfter: 'DataHub 只返回节点识别 JSON；MA 随后读取 <code>hotpost_time</code> 与本地营销日历，计算“距节点天数 / 是否窗口期内”，再写入 <code>04_标注/C3_节点标注/c3_postprocess_r{N}.xlsx</code>。'
+        })}
         <h3>输出</h3>
-        <p><code>04_标注/c3_raw.jsonl</code></p>
+        <p><code>04_标注/C3_节点标注/c3_result_raw_r{N}.xlsx</code> → <code>c3_postprocess_r{N}.xlsx</code></p>
         <h3>输出示例(单行 JSONL)</h3>
         <div class="sample">{
   <span class="k">"row_id"</span>: <span class="s">"W37_douyin_042"</span>,
@@ -836,9 +881,7 @@ week_num   : W37</div>
         <h3>关键文件</h3>
         <p>
           ${link('skill/annotation/prompts/节点标注')}
-          ${link('skill/annotation/scripts/c3_postprocess.py')}
-          ${link('skill/annotation/scripts/c3_v6_flatten.py')}
-          ${link('skill/annotation/scripts/c3_v6_timewindow.py')}
+          ${maLink('skills/topic6-annotation/scripts/datahub_annotate.py')}
           ${link('ks/04_节点判定.md')}
         </p>
         <h3>MA 复刻</h3>
@@ -907,6 +950,13 @@ week_num   : W37</div>
       tags: ['<span class="tag">full/skip_sampling · DataHub</span>', '<span class="tag">demo · Ark 批量</span>'],
       desc: "二分类:这条热搜是否代表某个平台的原生玩法(挑战/BGM/模板/拍摄手法等)。",
       content: `
+        ${dataHubContract({
+          task: 'r1',
+          input: '04_标注/_可用子集/usable_subset_{mode}_r{N}.xlsx',
+          prompt: 'R1_平台借势/v2.md',
+          llmFields: '各路 Prompt 显式引用的热点字段；输入已是 C0 判为“是否营销可用=是”的子集',
+          localAfter: '上面是 R1 的可执行示例；R2-R5 仅替换 <code>--task</code> 与 <code>--prompt-file</code>，正式 full/skip_sampling 模式下共创建 5 个并发 DataHub task，并各自展开两列结果。demo 模式例外：改由 <code>run_demo_routes.py</code> 调 Ark，不调用 DataHub。'
+        })}
         <h3>输出</h3>
         <p>2 字段:是否平台玩法(是/否) + 平台玩法说明</p>
         <h3>输出示例(R1 单行)</h3>
@@ -949,7 +999,7 @@ week_num   : W37</div>
           <ul>
             <li>full/skip_sampling:子 Agent + DataHub;demo:<code>run_demo_routes.py</code> 的五路并发之一</li>
             <li>Prompt:${maLink('skills/topic6-annotation/prompts/R2_商业合作/v1.md')}</li>
-            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/r2_raw.jsonl</code></li>
+            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/R2_商业合作/r2_postprocess_r{N}.xlsx</code></li>
           </ul>
         </div>
       `
@@ -968,7 +1018,7 @@ week_num   : W37</div>
           <ul>
             <li>full/skip_sampling:子 Agent + DataHub;demo:<code>run_demo_routes.py</code> 的五路并发之一</li>
             <li>Prompt:${maLink('skills/topic6-annotation/prompts/R3_风险预警/v1.md')}</li>
-            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/r3_raw.jsonl</code></li>
+            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/R3_风险预警/r3_postprocess_r{N}.xlsx</code></li>
           </ul>
         </div>
       `
@@ -987,7 +1037,7 @@ week_num   : W37</div>
           <ul>
             <li>full/skip_sampling:子 Agent + DataHub;demo:<code>run_demo_routes.py</code> 的五路并发之一</li>
             <li>Prompt:${maLink('skills/topic6-annotation/prompts/R4_创意借鉴/v2.md')}</li>
-            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/r4_raw.jsonl</code>(供 E4 洞察消费)</li>
+            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/R4_创意借鉴/r4_postprocess_r{N}.xlsx</code>(供 E4 洞察消费)</li>
           </ul>
         </div>
       `
@@ -1006,7 +1056,7 @@ week_num   : W37</div>
           <ul>
             <li>full/skip_sampling:子 Agent + DataHub;demo:<code>run_demo_routes.py</code> 的五路并发之一</li>
             <li>Prompt:${maLink('skills/topic6-annotation/prompts/R5_消费者行为/v2.md')}</li>
-            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/r5_raw.jsonl</code></li>
+            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/R5_消费者行为/r5_postprocess_r{N}.xlsx</code></li>
           </ul>
         </div>
       `
@@ -1017,13 +1067,54 @@ week_num   : W37</div>
       desc: "把同一起真实事件的多条热搜标题聚成「事件簇」(如 iPhone17 发布相关的 20 条热搜聚成一簇)。",
       content: `
         <h3>做了什么</h3>
-        <p>调外部 skill <code>blueai-canonical-event-registry <b>v2.1.0</b></code>(源码位于 <code>assets_from_customer/blueai-canonical-event-registry/</code>),输入筛选后子集,输出每条热搜所属的事件簇名。</p>
+        <p>调已挂载的 <code>topic6-event-registry <b>v2.2.0</b></code>（复刻源为 <code>blueai-canonical-event-registry</code>），输入筛选后子集，输出每条热搜所属的事件簇名。</p>
         <p>核心逻辑:「块内全景归档」—— embedding 召回候选块 → LLM 一次看完整块打事件划分 → 命名一级标准事件名 + 二级宣传角度。</p>
+        <h3>完整链路：编号、职责与执行位置</h3>
+        <p>这些编号来自 <code>topic6-event-registry</code>（复刻 <code>blueai-canonical-event-registry</code>）的既定流程。<b>本项目的跨平台 C2</b>先让四个平台各跑 00，再在 x0 合流；01 之后不再按平台分叉。</p>
+        <h3>模型通道与并发口径</h3>
+        <div class="note">
+          <b>客户原始方案</b>：脚本通过 <code>ANTHROPIC_BASE_URL/v1/messages</code> 调用模型，凭据为 <code>ANTHROPIC_API_KEY</code> 或 <code>ANTHROPIC_AUTH_TOKEN</code>，Chat 默认模型为 <code>claude-sonnet-4-6</code>。<br>
+          <b>当前 MA 复刻</b>：MA 沙箱脚本直接调用 <code>ARK_BASE_URL/chat/completions</code>，本次 Chat 实际模型为 <code>doubao-seed-evolving</code>；Embedding 走 Ark 的 <code>doubao-embedding-vision-251215</code>。这不是为每个 batch 创建 MA 子 Agent 或 Session。<br>
+          <b>并发含义</b>：<code>--concurrency</code> 是 Python <code>ThreadPoolExecutor(max_workers=...)</code> 的客户端上限；实际吞吐仍受模型网关配额和限流影响。遇到 429 应降低并发，不改 batch size，以保持 checkpoint 编号稳定。
+        </div>
+        <table>
+          <thead><tr><th>阶段</th><th>客户原方案默认值</th><th>Topic6 MA 当前值</th></tr></thead>
+          <tbody>
+            <tr><td>00 标题清洗</td><td>每平台 batch=50，concurrency=8</td><td>四平台进程并行；每平台 concurrency=4，理论最多 16 路 Chat 请求</td></tr>
+            <tr><td>01 事件性判定</td><td>batch=60，concurrency=8</td><td>batch=60，concurrency=4</td></tr>
+            <tr><td>02 Frame 抽取</td><td>batch=40，concurrency=8</td><td>batch=40，concurrency=4</td></tr>
+            <tr><td>03 实体归一</td><td>batch=50，强制串行</td><td>相同；每批必须读取前批更新后的实体注册表</td></tr>
+            <tr><td>04 Embedding</td><td>concurrency=8</td><td>concurrency=8</td></tr>
+            <tr><td>05 / 06 本地召回与分块</td><td>无模型调用、无 worker 并发参数</td><td>相同</td></tr>
+            <tr><td>07 块内归档</td><td>脚本默认 8；原 Skill 运行命令建议 7</td><td>显式 concurrency=7</td></tr>
+            <tr><td>x2 边界裁定</td><td>batch=10，concurrency=4</td><td>相同；本项目默认启用 Chat 裁定边界带</td></tr>
+            <tr><td>x3 合并 / 拆分复核</td><td>concurrency=4</td><td>相同；先合并方向，后拆分方向，每个方向内部 4 路</td></tr>
+            <tr><td>x0 / x4 合流与出表</td><td>本地脚本</td><td>相同</td></tr>
+          </tbody>
+        </table>
+        <table>
+          <thead><tr><th>阶段</th><th>做什么</th><th>执行方式</th></tr></thead>
+          <tbody>
+            <tr><td><b>00</b> 标题清洗</td><td>去知乎提问壳、B站标签/期数、微博话题包装等；只允许删除，不允许补写事实。</td><td>四平台并行；Ark Chat + 本地防篡改校验</td></tr>
+            <tr><td><b>x0</b> 跨平台合流</td><td>把四份清洗结果按记录 ID 合成一份标准输入。</td><td>MA 本地脚本</td></tr>
+            <tr><td><b>01</b> 事件性判定</td><td>把每条判为 EVENT / NON_EVENT / UNCERTAIN；NON_EVENT 不进入后续聚类。</td><td>Ark Chat，批量并发</td></tr>
+            <tr><td><b>02</b> Event Frame</td><td>抽取主体、动作、对象、事件类型、父事件线索、阶段和可核查事实。</td><td>Ark Chat，批量并发</td></tr>
+            <tr><td><b>03</b> 实体归一</td><td>将别名归为同一实体，建立人物-组合、子品牌-母品牌等谱系；不把谱系直接当作同事件。</td><td>Ark Chat + 本地实体注册表，串行</td></tr>
+            <tr><td><b>04</b> Embedding</td><td>为 Frame 文本生成向量，仅用于召回候选。</td><td>Ark Embedding API，8 路并发</td></tr>
+            <tr><td><b>05</b> 候选召回</td><td>合并向量 Top-K、主体/对象精确匹配、强锚点和父事件线索，列出“值得放一起比较”的候选对。</td><td>MA 本地计算；不定案</td></tr>
+            <tr><td><b>06</b> 有界分块</td><td>将候选组织成有大小上限的块，确保潜在同事件尽量进同一块。</td><td>MA 本地计算；不定案</td></tr>
+            <tr><td><b>07</b> 块内归档</td><td>LLM 一次看完整块，划分真实事件、命名事件、给成员归属和宣传角度。</td><td>Ark Chat；块间 7 路并发</td></tr>
+            <tr><td><b>x2</b> 置信度筛查</td><td>低置信成员摘出为独立热点；边界带可交强模型裁定。</td><td>本地阈值 + 本次启用 Ark Chat 裁定</td></tr>
+            <tr><td><b>x3</b> 双向复核</td><td>合并被切碎的同事件，同时拆开过度合并的事件。</td><td>候选由 MA 本地召回，定案由 Ark Chat</td></tr>
+            <tr><td><b>x4</b> 明细表</td><td>把事件 ID、一级事件名、角度、成员数、置信度追加回原始记录。</td><td>MA 本地脚本</td></tr>
+          </tbody>
+        </table>
+        <div class="note"><b>未进入本项目 C2 交付链的原 Skill 阶段</b>：08 热度排序和 09 Event Registry 提交。Topic6 只需要每条热点的事件归属；跨平台热度不可直接相加，因此不在 C2 中输出全网排名或跨周 Registry。</div>
         <h3>为什么要合并</h3>
         <p>报告里如果 20 条都是"iPhone17 发布"的不同表述,视觉上会很冗余。聚簇后可以按事件维度做汇总。<b>全量实测 56.1% 的多成员事件跨平台</b>,所以要跑跨平台合并层(x0~x4),否则同一件事在四个平台上会留成四个事件。</p>
         <h3>输出</h3>
-        <p>1 字段:事件簇名 · 存于 <code>04_标注/c2_raw.jsonl</code></p>
-        <h3>输出示例(3 条聚成 1 簇)</h3>
+        <p><b>最终交付给 Phase D</b>：<code>04_标注/C2_事件归档/c2_event_result_r{N}.xlsx</code>，仅两列 <code>row_id</code> + <code>一级事件名</code>。中间过程才使用 JSONL/CSV：如 <code>work/block_events.jsonl</code>（事件归档）和 <code>merged/out/热点明细_含事件归属.csv</code>（x4 明细）。</p>
+        <h3>中间归档示例(3 条聚成 1 簇)</h3>
         <div class="sample">{<span class="k">"row_id"</span>:<span class="s">"W37_weibo_012"</span>, <span class="k">"事件簇"</span>:<span class="s">"iPhone17 发布会"</span>}
 {<span class="k">"row_id"</span>:<span class="s">"W37_douyin_034"</span>, <span class="k">"事件簇"</span>:<span class="s">"iPhone17 发布会"</span>}
 {<span class="k">"row_id"</span>:<span class="s">"W37_bili_087"</span>,  <span class="k">"事件簇"</span>:<span class="s">"iPhone17 发布会"</span>}</div>
@@ -1031,9 +1122,9 @@ week_num   : W37</div>
         <div class="note"><b>模式差异</b>:full/skip_sampling 运行完整的跨平台 00→x4 质量链；demo 用一次批量 LLM 归并 50 条样本中的可用子集,直接生成相同两列契约。demo 结果只用于流程演示。</div>
         <h3>关键文件</h3>
         <p>
-          ${link('assets_from_customer/blueai-canonical-event-registry/SKILL.md', 'external · blueai-canonical-event-registry v2.1.0')}
+          ${maLink('skills/topic6-event-registry/SKILL.md', 'MA 实际挂载 · topic6-event-registry v2.2.0')}
           ${link('skill/_external_event-registry.md')}
-          ${link('skill/annotation/scripts/c2_run_all_platforms.py')}
+          ${maLink('skills/topic6-event-registry/scripts/run_topic6_c2.py')}
         </p>
         <h3>MA 复刻</h3>
         <div class="ma-block">
@@ -1043,7 +1134,7 @@ week_num   : W37</div>
             <li>demo:<code>run_topic6_c2.py --mode demo --demo-fast</code>,与 <code>run_demo_routes.py</code> 并发</li>
             <li>状态:<code>04_标注/C2_事件归档/c2_run/c2_status.json</code>;输出:<code>C2_事件归档/c2_event_result_r{N}.xlsx</code></li>
           </ul>
-          <h4>Skill · topic6-event-registry(v2.1.0 复刻,20 个脚本)</h4>
+          <h4>Skill · topic6-event-registry(v2.2.0 复刻，20 个脚本)</h4>
           <ul>
             <li>${maLink('skills/topic6-event-registry/SKILL.md')} → <code>/mnt/skills/topic6-event-registry/</code></li>
             <li>脚本目录:${maLink('skills/topic6-event-registry/scripts/', 'scripts/')}(00~11 主线 + x0~x4 跨平台合并)</li>
@@ -1053,7 +1144,7 @@ week_num   : W37</div>
           <h4>路径改写</h4>
           <ul>
             <li class="path"><code>blueai-canonical-event-registry</code> → <code>/mnt/skills/topic6-event-registry/</code></li>
-            <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/c2_raw.jsonl</code></li>
+            <li>最终输出:<code>/workspace/Projects/{PROJECT_DIR}/04_标注/C2_事件归档/c2_event_result_r{N}.xlsx</code></li>
           </ul>
         </div>
       `
@@ -1064,7 +1155,7 @@ week_num   : W37</div>
       desc: "把 C0/C3/R1/R2/R3/R4/R5/C2 七路结果按 row_id LEFT JOIN 成一张 28 列宽表。",
       content: `
         <h3>做了什么</h3>
-        <p>以标准化表的 <code>row_id</code> 为主键,把七路 JSONL 结果 LEFT JOIN 上去。R1~R5/C2 只覆盖筛选后子集,未命中行对应字段留空(不是缺陷)。</p>
+        <p>以标准化表的 <code>row_id</code> 为主键,把七路后处理 XLSX 结果 LEFT JOIN 上去。R1~R5/C2 只覆盖筛选后子集,未命中行对应字段留空(不是缺陷)。</p>
         <h3>输出</h3>
         <p><code>05_合并/wide_table_{mode}_r{N}.xlsx</code> · 28 列宽表 = 9 基础 + 7 C0 + 1 C3 + 1 C2 + 10 R字段</p>
         <h3>输出示例(单行 28 列的关键片段)</h3>
@@ -1096,7 +1187,7 @@ heat_score   : 87.4
           <h4>承担者:Coordinator 自己 bash(纯脚本)</h4>
           <ul>
             <li>脚本:${maLink('skills/topic6-annotation/scripts/merge_annotations.py')} → <code>/mnt/skills/topic6-annotation/scripts/merge_annotations.py</code></li>
-            <li>输入:七路 <code>04_标注/{c0,c3,c2,r1..r5}_raw.jsonl</code></li>
+            <li>输入:C0/C3/R1~R5 的 <code>04_标注/*/{task}_postprocess_r{N}.xlsx</code>，以及 C2 的 <code>04_标注/C2_事件归档/c2_event_result_r{N}.xlsx</code></li>
             <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/05_合并/wide_table_{mode}_r{N}.xlsx</code></li>
             <li>字段速查:${maLink('skills/topic6-annotation/ks/_字段速查.md')} · System Prompt §四 · Phase D</li>
           </ul>
@@ -1340,7 +1431,7 @@ heat_score   : 87.4
             <li><code>pipeline_e.py</code> 内部 E4 异步任务</li>
             <li>统计脚本:${maLink('skills/topic6-insight/01_统计/e4_marketing.py')}</li>
             <li>Prompt:${maLink('skills/topic6-insight/02_洞察/E4_营销发现/v6.md')}</li>
-            <li>输入依赖:R4 标注(<code>04_标注/r4_raw.jsonl</code>)+ wide_table 中的 <code>是否营销发现</code> 字段</li>
+            <li>输入依赖:宽表中的 <code>是否营销发现</code> 字段（其来源为 R4 的 <code>r4_postprocess_r{N}.xlsx</code>）</li>
             <li>输出:<code>/workspace/Projects/{PROJECT_DIR}/06_洞察/v{N}/e4_v{N}.md</code> + <code>e4_candidates.json</code> + <code>e4_tagging_audit.md</code></li>
             <li>两次 LLM 串行(打标 + 撰写)都在同一 E4 task 内完成</li>
           </ul>
@@ -1525,7 +1616,7 @@ heat_score   : 87.4
         <h3>输出示例(spawn 返回)</h3>
         <div class="sample">{
   <span class="k">"release_status"</span>: <span class="s">"finished"</span>,
-  <span class="k">"online_url"</span>: <span class="s">"https://spark-xxx.aiforce.cloud/w37"</span>,
+  <span class="k">"online_url"</span>: <span class="s">"https://bytedance.feishuapp.cn/app/app_xxx/"</span>,
   <span class="k">"published_at"</span>: <span class="s">"2026-09-14T10:32:11+08:00"</span>
 }</div>
         <h3>关键文件</h3>

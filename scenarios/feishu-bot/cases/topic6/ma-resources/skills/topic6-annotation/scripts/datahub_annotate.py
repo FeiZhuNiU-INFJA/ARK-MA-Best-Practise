@@ -33,6 +33,7 @@ import ast
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -48,8 +49,10 @@ DATAHUB_BASE = "https://bmc-data-hub.bluemediagroup.cn"
 DONE_STATUSES = {"TASK_STATUS_GENERATED_RESULT", "TASK_STATUS_SUCCESS"}
 FAILED_STATUSES = {"TASK_STATUS_FAILED", "TASK_STATUS_CANCELED"}
 POLL_INTERVAL = 20
-POLL_TIMEOUT = 7200
+POLL_TIMEOUT = 24 * 60 * 60
 DOWNLOAD_TIMEOUT = 300
+TASK_QUERY_MAX_ATTEMPTS = 5
+TASK_QUERY_RETRY_BASE_SECONDS = 2
 
 TASK_META: dict[str, dict] = {
     "c0": {"label": "基础事实标注", "subdir": "C0_基础事实"},
@@ -139,7 +142,14 @@ def _prepare_input(input_path: Path) -> Path:
     if "hottopic_desc" in df.columns and "desc" not in df.columns:
         df = df.rename(columns={"hottopic_desc": "desc"})
         prepared = input_path.parent / f".{input_path.stem}_prepared.xlsx"
-        df.to_excel(prepared, index=False)
+        temp = prepared.with_name(
+            f"{prepared.stem}.{os.getpid()}.{time.time_ns()}.tmp.xlsx"
+        )
+        try:
+            df.to_excel(temp, index=False)
+            os.replace(temp, prepared)
+        finally:
+            temp.unlink(missing_ok=True)
         return prepared
     return input_path
 
@@ -191,14 +201,30 @@ def _get_task(
 ) -> dict:
     params = {}
     if page is not None:
-        params["page"] = page
+        params["page_num"] = page
     if page_size is not None:
         params["page_size"] = page_size
-    resp = requests.get(
-        f"{DATAHUB_BASE}/api/v1/task/{task_id}",
-        headers=_headers(api_key), params=params or None, timeout=30,
-    )
-    resp.raise_for_status()
+    for attempt in range(1, TASK_QUERY_MAX_ATTEMPTS + 1):
+        try:
+            resp = requests.get(
+                f"{DATAHUB_BASE}/api/v1/task/{task_id}",
+                headers=_headers(api_key), params=params or None, timeout=30,
+            )
+            resp.raise_for_status()
+            break
+        except requests.RequestException as error:
+            status_code = getattr(error.response, "status_code", None)
+            retriable = status_code is None or status_code == 429 or status_code >= 500
+            if not retriable or attempt == TASK_QUERY_MAX_ATTEMPTS:
+                raise
+            delay = TASK_QUERY_RETRY_BASE_SECONDS * (2 ** (attempt - 1))
+            print(
+                f"[poll] task={task_id} query failed "
+                f"(attempt {attempt}/{TASK_QUERY_MAX_ATTEMPTS}): {error}; "
+                f"retry in {delay}s",
+                flush=True,
+            )
+            time.sleep(delay)
     body = resp.json()
     if body.get("code", -1) != 0:
         raise RuntimeError(f"查询失败: {body.get('message', body)}")
@@ -355,6 +381,42 @@ def _poll_until_done(api_key: str, task_id: int) -> dict:
         if elapsed > POLL_TIMEOUT:
             raise TimeoutError(f"任务 {task_id} 轮询超时 ({POLL_TIMEOUT}s)")
         time.sleep(POLL_INTERVAL)
+
+
+def _normalized_source_path(recorded: str) -> Path:
+    path = Path(recorded)
+    match = re.fullmatch(r"\.(.+)_prepared(\.[^.]+)", path.name)
+    if match:
+        path = path.with_name(f"{match.group(1)}{match.group(2)}")
+    return path.resolve()
+
+
+def _submission_matches_request(
+    submission: dict,
+    *,
+    task: str,
+    run_id: int,
+    input_path: Path,
+    prompt_file: str,
+    model_id: str,
+) -> bool:
+    try:
+        recorded_run_id = int(submission.get("run_id", -1))
+        task_id = int(submission.get("task_id", 0))
+    except (TypeError, ValueError):
+        return False
+    recorded_input = submission.get("source_input_file") or submission.get("input_file")
+    if not recorded_input:
+        return False
+    return (
+        submission.get("task") == task
+        and recorded_run_id == run_id
+        and task_id > 0
+        and submission.get("model_id") == model_id
+        and Path(str(submission.get("prompt_file") or "")).resolve()
+        == Path(prompt_file).resolve()
+        and _normalized_source_path(str(recorded_input)) == input_path.resolve()
+    )
 
 
 def _strip_fence(text: str) -> str:
@@ -540,8 +602,14 @@ def _postprocess(df: pd.DataFrame, task: str) -> tuple[pd.DataFrame, dict]:
     }
 
 
-def annotate(task: str, project_dir: str, input_file: str, prompt_file: str,
-             model_id: str, run_id: int | None = None) -> dict:
+def annotate(
+    task: str,
+    project_dir: str,
+    input_file: str,
+    prompt_file: str,
+    model_id: str,
+    run_id: int | None = None,
+) -> dict:
     if task not in TASK_META:
         raise ValueError(f"未知 task: {task}")
 
@@ -578,27 +646,56 @@ def annotate(task: str, project_dir: str, input_file: str, prompt_file: str,
     model_info = _validate_model_id(model_id, models)
 
     upload_path = _prepare_input(input_path)
-    print(f"[annotate] 上传: {upload_path}", flush=True)
-    ds_id = _upload_file(api_key, upload_path)
-    print(f"[annotate] data_source_id={ds_id}", flush=True)
+    submit_path = task_dir / f"{task}_submit_meta.json"
+    submit_meta = {}
+    if submit_path.exists():
+        try:
+            candidate = json.loads(submit_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            candidate = {}
+        if _submission_matches_request(
+            candidate,
+            task=task,
+            run_id=run_id,
+            input_path=input_path,
+            prompt_file=prompt_file,
+            model_id=model_id,
+        ):
+            submit_meta = candidate
 
-    task_name = f"topic6_{task}_{meta['label']}_r{run_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    task_id = _create_task(api_key, ds_id, prompt_text, model_id, task_name)
-    print(f"[annotate] task_id={task_id}", flush=True)
+    if submit_meta:
+        task_id = int(submit_meta["task_id"])
+        print(f"[annotate] 恢复已有 task_id={task_id}", flush=True)
+    else:
+        print(f"[annotate] 上传: {upload_path}", flush=True)
+        ds_id = _upload_file(api_key, upload_path)
+        print(f"[annotate] data_source_id={ds_id}", flush=True)
 
-    submit_meta = {
-        "task": task, "task_id": task_id, "run_id": run_id,
-        "model_id": model_id, "platform": model_info["platform"],
-        "input_price": model_info["input_price"],
-        "output_price": model_info["output_price"],
-        "currency": "USD" if model_info["platform"] in
-                    {"OpenAI", "Anthropic", "Google", "Meta", "Mistral"} else "CNY",
-        "prompt_file": str(prompt_file),
-        "input_file": str(upload_path),
-        "created_at": datetime.now().isoformat(),
-    }
-    (task_dir / f"{task}_submit_meta.json").write_text(
-        json.dumps(submit_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        task_name = (
+            f"topic6_{task}_{meta['label']}_r{run_id}_"
+            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+        task_id = _create_task(api_key, ds_id, prompt_text, model_id, task_name)
+        print(f"[annotate] task_id={task_id}", flush=True)
+
+        submit_meta = {
+            "task": task, "task_id": task_id, "run_id": run_id,
+            "model_id": model_id, "platform": model_info["platform"],
+            "input_price": model_info["input_price"],
+            "output_price": model_info["output_price"],
+            "currency": "USD" if model_info["platform"] in
+                        {"OpenAI", "Anthropic", "Google", "Meta", "Mistral"} else "CNY",
+            "prompt_file": str(prompt_file),
+            "input_file": str(upload_path),
+            "source_input_file": str(input_path.resolve()),
+            "created_at": datetime.now().isoformat(),
+        }
+        temp_submit_path = submit_path.with_suffix(".json.tmp")
+        temp_submit_path.write_text(
+            json.dumps(submit_meta, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        os.replace(temp_submit_path, submit_path)
 
     task_data = _poll_until_done(api_key, task_id)
     result_url = task_data.get("result_url")
@@ -630,6 +727,7 @@ def annotate(task: str, project_dir: str, input_file: str, prompt_file: str,
 
     completion_meta = {
         **submit_meta,
+        "source_input_file": str(input_path.resolve()),
         "status": stats["status"], "total": stats["total"],
         "valid": stats["valid"], "invalid": stats["invalid"],
         "valid_rate": stats["valid_rate"],
@@ -659,6 +757,100 @@ def annotate(task: str, project_dir: str, input_file: str, prompt_file: str,
     return completion_meta
 
 
+def _pid_is_running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _completion_matches_request(completion: dict, args: argparse.Namespace) -> bool:
+    if int(completion.get("run_id", -1)) != int(args.run_id):
+        return False
+    requested = Path(args.input)
+    if not requested.is_absolute():
+        requested = _resolve_project_dir(args.project_dir) / requested
+    requested = requested.resolve()
+
+    recorded = completion.get("source_input_file")
+    if recorded:
+        return Path(str(recorded)).resolve() == requested
+
+    # Backward compatibility for completion files created before source_input_file
+    # was recorded. Prepared files use .<stem>_prepared.<suffix>.
+    prepared = str(completion.get("input_file") or "")
+    return bool(prepared) and _normalized_source_path(prepared) == requested
+
+
+def launch_background(args: argparse.Namespace) -> dict:
+    project = _resolve_project_dir(args.project_dir)
+    task_dir = project / "04_标注" / TASK_META[args.task]["subdir"]
+    task_dir.mkdir(parents=True, exist_ok=True)
+    completion_path = task_dir / f"{args.task}_completion_meta.json"
+    if completion_path.exists():
+        completion = json.loads(completion_path.read_text(encoding="utf-8"))
+        if _completion_matches_request(completion, args):
+            return {
+                "status": "done",
+                "task": args.task,
+                "run_id": args.run_id,
+                "completion_meta": str(completion_path),
+            }
+
+    pid_path = task_dir / f"{args.task}_worker_r{args.run_id}.pid"
+    if pid_path.exists():
+        try:
+            existing_pid = int(pid_path.read_text(encoding="utf-8").strip())
+        except ValueError:
+            existing_pid = 0
+        if existing_pid and _pid_is_running(existing_pid):
+            return {
+                "status": "running",
+                "task": args.task,
+                "run_id": args.run_id,
+                "pid": existing_pid,
+            }
+
+    log_path = task_dir / f"{args.task}_worker_r{args.run_id}.log"
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--task",
+        args.task,
+        "--project-dir",
+        args.project_dir,
+        "--input",
+        args.input,
+        "--prompt-file",
+        args.prompt_file,
+        "--model-id",
+        args.model_id,
+        "--run-id",
+        str(args.run_id),
+    ]
+    if args.mode:
+        command.extend(["--mode", args.mode])
+    with log_path.open("ab") as log:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    temp_pid_path = pid_path.with_suffix(".pid.tmp")
+    temp_pid_path.write_text(f"{process.pid}\n", encoding="utf-8")
+    os.replace(temp_pid_path, pid_path)
+    return {
+        "status": "submitted",
+        "task": args.task,
+        "run_id": args.run_id,
+        "pid": process.pid,
+        "log": str(log_path),
+    }
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="MA 一体化 DataHub 标注 (submit+poll+postprocess)")
     p.add_argument("--task", required=True, choices=list(TASK_META))
@@ -667,9 +859,20 @@ def main() -> int:
     p.add_argument("--prompt-file", required=True, help="Prompt 绝对路径")
     p.add_argument("--model-id", required=True)
     p.add_argument("--run-id", type=int, default=None)
+    p.add_argument("--mode", default="")
+    p.add_argument(
+        "--launch-background",
+        action="store_true",
+        help="幂等启动后台 worker 后立即返回，由批次检查器统一等待",
+    )
     args = p.parse_args()
 
     try:
+        if args.launch_background:
+            if args.run_id is None:
+                raise ValueError("--launch-background 必须显式传 --run-id")
+            print(json.dumps(launch_background(args), ensure_ascii=False))
+            return 0
         result = annotate(args.task, args.project_dir, args.input,
                           args.prompt_file, args.model_id, args.run_id)
         print("\n=== 完成 ===")

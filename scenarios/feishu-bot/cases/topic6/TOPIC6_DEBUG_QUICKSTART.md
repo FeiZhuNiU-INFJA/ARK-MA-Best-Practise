@@ -12,10 +12,9 @@
 
 ### 0.1 Python 环境(首次)
 
-在仓库根目录创建 Topic6 独立的 Python 3.11 环境，并安装项目及开发依赖：
+在仓库根目录创建 Topic6 独立的 Python 3.11 环境，并安装项目及开发依赖（下方命令在仓库根目录执行）：
 
 ```bash
-cd /Users/bytedance/workspace/ark-agent-feishu-bot
 conda create -n topic6 python=3.11 -y
 conda activate topic6
 python -m pip install -e ".[dev]"
@@ -235,27 +234,27 @@ Phase E 默认以最多 2 路并发流式生成 E1~E4。若某版块在断连重
 
 ## 5. 常见故障排查
 
-| 现象                              | 排查方向                                                                                                                                                             |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 日志"topic6 场景:未启用"          | 检查`TOPIC6_COORDINATOR_AGENT_ID` 是否已写入 config.env、拼写是否正确                                                                                              |
-| Coordinator 拉不到 hot-topics MCP | 检查 `config.env` 中的 `HOT_TOPICS_MCP_URL`，修正后重跑 `./cases/topic6/update_ma.sh`                                                                          |
-| Skill 找不到                      | 重跑 `./cases/topic6/update_ma.sh`                                                                                                                              |
-| HC 卡片点击后无响应               | Feishu Bot 后台"事件订阅"里是否开启`card.action.trigger` 权限                                                                                                      |
-| SSE 中断/超时                     | 单会话默认 10 分钟,超长任务加大`SESSION_TIMEOUT_MS`(毫秒)                                                                                                          |
-| Phase E `Connection error`        | 先看 `pipeline_e_report_v{N}.json`；按原参数重跑一次正式入口，成功版块会命中 checkpoint，只补失败版块                                                             |
-| Phase H `token_expired`           | 确认 Gateway 已更新并重启；临近过期时日志应出现 `topic6 user token refreshed`，同一 Session 无需重新挂 Vault                                                       |
-| 图片抓取失败                      | 已知风险点,飞书`im.v1.images.get` 并发大图不稳定,重跑一次 Phase G 即可                                                                                             |
+| 现象                              | 排查方向                                                                                                      |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| 日志"topic6 场景:未启用"          | 检查`TOPIC6_COORDINATOR_AGENT_ID` 是否已写入 config.env、拼写是否正确                                       |
+| Coordinator 拉不到 hot-topics MCP | 检查`config.env` 中的 `HOT_TOPICS_MCP_URL`，修正后重跑 `./cases/topic6/update_ma.sh`                    |
+| Skill 找不到                      | 重跑`./cases/topic6/update_ma.sh`                                                                           |
+| HC 卡片点击后无响应               | Feishu Bot 后台"事件订阅"里是否开启`card.action.trigger` 权限                                               |
+| SSE 中断/超时                     | 单会话默认 10 分钟,超长任务加大`SESSION_TIMEOUT_MS`(毫秒)                                                   |
+| Phase E`Connection error`       | 先看`pipeline_e_report_v{N}.json`；按原参数重跑一次正式入口，成功版块会命中 checkpoint，只补失败版块        |
+| Phase H`token_expired`          | 确认 Gateway 已更新并重启；临近过期时日志应出现`topic6 user token refreshed`，同一 Session 无需重新挂 Vault |
+| 图片抓取失败                      | 已知风险点,飞书`im.v1.images.get` 并发大图不稳定,重跑一次 Phase G 即可                                      |
 
 ---
 
 ## 附:相关文件速查
 
-- MA 约束变更日志 [TOPIC6_CHANGELOG.md](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/TOPIC6_CHANGELOG.md) — 因方舟侧限制/机制导致的历次修改
-- 主入口 [cli.py](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent/cli.py)
-- 配置字段 [config.py](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent/config.py)
-- topic6 运行器 [topic6_runner.py](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent/gateway/topic6_runner.py)
-- HITL 卡片 [topic6_hitl.py](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/arkagent/gateway/topic6_hitl.py)
-- 统一更新入口 [update_ma.sh](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/update_ma.sh)
-- Coordinator Prompt [coordinator.system.md](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/ma-resources/agents/coordinator.system.md)
-- 架构全景 HTML [topic6_ma_architecture.html](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/topic6_ma_architecture.html)
-- Pipeline 对照 HTML [topic6_pipeline_overview.html](file:///Users/bytedance/workspace/ark-agent-feishu-bot/scenarios/feishu-bot/cases/topic6/topic6_pipeline_overview.html)
+- MA 约束变更日志 [TOPIC6_CHANGELOG.md](./TOPIC6_CHANGELOG.md) — 因方舟侧限制/机制导致的历次修改
+- 主入口 [cli.py](../../arkagent/cli.py)
+- 配置字段 [config.py](../../arkagent/config.py)
+- topic6 运行器 [topic6_runner.py](./topic6_runner.py)
+- HITL 卡片 [topic6_hitl.py](./topic6_hitl.py)
+- 统一更新入口 [update_ma.sh](./update_ma.sh)
+- Coordinator Prompt [coordinator.system.md](./ma-resources/agents/coordinator.system.md)
+- 架构全景 HTML [topic6_ma_architecture.html](./topic6_ma_architecture.html)
+- Pipeline 对照 HTML [topic6_pipeline_overview.html](./topic6_pipeline_overview.html)

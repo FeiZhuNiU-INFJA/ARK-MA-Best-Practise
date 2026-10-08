@@ -80,7 +80,7 @@ def format_period_display(period_label: str, date_start: str, date_end: str) -> 
     date_range = f"{date_start} ~ {date_end}"
     if date_range in period_label:
         return period_label
-    return f"{period_label} ({date_range})"
+    return f"{period_label}（{date_range}）"
 
 
 def main() -> int:
@@ -134,7 +134,7 @@ def main() -> int:
     sections = [section_files[sid].read_text(encoding="utf-8").strip() for sid in SECTION_IDS]
     header_lines = [
         f"# 社媒热点周刊 · {period_label}",
-        f"> 数据范围:微博、知乎、抖音、B站\n> 数据周期:{period_display}",
+        f"> 数据范围：微博、知乎、抖音、B站\n> 数据周期：{period_display}",
     ]
     if args.mode == "demo":
         header_lines.append(DEMO_DISCLAIMER)

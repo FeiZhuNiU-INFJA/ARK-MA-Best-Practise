@@ -30,6 +30,7 @@ progress_card_mod = _load("topic6_progress_card", "topic6_progress_card.py")
 hitl_mod = _load("topic6_hitl", "topic6_hitl.py")
 detect_hc_intent = runner_mod.detect_hc_intent
 extract_hc_payload = runner_mod.extract_hc_payload
+build_hc_fallback_payload = runner_mod.build_hc_fallback_payload
 parse_trigger = runner_mod.parse_trigger
 normalize_user_text = runner_mod.normalize_user_text
 validate_hc_payload = runner_mod.validate_hc_payload
@@ -177,6 +178,58 @@ def test_intent_detects_bad_meta_description():
     assert detect_hc_intent(text) == "HC1"
     # 严格 JSON 路径拿不到,是兜底该救的场景。
     assert extract_hc_payload(text) is None
+
+
+def test_fallback_recovers_hc1_summary_from_verification_message():
+    job = runner_mod.PipelineJob(
+        job_id="job-1",
+        chat_id="chat-1",
+        thread_id="",
+        user_open_id="user-1",
+        ma_session_id="session-1",
+        mode="full",
+        project_dir="/workspace/topic6-full-sesn-202",
+    )
+    text = (
+        "所有 HC1 检查项通过：500 行 × 28 列、row_id 唯一、"
+        "C0 有效率 100%、R1~R5 在可用子集上有效率均为 100%。"
+        "输出 HC1 结构化卡片："
+    )
+
+    payload = build_hc_fallback_payload(job, "HC1", [text])
+
+    assert payload["__fallback__"] is True
+    assert payload["wide_table_path"] == (
+        "/mnt/session/outputs/topic6-full-sesn-202/05_合并/"
+        "wide_table_full_r1.xlsx"
+    )
+    assert payload["distribution_summary"] == {
+        "rows": 500,
+        "cols": 28,
+        "c0_valid_rate": 1.0,
+        "r1_r5_valid_rates": [1.0, 1.0, 1.0, 1.0, 1.0],
+    }
+    assert payload["issues_detected"] == []
+
+
+def test_fallback_does_not_invent_unreported_metrics():
+    job = runner_mod.PipelineJob(
+        job_id="job-1",
+        chat_id="chat-1",
+        thread_id="",
+        user_open_id="user-1",
+        ma_session_id="session-1",
+        mode="full",
+        project_dir="/workspace/report",
+    )
+
+    payload = build_hc_fallback_payload(
+        job, "HC2", ["HC2 已就绪，请审核后点击卡片"]
+    )
+
+    assert "distribution_summary" not in payload
+    assert "issues_detected" not in payload
+    assert payload["wide_table_path"].endswith("wide_table_skip_sampling_r1.xlsx")
 
 
 def test_intent_detects_hc2_and_hc3_wording_variants():

@@ -386,8 +386,8 @@ class PipelineStore:
     def resume_running(self, job_id: str, next_phase: str) -> None:
         with self._lock:
             self._conn.execute(
-                "UPDATE pipeline_jobs SET status = ?, current_phase = ?, updated_at = ? "
-                "WHERE job_id = ?",
+                "UPDATE pipeline_jobs SET status = ?, current_phase = ?, updated_at = ?, "
+                "finished_at = NULL, last_error = '' WHERE job_id = ?",
                 (STATUS_RUNNING, next_phase, _now(), job_id),
             )
 
@@ -396,7 +396,8 @@ class PipelineStore:
         with self._lock:
             self._conn.execute(
                 "UPDATE pipeline_jobs SET status = ?, finished_at = ?, updated_at = ?, "
-                "online_url = COALESCE(NULLIF(?, ''), online_url) WHERE job_id = ?",
+                "online_url = COALESCE(NULLIF(?, ''), online_url), last_error = '' "
+                "WHERE job_id = ?",
                 (STATUS_DONE, now, now, online_url, job_id),
             )
 
