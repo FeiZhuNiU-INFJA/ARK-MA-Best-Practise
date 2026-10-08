@@ -415,7 +415,7 @@
     <span class="legend-item"><span class="dot" style="background:#2563eb"></span> 自动阶段</span>
     <span class="legend-item"><span class="dot" style="background:#f97316"></span> HC 人工关卡</span>
     <span class="legend-item"><span class="dot" style="background:#10b981"></span> 最终交付</span>
-    <span class="legend-item"><span class="dot" style="background:#94a3b8"></span> DataHub 标注</span>
+    <span class="legend-item"><span class="dot" style="background:#7c3aed"></span> subagent 委派</span>
   </span>
 </header>
 
@@ -432,8 +432,8 @@ flowchart TD
     S --> CIN
 
     subgraph C_BATCH1 [Phase C 第一批 · 并发]
-      C1[C0 基础事实层]:::datahub
-      C3[C3 节点标注]:::datahub
+      C1[C0 基础事实层]:::subagent
+      C3[C3 节点标注]:::subagent
     end
 
     CIN --> C1
@@ -443,11 +443,11 @@ flowchart TD
     FILTER[筛选<br/>是否营销可用 = 是]:::step
 
     subgraph C_BATCH2 [Phase C 第二批 · 并发 · 只跑筛选子集]
-      R1[R1 平台玩法<br/>demo:Ark 批量]:::datahub
-      R2[R2 商业合作<br/>demo:Ark 批量]:::datahub
-      R3[R3 风险预警<br/>demo:Ark 批量]:::datahub
-      R4[R4 营销发现<br/>demo:Ark 批量]:::datahub
-      R5[R5 消费者行为<br/>demo:Ark 批量]:::datahub
+      R1[R1 平台玩法<br/>demo:Ark 批量]:::subagent
+      R2[R2 商业合作<br/>demo:Ark 批量]:::subagent
+      R3[R3 风险预警<br/>demo:Ark 批量]:::subagent
+      R4[R4 营销发现<br/>demo:Ark 批量]:::subagent
+      R5[R5 消费者行为<br/>demo:Ark 批量]:::subagent
       C2[C2 事件合并<br/>demo:单次归并]:::step
     end
 
@@ -496,7 +496,7 @@ flowchart TD
     H --> END([公网链接]):::final
 
     classDef step fill:#fff,stroke:#94a3b8,color:#1f2937;
-    classDef datahub fill:#f1f5f9,stroke:#94a3b8,color:#1f2937;
+    classDef subagent fill:#f5f3ff,stroke:#7c3aed,color:#5b21b6;
     classDef hc fill:#ffedd5,stroke:#f97316,color:#9a3412;
     classDef final fill:#d1fae5,stroke:#10b981,color:#065f46;
     classDef entry fill:#dbeafe,stroke:#2563eb,color:#1e40af;
@@ -1377,8 +1377,8 @@ heat_score   : 87.4
             <li>与 E1/E3/E4 共用一次统计预处理和一次 pipeline 进程</li>
             <li>统计脚本:${maLink('skills/topic6-insight/01_统计/e2_nodes.py')} — <b>已内置 C3 标注 + 节点日历基线判断</b>,不再依赖已删除的外部 marketing-node-tagging skill</li>
             <li>洞察 Prompt:${maLink('skills/topic6-insight/02_洞察/E2_营销节点/v3.md')}</li>
-            <li>节点日历(共享):${maLink('skills/topic6-annotation/references/marketing_calendar/nodes_definition.csv')}(Annotator 与 Insighter 都读同一份)</li>
-            <li>Insighter System Prompt §二 · section=e2 明确禁止调 node-tagging skill</li>
+            <li>节点日历(共享):${maLink('skills/topic6-annotation/references/marketing_calendar/nodes_definition.csv')}(Annotator 与 pipeline_e.py 都读同一份)</li>
+            <li>pipeline_e.py 内 E2 分支的 Prompt 明确禁止调 node-tagging skill</li>
           </ul>
         </div>
       `
@@ -1703,8 +1703,9 @@ heat_score   : 87.4
       tags: ['<span class="tag">pipeline_e.py</span>', '<span class="tag">脚本内并发</span>'],
       desc: "统计只执行一次,随后在同一进程内并发生成 E1~E4。",
       content: `
-        <h3>为什么改成单入口</h3>
-        <p>旧流程委派 4 个 Insighter,每个子 Agent 都重复启动 <code>pipeline_e.py</code> 和 <code>run_stats.py</code>。现在 Coordinator 只调用一次入口,消除重复统计、冷启动和回报开销。</p>
+        <h3>为什么用单入口</h3>
+        <p>客户原方案(Claude Code)就是扁平的:一个 Claude Code 会话自己 bash 一次 <code>pipeline_e.py</code>,脚本内 <code>asyncio.gather</code> 并发 E1~E4,没有子 Agent 层。<br>
+        MA 复刻中间版曾尝试 Coordinator → 4 个 Insighter 子 Agent,每个子 Agent 都要重复启动 <code>pipeline_e.py</code> 和 <code>run_stats.py</code>,冷启动 × 4、重复统计 × 4、回报开销 × 4,收益为负。<b>当前版本已回归客户原方案的脚本内并发</b>:Coordinator 只调用一次入口。保留 ${maLink('agents/insighter.json')} / ${maLink('agents/insighter.system.md')} 作为中间版的历史存档,运行时不加载。</p>
         <h3>按模式输入</h3>
         <ul>
           <li>demo:<code>wide_table_demo_r{N}.xlsx</code>,HC1 通过后直接进入</li>
@@ -1725,7 +1726,7 @@ heat_score   : 87.4
         <h3>MA 复刻拓扑</h3>
         <div class="ma-block">
           <ul>
-            <li>Coordinator 一次执行 ${maLink('skills/topic6-insight/scripts/pipeline_e.py')},不再委派 4 个 Insighter</li>
+            <li>Coordinator 一次执行 ${maLink('skills/topic6-insight/scripts/pipeline_e.py')},回归客户原方案的脚本单入口(中间版曾委派 4 个 Insighter,已废弃)</li>
             <li><code>run_stats.py</code> 只执行一次；E1~E4 由 <code>asyncio.gather</code> 并发</li>
             <li>demo 可在 HC1 后直接进入；full 必须完成全量和 HC2 后进入</li>
             <li>四个输出文件全部存在且脚本成功后,Coordinator 才进入 Phase F</li>
