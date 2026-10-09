@@ -211,8 +211,29 @@
   .responsibility-cell:last-child { border-right: 0; }
   .responsibility-cell b { display: block; font-size: 12px; }
   .responsibility-cell span { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+  .responsibility-cell.agent { box-shadow: inset 0 3px var(--violet); }
+  .responsibility-cell.workflow { box-shadow: inset 0 3px var(--green); }
+  .responsibility-cell.worker { box-shadow: inset 0 3px var(--blue); }
+  .responsibility-cell.human { box-shadow: inset 0 3px var(--amber); }
+  .responsibility-cell.store { box-shadow: inset 0 3px #6b7f93; }
   .responsibility-cell.active { box-shadow: inset 0 3px var(--blue); }
   .responsibility-cell.focus { box-shadow: inset 0 3px var(--green); }
+
+  .role-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px 14px;
+    margin: -8px 0 14px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .role-key { display: inline-flex; align-items: center; gap: 5px; }
+  .role-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--blue); }
+  .role-dot.agent { background: var(--violet); }
+  .role-dot.workflow { background: var(--green); }
+  .role-dot.worker { background: var(--blue); }
+  .role-dot.human { background: var(--amber); }
+  .role-dot.store { background: #6b7f93; }
 
   .diagram {
     display: grid;
@@ -377,6 +398,100 @@
   .c2-explain ul { margin: 10px 0 0; padding-left: 18px; color: #4f6074; font-size: 12px; }
   .c2-explain li + li { margin-top: 5px; }
 
+  .speed-grid {
+    display: grid;
+    grid-template-columns: minmax(240px, .55fr) minmax(0, 1.45fr);
+    gap: 22px;
+  }
+  .speed-controls {
+    display: grid;
+    align-content: start;
+    gap: 7px;
+  }
+  .speed-control {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid var(--line);
+    border-left: 4px solid #95a6b8;
+    border-radius: 5px;
+    color: var(--ink);
+    background: #fff;
+    text-align: left;
+    cursor: pointer;
+  }
+  .speed-control:hover { border-color: #9bb8d3; background: #f8fafc; }
+  .speed-control[aria-pressed="true"] {
+    border-color: #8fc2a7;
+    border-left-color: var(--green);
+    color: #17613e;
+    background: var(--green-soft);
+  }
+  .speed-control b { display: block; font-size: 13px; }
+  .speed-control span { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+
+  .speed-detail {
+    min-height: 250px;
+    padding: 20px 22px;
+    border-left: 1px solid var(--line);
+  }
+  .speed-detail h4 { margin: 0; font-size: 17px; }
+  .speed-detail > p { margin: 7px 0 0; color: #4f6074; }
+  .speed-metric {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1px;
+    margin-top: 17px;
+    border: 1px solid var(--line);
+    background: var(--line);
+  }
+  .speed-metric div { min-height: 72px; padding: 10px; background: #fff; }
+  .speed-metric b { display: block; color: var(--blue); font-size: 14px; }
+  .speed-metric span { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+  .speed-detail ul { margin: 15px 0 0; padding-left: 18px; color: #4f6074; font-size: 12px; }
+  .speed-detail li + li { margin-top: 5px; }
+
+  .speed-formula {
+    margin-top: 22px;
+    padding: 15px 17px;
+    border: 1px solid var(--line);
+    background: #f8fafc;
+  }
+  .speed-formula b { display: block; margin-bottom: 5px; font-size: 12px; }
+  .speed-formula code { color: #174f84; font-size: 13px; }
+  .speed-formula p { margin: 7px 0 0; color: var(--muted); font-size: 11px; }
+
+  .forecast {
+    display: grid;
+    grid-template-columns: minmax(210px, .45fr) minmax(0, 1.55fr);
+    gap: 22px;
+    margin-top: 22px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+  }
+  .forecast-buttons { display: grid; align-content: start; gap: 7px; }
+  .forecast-panel { min-width: 0; }
+  .forecast-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 13px;
+  }
+  .forecast-head h4 { margin: 0; font-size: 16px; }
+  .forecast-total { color: var(--green); font-size: 21px; font-weight: 800; white-space: nowrap; }
+  .forecast-bars { display: grid; gap: 9px; }
+  .forecast-row {
+    display: grid;
+    grid-template-columns: 130px minmax(80px, 1fr) 90px;
+    gap: 10px;
+    align-items: center;
+    font-size: 11px;
+  }
+  .forecast-track { height: 9px; overflow: hidden; background: #e8edf2; }
+  .forecast-fill { height: 100%; background: var(--blue); }
+  .forecast-row b { text-align: right; font-size: 11px; }
+  .forecast-note { margin: 14px 0 0; color: var(--muted); font-size: 11px; }
+
   .matrix-wrap { overflow-x: auto; }
   .matrix { width: 100%; border-collapse: collapse; min-width: 820px; font-size: 12px; }
   .matrix th, .matrix td { padding: 10px 9px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
@@ -397,8 +512,9 @@
     .workspace { grid-template-columns: 1fr; }
     .architecture { border-right: 0; border-bottom: 1px solid var(--line); }
     .detail-head { position: static; }
-    .c2-grid { grid-template-columns: 1fr; }
+    .c2-grid, .speed-grid, .forecast { grid-template-columns: 1fr; }
     .c2-explain { padding: 17px 0 0; border-top: 1px solid var(--line); border-left: 0; }
+    .speed-detail { padding: 17px 0 0; border-top: 1px solid var(--line); border-left: 0; }
   }
 
   @media (max-width: 760px) {
@@ -416,11 +532,258 @@
     .band { padding: 20px 16px 24px; }
     .band-head { display: block; }
     .toggle-group { margin-top: 12px; }
+    .speed-metric { grid-template-columns: 1fr; }
+    .forecast-row { grid-template-columns: 100px minmax(60px, 1fr) 76px; }
     .footer { padding: 18px 16px 30px; }
   }
 
   @media (prefers-reduced-motion: reduce) {
     * { scroll-behavior: auto !important; transition: none !important; }
+  }
+
+  /*
+   * Information-design pass: this page is a technical decision review, not a
+   * marketing landing page. The visual system prioritizes scanning, dependency
+   * reading, and a stable relationship between the diagram and its detail.
+   */
+  :root {
+    --ink: #102a43;
+    --muted: #62778b;
+    --line: #cfdae3;
+    --paper: #ffffff;
+    --canvas: #edf2f5;
+    --navy: #102a43;
+    --blue: #176b87;
+    --blue-soft: #e7f4f7;
+    --green: #217a55;
+    --green-soft: #e8f5ee;
+    --amber: #9a5a16;
+    --amber-soft: #fff3e2;
+    --violet: #795b9e;
+    --shadow: 0 10px 28px rgba(16, 42, 67, .08);
+    --radius: 6px;
+  }
+
+  body { background: var(--canvas); font-size: 14px; }
+
+  .topbar {
+    min-height: 64px;
+    padding: 11px max(22px, calc((100vw - 1240px) / 2));
+    background: var(--navy);
+  }
+  .eyebrow { color: #93c7d5; letter-spacing: .1em; }
+  h1 { font-size: 19px; font-weight: 720; }
+  .top-subtitle { font-size: 11px; }
+  .top-link { border-color: rgba(196, 228, 237, .42); border-radius: 4px; }
+
+  .hero {
+    grid-template-columns: minmax(0, 1fr) minmax(270px, 320px);
+    gap: 48px;
+    max-width: 1240px;
+    padding: 31px 0 23px;
+  }
+  .hero h2 {
+    max-width: 780px;
+    font-size: clamp(29px, 3.1vw, 40px);
+    font-weight: 760;
+    line-height: 1.2;
+  }
+  .hero p { max-width: 690px; margin-top: 11px; font-size: 14px; }
+  .thesis {
+    gap: 6px;
+    padding: 15px 17px;
+    border: 1px solid #bad6c5;
+    border-left: 4px solid var(--green);
+    box-shadow: none;
+  }
+
+  .scenario-strip {
+    top: 64px;
+    max-width: 1240px;
+    border-radius: 6px;
+    box-shadow: 0 6px 20px rgba(16, 42, 67, .08);
+  }
+  .scenario-button { min-height: 62px; padding: 10px 12px; }
+  .scenario-button strong { font-size: 13px; }
+  .scenario-button span { line-height: 1.35; }
+
+  .reading-nav {
+    position: sticky;
+    top: 126px;
+    z-index: 19;
+    display: flex;
+    gap: 2px;
+    max-width: 1240px;
+    margin: 10px auto 0;
+    padding: 5px;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, .96);
+    box-shadow: 0 5px 16px rgba(16, 42, 67, .06);
+  }
+  .reading-nav a {
+    flex: 0 0 auto;
+    padding: 5px 9px;
+    border-radius: 4px;
+    color: var(--muted);
+    font-size: 11px;
+    text-decoration: none;
+  }
+  .reading-nav a:hover,
+  .reading-nav a:focus-visible { color: var(--blue); background: var(--blue-soft); }
+
+  .workspace {
+    grid-template-columns: minmax(0, 1.2fr) minmax(350px, .8fr);
+    min-height: 590px;
+    max-width: 1240px;
+    margin-top: 14px;
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+  }
+  .architecture { padding: 26px 30px 32px; background: #f8fbfc; }
+  .arch-head { margin-bottom: 14px; }
+  .arch-head h3 { font-size: 19px; }
+  .role-legend {
+    gap: 6px 12px;
+    margin: 0 0 12px;
+    padding: 8px 0 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .responsibility-strip { margin-bottom: 21px; border-radius: 5px; overflow: hidden; }
+  .responsibility-cell { min-height: 63px; padding: 10px; }
+  .responsibility-cell b { font-size: 11px; }
+  .responsibility-cell span { line-height: 1.35; }
+
+  .diagram { gap: 9px; max-width: 690px; }
+  .diagram-row { gap: 9px; }
+  .node {
+    min-height: 76px;
+    padding: 10px 11px;
+    border-color: #c9d7e1;
+    background: #fff;
+  }
+  .node:hover { border-color: var(--blue); box-shadow: 0 6px 14px rgba(23, 107, 135, .12); }
+  .node-code { font-size: 10px; }
+  .node-title { margin-top: 3px; font-size: 12px; }
+  .node-meta { margin-top: 3px; font-size: 10px; }
+  .arrow { height: 16px; margin: -1px auto; }
+
+  .detail { background: #fff; }
+  .detail-head {
+    top: 126px;
+    padding: 24px 24px 17px;
+    border-bottom: 2px solid var(--blue-soft);
+  }
+  .detail-head h3 { color: var(--ink); font-size: 19px; }
+  .detail-body { gap: 0; padding: 8px 24px 28px; }
+  .detail-section { padding: 15px 0; }
+  .detail-section h4 { color: var(--blue); font-size: 11px; letter-spacing: .06em; }
+  .detail-section p { font-size: 13px; line-height: 1.68; }
+  .badge { border-radius: 3px; }
+
+  .band {
+    max-width: 1240px;
+    margin-top: 16px;
+    padding: 25px 30px 30px;
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+  }
+  .band-head { display: block; margin-bottom: 16px; }
+  .band-head h3 { font-size: 19px; }
+  .band-head p { max-width: 760px; margin-top: 6px; }
+  .toggle-group { margin-top: 13px; }
+  .toggle { border-radius: 4px; }
+
+  .c2-grid { grid-template-columns: minmax(300px, .86fr) minmax(310px, .94fr); gap: 28px; }
+  .c2-flow {
+    position: relative;
+    gap: 6px;
+    padding: 0 0 0 22px;
+    border-left: 2px solid #b7cad7;
+  }
+  .c2-flow .arrow {
+    width: 0;
+    height: 9px;
+    margin: 0 0 0 -2px;
+    background: transparent;
+  }
+  .c2-flow .arrow::after {
+    bottom: -2px;
+    left: -5px;
+    border-top-color: #6d8aa0;
+  }
+  .c2-row { gap: 7px; }
+  .c2-step {
+    min-height: 0;
+    padding: 9px 11px;
+    border-radius: 5px;
+    background: #fff;
+  }
+  .c2-step b { font-size: 12px; }
+  .c2-step span { font-size: 10px; line-height: 1.4; }
+  .c2-explain {
+    align-self: start;
+    position: sticky;
+    top: 145px;
+    padding: 18px 0 18px 22px;
+    border-left: 2px solid var(--blue-soft);
+  }
+  .c2-explain h4 { color: var(--ink); font-size: 16px; }
+  .c2-explain p { font-size: 13px; line-height: 1.7; }
+
+  .matrix { min-width: 740px; font-size: 12px; }
+  .matrix th, .matrix td { padding: 11px 10px; }
+  .matrix th { background: #f1f6f8; }
+  .matrix td:first-child { width: 135px; color: var(--ink); font-weight: 700; }
+  .matrix tr:nth-child(even) td { background: #fbfcfd; }
+
+  .speed-grid { gap: 28px; }
+  .speed-control { border-radius: 5px; }
+  .speed-detail { padding: 3px 0 0 28px; }
+  .speed-detail h4 { color: var(--ink); }
+  .speed-metric { border-radius: 5px; overflow: hidden; }
+  .speed-metric b { color: var(--blue); }
+  .speed-formula { border-left: 3px solid var(--blue); border-radius: 4px; background: #f4f9fa; }
+  .forecast { gap: 28px; }
+  .forecast-panel { padding: 2px 0 0 28px; }
+  .forecast-head { border-bottom: 1px solid var(--line); padding-bottom: 11px; }
+  .forecast-row { grid-template-columns: 140px minmax(80px, 1fr) 102px; }
+  .forecast-track { background: #dfeaf0; }
+
+  .footer { max-width: 1240px; padding: 20px 0 38px; }
+
+  @media (max-width: 1260px) {
+    .hero, .scenario-strip, .reading-nav, .workspace, .band, .footer {
+      margin-left: 18px;
+      margin-right: 18px;
+    }
+    .hero { padding-left: 10px; padding-right: 10px; }
+  }
+
+  @media (max-width: 1060px) {
+    .reading-nav { top: 126px; }
+    .workspace { grid-template-columns: 1fr; }
+    .detail { max-height: none; }
+    .detail-head { position: static; }
+    .c2-explain { position: static; }
+  }
+
+  @media (max-width: 760px) {
+    .topbar { padding: 10px 16px; }
+    .hero { margin: 0; padding: 24px 18px 18px; }
+    .hero h2 { font-size: 29px; }
+    .scenario-strip, .reading-nav, .workspace, .band, .footer {
+      margin-left: 12px;
+      margin-right: 12px;
+    }
+    .reading-nav { top: 64px; }
+    .architecture, .band { padding: 20px 16px 23px; }
+    .role-legend { display: grid; grid-template-columns: 1fr 1fr; }
+    .c2-flow { padding-left: 15px; }
+    .c2-grid, .speed-grid, .forecast { gap: 20px; }
+    .speed-detail, .forecast-panel { padding-left: 0; }
+    .forecast-row { grid-template-columns: 94px minmax(55px, 1fr) 70px; }
   }
 </style>
 </head>
@@ -464,7 +827,15 @@
   </button>
 </nav>
 
-<main class="workspace">
+<nav class="reading-nav" aria-label="页面章节">
+  <a href="#architecture-section">架构方案</a>
+  <a href="#matrix-section">决策矩阵</a>
+  <a href="#speed-section">速度模型</a>
+  <a href="#c2-section">C2 聚类</a>
+  <a href="#migration-section">迁移路径</a>
+</nav>
+
+<main class="workspace" id="architecture-section">
   <section class="architecture">
     <div class="arch-head">
       <div>
@@ -472,6 +843,13 @@
         <p id="arch-subtitle"></p>
       </div>
       <span class="recommend-tag" id="recommend-tag" hidden>推荐方案</span>
+    </div>
+    <div class="role-legend" aria-label="颜色图例">
+      <span class="role-key"><i class="role-dot agent"></i>紫色：Agent，理解与交互</span>
+      <span class="role-key"><i class="role-dot workflow"></i>绿色：Workflow，流程控制</span>
+      <span class="role-key"><i class="role-dot worker"></i>蓝色：Worker，实际执行</span>
+      <span class="role-key"><i class="role-dot human"></i>橙色：Human，人工审核</span>
+      <span class="role-key"><i class="role-dot store"></i>灰蓝：Store，状态与产物</span>
     </div>
     <div class="responsibility-strip" id="responsibility-strip"></div>
     <div class="diagram" id="diagram"></div>
@@ -491,7 +869,7 @@
   <div class="band-head">
     <div>
       <h3>C2 聚类流程对比</h3>
-      <p>比较当前 12 个阶段与新的候选图/分区裁定方案。历史事件只提供候选，不直接决定本周归属。</p>
+      <p>纵向箭头表示必须完成的前置依赖；只有横向并列的方块才可以并行。节点内标注的“并行”表示该节点内部的批次/分区并发。</p>
     </div>
     <div class="toggle-group" id="c2-toggle">
       <button class="toggle" data-c2="current" aria-pressed="true">当前 C2</button>
@@ -504,7 +882,57 @@
   </div>
 </section>
 
-<section class="band">
+<section class="band" id="speed-section">
+  <div class="band-head">
+    <div>
+      <h3>速度优化从哪里来</h3>
+      <p>Workflow 负责让优化稳定发生；真正缩短墙钟时间的是模型吞吐、DAG 并行和减少工作量。</p>
+    </div>
+  </div>
+  <div class="speed-grid">
+    <div class="speed-controls" id="speed-controls">
+      <button class="speed-control" data-speed="model" aria-pressed="true">
+        <b>1 · 模型有界并发</b><span>最大直接收益来源</span>
+      </button>
+      <button class="speed-control" data-speed="dag" aria-pressed="false">
+        <b>2 · DAG 并发与流水</b><span>减少阶段之间空等</span>
+      </button>
+      <button class="speed-control" data-speed="less" aria-pressed="false">
+        <b>3 · 减少重复工作</b><span>最确定、风险最低</span>
+      </button>
+      <button class="speed-control" data-speed="workflow" aria-pressed="false">
+        <b>4 · Durable Workflow</b><span>使能层，不是算力来源</span>
+      </button>
+    </div>
+    <article class="speed-detail" id="speed-detail" aria-live="polite"></article>
+  </div>
+
+  <div class="speed-formula">
+    <b>端到端耗时的简化模型</b>
+    <code>总耗时 ≈ 必须处理的数据量 ÷ 有效模型吞吐 + 串行关键路径 + 重试与人工等待</code>
+    <p>并发上限不是越大越好。应逐档压测 4 → 8 → 16 → 32，并以 p95、429、重试率、JSON 有效率和质量确定有效上限。</p>
+  </div>
+
+  <div class="forecast">
+    <div class="forecast-buttons" id="forecast-buttons">
+      <button class="speed-control" data-forecast="baseline" aria-pressed="false">
+        <b>当前实测</b><span>约 10 小时</span>
+      </button>
+      <button class="speed-control" data-forecast="safe" aria-pressed="false">
+        <b>低风险改造</b><span>保留 DataHub</span>
+      </button>
+      <button class="speed-control" data-forecast="target" aria-pressed="true">
+        <b>推荐目标</b><span>新 C2 + 吞吐优化</span>
+      </button>
+      <button class="speed-control" data-forecast="stress" aria-pressed="false">
+        <b>压力测试目标</b><span>不作为首期承诺</span>
+      </button>
+    </div>
+    <article class="forecast-panel" id="forecast-panel" aria-live="polite"></article>
+  </div>
+</section>
+
+<section class="band" id="matrix-section">
   <div class="band-head">
     <div>
       <h3>方案决策矩阵</h3>
@@ -526,6 +954,7 @@
         <tr><td>指令遵循依赖</td><td>高</td><td>极高</td><td>中高</td><td><b>低</b></td></tr>
         <tr><td>长任务恢复</td><td>部分脚本支持</td><td>依赖 Agent 自己恢复</td><td>跨 Session 恢复复杂</td><td><b>工作流原生恢复</b></td></tr>
         <tr><td>并发控制</td><td>散落在 Prompt/脚本</td><td>Agent 临场决定</td><td>Agent 数量和配额共同约束</td><td><b>统一配额与队列</b></td></tr>
+        <tr><td>直接提速作用</td><td>已有局部并发</td><td>不稳定，容易无界</td><td>被 Session 开销抵消</td><td><b>使模型并发和 DAG 流水可控落地</b></td></tr>
         <tr><td>人工审核</td><td>HC 卡片 + Session 恢复</td><td>Agent 等待用户</td><td>Coordinator 汇总</td><td><b>Durable Human Task</b></td></tr>
         <tr><td>可观测性</td><td>多份日志和状态文件</td><td>主要依赖轨迹</td><td>轨迹分散</td><td><b>统一阶段与工作单元指标</b></td></tr>
         <tr><td>冷启动/上下文成本</td><td>中</td><td>低启动、高上下文</td><td>高</td><td><b>前台 Agent 低，Worker 无 Session</b></td></tr>
@@ -535,7 +964,7 @@
   </div>
 </section>
 
-<section class="band">
+<section class="band" id="migration-section">
   <div class="band-head">
     <div>
       <h3>推荐迁移顺序</h3>
@@ -560,10 +989,10 @@ const scenarios = {
     subtitle: "System Prompt 定义阶段；Coordinator 调脚本、委派子 Agent、轮询外部任务并在 HC 处暂停。",
     recommended: false,
     responsibilities: [
-      ["飞书 Agent", "触发、进度、HC、最终状态", "active"],
-      ["Coordinator", "解释 Prompt 并决定下一步", "active"],
-      ["脚本 / 子 Agent", "DataHub、C2、洞察、发布", ""],
-      ["文件状态", "run_config、meta、checkpoint", ""]
+      ["飞书 Agent", "触发、进度、HC、最终状态", "", "agent"],
+      ["Coordinator", "解释 Prompt 并决定下一步", "", "agent"],
+      ["脚本 / 子 Agent", "DataHub、C2、洞察、发布", "", "worker"],
+      ["文件状态", "run_config、meta、checkpoint", "", "store"]
     ],
     rows: [
       [{id:"cur_agent", role:"agent", code:"CONTROL", title:"飞书 Gateway + Coordinator", meta:"同一 Session 长时间推进"}],
@@ -578,10 +1007,10 @@ const scenarios = {
     subtitle: "外观最简单，但阶段状态、重试、分支、审核与发布都依赖同一个模型会话持续遵循指令。",
     recommended: false,
     responsibilities: [
-      ["飞书 Agent", "所有交互与全部执行", "active"],
-      ["Skill.md", "顺序、规则、异常、命令", "active"],
-      ["脚本", "被 Agent 临场调用", ""],
-      ["轨迹 / 文件", "被动保存部分证据", ""]
+      ["飞书 Agent", "所有交互与全部执行", "", "agent"],
+      ["Skill.md", "顺序、规则、异常、命令", "", "agent"],
+      ["脚本", "被 Agent 临场调用", "", "worker"],
+      ["轨迹 / 文件", "被动保存部分证据", "", "store"]
     ],
     rows: [
       [{id:"mono_agent", role:"agent", code:"ONE SESSION", title:"单一 Agent", meta:"理解、执行、等待、恢复、发布"}],
@@ -596,10 +1025,10 @@ const scenarios = {
     subtitle: "每类任务有独立 Agent，但 Coordinator 仍需理解全局 DAG，并处理 Session、通信、失败和产物一致性。",
     recommended: false,
     responsibilities: [
-      ["前台 Agent", "用户交互与协调", "active"],
-      ["Coordinator", "路由、等待、合并", "active"],
-      ["专业 Agent", "标注、事件、洞察、发布", "active"],
-      ["共享存储", "跨 Agent 交换产物", ""]
+      ["前台 Agent", "用户交互与协调", "", "agent"],
+      ["Coordinator", "路由、等待、合并", "", "agent"],
+      ["专业 Agent", "标注、事件、洞察、发布", "", "agent"],
+      ["共享存储", "跨 Agent 交换产物", "", "store"]
     ],
     rows: [
       [{id:"multi_front", role:"agent", code:"FRONT", title:"飞书 Agent", meta:"请求、状态与审核"}],
@@ -614,10 +1043,10 @@ const scenarios = {
     subtitle: "用户只看到一个 Agent；后台由持久化工作流执行确定性 DAG，模型能力作为可重试的无状态 Worker。",
     recommended: true,
     responsibilities: [
-      ["前台 Agent", "理解请求、解释状态、收集决定", ""],
-      ["Workflow", "DAG、状态、并发、重试、暂停", "focus"],
-      ["无状态 Worker", "代码、模型、外部 API", "active"],
-      ["版本化存储", "快照、事实、事件、报告、发布", "active"]
+      ["前台 Agent", "理解请求、解释状态、收集决定", "", "agent"],
+      ["Workflow", "DAG、状态、并发、重试、暂停", "", "workflow"],
+      ["无状态 Worker", "代码、模型、外部 API", "", "worker"],
+      ["版本化存储", "快照、事实、事件、报告、发布", "", "store"]
     ],
     rows: [
       [{id:"dur_front", role:"agent", code:"ONE AGENT", title:"飞书 Agent + 小 Skill", meta:"start / status / review / retry"}],
@@ -787,6 +1216,7 @@ const details = {
     sections:[
       ["负责","DAG、动态分支、并发上限、超时、重试、幂等、checkpoint、取消、人工暂停与事件通知。"],
       ["不负责","业务语义判断；语义任务以结构化 job 交给模型 Worker。"],
+      ["速度作用","Workflow 本身不提供模型算力；它允许独立 Task 并行、上游分片完成即触发下游、失败只重跑坏单元，从而缩短关键路径。"],
       ["可选实现","Temporal 最完整；也可用 Prefect/Dagster，或先以 Python 状态机 + Postgres/SQLite 实现。"]
     ],
     callout:"现代 Agent 系统的关键不是让 Agent 更聪明，而是让 Agent 不必记住系统状态。"
@@ -831,10 +1261,18 @@ const details = {
 const c2Views = {
   current: {
     rows: [
-      [["00","平台清洗","四平台并行"],["x0","合流","本地"],["01","事件性","Chat"]],
-      [["02","Frame","Chat"],["03","实体归一","串行 Chat"],["04","Embedding","外部 API"]],
-      [["05","候选召回","本地"],["06","有界分块","本地"],["07","块内归档","块间并发"]],
-      [["x2","置信筛查","条件 Chat"],["x3","双向复核","merge → split"],["x4","明细回写","本地"]]
+      [["00","平台清洗","当前阶段内：四平台并行"]],
+      [["x0","跨平台合流","必须等待四个平台清洗完成"]],
+      [["01","事件性判定","必须等待 x0；节点内部 Chat batch 并发"]],
+      [["02","Frame 抽取","必须等待 01；节点内部 Chat batch 并发"]],
+      [["03","实体归一","必须等待 02；实体注册表 batch 串行"]],
+      [["04","Embedding","当前实现必须等待 03；节点内部 8 路并发"]],
+      [["05","候选召回","必须等待 03 + 04"]],
+      [["06","有界分块","必须等待 05 的完整候选边"]],
+      [["07","块内事件归档","必须等待 06；不同 block 并发"]],
+      [["x2","归属置信度筛查","必须等待 07；仅边界样本条件调用"]],
+      [["x3","双向复核","必须等待 x2；先 merge，后 split"]],
+      [["x4","明细回写","必须等待 x3"]]
     ],
     title:"当前 C2：层次清晰，但关键路径较长",
     text:"每一步都有明确产物与恢复能力，这是应保留的优点。主要耗时来自三次前置 Chat、串行实体注册表和后续多轮事件复核。",
@@ -850,8 +1288,10 @@ const c2Views = {
       [["F1","统一事实抽取","clean + eventness + frame"]],
       [["E","实体链接","alias + 歧义裁定"],["V","Embedding","与实体链接并行"]],
       [["G","候选事件图","实体 + 动作 + 时间 + 向量"]],
-      [["P","分区裁定","独立连通区域并行"],["H","大区层级归档","记录 → 临时事件卡"]],
-      [["R","事件卡全局复核","merge / split / related"],["O","周内事件表","跨周只建关系"]]
+      [["P","分区裁定","独立连通区域并行"]],
+      [["H","大区层级归档","仅超大区域：记录 → 临时事件卡"]],
+      [["R","事件卡全局复核","merge / split / related"]],
+      [["O","周内事件表","跨周只建关系"]]
     ],
     title:"新 C2：候选图 + 分区裁定 + 事件卡复核",
     text:"先把所有可并行工作并行化，再让强模型只处理真正可能互相关联的候选区域。图算法仍只生成候选范围，不直接决定聚类。",
@@ -860,7 +1300,105 @@ const c2Views = {
       "实体链接与 Embedding 同时运行。",
       "独立候选区域全部并行；失败只重跑一个区域。",
       "超大区域先生成临时事件卡，再对短事件卡做二级归并。",
-      "历史 2–4 周事件只作为候选，并输出 FOLLOW_UP/RELATED，不直接吸收本周成员。"
+      "历史 2-4 周事件只作为候选，并输出 FOLLOW_UP/RELATED，不直接吸收本周成员。"
+    ]
+  }
+};
+
+const speedViews = {
+  model: {
+    title:"模型有界并发：最大的直接提速来源",
+    intro:"将相互独立的记录、batch、Embedding 文本和事件候选区域并行处理，但由统一配额控制器限制并发，而不是一次发出 3950 个请求。",
+    metrics:[
+      ["C0/C3","3h03m → 40-75m","前提是 DataHub 分片或直接 Ark Chat 压测成功"],
+      ["C2","3h12m → 1-2h","统一抽取、实体/向量并行、候选区域并发"],
+      ["约束","RPM / TPM / p95","并发超过有效上限只会增加排队与重试"]
+    ],
+    bullets:[
+      "适用于 C0/C3、R1-R5、C2 事实抽取、Embedding、候选区域裁定和边界复核。",
+      "使用有限并发、指数退避、结构校验和坏 batch 局部重跑。",
+      "C0/C3 合并 Prompt 不会自动提速：两者当前已经并行，关键是后端实际吞吐。"
+    ]
+  },
+  dag: {
+    title:"DAG 并发与流水：减少不必要的阶段等待",
+    intro:"不必等待一个大阶段全部完成后才启动下游。只要依赖满足，就可以按分片或分区触发后续任务。",
+    metrics:[
+      ["行级流水","C0 分片 → R/C2","一个分片完成即可进入下游预处理"],
+      ["C2 分叉","03 ∥ 04","实体链接与 Embedding 并行"],
+      ["事件裁定","区域 A ∥ B ∥ C","独立候选连通区域并行"]
+    ],
+    bullets:[
+      "05 必须等待实体链接和向量完成，06 必须等待 05，07 仍依赖 06 的候选范围。",
+      "DAG 并行不能违反数据依赖；Workflow 用显式依赖替代 Agent 临场判断。",
+      "流式触发的价值是缩短关键路径，而不是改变每个模型请求的耗时。"
+    ]
+  },
+  less: {
+    title:"减少工作量：最稳健的确定性收益",
+    intro:"少做一次完整推理，通常比盲目提高并发更可靠，也不会把压力转移到模型网关。",
+    metrics:[
+      ["sample/full","500 条直接复用","HC1 通过后只计算剩余约 3450 条"],
+      ["C2 前处理","3 轮 → 1 轮","00+01+02 统一结构化抽取"],
+      ["R1-R5","5 轮 → 1 轮","一次多标签输出，保留逐标签指标"]
+    ],
+    bullets:[
+      "同周重复标题按内容指纹只处理一次，再按 row_id 回填。",
+      "Embedding 按模型版本和文本哈希复用；x2/x3 只处理边界样本。",
+      "不同周窗口的数据大多是新的，因此跨周行级结果缓存不是主要收益来源。"
+    ]
+  },
+  workflow: {
+    title:"Durable Workflow：可靠性和并发的使能层",
+    intro:"它不会直接让单次 Chat 更快，但会把并发、恢复和流水从 Prompt 约定变成可执行的系统语义。",
+    metrics:[
+      ["状态","阶段与工作单元落库","进程或 Agent Session 结束后继续"],
+      ["失败域","只重跑坏单元","避免整阶段、整轮返工"],
+      ["人工审核","Durable Human Task","等待不占 Agent Session"]
+    ],
+    bullets:[
+      "统一管理 DAG、配额、锁、幂等、超时、重试、取消和事件通知。",
+      "Agent 只调用 start/status/review/retry，不负责维持 10 小时上下文。",
+      "速度收益来自它允许模型并发、DAG 流水和局部恢复稳定落地，而不是 Workflow 自身提供算力。"
+    ]
+  }
+};
+
+const forecastViews = {
+  baseline: {
+    title:"当前 full 实测关键路径",
+    total:"约 10h",
+    note:"包含约 10 分钟人工等待和本次 Phase H 发布排障；后续稳态发布可能更短。",
+    rows:[
+      ["sample + HC1",144,144],["全量 C0/C3",183,183],["全量 C2",192,192],
+      ["E/F/G/H + 审核",62,62]
+    ]
+  },
+  safe: {
+    title:"低风险改造：保留 DataHub",
+    total:"6.5-7.5h",
+    note:"主要采用 sample 复用、C2 合并前处理、03/04 并行和现有节点并发压测；DataHub 仍是最大瓶颈。",
+    rows:[
+      ["sample + HC1",120,144],["全量 C0/C3",160,183],["新 C2",90,192],
+      ["E/F/G/H + 审核",50,62]
+    ]
+  },
+  target: {
+    title:"推荐目标：新 C2 + 模型吞吐优化",
+    total:"3-4.5h",
+    note:"需要验证 DataHub 分片或直接 Ark Chat 能把全量 C0/C3 压至约 40-75 分钟；这是合理目标，不是未压测承诺。",
+    rows:[
+      ["sample + HC1",45,144],["剩余 C0/C3",60,183],["新 C2",90,192],
+      ["E/F/G/H + 审核",40,62]
+    ]
+  },
+  stress: {
+    title:"压力测试目标：配额和质量均理想",
+    total:"1.5-2.5h",
+    note:"依赖稳定 16-32 路有效并发、低重试、均衡候选区域和快速审核；仅作为容量实验上限，不作为首期承诺。",
+    rows:[
+      ["sample + HC1",25,144],["剩余 C0/C3",35,183],["新 C2",60,192],
+      ["E/F/G/H + 审核",30,62]
     ]
   }
 };
@@ -868,6 +1406,8 @@ const c2Views = {
 let activeScenario = "current";
 let activeNode = scenarios.current.defaultNode;
 let activeC2 = "current";
+let activeSpeed = "model";
+let activeForecast = "target";
 
 function badgeMarkup(items) {
   return (items || []).map(([text, cls]) => `<span class="badge ${cls || ""}">${text}</span>`).join("");
@@ -899,8 +1439,8 @@ function renderScenario() {
   document.getElementById("arch-title").textContent = scenario.title;
   document.getElementById("arch-subtitle").textContent = scenario.subtitle;
   document.getElementById("recommend-tag").hidden = !scenario.recommended;
-  document.getElementById("responsibility-strip").innerHTML = scenario.responsibilities.map(([title, text, cls]) =>
-    `<div class="responsibility-cell ${cls || ""}"><b>${title}</b><span>${text}</span></div>`
+  document.getElementById("responsibility-strip").innerHTML = scenario.responsibilities.map(([title, text, emphasis, role]) =>
+    `<div class="responsibility-cell ${role || ""} ${emphasis || ""}"><b>${title}</b><span>${text}</span></div>`
   ).join("");
   const parts = [];
   scenario.rows.forEach((row, index) => {
@@ -943,11 +1483,42 @@ function renderC2() {
       </div>`
     ).join("")}</div>`);
   });
-  document.getElementById("c2-flow").innerHTML = parts.join("");
+  const c2Flow = document.getElementById("c2-flow");
+  c2Flow.className = `c2-flow c2-${activeC2}`;
+  c2Flow.innerHTML = parts.join("");
   document.getElementById("c2-explain").innerHTML =
     `<h4>${view.title}</h4><p>${view.text}</p><ul>${view.bullets.map(item => `<li>${item}</li>`).join("")}</ul>`;
   document.querySelectorAll("[data-c2]").forEach(button =>
     button.setAttribute("aria-pressed", String(button.dataset.c2 === activeC2))
+  );
+}
+
+function renderSpeed() {
+  const view = speedViews[activeSpeed];
+  document.getElementById("speed-detail").innerHTML =
+    `<h4>${view.title}</h4><p>${view.intro}</p>
+     <div class="speed-metric">${view.metrics.map(([name, value, note]) =>
+       `<div><b>${name}</b><span>${value}<br>${note}</span></div>`
+     ).join("")}</div>
+     <ul>${view.bullets.map(item => `<li>${item}</li>`).join("")}</ul>`;
+  document.querySelectorAll("[data-speed]").forEach(button =>
+    button.setAttribute("aria-pressed", String(button.dataset.speed === activeSpeed))
+  );
+}
+
+function renderForecast() {
+  const view = forecastViews[activeForecast];
+  document.getElementById("forecast-panel").innerHTML =
+    `<div class="forecast-head"><h4>${view.title}</h4><span class="forecast-total">${view.total}</span></div>
+     <div class="forecast-bars">${view.rows.map(([name, value, baseline]) => {
+       const width = Math.max(5, Math.min(100, value / baseline * 100));
+       return `<div class="forecast-row"><span>${name}</span>
+         <div class="forecast-track"><div class="forecast-fill" style="width:${width}%"></div></div>
+         <b>${value} min 量级</b></div>`;
+     }).join("")}</div>
+     <p class="forecast-note">${view.note}</p>`;
+  document.querySelectorAll("[data-forecast]").forEach(button =>
+    button.setAttribute("aria-pressed", String(button.dataset.forecast === activeForecast))
   );
 }
 
@@ -960,9 +1531,30 @@ document.querySelectorAll("[data-c2]").forEach(button =>
     renderC2();
   })
 );
+document.querySelectorAll("[data-speed]").forEach(button =>
+  button.addEventListener("click", () => {
+    activeSpeed = button.dataset.speed;
+    renderSpeed();
+  })
+);
+document.querySelectorAll("[data-forecast]").forEach(button =>
+  button.addEventListener("click", () => {
+    activeForecast = button.dataset.forecast;
+    renderForecast();
+  })
+);
+
+/* Present comparison first, then speed analysis, then the C2 implementation drill-down. */
+const matrixSection = document.getElementById("matrix-section");
+const speedSection = document.getElementById("speed-section");
+const c2Section = document.getElementById("c2-section");
+matrixSection.after(speedSection);
+speedSection.after(c2Section);
 
 switchScenario("current");
 renderC2();
+renderSpeed();
+renderForecast();
 </script>
 </body>
 </html>
