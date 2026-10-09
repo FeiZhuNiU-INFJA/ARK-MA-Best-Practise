@@ -30,6 +30,9 @@ description: 同步火山方舟（Volcengine Ark）文档中心的一段连续�
 - 用 `MDContent` 字段，**不要**用 `Content`（那是 Quill delta JSON，不是 Markdown）。
 - 正文里的 `docs.volcengine.com/docs` 统一改写为 `www.volcengine.com/docs`
   （对齐既有合集的对外规范域名）；只有「来源」行保留 `docs.volcengine.com`。
+- 2026-10 起火山方舟新前端启用语义化路由 `ark.volcengine.com/.../docs/ark/{slug}`，
+  这类链接**保持原样**不改写；旧站数字 ID 路由 `/docs/82379/{id}` 仍可同时存在。
+  数据接口仍按 DocumentID 查询，与前端 slug 迁移完全解耦，无需改脚本。
 - 用 Prettier（`--parser markdown --prose-wrap preserve`）统一表格对齐、锚点空行、
   CJK 强调间距，保证幂等、只反映真实内容变化，不产生格式抖动。
 - 多语言代码示例用 `<Tabs>/<Tab>/<TabTitle>` 自定义 HTML 标签包裹（如「SDK 完整示例」
@@ -57,7 +60,20 @@ python3 common/skills/volc-docs-sync/update_docs.py --no-format
 ```
 
 参数：`--start/--end`（闭区间 DocumentID）、`--out`（输出路径，默认基于脚本位置
-自适配到 `common/docs/`）、`--no-format`、`--dry-run`、`--sleep`（请求间隔秒）。
+自适配到 `common/docs/`）、`--no-format`、`--dry-run`、`--sleep`（请求间隔秒）、
+`--probe-radius`（边界探测半径，默认 5；0 跳过）。
+
+## DocumentID 边界与自适应
+
+- DocumentID 是火山引擎**全局递增、跨产品共享**的 ID，**不保证连续**。相邻 ID 很
+  可能来自其它库（如 `cr` / `Cloudphone` / `DoubaoVoice`），**不能**简单扩区间。
+- 判定"属于本合集"的可靠特征：`LibraryCode == "ark"` **且** `ParentCode` 在抓取
+  时收集到的父节点集合内（本次区间 `2553713..2553730` 对应 `managed-agents-*` 的
+  若干组）。
+- 脚本在抓取完成后自动做 `±probe-radius` 的边界探测：对两侧 ID 发轻量请求，命中
+  上述特征的会**只打印提示**（不自动改区间，避免误并入他库文档）。例如本次 dry-run
+  发现 `2553731 定义 Outcome`（ParentCode=`managed-agents-advanced-capabilities`），
+  需人工决定是否 `--end 2553731` 把它纳入。
 
 ## 依赖
 
@@ -74,4 +90,27 @@ grep -cE '^\- \[.*\]\(#doc-[0-9]+\)'  common/docs/火山方舟_ManagedAgents_doc
 grep -c   '来源：\[https'             common/docs/火山方舟_ManagedAgents_docs.md
 # 正文不应残留 docs.volcengine.com/docs（应为 0）
 grep '来源：' -v common/docs/火山方舟_ManagedAgents_docs.md | grep -c 'docs.volcengine.com/docs'
+```
+
+## 下游联动检查
+
+更新 `common/docs/火山方舟_ManagedAgents_docs.md` 之后，**必须同步评估**是否需要
+更新 `common/docs/managed-agents-architecture-atlas.html`（基于合集提炼的架构图/能力
+清单，与 Markdown 合集同源）。脚本运行结束会打印一条提示作为兜底提醒。
+
+联动触发条件（任一满足即需人工审阅 atlas 是否过期）：
+
+- 本次抓取有页面 `UpdatedTime` 晚于 atlas 文件的 mtime。
+- 新增/删除了 DocumentID（`--start/--end` 区间变化）。
+- 以下关键页面 `md_len` 变化显著（> 10%）：
+  - `2553716 Agent` / `2553719 Tools` / `2553720 工具权限策略`
+  - `2553723 启动 Session` / `2553724 管理 Session` / `2553725 Session 事件流`
+  - `2553730 编排 Multi Agent`
+
+快速对比命令：
+
+```bash
+# atlas 文件最后修改时间
+stat -f '%Sm' common/docs/managed-agents-architecture-atlas.html
+# 对比脚本输出里每页的 updated 时间，判断是否有页面比 atlas 新
 ```

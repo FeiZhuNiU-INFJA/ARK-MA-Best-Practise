@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Topic6 C2 · 事件归档流程检查器</title>
+<style>
+  :root {
+    --ink: #18212f;
+    --muted: #64748b;
+    --line: #d8e0ea;
+    --paper: #ffffff;
+    --canvas: #f4f7fb;
+    --navy: #163a5f;
+    --blue: #1f6fd1;
+    --blue-soft: #e8f1fc;
+    --teal: #0f766e;
+    --teal-soft: #e5f5f2;
+    --amber: #a45b09;
+    --amber-soft: #fff4df;
+    --violet: #6944a5;
+    --violet-soft: #f0ebfa;
+    --code: #122033;
+    --radius: 8px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    color: var(--ink);
+    background: var(--canvas);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC",
+      "Microsoft YaHei", sans-serif;
+  }
+
+  button, input { font: inherit; }
+
+  .shell {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 16px 24px;
+    background: var(--navy);
+    color: #fff;
+  }
+
+  .eyebrow {
+    margin: 0 0 3px;
+    color: #bcd7f5;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 20px;
+    line-height: 1.25;
+  }
+
+  .subhead {
+    margin: 5px 0 0;
+    color: #c7d5e6;
+    font-size: 12px;
+  }
+
+  .top-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+  }
+
+  .top-link, .reset-button {
+    min-height: 32px;
+    padding: 5px 10px;
+    border: 1px solid rgba(255, 255, 255, .32);
+    border-radius: 5px;
+    color: #fff;
+    background: transparent;
+    cursor: pointer;
+    font-size: 12px;
+    text-decoration: none;
+  }
+
+  .top-link:hover, .reset-button:hover { background: rgba(255, 255, 255, .12); }
+
+  .workspace {
+    display: grid;
+    grid-template-columns: 286px minmax(460px, 1fr) minmax(370px, 33vw);
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .stage-nav, .detail-panel {
+    overflow-y: auto;
+    background: var(--paper);
+  }
+
+  .stage-nav {
+    border-right: 1px solid var(--line);
+    padding: 18px 12px 24px;
+  }
+
+  .nav-heading {
+    padding: 0 8px 12px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .1em;
+  }
+
+  .stage-list { display: grid; gap: 3px; }
+
+  .stage-button {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 9px;
+    width: 100%;
+    padding: 9px 8px;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    color: inherit;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .stage-button:hover { background: #f4f7fb; }
+  .stage-button[aria-current="true"] {
+    border-color: #a8c9ed;
+    background: var(--blue-soft);
+  }
+
+  .stage-code {
+    align-self: start;
+    padding-top: 1px;
+    color: var(--blue);
+    font: 700 12px/18px ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .stage-name { display: block; font-weight: 650; }
+  .stage-meta { display: block; margin-top: 1px; color: var(--muted); font-size: 11px; }
+
+  .flow-panel {
+    overflow: auto;
+    padding: 28px clamp(24px, 4vw, 56px);
+    background:
+      linear-gradient(90deg, rgba(28, 70, 111, .045) 1px, transparent 1px) 0 0 / 48px 48px,
+      linear-gradient(rgba(28, 70, 111, .045) 1px, transparent 1px) 0 0 / 48px 48px,
+      var(--canvas);
+  }
+
+  .flow-header {
+    max-width: 920px;
+    margin: 0 auto 20px;
+  }
+
+  .flow-header h2 { margin: 0; font-size: 18px; }
+  .flow-header p { margin: 6px 0 0; color: var(--muted); }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 14px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .legend-item { display: inline-flex; align-items: center; gap: 5px; }
+  .legend-mark { width: 10px; height: 10px; border-radius: 50%; }
+  .legend-mark.chat { background: var(--blue); }
+  .legend-mark.embedding { background: var(--violet); }
+  .legend-mark.local { background: var(--teal); }
+
+  .flow {
+    display: grid;
+    gap: 14px;
+    width: min(920px, 100%);
+    margin: 0 auto;
+  }
+
+  .flow-row {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    position: relative;
+  }
+
+  .flow-row.single { grid-template-columns: minmax(0, 1fr); }
+  .flow-row.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .parallel-caption {
+    margin: 0 0 8px;
+    color: var(--teal);
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .connector {
+    width: 1px;
+    height: 22px;
+    margin: -1px auto -1px;
+    background: #9aacbf;
+    position: relative;
+  }
+
+  .connector::after {
+    position: absolute;
+    left: -4px;
+    bottom: -1px;
+    width: 0;
+    height: 0;
+    border-top: 6px solid #9aacbf;
+    border-right: 4px solid transparent;
+    border-left: 4px solid transparent;
+    content: "";
+  }
+
+  .flow-node {
+    min-height: 100px;
+    padding: 13px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--paper);
+    box-shadow: 0 2px 7px rgba(19, 39, 65, .05);
+    cursor: pointer;
+    text-align: left;
+    transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease;
+  }
+
+  .flow-node:hover {
+    transform: translateY(-2px);
+    border-color: #86b5e6;
+    box-shadow: 0 7px 18px rgba(19, 39, 65, .1);
+  }
+
+  .flow-node.selected {
+    border: 2px solid var(--blue);
+    padding: 12px;
+    box-shadow: 0 0 0 4px rgba(31, 111, 209, .12);
+  }
+
+  .flow-node[data-kind="embedding"] .kind { color: var(--violet); background: var(--violet-soft); }
+  .flow-node[data-kind="local"] .kind { color: var(--teal); background: var(--teal-soft); }
+  .flow-node[data-kind="conditional"] .kind { color: var(--amber); background: var(--amber-soft); }
+
+  .node-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .node-id { color: var(--blue); font: 700 12px/18px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .kind {
+    padding: 1px 6px;
+    border-radius: 99px;
+    color: var(--blue);
+    background: var(--blue-soft);
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .node-name { display: block; margin-top: 8px; font-weight: 700; }
+  .node-io { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+
+  .detail-panel {
+    border-left: 1px solid var(--line);
+    background: #fbfcfe;
+  }
+
+  .detail-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 20px 22px 14px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(251, 252, 254, .96);
+    backdrop-filter: blur(8px);
+  }
+
+  .detail-kicker {
+    margin: 0 0 3px;
+    color: var(--blue);
+    font: 700 12px/18px ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .detail-title { margin: 0; font-size: 20px; line-height: 1.3; }
+  .detail-summary { margin: 7px 0 0; color: var(--muted); font-size: 13px; }
+
+  .tabs {
+    display: flex;
+    gap: 5px;
+    margin-top: 14px;
+  }
+
+  .tab {
+    padding: 5px 8px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    background: transparent;
+    cursor: pointer;
+    font-size: 12px;
+  }
+
+  .tab.active { border-bottom-color: var(--blue); color: var(--blue); font-weight: 700; }
+
+  .detail-content { padding: 18px 22px 30px; }
+  .tab-page { display: none; }
+  .tab-page.active { display: block; }
+
+  .fact-grid { display: grid; gap: 10px; }
+  .fact {
+    padding: 11px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--paper);
+  }
+
+  .fact-label { display: block; margin-bottom: 3px; color: var(--muted); font-size: 11px; font-weight: 700; }
+  .fact-value { color: var(--ink); font-size: 13px; }
+
+  h3 {
+    margin: 20px 0 8px;
+    color: var(--navy);
+    font-size: 13px;
+  }
+
+  .notice {
+    padding: 10px 12px;
+    border-left: 3px solid var(--teal);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    color: #24534d;
+    background: var(--teal-soft);
+    font-size: 12px;
+  }
+
+  .code-card {
+    overflow-x: auto;
+    margin: 8px 0 0;
+    padding: 12px;
+    border-radius: var(--radius);
+    color: #d9e8fa;
+    background: var(--code);
+    font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre;
+  }
+
+  .data-card {
+    display: grid;
+    gap: 0;
+    margin-top: 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--paper);
+  }
+
+  .data-row {
+    display: grid;
+    grid-template-columns: minmax(112px, 36%) minmax(0, 1fr);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .data-row:last-child { border-bottom: 0; }
+
+  .data-key {
+    padding: 9px 10px;
+    color: var(--navy);
+    background: #f3f7fc;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .data-key code {
+    display: block;
+    margin-top: 2px;
+    color: var(--muted);
+    font: 10px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-weight: 500;
+  }
+
+  .data-value {
+    min-width: 0;
+    padding: 9px 10px;
+    color: #334155;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .data-value .data-card {
+    margin: 0;
+    border-color: #dce6f1;
+  }
+
+  .value-empty { color: var(--muted); font-style: italic; }
+  .value-number { color: var(--violet); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .value-bool { color: var(--teal); font-weight: 700; }
+
+  .array-list {
+    display: grid;
+    gap: 6px;
+  }
+
+  .array-item {
+    padding: 7px 8px;
+    border: 1px solid #dce6f1;
+    border-radius: 6px;
+    background: #f9fbfe;
+  }
+
+  .array-item .data-card { margin: 0; }
+  .array-index { margin-bottom: 4px; color: var(--muted); font: 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  .plain-card {
+    margin-top: 8px;
+    padding: 11px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: #334155;
+    background: var(--paper);
+    font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  .file-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+  .file-list li {
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--paper);
+  }
+
+  .file-label { display: block; color: var(--muted); font-size: 10px; font-weight: 700; }
+  .file-path { display: block; margin-top: 2px; color: var(--navy); font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+
+  .mini-list { margin: 0; padding-left: 18px; color: #334155; font-size: 12px; }
+  .mini-list li + li { margin-top: 5px; }
+
+  .empty { color: var(--muted); padding: 30px 0; text-align: center; }
+
+  @media (max-width: 1100px) {
+    .workspace { grid-template-columns: 230px minmax(420px, 1fr); }
+    .detail-panel { grid-column: 1 / -1; max-height: 52vh; border-top: 1px solid var(--line); border-left: 0; }
+    .detail-sticky { position: static; }
+  }
+
+  @media (max-width: 760px) {
+    body { overflow: auto; }
+    .shell { height: auto; min-height: 100vh; overflow: visible; }
+    .topbar { align-items: flex-start; padding: 14px; }
+    .top-actions { display: none; }
+    .workspace { display: block; overflow: visible; }
+    .stage-nav { overflow-x: auto; padding: 10px; border-right: 0; border-bottom: 1px solid var(--line); }
+    .nav-heading { display: none; }
+    .stage-list { display: flex; width: max-content; gap: 6px; }
+    .stage-button { display: block; width: 108px; min-height: 72px; }
+    .stage-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .flow-panel { padding: 22px 14px; }
+    .flow-row { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+    .flow-row.single { grid-template-columns: 1fr; }
+    .flow-row.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .flow-panel, .detail-panel { overflow: visible; }
+    .detail-panel { max-height: none; }
+  }
+</style>
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Topic6 / C2 event registry</p>
+      <h1>事件归档流程检查器</h1>
+      <p class="subhead">点击节点，查看读取文件、模型真实输入、结构化输出、写盘位置与并发边界。</p>
+    </div>
+    <div class="top-actions">
+      <a class="top-link" href="./topic6_pipeline_overview.html">返回全景流程</a>
+      <button class="reset-button" id="reset-view" type="button">回到总览</button>
+    </div>
+  </header>
+
+  <section class="workspace">
+    <nav class="stage-nav" aria-label="C2 阶段">
+      <div class="nav-heading">按阶段查看</div>
+      <div class="stage-list" id="stage-list"></div>
+    </nav>
+
+    <section class="flow-panel" aria-label="C2 流程图">
+      <div class="flow-header">
+        <h2>从可用热点到事件归属</h2>
+        <p>除 `00` 的四个平台外，所有阶段严格串行。节点卡片中的并发数仅指该节点内部的请求或 batch 并发。</p>
+        <div class="legend">
+          <span class="legend-item"><i class="legend-mark chat"></i>Chat</span>
+          <span class="legend-item"><i class="legend-mark embedding"></i>Embedding</span>
+          <span class="legend-item"><i class="legend-mark local"></i>本地处理</span>
+        </div>
+      </div>
+
+      <div class="flow" id="flow">
+        <div class="flow-row single">
+          <button class="flow-node" data-stage="input" data-kind="local" type="button">
+            <span class="node-top"><span class="node-id">入口</span><span class="kind">本地</span></span>
+            <span class="node-name">可用热点子集</span>
+            <span class="node-io">XLSX → input.csv</span>
+          </button>
+        </div>
+        <div class="connector"></div>
+        <p class="parallel-caption">只有 00：四个平台可并行</p>
+        <div class="flow-row" id="row-00"></div>
+        <div class="connector"></div>
+        <div class="flow-row single">
+          <button class="flow-node" data-stage="x0" data-kind="local" type="button">
+            <span class="node-top"><span class="node-id">x0</span><span class="kind">本地</span></span>
+            <span class="node-name">四平台合流</span>
+            <span class="node-io">四份 JSONL → 一份 JSONL</span>
+          </button>
+        </div>
+        <div class="connector"></div>
+        <div class="flow-row single" id="row-01"></div>
+        <div class="connector"></div>
+        <div class="flow-row single" id="row-02"></div>
+        <div class="connector"></div>
+        <div class="flow-row single" id="row-03"></div>
+        <div class="connector"></div>
+        <div class="flow-row single" id="row-04"></div>
+        <div class="connector"></div>
+        <div class="flow-row single" id="row-05"></div>
+        <div class="connector"></div>
+        <div class="flow-row single" id="row-06"></div>
+        <div class="connector"></div>
+        <div class="flow-row single" id="row-07"></div>
+        <div class="connector"></div>
+        <div class="flow-row single" id="row-x2"></div>
+        <div class="connector"></div>
+        <div class="flow-row single" id="row-x3"></div>
+        <div class="connector"></div>
+        <div class="flow-row single" id="row-x4"></div>
+      </div>
+    </section>
+
+    <aside class="detail-panel" aria-live="polite">
+      <div class="detail-sticky">
+        <p class="detail-kicker" id="detail-kicker">C2 / 总览</p>
+        <h2 class="detail-title" id="detail-title">选择一个节点</h2>
+        <p class="detail-summary" id="detail-summary">右侧将显示该节点的实际数据边界，而不是泛化后的流程描述。</p>
+        <div class="tabs" role="tablist" aria-label="详情标签">
+          <button class="tab active" type="button" data-tab="facts" role="tab">边界</button>
+          <button class="tab" type="button" data-tab="payload" role="tab">Payload</button>
+          <button class="tab" type="button" data-tab="files" role="tab">文件</button>
+        </div>
+      </div>
+      <div class="detail-content">
+        <section class="tab-page active" data-page="facts"></section>
+        <section class="tab-page" data-page="payload"></section>
+        <section class="tab-page" data-page="files"></section>
+      </div>
+    </aside>
+  </section>
+</main>
+
+<script>
+  const ROOT = "04_标注/C2_事件归档/c2_run";
+  const full = (path) => `${ROOT}/${path}`;
+
+  const stages = {
+    input: {
+      id: "入口", name: "可用热点子集转 C2 输入", kind: "local",
+      kindLabel: "本地 Pandas", concurrency: "单进程，秒级",
+      summary: "C2 的唯一入口。读取上游可用热点 XLSX，仅保留事件归档真正需要的四列，再写为 CSV。",
+      reads: ["04_标注/_可用子集/usable_subset_{mode}_r{N}.xlsx"],
+      writes: ["input.csv"],
+      model: "不调用模型",
+      local: "读取 XLSX；将 record_id、platform、title、heat 映射为固定列名；校验 record_id 唯一、平台只属于微博/抖音/B站/知乎。",
+      modelInput: "无",
+      modelOutput: "无",
+      exampleIn: `record_id,platform,title,heat\nW39_weibo_012,微博,苹果发布 iPhone 17 系列,98.6`,
+      exampleOut: `record_id,platform,title,heat\nW39_weibo_012,微博,苹果发布 iPhone 17 系列,98.6`,
+      notes: ["上游宽表中其它列不会进入 C2。", "C2 后续所有节点都以 input.csv 的记录集合为覆盖基准。"]
+    },
+    "00-weibo": {
+      id: "00 / 微博", name: "标题清洗", kind: "chat",
+      kindLabel: "Ark Chat", concurrency: "平台进程并行；当前每平台 4 路、50 条/批",
+      summary: "按平台规则剥除标题包装，只删不加。微博子进程从同一 input.csv 中本地筛出微博记录。",
+      reads: ["input.csv"],
+      writes: ["weibo/raw/clean/CLxxxx.json", "weibo/work/clean_titles.jsonl", "weibo/out/00_clean_titles.csv"],
+      model: "system = 固定的标题清洗规则 + 微博平台规则；user = record_id 与原标题。",
+      local: "按 heat 排序；本地校验模型结果是否新增字符/错误改写。校验失败会回退到原标题。",
+      modelInput: `W39_weibo_012\t苹果发布 iPhone 17 系列`,
+      modelOutput: `{"records":[{"record_id":"W39_weibo_012","clean_title":"苹果发布 iPhone 17 系列","ops":["NONE"]}]}`,
+      exampleIn: `{"record_id":"W39_weibo_012","platform":"微博","title":"苹果发布 iPhone 17 系列","heat":98.6}`,
+      exampleOut: `{"record_id":"W39_weibo_012","platform":"微博","title":"苹果发布 iPhone 17 系列","clean_title":"苹果发布 iPhone 17 系列","ops":["NONE"],"flags":[],"reverted":false,"heat":98.6}`,
+      notes: ["模型 user payload 不含 platform 与 heat。平台规则进入 system prompt；heat 只用于本地排序。", "抖音/B站/知乎执行相同脚本，但 system 中的平台规则不同，输出文件位于各自目录。"]
+    },
+    x0: {
+      id: "x0", name: "四平台合流", kind: "local",
+      kindLabel: "本地 JSONL", concurrency: "单进程，秒级",
+      summary: "把四个平台完成清洗后的 JSONL 合并为共享输入。后续 01 至 x4 不再按平台分别执行。",
+      reads: ["weibo/work/clean_titles.jsonl", "douyin/work/clean_titles.jsonl", "bilibili/work/clean_titles.jsonl", "zhihu/work/clean_titles.jsonl"],
+      writes: ["merged/work/clean_titles.jsonl", "merged/out/x0_合流后清洗结果.csv"],
+      model: "不调用模型",
+      local: "合并并保留每条记录已有字段；检查跨平台 record_id 不重复。",
+      modelInput: "无",
+      modelOutput: "无",
+      exampleIn: `四份 JSONL，每行均含 record_id / platform / title / clean_title / heat`,
+      exampleOut: `一份 merged/work/clean_titles.jsonl，字段不变，只是记录集合合并。`,
+      notes: ["x0 不更新原始文件，而是生成 merged 目录下的新文件。"]
+    },
+    "01": {
+      id: "01", name: "事件性判定", kind: "chat",
+      kindLabel: "Ark Chat", concurrency: "当前 4 路，60 条/批",
+      summary: "判定每条清洗后标题是否指向现实事件：EVENT、NON_EVENT 或 UNCERTAIN。",
+      reads: ["merged/work/clean_titles.jsonl"],
+      writes: ["merged/raw/eventness/EVxxxx.json", "merged/work/eventness.jsonl", "merged/out/01_eventness.csv"],
+      model: "system = 全平台统一事件性规则；user = record_id 与 clean_title。",
+      local: "校验枚举和置信度；模型漏返的记录本地补为 UNCERTAIN，避免静默丢失。",
+      modelInput: `W39_weibo_012\t苹果发布 iPhone 17 系列`,
+      modelOutput: `{"records":[{"record_id":"W39_weibo_012","eventness":"EVENT","underlying_event":"苹果发布 iPhone 17 系列","reason_code":"RELEASE_OR_LAUNCH","confidence":0.96}]}`,
+      exampleIn: `{"record_id":"W39_weibo_012","platform":"微博","title":"苹果发布 iPhone 17 系列","clean_title":"苹果发布 iPhone 17 系列","heat":98.6}`,
+      exampleOut: `{"record_id":"W39_weibo_012","platform":"微博","title":"苹果发布 iPhone 17 系列","clean_title":"苹果发布 iPhone 17 系列","heat":98.6,"eventness":"EVENT","reason_code":"RELEASE_OR_LAUNCH","model_confidence":0.96}`,
+      notes: ["模型不会收到 platform、heat 或 raw title。", "EVENT 与 UNCERTAIN 进入 02；NON_EVENT 不进入聚类，但仍会在 x4 得到“未进入聚类”状态。"]
+    },
+    "02": {
+      id: "02", name: "Event Frame 抽取", kind: "chat",
+      kindLabel: "Ark Chat", concurrency: "当前 4 路，40 条/批",
+      summary: "将事件标题展开为可比较的结构化 Frame，为实体归一、向量化和后续归档提供特征。",
+      reads: ["merged/work/eventness.jsonl"],
+      writes: ["merged/raw/frames/FRxxxx.json", "merged/work/frames.jsonl"],
+      model: "system = Frame 字段定义；user = record_id 与 clean_title。",
+      local: "过滤 EVENT + UNCERTAIN；补回 raw_title、platform、heat；计算 information_score，不让模型打分。",
+      modelInput: `W39_weibo_012\t苹果发布 iPhone 17 系列`,
+      modelOutput: `{"frames":[{"record_id":"W39_weibo_012","actor":[{"name":"苹果","type":"BRAND"}],"action":"发布","object":"iPhone 17 系列","event_type":"PRODUCT_LAUNCH","parent_hint":"苹果 iPhone 17 发布","stage":"LAUNCH","time":null,"location":null,"key_facts":{}}]}`,
+      exampleIn: `01 的完整行，但模型只取得 record_id + clean_title。`,
+      exampleOut: `{"record_id":"W39_weibo_012","actor":[{"name":"苹果","type":"BRAND"}],"action":"发布","object":"iPhone 17 系列","event_type":"PRODUCT_LAUNCH","parent_hint":"苹果 iPhone 17 发布","stage":"LAUNCH","title":"苹果发布 iPhone 17 系列","raw_title":"苹果发布 iPhone 17 系列","platform":"微博","heat":98.6,"information_score":10}`,
+      notes: ["模型返回的是 JSON Frame，不是纯文本摘要。", "Frame 是 C2 中第一个用于跨记录比较的结构化中间产物。"]
+    },
+    "03": {
+      id: "03", name: "实体归一", kind: "chat",
+      kindLabel: "Ark Chat", concurrency: "串行，当前 60 个实体/批",
+      summary: "将苹果、Apple 等别名映射到同一 canonical entity，并维护从属关系。串行是为了让后批看到前批注册表。",
+      reads: ["merged/work/frames.jsonl"],
+      writes: ["merged/raw/entities/ENxxxx.json", "merged/work/entities.jsonl", "merged/work/frames_resolved.jsonl", "merged/out/entity_registry.csv"],
+      model: "system = 实体归一规则；user = 已有注册表 + 当前 batch 的实体名、类型与出现次数。",
+      local: "从 Frame 收集去重实体；根据模型决策创建 entity_id、写别名、回填 actor_id；漏返实体自动自成实体。",
+      modelInput: `已有注册表：\nENT0001\tApple\tBRAND\t父实体=-\t别名=苹果/Apple Inc.\n\n待归一实体：\n苹果\tBRAND\t出现=42次\niPhone 17 系列\tPRODUCT\t出现=18次`,
+      modelOutput: `{"resolutions":[{"name":"苹果","decision":"ALIAS_OF","entity_id":"ENT0001","canonical_name":"Apple","type":"BRAND","parent_entity_name":null}]}`,
+      exampleIn: `frames.jsonl 中每个 Frame 的 actor 字段，先被本地去重为实体候选。`,
+      exampleOut: `frames_resolved.jsonl：原 Frame + actor_id；entities.jsonl：实体注册表及 aliases、source_records。`,
+      notes: ["这是当前 C2 最重要的串行边界。", "模型不直接接收全部热点，而是接收“已知实体表 + 当前实体候选”。"]
+    },
+    "04": {
+      id: "04", name: "Embedding 向量化", kind: "embedding",
+      kindLabel: "Ark Embedding", concurrency: "当前 8 路；vision 模型逐条请求",
+      summary: "将每条 Frame 拼成固定文本，获取向量，仅用于召回候选，不直接决定事件归属。",
+      reads: ["merged/work/frames_resolved.jsonl（不存在则回退 frames.jsonl）"],
+      writes: ["merged/work/embeddings_cache.json", "merged/work/embeddings.json"],
+      model: "Embedding API，而非 Chat。当前 doubao-embedding-vision-* 一条文本一个请求。",
+      local: "拼装六字段文本；文本哈希命中缓存时不再外调；保存 record_id → vector 映射。",
+      modelInput: `主体：苹果\n动作：发布\n对象：iPhone 17 系列\n类型：PRODUCT_LAUNCH\n父事件线索：苹果 iPhone 17 发布\n标题：苹果发布 iPhone 17 系列`,
+      modelOutput: `{"data":[{"embedding":[0.0123,-0.0841,"..."]}]}`,
+      exampleIn: `frames_resolved.jsonl 的一条 Frame`,
+      exampleOut: `{"model":"doubao-embedding-vision-251215","vectors":{"W39_weibo_012":[0.0123,-0.0841,"..."]},"texts":{"W39_weibo_012":"主体：苹果\\n动作：发布\\n..."}}`,
+      notes: ["当前 vision endpoint 会把一个 input 列表融合为一个向量，因此不能靠增大 batch size 获得多条独立向量。", "可调的是并发和缓存命中率。"]
+    },
+    "05": {
+      id: "05", name: "多路候选召回", kind: "local",
+      kindLabel: "本地 NumPy", concurrency: "单进程，本地矩阵计算",
+      summary: "为每条记录找“值得让模型一起看”的候选，不做任何事件合并结论。",
+      reads: ["merged/work/frames_resolved.jsonl（或 frames.jsonl）", "merged/work/embeddings.json"],
+      writes: ["merged/work/candidates.jsonl"],
+      model: "不调用模型",
+      local: "计算向量 Top-K；再叠加 actor_id 精确匹配、object 精确匹配、parent_hint 匹配；记录未命中候选。",
+      modelInput: "无",
+      modelOutput: "无",
+      exampleIn: `Frame + record_id 对应向量`,
+      exampleOut: `{"record_id":"W39_weibo_012","candidates":[{"target_id":"W39_douyin_066","target_type":"record","channels":["embedding","actor_exact","object_exact"],"embedding_score":0.9234,"rank":1}],"rejected":[]}`,
+      notes: ["候选边只是“送进同一个 block 的理由”，不是同事件判定。"]
+    },
+    "06": {
+      id: "06", name: "有界分块", kind: "local",
+      kindLabel: "本地 Union-Find", concurrency: "单进程，本地计算",
+      summary: "将候选边组成最多 60 条记录的 block，给 07 提供上下文完整但不会截断的工作范围。",
+      reads: ["merged/work/frames_resolved.jsonl（或 frames.jsonl）", "merged/work/candidates.jsonl"],
+      writes: ["merged/work/blocks.jsonl", "merged/work/skipped_edges.jsonl", "merged/out/分块概览.csv"],
+      model: "不调用模型",
+      local: "按候选边强度合并；超过 record cap 或输出 token 预算的边不合并，但写入 skipped_edges 以保留审计证据。",
+      modelInput: "无",
+      modelOutput: "无",
+      exampleIn: `候选边：W39_weibo_012 ↔ W39_douyin_066，embedding_score=0.9234`,
+      exampleOut: `{"block_id":"BLK0007","record_ids":["W39_weibo_012","W39_douyin_066"],"record_count":2,"est_input_tokens":146,"est_output_tokens":180,"top_actors":["苹果"]}`,
+      notes: ["block 是候选超集，不是事件簇答案。", "block 的 cap=60 主要保护 07 的输出不被截断。"]
+    },
+    "07": {
+      id: "07", name: "块内事件归档", kind: "chat",
+      kindLabel: "Ark Chat", concurrency: "当前 7 个 block 并发",
+      summary: "让模型一次看一个完整 block 的 Frame，产出真正的事件簇、事件名、成员归属和置信度。",
+      reads: ["merged/work/blocks.jsonl", "merged/work/frames_resolved.jsonl（或 frames.jsonl）"],
+      writes: ["merged/raw/block_archive/BLKxxxx.json", "merged/work/block_events.jsonl", "merged/work/block_relations.jsonl", "merged/out/块内归档结果.csv", "merged/out/记录级归属.csv"],
+      model: "system = 事件归档 schema；user = 一个 block 内所有 Frame，可能附加已知锚点和历史事件卡。",
+      local: "覆盖校验；模型输出截断时先重试、再二分 block；失败块降级为单条，确保记录不丢失。",
+      modelInput: `[W39_weibo_012]\n标题：苹果发布 iPhone 17 系列\n主体：苹果\n动作：发布\n对象：iPhone 17 系列\n类型：PRODUCT_LAUNCH\n父事件线索：苹果 iPhone 17 发布\n\n[W39_douyin_066]\n标题：...\n...`,
+      modelOutput: `{"events":[{"event_key":"E1","event_name":"苹果发布 iPhone 17 系列","member_record_ids":["W39_weibo_012","W39_douyin_066"],"member_confidence":{"W39_weibo_012":96,"W39_douyin_066":92},"member_notes":{"W39_weibo_012":"同一新品发布事实"}}],"singletons":[],"relations":[]}`,
+      exampleIn: `blocks.jsonl 的 BLK0007 + 所有 record_id 对应 Frame`,
+      exampleOut: `block_events.jsonl：事件对象；每个事件含 event_id、event_name、member_record_ids、member_confidence、member_notes、facets 等字段。`,
+      notes: ["这是 C2 的核心事件定案步骤。", "block 间可并发；同一个 block 必须整体给模型，不能逐条判定。"]
+    },
+    x2: {
+      id: "x2", name: "归属置信度筛查", kind: "conditional",
+      kindLabel: "本地 + 条件 Chat", concurrency: "边界裁定时默认 4 路，10 条/批",
+      summary: "根据 07 的成员置信度处理低分归属。仅边界带记录可能再次调用 Chat；其它记录由本地规则处理。",
+      reads: ["merged/work/block_events.jsonl", "merged/work/frames_resolved.jsonl（或 frames.jsonl）"],
+      writes: ["merged/work/block_events.jsonl（覆盖更新）", "merged/out/x2_待裁定_边界带.csv", "merged/out/x2_已剔除.csv"],
+      model: "仅当 verdict != off 且边界带非空时调用。user = 边界成员、当前事件摘要、自动置信度和理由。",
+      local: "<50 自动降级为独立热点；>=75 自动保留；50~74 进入边界带。",
+      modelInput: `[W39_weibo_012] 苹果发布 iPhone 17 系列\n被归到的事件：苹果发布 iPhone 17 系列（2 条成员）\n该事件的描述：...\n自动流程给的分数与理由：62 分，主体、产品和动作基本一致`,
+      modelOutput: `{"results":[{"record_id":"W39_weibo_012","verdict":"属于","reason":"主体、产品和发布动作一致"}]}`,
+      exampleIn: `block_events.jsonl 中 member_confidence 位于 50~74 的成员`,
+      exampleOut: `同一个 block_events.jsonl 被改写：被剔除成员转为 singleton；审计表另行写出。`,
+      notes: ["x2 是第一个明确覆盖写 block_events.jsonl 的节点。"]
+    },
+    x3: {
+      id: "x3", name: "双向复核", kind: "conditional",
+      kindLabel: "本地 + 条件 Chat", concurrency: "merge 与 split 各默认 4 路；两方向串行",
+      summary: "先检查被切碎的事件是否应合并，再检查已合并事件是否应该拆分或改名。",
+      reads: ["merged/work/block_events.jsonl", "merged/work/frames_resolved.jsonl（或 frames.jsonl）"],
+      writes: ["merged/work/block_events.jsonl（覆盖更新）", "merged/out/x3_合并明细.csv", "merged/out/x3_拆分与改名明细.csv"],
+      model: "merge user = 共享锚点下的事件卡片与样例标题；split user = 可疑事件、原因和全部成员标题。",
+      local: "先基于事件关系召回 merge 候选并落地；再基于合并后的新事件表计算 split 候选。",
+      modelInput: `## 共享锚点：苹果\n### BLK0007_E1｜苹果发布 iPhone 17 系列（6 条）\n描述：...\n  [W39_weibo_012] 苹果发布 iPhone 17 系列\n  [W39_douyin_066] ...`,
+      modelOutput: `{"results":[{"anchor":"苹果","decision":"MERGE","keep_event_id":"BLK0007_E1","merge_event_ids":["BLK0014_E2"],"reason":"同一发布会事实"}]}`,
+      exampleIn: `block_events.jsonl 的候选事件卡片 + frames_resolved.jsonl 的标题`,
+      exampleOut: `同一个 block_events.jsonl 被再次改写；合并/拆分动作分别写入审计 CSV。`,
+      notes: ["merge 必须先完成，split 才能看到正确的新事件表，因此二者不能并行。"]
+    },
+    x4: {
+      id: "x4", name: "明细回写与最终 XLSX", kind: "local",
+      kindLabel: "本地 CSV / XLSX", concurrency: "单进程，秒级",
+      summary: "把最终事件归属回填到 C2 入口的每一条记录，并由 runner 再抽出 Phase D 所需的两列 XLSX。",
+      reads: ["input.csv", "merged/work/eventness.jsonl", "merged/work/block_events.jsonl"],
+      writes: ["merged/out/热点明细_含事件归属.csv", "merged/out/事件清单.csv", "../c2_event_result_r{N}.xlsx"],
+      model: "不调用模型",
+      local: "按 record_id 将事件 ID、一级事件名、二级角度、成员数、归属置信度、状态和说明回填；检查行数与入口一致。",
+      modelInput: "无",
+      modelOutput: "无",
+      exampleIn: `input.csv 的 W39_weibo_012 + block_events.jsonl 中对该 record_id 的最终 owner`,
+      exampleOut: `record_id,platform,title,heat,事件ID,一级事件名,二级角度,事件成员数,归属置信度,状态,说明\nW39_weibo_012,微博,苹果发布 iPhone 17 系列,98.6,BLK0007_E1,苹果发布 iPhone 17 系列,,2,96,多条记录的事件,同一新品发布事实`,
+      notes: ["最终给 Phase D 的 c2_event_result_r{N}.xlsx 只保留 row_id + 一级事件名。", "未进入聚类的 NON_EVENT 也会保留在明细 CSV 中，并标记“未进入聚类”。"]
+    }
+  };
+
+  const navOrder = ["input", "00-weibo", "x0", "01", "02", "03", "04", "05", "06", "07", "x2", "x3", "x4"];
+  const nodeRows = {
+    "row-01": ["01"],
+    "row-02": ["02"],
+    "row-03": ["03"],
+    "row-04": ["04"],
+    "row-05": ["05"],
+    "row-06": ["06"],
+    "row-07": ["07"],
+    "row-x2": ["x2"],
+    "row-x3": ["x3"],
+    "row-x4": ["x4"]
+  };
+  const kindNames = { chat: "Chat", embedding: "Embedding", local: "本地", conditional: "条件 Chat" };
+  let selected = "input";
+  let activeTab = "facts";
+
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+  }
+
+  const fieldNames = {
+    record_id: "记录 ID",
+    platform: "平台",
+    title: "原标题",
+    clean_title: "清洗后标题",
+    raw_title: "原始标题",
+    heat: "热度",
+    records: "记录列表",
+    frames: "Frame 列表",
+    resolutions: "实体归一结果",
+    results: "裁定结果",
+    actor: "主体",
+    action: "动作",
+    object: "对象",
+    type: "类型",
+    eventness: "事件性",
+    underlying_event: "事件本体",
+    reason_code: "原因代码",
+    confidence: "模型置信度",
+    model_confidence: "模型置信度",
+    ops: "清洗动作",
+    flags: "校验标记",
+    reverted: "是否回退原标题",
+    event_type: "事件类型",
+    parent_hint: "父事件线索",
+    stage: "事件阶段",
+    time: "时间",
+    location: "地点",
+    key_facts: "可核查事实",
+    name: "名称",
+    decision: "判定",
+    entity_id: "实体 ID",
+    canonical_name: "标准名称",
+    parent_entity_name: "父实体",
+    data: "向量结果",
+    embedding: "向量",
+    candidates: "候选记录",
+    target_id: "候选记录 ID",
+    target_type: "候选类型",
+    channels: "召回通道",
+    embedding_score: "向量相似度",
+    rank: "候选排序",
+    rejected: "未命中候选",
+    block_id: "分块 ID",
+    record_ids: "成员记录 ID",
+    record_count: "记录数",
+    est_input_tokens: "预估输入 Token",
+    est_output_tokens: "预估输出 Token",
+    top_actors: "主要主体",
+    events: "事件列表",
+    event_key: "事件键",
+    event_name: "一级事件名",
+    member_record_ids: "事件成员",
+    member_confidence: "成员归属置信度",
+    member_notes: "成员归属说明",
+    singletons: "独立热点",
+    relations: "事件关系",
+    verdict: "裁定结果",
+    reason: "裁定理由",
+    anchor: "共享锚点",
+    keep_event_id: "保留事件 ID",
+    merge_event_ids: "并入事件 ID"
+  };
+
+  function fieldLabel(key) {
+    return fieldNames[key] || key;
+  }
+
+  function renderValue(value) {
+    if (value === null || value === undefined || value === "") {
+      return `<span class="value-empty">无</span>`;
+    }
+    if (Array.isArray(value)) {
+      if (!value.length) return `<span class="value-empty">空列表</span>`;
+      if (value.every((item) => typeof item !== "object" || item === null)) {
+        return value.map((item) => `<span class="array-item">${escapeHtml(item)}</span>`).join(" ");
+      }
+      return `<div class="array-list">${value.map((item, index) => `
+        <div class="array-item"><div class="array-index">第 ${index + 1} 项</div>${renderValue(item)}</div>
+      `).join("")}</div>`;
+    }
+    if (typeof value === "object") {
+      return `<div class="data-card">${Object.entries(value).map(([key, child]) => `
+        <div class="data-row">
+          <div class="data-key">${escapeHtml(fieldLabel(key))}<code>${escapeHtml(key)}</code></div>
+          <div class="data-value">${renderValue(child)}</div>
+        </div>
+      `).join("")}</div>`;
+    }
+    if (typeof value === "boolean") {
+      return `<span class="value-bool">${value ? "是" : "否"}</span>`;
+    }
+    if (typeof value === "number") {
+      return `<span class="value-number">${escapeHtml(value)}</span>`;
+    }
+    return escapeHtml(value);
+  }
+
+  function renderPayload(raw) {
+    if (raw === "无") return `<div class="notice">本节点不调用外部模型或 API。</div>`;
+    try {
+      const parsed = JSON.parse(raw);
+      return renderValue(parsed);
+    } catch {
+      return `<div class="plain-card">${escapeHtml(raw)}</div>`;
+    }
+  }
+
+  function makeNode(key) {
+    const item = stages[key];
+    return `<button class="flow-node" data-stage="${key}" data-kind="${item.kind}" type="button">
+      <span class="node-top"><span class="node-id">${item.id}</span><span class="kind">${kindNames[item.kind]}</span></span>
+      <span class="node-name">${item.name}</span>
+      <span class="node-io">${item.reads[0]} → ${item.writes[item.writes.length - 1]}</span>
+    </button>`;
+  }
+
+  function makePlatformNode(platform) {
+    const item = stages["00-weibo"];
+    return `<button class="flow-node" data-stage="00-weibo" data-kind="${item.kind}" type="button">
+      <span class="node-top"><span class="node-id">00 / ${platform}</span><span class="kind">Chat</span></span>
+      <span class="node-name">标题清洗</span>
+      <span class="node-io">同一 input.csv，按平台本地筛选</span>
+    </button>`;
+  }
+
+  function populateNavigation() {
+    document.querySelector("#stage-list").innerHTML = navOrder.map((key) => {
+      const item = stages[key];
+      return `<button class="stage-button" data-stage="${key}" type="button">
+        <span class="stage-code">${item.id}</span>
+        <span><span class="stage-name">${item.name}</span><span class="stage-meta">${kindNames[item.kind]}</span></span>
+      </button>`;
+    }).join("");
+    document.querySelector("#row-00").innerHTML = ["微博", "抖音", "B站", "知乎"]
+      .map(makePlatformNode).join("");
+    Object.entries(nodeRows).forEach(([rowId, keys]) => {
+      document.querySelector(`#${rowId}`).innerHTML = keys.map(makeNode).join("");
+    });
+  }
+
+  function fileList(paths, label) {
+    return `<ul class="file-list">${paths.map((path) => {
+      return `<li><span class="file-label">${label}</span><span class="file-path">${escapeHtml(full(path))}</span></li>`;
+    }).join("")}</ul>`;
+  }
+
+  function renderDetails() {
+    const item = stages[selected];
+    document.querySelector("#detail-kicker").textContent = `C2 / ${item.id}`;
+    document.querySelector("#detail-title").textContent = item.name;
+    document.querySelector("#detail-summary").textContent = item.summary;
+
+    document.querySelector('[data-page="facts"]').innerHTML = `
+      <div class="fact-grid">
+        <div class="fact"><span class="fact-label">执行方式</span><span class="fact-value">${escapeHtml(item.kindLabel)}</span></div>
+        <div class="fact"><span class="fact-label">节点内并发</span><span class="fact-value">${escapeHtml(item.concurrency)}</span></div>
+        <div class="fact"><span class="fact-label">模型边界</span><span class="fact-value">${escapeHtml(item.model)}</span></div>
+      </div>
+      <h3>本地做什么</h3>
+      <div class="notice">${escapeHtml(item.local)}</div>
+      <h3>关键约束</h3>
+      <ul class="mini-list">${item.notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>`;
+
+    document.querySelector('[data-page="payload"]').innerHTML = `
+      <h3>节点读取到的记录样例</h3>
+      ${renderPayload(item.exampleIn)}
+      <h3>实际发送给模型 / API</h3>
+      ${renderPayload(item.modelInput)}
+      <h3>模型 / 本地处理后的输出</h3>
+      ${renderPayload(item.modelOutput)}
+      <h3>最终写入的记录样例</h3>
+      ${renderPayload(item.exampleOut)}`;
+
+    document.querySelector('[data-page="files"]').innerHTML = `
+      <h3>读取</h3>${fileList(item.reads, "读取")}
+      <h3>写入或更新</h3>${fileList(item.writes, "写入 / 更新")}
+      <h3>文件语义</h3>
+      <ul class="mini-list">
+        <li><code>raw/</code>：每个模型 batch 的可续跑缓存。</li>
+        <li><code>work/</code>：下一节点消费的机器中间产物。</li>
+        <li><code>out/</code>：面向人工检查的 CSV 明细或审计表。</li>
+      </ul>`;
+
+    document.querySelectorAll("[data-stage]").forEach((element) => {
+      const current = element.dataset.stage === selected;
+      element.classList.toggle("selected", current && element.classList.contains("flow-node"));
+      if (element.classList.contains("stage-button")) element.setAttribute("aria-current", current ? "true" : "false");
+    });
+    document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === activeTab));
+    document.querySelectorAll(".tab-page").forEach((page) => page.classList.toggle("active", page.dataset.page === activeTab));
+  }
+
+  populateNavigation();
+  renderDetails();
+
+  document.addEventListener("click", (event) => {
+    const stageButton = event.target.closest("[data-stage]");
+    if (stageButton) {
+      selected = stageButton.dataset.stage;
+      renderDetails();
+    }
+    const tab = event.target.closest("[data-tab]");
+    if (tab) {
+      activeTab = tab.dataset.tab;
+      renderDetails();
+    }
+  });
+
+  document.querySelector("#reset-view").addEventListener("click", () => {
+    selected = "input";
+    activeTab = "facts";
+    renderDetails();
+  });
+</script>
+</body>
+</html>

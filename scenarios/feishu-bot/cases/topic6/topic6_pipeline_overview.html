@@ -537,7 +537,7 @@ python /mnt/skills/topic6-annotation/scripts/datahub_annotate.py \\
   --task ${task} --project-dir /workspace/Projects/{PROJECT_DIR} \\
   --input ${input} \\
   --prompt-file /mnt/skills/topic6-annotation/prompts/${prompt} \\
-  --model-id "\${DATAHUB_MODEL_ID:-Doubao-Seed-Evolving}" \\
+  --model-id "\${DATAHUB_MODEL_ID:-gpt-4o-mini}" \\
   --run-id {N} --launch-background
 
 # worker 的外部调用（每个 ${task} run 各一次）
@@ -552,7 +552,7 @@ POST https://bmc-data-hub.bluemediagroup.cn/api/v1/task
     "prompt_text": "&lt;${prompt} 全文&gt;",
     "prompt_run_config": {"require_llm_result_json": true}
   },
-  "model": {"model_id": "Doubao-Seed-Evolving"}
+  "model": {"model_id": "gpt-4o-mini"}
 }</div>
     <p><b>LLM 实际使用的行字段：</b>${llmFields}。其他 XLSX 列随文件上传以保留 <code>row_id</code> 等关联信息，但不会被 Prompt 引用。</p>
     <p><b>完成后的控制权：</b>MA 每 20 秒查询 <code>GET /api/v1/task/{task_id}</code>；成功后下载 <code>result_url</code>，缺失时分页读取 <code>result_list</code>。${localAfter}</p>
@@ -770,7 +770,7 @@ week_num   : W37</div>
       desc: "对每条热搜抽取 9 个结构化字段,并判定「是否营销可用」。",
       content: `
         <h3>做了什么</h3>
-        <p>把每条热搜的 <code>平台|标题|描述</code> 提交给 DataHub,由当前配置的 <code>Doubao-Seed-Evolving</code> 按 Step 1~9 顺序判断,输出单行 JSON。</p>
+        <p>把每条热搜的 <code>平台|标题|描述</code> 提交给 DataHub,由当前配置的 <code>gpt-4o-mini</code> 按 Step 1~9 顺序判断,输出单行 JSON。</p>
         <ul>
           <li>Step1 商业实体(品牌/明星/IP...)</li>
           <li>Step2 热点驱动词</li>

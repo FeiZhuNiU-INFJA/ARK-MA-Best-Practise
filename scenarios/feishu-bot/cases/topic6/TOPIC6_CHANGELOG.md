@@ -11,6 +11,20 @@
 
 ---
 
+## 2026-10-09
+
+### DataHub 默认模型切换为 gpt-4o-mini
+
+- **变更**：Topic6 的 C0、C3、R1-R5 七路 DataHub 任务统一通过
+  `DATAHUB_MODEL_ID=gpt-4o-mini` 提交。
+- **边界**：C2 与洞察阶段的 Ark Chat 模型不在本次调整范围内，继续使用各自独立配置。
+- **影响文件**：
+  - `ma-resources/environment.json`
+  - `ma-resources/agents/coordinator.system.md`
+  - `ma-resources/agents/annotator.system.md`
+  - `topic6_pipeline_overview.html`
+  - `tests/test_topic6_pipeline_optimizations.py`
+
 ## 2026-10-01
 
 ### 网页报告周期抬头禁止回落到 W32 示例值
