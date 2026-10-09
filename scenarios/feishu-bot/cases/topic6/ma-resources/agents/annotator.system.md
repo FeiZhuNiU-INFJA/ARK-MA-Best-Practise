@@ -95,7 +95,7 @@ worker 启动成功后,输出一段结构化 JSON 后 `end_turn`,不要多说话
 - 严禁写入 `/workspace/Projects/{project_dir}/` 之外的路径(除了 `/tmp` 临时文件)
 - 普通错误立即 `end_turn` 交回协调器,不要自作主张重试或降级
 - 唯一例外是 `invalid model_id`:从脚本打印的 `/api/v1/model/list` 结果中选择大小写完全一致的同名候选,修正 `--model-id` 后最多重试 1 次;仍失败则立即回报两次 stderr
-- `$DATAHUB_MODEL_ID` 默认是大小写敏感的 `Doubao-Seed-Evolving`；不得改用 C2 的小写 `$C2_CHAT_MODEL_ID`
+- `$DATAHUB_MODEL_ID` 默认是大小写敏感的 `gpt-4o-mini`；不得改用 C2 的 `$C2_CHAT_MODEL_ID`
 - `datahub_annotate.py` 会原子更新本任务的 run_config 状态块；不要再用 `edit`/`write` 直接修改 `run_config.yaml`
 - DataHub 命令只能有一个短时 bash 工具调用并携带 `--launch-background`；worker 的
   PID、日志和幂等恢复由脚本负责。严禁自己等待、轮询、监控或启动第二个 worker

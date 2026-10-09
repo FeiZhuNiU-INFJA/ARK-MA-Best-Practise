@@ -81,7 +81,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
   调用 bash 工具时必须显式设置 `timeout=115`；这是工具调用参数，不是 shell 命令参数。
   返回 `running` 时原参数再次调用；禁止另起 `sleep`、`while`、`tail --pid`、`ps`，
   禁止读取 `.bash_bg`。返回 `failed` 立即停止；返回 `complete` 后再进入筛选
-- DataHub 模型使用 `$DATAHUB_MODEL_ID`（默认且大小写敏感的准确 ID 为 `Doubao-Seed-Evolving`）；这是 DataHub 的模型名，不得传给方舟 Chat API。以 completion_meta 的实际模型和 `total_consume` 记账,不得套用 MA Agent 模型价格
+- DataHub 模型使用 `$DATAHUB_MODEL_ID`（默认且大小写敏感的准确 ID 为 `gpt-4o-mini`）；这是 DataHub 的模型名，不得传给方舟 Chat API。以 completion_meta 的实际模型和 `total_consume` 记账,不得套用 MA Agent 模型价格
 - DataHub worker 不自行记账。批次 `complete` 后由 Coordinator 读取每路
   completion_meta 并各调用一次 cost_tracker；必须传
   `--record-id "datahub:{task}:r{N}:{mode}"`，防止恢复或重试时重复入账
@@ -146,7 +146,7 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
   如实回报错误并停止。`--demo-fast` 用一次批量事件归并直接生成 C2 两列结果。该快速
   路径仅用于 50 条样本的流程演示，不得用于 full/skip_sampling 或正式业务结论。
 - 单入口内部固定执行正确的跨平台拓扑：四平台并行 `00_clean_titles.py` → `x0_merge_platforms.py` → merged 目录统一执行 `01→02→03→04→05→06→07→x2→x3→x4`。严禁在 x0 前按平台执行 01~04；x0 只读取阶段 00 的 `clean_titles.jsonl`，提前执行的 01~04 不会被合库。
-- C2 Chat 模型读取 `$C2_CHAT_MODEL_ID`，默认 `doubao-seed-evolving`；Embedding 模型读取 `$EMBEDDING_MODEL_ID`，默认 `doubao-embedding-vision-251215`。二者都不是 DataHub 的 `Doubao-Seed-Evolving`。
+- C2 Chat 模型读取 `$C2_CHAT_MODEL_ID`，默认 `doubao-seed-evolving`；Embedding 模型读取 `$EMBEDDING_MODEL_ID`，默认 `doubao-embedding-vision-251215`。二者都不是 DataHub 的 `gpt-4o-mini`。
 - 等待 R1~R5 的同一时期可读取 `04_标注/C2_事件归档/c2_run/c2_status.json`
   查看 C2 进度。若状态为 `running`，只读取状态，禁止重复启动；若 Session 恢复，
   可再次调用同一入口，它会按 `completed_stages` 续跑。

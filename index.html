@@ -3,27 +3,42 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="火山方舟 Managed Agents 场景与交互式技术文档索引">
+  <meta name="description" content="火山方舟 Managed Agents 架构与飞书 Bot 场景文档入口">
   <title>MA Scenario Atlas</title>
   <style>
     :root {
-      --paper: #f7f7f4;
-      --surface: #ffffff;
-      --ink: #20211f;
-      --muted: #686b66;
-      --line: #d9dad4;
-      --line-strong: #a9aba4;
-      --signal: #d83a2e;
-      --signal-soft: #fae7e3;
-      --blue: #2865d8;
-      --blue-soft: #e8effc;
-      --teal: #147d70;
-      --teal-soft: #ddf1ed;
-      --amber: #a86600;
-      --amber-soft: #f8edce;
-      --display: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
+      color-scheme: light dark;
+      --page: #f4f5f3;
+      --surface: #e9ebe8;
+      --surface-strong: #dde0dc;
+      --ink: #1d201d;
+      --muted: #626761;
+      --faint: #858a84;
+      --line: #cdd1cb;
+      --line-strong: #9ea49d;
+      --accent: #c7382f;
+      --accent-hover: #a92d26;
+      --on-accent: #fff9f7;
+      --display: "Arial Narrow", "Aptos Narrow", "PingFang SC", "Microsoft YaHei", sans-serif;
       --body: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
       --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --radius: 4px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page: #191b19;
+        --surface: #232623;
+        --surface-strong: #2b2f2b;
+        --ink: #eff1ed;
+        --muted: #b2b7b0;
+        --faint: #858b84;
+        --line: #3a3e3a;
+        --line-strong: #5b615a;
+        --accent: #e3564c;
+        --accent-hover: #ef7067;
+        --on-accent: #1c1716;
+      }
     }
 
     * {
@@ -31,17 +46,16 @@
     }
 
     html {
-      color-scheme: light;
       scroll-behavior: smooth;
     }
 
     body {
       min-width: 320px;
       margin: 0;
-      background: var(--paper);
+      background: var(--page);
       color: var(--ink);
       font-family: var(--body);
-      line-height: 1.6;
+      line-height: 1.55;
     }
 
     a {
@@ -49,21 +63,24 @@
     }
 
     a:focus-visible {
-      outline: 3px solid rgba(40, 101, 216, 0.35);
+      outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
       outline-offset: 4px;
     }
 
-    .topbar {
-      height: 56px;
+    .site-header {
       border-bottom: 1px solid var(--line);
-      background: rgba(247, 247, 244, 0.94);
     }
 
-    .topbar-inner {
-      width: min(1440px, 100%);
-      height: 100%;
-      margin: 0 auto;
-      padding: 0 32px;
+    .header-inner,
+    .scenario-nav,
+    main,
+    footer {
+      width: min(1240px, calc(100% - 48px));
+      margin-inline: auto;
+    }
+
+    .header-inner {
+      height: 68px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -71,564 +88,626 @@
     }
 
     .brand {
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      gap: 12px;
+      gap: 11px;
+      min-width: 0;
       text-decoration: none;
     }
 
     .brand-mark {
-      width: 28px;
-      height: 28px;
+      width: 30px;
+      height: 30px;
       display: grid;
+      flex: 0 0 auto;
       place-items: center;
-      border: 1px solid var(--ink);
+      border-radius: var(--radius);
       background: var(--ink);
-      color: #fff;
-      font: 700 12px/1 var(--mono);
+      color: var(--page);
+      font: 700 11px/1 var(--mono);
     }
 
     .brand-name {
-      font: 650 13px/1 var(--body);
-    }
-
-    .brand-suffix {
-      color: var(--muted);
-      font: 11px/1 var(--mono);
+      overflow: hidden;
+      font-size: 14px;
+      font-weight: 720;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .repo-link {
+      flex: 0 0 auto;
       color: var(--muted);
-      font-size: 13px;
+      font: 12px/1 var(--mono);
       text-decoration: none;
     }
 
     .repo-link:hover {
       color: var(--ink);
-      text-decoration: underline;
-      text-underline-offset: 4px;
     }
 
-    .shell {
-      width: min(1440px, 100%);
-      min-height: calc(100vh - 56px);
-      margin: 0 auto;
-      display: grid;
-      grid-template-columns: 248px minmax(0, 1fr);
-    }
-
-    .sidebar {
-      border-right: 1px solid var(--line);
-      padding: 36px 24px;
-    }
-
-    .sidebar-label,
-    .eyebrow,
-    .section-label,
-    .doc-type {
-      margin: 0;
-      color: var(--muted);
-      font: 600 11px/1.3 var(--mono);
-      text-transform: uppercase;
-    }
-
-    .scenario-list {
-      list-style: none;
-      margin: 22px 0 0;
-      padding: 0;
-    }
-
-    .scenario-item {
-      position: relative;
-      padding: 14px 0 14px 18px;
-      border-top: 1px solid var(--line);
-    }
-
-    .scenario-item::before {
-      content: "";
-      position: absolute;
-      top: 19px;
-      left: 0;
-      width: 7px;
-      height: 7px;
-      border: 1px solid var(--line-strong);
-      background: transparent;
-    }
-
-    .scenario-item.active::before {
-      border-color: var(--signal);
-      background: var(--signal);
-    }
-
-    .scenario-item:last-child {
+    .scenario-strip {
       border-bottom: 1px solid var(--line);
     }
 
-    .scenario-index {
-      display: block;
-      margin-bottom: 4px;
+    .scenario-nav {
+      min-height: 46px;
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .scenario-nav::-webkit-scrollbar {
+      display: none;
+    }
+
+    .scenario-link {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      flex: 0 0 auto;
+      padding: 0 24px;
+      border-left: 1px solid var(--line);
       color: var(--muted);
-      font: 10px/1 var(--mono);
-    }
-
-    .scenario-name {
-      display: block;
-      font-size: 13px;
-      font-weight: 650;
-    }
-
-    .scenario-child {
-      display: inline-block;
-      margin-top: 9px;
-      color: var(--signal);
       font-size: 12px;
       font-weight: 650;
       text-decoration: none;
+      white-space: nowrap;
     }
 
-    .scenario-child:hover {
-      text-decoration: underline;
-      text-underline-offset: 3px;
+    .scenario-link:last-child {
+      border-right: 1px solid var(--line);
     }
 
-    .scenario-note {
-      display: block;
-      margin-top: 5px;
-      color: var(--muted);
-      font-size: 11px;
+    .scenario-link:hover {
+      color: var(--ink);
+      background: var(--surface);
     }
 
     main {
-      min-width: 0;
-      padding: 52px clamp(28px, 5vw, 76px) 64px;
+      padding: 48px 0 88px;
     }
 
-    .case-header {
+    .hero {
+      min-height: min(600px, calc(100dvh - 176px));
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 40px;
-      align-items: end;
-      padding-bottom: 34px;
-      border-bottom: 1px solid var(--ink);
+      grid-template-columns: minmax(320px, 0.78fr) minmax(480px, 1.22fr);
+      gap: clamp(42px, 7vw, 96px);
+      align-items: center;
+      padding-bottom: 32px;
     }
 
     .eyebrow {
-      color: var(--signal);
+      margin: 0 0 20px;
+      color: var(--accent);
+      font: 700 11px/1.2 var(--mono);
+      text-transform: uppercase;
     }
 
     h1 {
-      max-width: 900px;
-      margin: 12px 0 12px;
+      max-width: 620px;
+      margin: 0;
       font-family: var(--display);
-      font-size: 58px;
-      font-weight: 700;
-      line-height: 1.08;
+      font-size: clamp(52px, 6.2vw, 84px);
+      font-stretch: condensed;
+      font-weight: 760;
+      line-height: 0.98;
       letter-spacing: 0;
     }
 
-    .lead {
-      max-width: 760px;
+    .hero-copy {
+      max-width: 500px;
+      margin: 26px 0 0;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px 20px;
+      margin-top: 34px;
+    }
+
+    .primary-link,
+    .text-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      font-size: 13px;
+      font-weight: 720;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .primary-link {
+      padding: 0 18px;
+      border: 1px solid var(--accent);
+      border-radius: var(--radius);
+      background: var(--accent);
+      color: var(--on-accent);
+    }
+
+    .primary-link:hover {
+      border-color: var(--accent-hover);
+      background: var(--accent-hover);
+    }
+
+    .primary-link:active,
+    .text-link:active,
+    .document-link:active {
+      transform: translateY(1px);
+    }
+
+    .text-link {
+      color: var(--muted);
+    }
+
+    .text-link:hover {
+      color: var(--ink);
+    }
+
+    .text-link::after,
+    .document-link::after {
+      content: "↗";
+      margin-left: 8px;
+      font-family: var(--mono);
+    }
+
+    .hero-visual {
+      min-width: 0;
+    }
+
+    .preview-frame {
+      position: relative;
+      display: block;
+      aspect-ratio: 16 / 10;
+      overflow: hidden;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: 18px 18px 0 var(--surface-strong);
+    }
+
+    .preview-link {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      border-radius: var(--radius);
+      text-decoration: none;
+    }
+
+    .preview-link span {
+      position: absolute;
+      right: 14px;
+      bottom: 14px;
+      padding: 9px 11px;
+      border-radius: var(--radius);
+      background: var(--ink);
+      color: var(--page);
+      font: 700 11px/1 var(--mono);
+    }
+
+    .preview-link:hover {
+      box-shadow: inset 0 0 0 1px var(--accent);
+    }
+
+    .preview-window {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+
+    .preview-window iframe {
+      width: 160%;
+      height: 160%;
+      border: 0;
+      pointer-events: none;
+      transform: scale(0.625);
+      transform-origin: left top;
+    }
+
+    .preview-caption {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      margin: 15px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .preview-caption strong {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .fact {
+      padding: 24px 28px;
+      border-right: 1px solid var(--line);
+    }
+
+    .fact:first-child {
+      padding-left: 0;
+    }
+
+    .fact:last-child {
+      border-right: 0;
+    }
+
+    .fact b {
+      display: block;
+      margin-bottom: 5px;
+      font-family: var(--display);
+      font-size: 25px;
+      line-height: 1;
+    }
+
+    .fact span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .topic {
+      padding: 104px 0 94px;
+    }
+
+    .section-heading {
+      max-width: 690px;
+      margin-bottom: 52px;
+    }
+
+    .section-heading h2 {
       margin: 0;
+      font-family: var(--display);
+      font-size: clamp(36px, 4vw, 58px);
+      font-stretch: condensed;
+      line-height: 1.02;
+      letter-spacing: 0;
+    }
+
+    .section-heading p {
+      max-width: 620px;
+      margin: 18px 0 0;
       color: var(--muted);
       font-size: 15px;
     }
 
-    .case-status {
-      min-width: 180px;
-      padding-left: 18px;
-      border-left: 3px solid var(--signal);
-    }
-
-    .case-status strong {
-      display: block;
-      margin-bottom: 5px;
-      font: 700 13px/1.2 var(--mono);
-    }
-
-    .case-status span {
-      color: var(--muted);
-      font-size: 12px;
-    }
-
     .route {
-      padding: 30px 0 34px;
-      border-bottom: 1px solid var(--line);
-    }
-
-    .route-track {
       display: grid;
-      grid-template-columns: repeat(9, auto);
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      margin-top: 18px;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      border-top: 1px solid var(--line-strong);
     }
 
     .route-step {
-      min-width: 112px;
-      min-height: 66px;
-      padding: 11px 12px;
-      border: 1px solid var(--line-strong);
-      background: var(--surface);
+      position: relative;
+      min-height: 154px;
+      padding: 22px 24px 20px 0;
+      border-bottom: 1px solid var(--line);
     }
 
-    .route-step b {
-      display: block;
-      margin-bottom: 4px;
-      font-size: 12px;
+    .route-step:not(:last-child) {
+      margin-right: 24px;
+    }
+
+    .route-step:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      top: 22px;
+      right: -7px;
+      color: var(--accent);
+      font: 18px/1 var(--mono);
     }
 
     .route-step small {
       display: block;
+      margin-bottom: 42px;
+      color: var(--faint);
+      font: 10px/1 var(--mono);
+    }
+
+    .route-step b {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 16px;
+    }
+
+    .route-step span {
+      display: block;
       color: var(--muted);
-      font: 10px/1.35 var(--mono);
+      font: 11px/1.45 var(--mono);
     }
 
-    .route-step.source {
-      border-top: 3px solid var(--signal);
+    .route-step.review {
+      border-bottom-color: var(--accent);
     }
 
-    .route-step.data {
-      border-top: 3px solid var(--teal);
-    }
-
-    .route-step.agent {
-      border-top: 3px solid var(--blue);
-    }
-
-    .route-step.human {
-      border-top: 3px solid var(--amber);
-    }
-
-    .route-arrow {
-      color: var(--line-strong);
-      font: 16px/1 var(--mono);
-    }
-
-    .documents {
-      padding-top: 38px;
-    }
-
-    .documents-heading {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 24px;
-      margin-bottom: 18px;
-    }
-
-    .documents-heading h2 {
-      margin: 6px 0 0;
-      font-family: var(--display);
-      font-size: 26px;
-      line-height: 1.2;
-      letter-spacing: 0;
-    }
-
-    .documents-heading span {
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .document-grid {
+    .resources {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 18px;
-    }
-
-    .document {
-      min-width: 0;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: var(--surface);
-      overflow: hidden;
-      transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
-    }
-
-    .document:hover {
-      border-color: var(--line-strong);
-      transform: translateY(-2px);
-      box-shadow: 0 12px 30px rgba(32, 33, 31, 0.08);
-    }
-
-    .document-preview {
-      height: 178px;
-      padding: 22px;
-      border-bottom: 1px solid var(--line);
-      background-color: #f1f2ee;
-      background-image:
-        linear-gradient(var(--line) 1px, transparent 1px),
-        linear-gradient(90deg, var(--line) 1px, transparent 1px);
-      background-size: 24px 24px;
-      overflow: hidden;
-    }
-
-    .architecture-preview {
-      display: grid;
-      grid-template-columns: 0.8fr 1.1fr 0.8fr;
-      gap: 18px;
-      align-items: center;
-    }
-
-    .atlas-preview {
-      display: grid;
-      grid-template-columns: 0.85fr 1.1fr 0.85fr;
-      gap: 14px;
-      align-items: center;
-    }
-
-    .atlas-session {
-      border-color: var(--teal);
-      background: var(--teal);
-      color: #fff;
-    }
-
-    .atlas-preview .preview-column:first-child .mini-node {
-      border-left: 3px solid var(--blue);
-    }
-
-    .atlas-preview .preview-column:last-child .mini-node {
-      border-left: 3px solid var(--amber);
-    }
-
-    .preview-column {
-      display: grid;
-      gap: 9px;
-      position: relative;
-    }
-
-    .preview-column + .preview-column::before {
-      content: "";
-      position: absolute;
-      top: 50%;
-      right: calc(100% + 3px);
-      width: 12px;
+      grid-template-columns: minmax(260px, 0.68fr) minmax(0, 1.32fr);
+      gap: clamp(40px, 8vw, 110px);
+      padding: 70px 0 0;
       border-top: 1px solid var(--line-strong);
     }
 
-    .mini-node {
-      min-height: 34px;
-      padding: 8px;
-      border: 1px solid var(--line-strong);
-      background: #fff;
-      font: 600 9px/1.3 var(--mono);
-      text-align: center;
+    .resources-intro {
+      align-self: start;
     }
 
-    .mini-node.gateway {
-      border-left: 3px solid var(--amber);
-    }
-
-    .mini-node.ma {
-      border-left: 3px solid var(--blue);
-    }
-
-    .mini-node.skill {
-      border-left: 3px solid var(--teal);
-    }
-
-    .pipeline-preview {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      padding-top: 34px;
-    }
-
-    .phase {
-      flex: 1 1 0;
-      min-width: 0;
-      padding: 12px 4px;
-      border: 1px solid var(--line-strong);
-      background: #fff;
-      font: 700 10px/1 var(--mono);
-      text-align: center;
-    }
-
-    .phase:nth-child(3),
-    .phase:nth-child(5) {
-      border-color: var(--amber);
-      background: var(--amber-soft);
-      color: #6f4600;
-    }
-
-    .phase:last-child {
-      border-color: var(--teal);
-      background: var(--teal-soft);
-      color: #0f645a;
-    }
-
-    .document-body {
-      padding: 22px;
-    }
-
-    .doc-type {
-      color: var(--blue);
-    }
-
-    .document h3 {
-      margin: 8px 0;
-      font-size: 19px;
-      line-height: 1.35;
-    }
-
-    .document p {
-      min-height: 48px;
+    .resources-intro h2 {
       margin: 0;
+      font-family: var(--display);
+      font-size: 34px;
+      font-stretch: condensed;
+      line-height: 1.08;
+    }
+
+    .resources-intro p {
+      max-width: 340px;
+      margin: 16px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .document-list {
+      border-top: 1px solid var(--line);
+    }
+
+    .document-link {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 28px;
+      align-items: center;
+      min-height: 148px;
+      padding: 26px 2px;
+      border-bottom: 1px solid var(--line);
+      text-decoration: none;
+    }
+
+    .document-link:hover {
+      padding-left: 16px;
+      border-bottom-color: var(--accent);
+    }
+
+    .document-kind {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--accent);
+      font: 700 10px/1 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .document-link h3 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.3;
+    }
+
+    .document-link p {
+      max-width: 620px;
+      margin: 8px 0 0;
       color: var(--muted);
       font-size: 13px;
     }
 
-    .open-link {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      margin-top: 20px;
-      color: var(--ink);
-      font-size: 13px;
-      font-weight: 700;
-      text-decoration: none;
+    .document-link::after {
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
     }
 
-    .open-link::after {
-      content: "→";
-      font: 16px/1 var(--mono);
-      transition: transform 160ms ease;
-    }
-
-    .open-link:hover {
-      color: var(--signal);
-    }
-
-    .open-link:hover::after {
-      transform: translateX(4px);
+    .document-link,
+    .scenario-link,
+    .preview-link,
+    .primary-link,
+    .text-link {
+      transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, padding 160ms ease, transform 120ms ease;
     }
 
     footer {
       display: flex;
       justify-content: space-between;
       gap: 24px;
-      margin-top: 48px;
-      padding-top: 18px;
+      padding: 24px 0 38px;
       border-top: 1px solid var(--line);
-      color: var(--muted);
-      font: 11px/1.5 var(--mono);
+      color: var(--faint);
+      font: 10px/1.5 var(--mono);
     }
 
-    @media (max-width: 1080px) {
-      .shell {
-        grid-template-columns: 200px minmax(0, 1fr);
-      }
-
-      .route-track {
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-      }
-
-      h1 {
-        font-size: 48px;
-      }
-
-      .route-arrow {
-        display: none;
-      }
-    }
-
-    @media (max-width: 780px) {
-      .topbar-inner {
-        padding: 0 18px;
-      }
-
-      .brand-suffix {
-        display: none;
-      }
-
-      .shell {
-        display: block;
-      }
-
-      .sidebar {
-        width: 100%;
-        max-width: 100%;
-        padding: 22px 18px 0;
-        border-right: 0;
-        overflow-x: hidden;
-      }
-
-      .scenario-list {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        margin-top: 12px;
-      }
-
-      .scenario-item {
-        padding-right: 12px;
-      }
-
-      main {
-        width: 100%;
-        max-width: 100%;
-        padding: 36px 18px 48px;
-        overflow-x: hidden;
-      }
-
-      .case-header {
+    @media (max-width: 960px) {
+      .hero {
+        min-height: 0;
         grid-template-columns: 1fr;
-        gap: 22px;
+        gap: 52px;
+        padding-top: 12px;
       }
 
-      .case-status {
-        min-width: 0;
+      .hero-copy {
+        max-width: 600px;
       }
 
-      .route-track {
+      .hero-visual {
+        width: min(100%, 760px);
+      }
+
+      .route {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .route-step {
+        border-bottom-color: var(--line);
+      }
+
+      .route-step:not(:last-child) {
+        margin-right: 20px;
+      }
+
+      .route-step:nth-child(2n)::after,
+      .route-step:last-child::after {
+        display: none;
       }
 
       .route-step:last-child {
         grid-column: 1 / -1;
       }
 
-      .route-step {
-        min-width: 0;
-      }
-
-      .document-grid {
+      .resources {
         grid-template-columns: 1fr;
-      }
-
-      .lead,
-      .scenario-name,
-      .scenario-child,
-      .document p,
-      footer span {
-        overflow-wrap: anywhere;
+        gap: 36px;
       }
     }
 
-    @media (max-width: 480px) {
+    @media (max-width: 640px) {
+      .header-inner,
+      .scenario-nav,
+      main,
+      footer {
+        width: min(100% - 32px, 1240px);
+      }
+
+      .header-inner {
+        height: 62px;
+      }
+
       .repo-link {
         font-size: 0;
       }
 
       .repo-link::after {
-        content: "GitHub";
-        font-size: 12px;
+        content: "GitHub ↗";
+        font-size: 11px;
       }
 
-      .scenario-list {
-        grid-template-columns: 1fr;
+      .scenario-nav {
+        width: 100%;
+        padding-inline: 16px;
+      }
+
+      .scenario-link {
+        padding-inline: 16px;
+      }
+
+      main {
+        padding-top: 42px;
+      }
+
+      .hero {
+        gap: 42px;
+        padding-bottom: 50px;
       }
 
       h1 {
-        font-size: 38px;
+        font-size: clamp(46px, 15vw, 64px);
       }
 
-      .documents-heading {
+      .hero-actions {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .primary-link,
+      .text-link {
+        width: 100%;
+      }
+
+      .preview-frame {
+        box-shadow: 10px 10px 0 var(--surface-strong);
+      }
+
+      .preview-link span {
+        right: 9px;
+        bottom: 9px;
+      }
+
+      .preview-caption {
         display: block;
       }
 
-      .documents-heading span {
+      .preview-caption span {
         display: block;
-        margin-top: 8px;
+        margin-top: 4px;
+      }
+
+      .facts {
+        grid-template-columns: 1fr;
+      }
+
+      .fact,
+      .fact:first-child {
+        padding: 18px 0;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .fact:last-child {
+        border-bottom: 0;
+      }
+
+      .topic {
+        padding: 76px 0 72px;
+      }
+
+      .section-heading {
+        margin-bottom: 36px;
+      }
+
+      .route {
+        grid-template-columns: 1fr;
+      }
+
+      .route-step {
+        min-height: 126px;
+        margin-right: 0 !important;
+      }
+
+      .route-step:not(:last-child)::after {
+        top: auto;
+        right: 4px;
+        bottom: 18px;
+        transform: rotate(90deg);
+      }
+
+      .route-step small {
+        margin-bottom: 26px;
+      }
+
+      .route-step:last-child {
+        grid-column: auto;
+      }
+
+      .resources {
+        padding-top: 48px;
+      }
+
+      .document-link {
+        min-height: 0;
+        padding-block: 24px;
+      }
+
+      .document-link:hover {
+        padding-left: 8px;
+      }
+
+      footer {
+        display: block;
+      }
+
+      footer span {
+        display: block;
+      }
+
+      footer span + span {
+        margin-top: 5px;
       }
     }
 
@@ -637,157 +716,141 @@
         scroll-behavior: auto;
       }
 
-      .document,
-      .open-link::after {
+      .document-link,
+      .scenario-link,
+      .preview-link,
+      .primary-link,
+      .text-link {
         transition: none;
       }
     }
   </style>
 </head>
 <body>
-  <header class="topbar">
-    <div class="topbar-inner">
-      <a class="brand" href="./" aria-label="返回场景索引">
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="./" aria-label="返回 MA Scenario Atlas 首页">
         <span class="brand-mark">MA</span>
         <span class="brand-name">Scenario Atlas</span>
-        <span class="brand-suffix">ARK MANAGED AGENTS</span>
       </a>
       <a class="repo-link" href="https://github.com/FeiZhuNiU-INFJA/ark-agent-feishu-bot">查看代码仓库 ↗</a>
     </div>
   </header>
 
-  <div class="shell">
-    <aside class="sidebar" aria-label="场景目录">
-      <p class="sidebar-label">Atlas + Scenarios / 03</p>
-      <ol class="scenario-list">
-        <li class="scenario-item">
-          <span class="scenario-index">SYSTEM ATLAS</span>
-          <span class="scenario-name">Managed Agents 基础</span>
-          <a class="scenario-child" href="common/docs/managed-agents-architecture-atlas.html">打开交互全景</a>
-          <span class="scenario-note">组件 · 运行 · 权限 · 生命周期</span>
-        </li>
-        <li class="scenario-item active">
-          <span class="scenario-index">SCENARIO 01</span>
-          <span class="scenario-name">MA × 飞书 Bot</span>
-          <a class="scenario-child" href="#topic6">Topic6 · 社媒热点周刊</a>
-        </li>
-        <li class="scenario-item">
-          <span class="scenario-index">SCENARIO 02</span>
-          <span class="scenario-name">MA 复刻客户 Agent</span>
-          <a class="scenario-child" href="https://github.com/FeiZhuNiU-INFJA/ark-agent-feishu-bot/tree/de/scenarios/ma-replica">查看 README ↗</a>
-          <span class="scenario-note">交互式页面待补充</span>
-        </li>
-      </ol>
-    </aside>
-
-    <main id="topic6">
-      <section class="case-header" aria-labelledby="case-title">
-        <div>
-          <p class="eyebrow">Scenario 01 / Case Topic6</p>
-          <h1 id="case-title">社媒热点周刊</h1>
-          <p class="lead">从飞书消息触发开始，自动完成四平台热点取数、标准化、AI 标注、洞察生成、人工审核和网页版报告发布。</p>
-        </div>
-        <div class="case-status" aria-label="场景状态">
-          <strong>ACTIVE CASE</strong>
-          <span>3 种运行模式 · 3 个人工关卡</span>
-        </div>
-      </section>
-
-      <section class="route" aria-labelledby="route-title">
-        <p class="section-label" id="route-title">Execution route</p>
-        <div class="route-track" aria-label="Topic6 执行链">
-          <div class="route-step source"><b>飞书触发</b><small>MESSAGE / TIMER</small></div>
-          <span class="route-arrow" aria-hidden="true">→</span>
-          <div class="route-step data"><b>数据聚合</b><small>FETCH / NORMALIZE</small></div>
-          <span class="route-arrow" aria-hidden="true">→</span>
-          <div class="route-step agent"><b>AI 标注</b><small>ANNOTATE / INSIGHT</small></div>
-          <span class="route-arrow" aria-hidden="true">→</span>
-          <div class="route-step human"><b>人工审核</b><small>HC1 / HC2 / HC3</small></div>
-          <span class="route-arrow" aria-hidden="true">→</span>
-          <div class="route-step data"><b>妙搭发布</b><small>HTML / PUBLISH</small></div>
-        </div>
-      </section>
-
-      <section class="documents" aria-labelledby="documents-title">
-        <div class="documents-heading">
-          <div>
-            <p class="section-label">Key documents</p>
-            <h2 id="documents-title">MA 交互式全景</h2>
-          </div>
-          <span>点击图中节点可查看职责、契约与文件索引</span>
-        </div>
-
-        <div class="document-grid">
-          <article class="document">
-            <div class="document-preview atlas-preview" aria-hidden="true">
-              <div class="preview-column">
-                <span class="mini-node">AGENT</span>
-                <span class="mini-node">ENVIRONMENT</span>
-              </div>
-              <div class="preview-column">
-                <span class="mini-node atlas-session">SESSION</span>
-                <span class="mini-node">EVENTS / SSE</span>
-              </div>
-              <div class="preview-column">
-                <span class="mini-node">VAULT</span>
-                <span class="mini-node">MEMORY</span>
-              </div>
-            </div>
-            <div class="document-body">
-              <p class="doc-type">SYSTEM ATLAS</p>
-              <h3>Managed Agents 架构全景</h3>
-              <p>从通用对象模型出发，交互查看组件关系、一次任务、权限边界、资源生命周期与新手问答。</p>
-              <a class="open-link" href="common/docs/managed-agents-architecture-atlas.html">打开系统地图</a>
-            </div>
-          </article>
-
-          <article class="document">
-            <div class="document-preview architecture-preview" aria-hidden="true">
-              <div class="preview-column">
-                <span class="mini-node gateway">FEISHU</span>
-                <span class="mini-node gateway">GATEWAY</span>
-              </div>
-              <div class="preview-column">
-                <span class="mini-node ma">COORDINATOR</span>
-                <span class="mini-node ma">SUB AGENTS</span>
-              </div>
-              <div class="preview-column">
-                <span class="mini-node skill">SKILLS</span>
-                <span class="mini-node skill">MA RESOURCES</span>
-              </div>
-            </div>
-            <div class="document-body">
-              <p class="doc-type">SYSTEM MAP</p>
-              <h3>MA 架构全景</h3>
-              <p>查看飞书 Gateway、Coordinator、子 Agent、Custom Skill 与 MA 平台资源之间的交互契约。</p>
-              <a class="open-link" href="scenarios/feishu-bot/cases/topic6/topic6_ma_architecture.html">打开架构图</a>
-            </div>
-          </article>
-
-          <article class="document">
-            <div class="document-preview pipeline-preview" aria-hidden="true">
-              <span class="phase">A+B</span>
-              <span class="phase">C+D</span>
-              <span class="phase">HC1</span>
-              <span class="phase">E+F</span>
-              <span class="phase">HC3</span>
-              <span class="phase">H</span>
-            </div>
-            <div class="document-body">
-              <p class="doc-type">PIPELINE MAP</p>
-              <h3>完整流水线</h3>
-              <p>沿 Phase A 到 H 查看三种运行模式、并发标注、断点持久化、人工关卡与最终交付。</p>
-              <a class="open-link" href="scenarios/feishu-bot/cases/topic6/topic6_pipeline_overview.html">打开流水线</a>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <footer>
-        <span>ARK AGENT FEISHU BOT / SCENARIO INDEX</span>
-        <span>STATIC · GITHUB PAGES</span>
-      </footer>
-    </main>
+  <div class="scenario-strip">
+    <nav class="scenario-nav" aria-label="场景索引">
+      <a class="scenario-link" href="common/docs/managed-agents-architecture-atlas.html">Managed Agents 基础</a>
+      <a class="scenario-link" href="#topic6">MA × 飞书 Bot</a>
+      <a class="scenario-link" href="https://github.com/FeiZhuNiU-INFJA/ark-agent-feishu-bot/tree/de/scenarios/ma-replica">MA 复刻客户 Agent</a>
+    </nav>
   </div>
+
+  <main>
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-content">
+        <p class="eyebrow">Managed Agents 文档入口</p>
+        <h1 id="page-title">先看系统，再看场景。</h1>
+        <p class="hero-copy">从通用对象模型开始，理解一次任务如何组装能力；再进入飞书 Bot 场景，查看完整执行链。</p>
+        <div class="hero-actions">
+          <a class="primary-link" href="common/docs/managed-agents-architecture-atlas.html">打开系统全景</a>
+          <a class="text-link" href="#topic6">查看 Topic6</a>
+        </div>
+      </div>
+
+      <div class="hero-visual">
+        <div class="preview-frame">
+          <span class="preview-window" aria-hidden="true">
+            <iframe src="common/docs/managed-agents-architecture-atlas.html#architecture" title="Managed Agents 架构全景预览" tabindex="-1" loading="eager"></iframe>
+          </span>
+          <a class="preview-link" href="common/docs/managed-agents-architecture-atlas.html" aria-label="打开 Managed Agents 架构全景">
+            <span aria-hidden="true">打开交互全景 ↗</span>
+          </a>
+        </div>
+        <p class="preview-caption">
+          <strong>Managed Agents 架构全景</strong>
+          <span>组件关系、运行、权限与生命周期</span>
+        </p>
+      </div>
+    </section>
+
+    <section class="facts" aria-label="系统全景内容">
+      <div class="fact">
+        <b>5 个视角</b>
+        <span>架构、任务、权限、生命周期、问答</span>
+      </div>
+      <div class="fact">
+        <b>交互关系图</b>
+        <span>点击节点查看职责、契约与官方出处</span>
+      </div>
+      <div class="fact">
+        <b>新手路径</b>
+        <span>从 Session 出发理解全部资源</span>
+      </div>
+    </section>
+
+    <section class="topic" id="topic6" aria-labelledby="topic-title">
+      <div class="section-heading">
+        <h2 id="topic-title">社媒热点周刊</h2>
+        <p>飞书消息触发后，自动完成四平台热点取数、AI 标注、洞察生成、人工审核与网页版发布。</p>
+      </div>
+
+      <div class="route" aria-label="Topic6 执行链">
+        <div class="route-step">
+          <small>MESSAGE / TIMER</small>
+          <b>飞书触发</b>
+          <span>接收任务与运行参数</span>
+        </div>
+        <div class="route-step">
+          <small>FETCH / NORMALIZE</small>
+          <b>数据聚合</b>
+          <span>四平台取数与标准化</span>
+        </div>
+        <div class="route-step">
+          <small>ANNOTATE / INSIGHT</small>
+          <b>AI 标注</b>
+          <span>并发判断与洞察生成</span>
+        </div>
+        <div class="route-step review">
+          <small>HC1 / HC2 / HC3</small>
+          <b>人工审核</b>
+          <span>三个人工决策关卡</span>
+        </div>
+        <div class="route-step">
+          <small>HTML / PUBLISH</small>
+          <b>妙搭发布</b>
+          <span>生成并发布网页版报告</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="resources" aria-labelledby="resources-title">
+      <div class="resources-intro">
+        <h2 id="resources-title">深入 Topic6</h2>
+        <p>先看组件边界，再沿实际阶段检查三种运行模式、断点与人工关卡。</p>
+      </div>
+
+      <div class="document-list">
+        <a class="document-link" href="scenarios/feishu-bot/cases/topic6/topic6_ma_architecture.html">
+          <span>
+            <span class="document-kind">System map</span>
+            <h3>MA 架构全景</h3>
+            <p>飞书 Gateway、Coordinator、子 Agent、Custom Skill 与 MA 平台资源的交互契约。</p>
+          </span>
+        </a>
+        <a class="document-link" href="scenarios/feishu-bot/cases/topic6/topic6_pipeline_overview.html">
+          <span>
+            <span class="document-kind">Pipeline map</span>
+            <h3>完整流水线</h3>
+            <p>Phase A 到 H 的运行模式、并发标注、断点持久化、人工关卡与最终交付。</p>
+          </span>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>ARK AGENT FEISHU BOT / SCENARIO ATLAS</span>
+    <span>STATIC GITHUB PAGES</span>
+  </footer>
 </body>
 </html>

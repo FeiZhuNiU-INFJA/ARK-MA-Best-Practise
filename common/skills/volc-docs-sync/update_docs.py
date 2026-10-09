@@ -42,7 +42,7 @@ API_TMPL = "https://docs.volcengine.com/api/doc/getDocDetail?DocumentID={doc_id}
 # 文档中心的卡片库 ID（用于拼「来源」链接 https://.../docs/{LIBRARY_ID}/{doc_id}）。
 LIBRARY_ID = 82379
 DEFAULT_START = 2553713
-DEFAULT_END = 2553730  # 闭区间
+DEFAULT_END = 2553731  # 闭区间
 
 # 脚本相对 common/ 目录的默认输出（common/skills/volc-docs-sync/ -> common/ -> docs/...）。
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -79,6 +79,23 @@ def fetch_doc(doc_id: int, retries: int = 3, timeout: int = 30) -> dict:
             if attempt < retries:
                 time.sleep(1.0 * attempt)
     raise RuntimeError(f"拉取 {doc_id} 失败（已重试 {retries} 次）: {last_err}")
+
+
+def peek_doc(doc_id: int, timeout: int = 10) -> dict | None:
+    """探测用的轻量请求：无效 ID / 他库文档 直接返回 None，不抛错。"""
+    url = API_TMPL.format(doc_id=doc_id)
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, json.JSONDecodeError, OSError):
+        return None
+    result = payload.get("Result")
+    if not result or not result.get("Title"):
+        return None
+    return result
 
 
 # --- 内容归一化 -------------------------------------------------------------
@@ -226,6 +243,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-format", action="store_true", help="跳过 Prettier 格式化")
     parser.add_argument("--dry-run", action="store_true", help="只抓取并打印诊断，不写文件")
     parser.add_argument("--sleep", type=float, default=0.2, help="每次请求之间的间隔秒数")
+    parser.add_argument(
+        "--probe-radius",
+        type=int,
+        default=5,
+        help="在 [start-N, end+N] 两侧探测本库未纳入的页面；0 表示跳过",
+    )
     args = parser.parse_args(argv)
 
     if args.end < args.start:
@@ -235,13 +258,19 @@ def main(argv: list[str] | None = None) -> int:
     print(f"拉取 {len(ids)} 个页面：{args.start}..{args.end}")
 
     docs: list[tuple[int, str, str]] = []
+    updated_times: list[tuple[int, str, str]] = []  # (doc_id, title, UpdatedTime)
+    parent_codes: set[str] = set()  # 用于边界探测时判定"同库同父节点"
     for i, doc_id in enumerate(ids):
         result = fetch_doc(doc_id)
         title = result["Title"]
         md = result.get("MDContent") or ""
         updated = result.get("UpdatedTime", "?")
+        parent_code = result.get("ParentCode")
+        if parent_code:
+            parent_codes.add(parent_code)
         print(f"  {doc_id}  {title:<18}  md_len={len(md):<6} updated={updated}")
         docs.append((doc_id, title, md))
+        updated_times.append((doc_id, title, updated))
         if args.sleep and i < len(ids) - 1:
             time.sleep(args.sleep)
 
@@ -258,13 +287,96 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         print(f"\n[dry-run] 已生成 {len(text)} 字符，未写入。目标路径：{args.out}")
+        _print_atlas_hint(args.out, updated_times)
+        _probe_boundary(args.start, args.end, args.probe_radius, parent_codes, args.sleep)
         return 0
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write(text)
     print(f"\n已写入：{args.out}（{len(text)} 字符）")
+
+    _print_atlas_hint(args.out, updated_times)
+    _probe_boundary(args.start, args.end, args.probe_radius, parent_codes, args.sleep)
     return 0
+
+
+# --- 边界探测 ---------------------------------------------------------------
+
+
+def _probe_boundary(
+    start: int,
+    end: int,
+    radius: int,
+    known_parent_codes: set[str],
+    sleep: float,
+) -> None:
+    """在 [start-radius, start-1] 和 [end+1, end+radius] 两侧探测本库未纳入的页面。
+
+    DocumentID 是火山引擎全局递增、跨产品共享的，不保证连续。相邻 ID 很可能是其
+    它库（如 cr/Cloudphone）。判定"属于本次合集范围"的特征是 LibraryCode == 'ark'
+    且 ParentCode ∈ 已收集的父节点集合（本次 2553713..2553730 对应 Managed Agents
+    的「入门」与「进阶能力」两组）。命中就打印疑似漏页，不自动改区间。
+    """
+    if radius <= 0:
+        return
+    print(f"\n[probe] 边界探测半径 ±{radius}（判定特征：LibraryCode=ark 且 ParentCode ∈ {sorted(known_parent_codes)}）")
+    hits: list[tuple[int, str, str, str]] = []
+    probes = list(range(start - radius, start)) + list(range(end + 1, end + radius + 1))
+    for doc_id in probes:
+        if doc_id <= 0:
+            continue
+        r = peek_doc(doc_id)
+        if sleep:
+            time.sleep(sleep)
+        if not r:
+            continue
+        if r.get("LibraryCode") != "ark":
+            continue
+        pc = r.get("ParentCode") or ""
+        title = r.get("Title") or "?"
+        if pc in known_parent_codes:
+            hits.append((doc_id, title, pc, r.get("UpdatedTime", "?")))
+    if not hits:
+        print("  未发现疑似漏页。")
+        return
+    print(f"  发现 {len(hits)} 个疑似漏页（同库同父节点），建议扩区间：")
+    for doc_id, title, pc, updated in hits:
+        print(f"    - {doc_id}  {title}  (ParentCode={pc}, updated={updated})")
+
+
+# --- 下游联动提示 -----------------------------------------------------------
+
+# atlas 文件相对 Markdown 合集所在目录的位置（docs/ 同级）。
+_ATLAS_FILENAME = "managed-agents-architecture-atlas.html"
+
+
+def _print_atlas_hint(
+    out_path: str, updated_times: list[tuple[int, str, str]]
+) -> None:
+    """提醒检查下游 atlas 文档是否需要同步更新（兜底提示，不中断执行）。"""
+    atlas_path = os.path.join(os.path.dirname(os.path.abspath(out_path)), _ATLAS_FILENAME)
+    print("\n[hint] 下游联动检查：", _ATLAS_FILENAME)
+    if not os.path.exists(atlas_path):
+        print(f"  atlas 文件未找到：{atlas_path}（如仍维护此文档，请手动确认）")
+        return
+    atlas_mtime = os.path.getmtime(atlas_path)
+    atlas_mtime_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(atlas_mtime))
+    newer: list[tuple[int, str, str]] = []
+    for doc_id, title, updated in updated_times:
+        try:
+            ts = time.mktime(time.strptime(updated, "%Y-%m-%dT%H:%M:%SZ")) - time.timezone
+        except (ValueError, TypeError):
+            continue
+        if ts > atlas_mtime:
+            newer.append((doc_id, title, updated))
+    print(f"  atlas 最后修改：{atlas_mtime_str}")
+    if newer:
+        print(f"  有 {len(newer)} 个页面在 atlas 之后更新，建议人工审阅 atlas：")
+        for doc_id, title, updated in newer:
+            print(f"    - {doc_id} {title}  updated={updated}")
+    else:
+        print("  所有页面均不晚于 atlas，无需同步。")
 
 
 if __name__ == "__main__":
