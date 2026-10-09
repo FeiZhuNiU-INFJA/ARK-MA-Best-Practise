@@ -169,12 +169,21 @@
     .edge.security { stroke: var(--guard); stroke-dasharray: 7 5; }
     .edge.data { stroke: var(--external); }
     .edge.collab { stroke: var(--collab); stroke-dasharray: 3 4; }
+    .edge-arrow { pointer-events: none; opacity: .82; }
+    .edge-arrow.control { fill: var(--control); }
+    .edge-arrow.runtime { fill: var(--runtime); }
+    .edge-arrow.security { fill: var(--guard); }
+    .edge-arrow.data { fill: var(--external); }
+    .edge-arrow.collab { fill: var(--collab); }
     .edge-group.is-unrelated { display: none; }
     .node.is-muted { opacity: .1; }
     .edge.is-active, .edge-group:focus-within .edge {
       opacity: 1;
       stroke-width: 3.5;
       animation: edge-pulse 1.15s ease-in-out infinite;
+    }
+    .edge-arrow.is-active, .edge-group:focus-within .edge-arrow {
+      animation: arrow-pulse 1.15s ease-in-out infinite;
     }
     .edge-hit { fill: none; stroke: transparent; stroke-width: 16; cursor: pointer; outline: none; }
     .edge-hit:focus-visible, .node:focus-visible { outline: none; }
@@ -202,6 +211,10 @@
     @keyframes edge-pulse {
       0%, 100% { opacity: .5; stroke-width: 2.25; }
       50% { opacity: 1; stroke-width: 3.75; }
+    }
+    @keyframes arrow-pulse {
+      0%, 100% { opacity: .55; }
+      50% { opacity: 1; }
     }
     @keyframes node-pulse {
       0%, 100% { stroke-width: 2; filter: drop-shadow(0 0 1px rgba(23,92,211,.18)); }
@@ -486,7 +499,7 @@
           <span><i class="external"></i>数据与外部系统</span>
           <span><i class="collab"></i>角色协作</span>
         </div>
-        <p class="legend-note">箭头指向被引用、创建或调用的一方，文字表示绑定字段或动作。</p>
+        <p class="legend-note">单箭头指向被引用、创建或调用的一方；双箭头表示领取与回传组成的往返协议。</p>
       </section>
       <section class="side-section reading-section">
         <h2>建议阅读顺序</h2>
@@ -564,6 +577,8 @@
       permissions: ["工具权限策略", "https://docs.volcengine.com/docs/82379/2553720?lang=zh"],
       environment: ["配置云环境", "https://docs.volcengine.com/docs/82379/2553721?lang=zh"],
       sandbox: ["云沙箱参考", "https://docs.volcengine.com/docs/82379/2553722?lang=zh"],
+      selfhosted: ["自托管环境概述", "https://ark.volcengine.com/region:cn-beijing/docs/ark/self-hosted-environment-overview"],
+      selfhostedConfig: ["配置并运行自托管环境", "https://ark.volcengine.com/region:cn-beijing/docs/ark/configure-self-hosted-environment"],
       start: ["启动 Session", "https://docs.volcengine.com/docs/82379/2553723?lang=zh"],
       session: ["管理 Session", "https://docs.volcengine.com/docs/82379/2553724?lang=zh"],
       events: ["Session 事件流", "https://docs.volcengine.com/docs/82379/2553725?lang=zh"],
@@ -579,9 +594,10 @@
       agent: { name:"Agent", kind:"版本化定义", plane:"控制面", summary:"定义模型、System Prompt、Skills、Tools、MCP 和多智能体关系，是多个 Session 复用的能力模板。", owner:"平台资源", createdWhen:"设计能力时", boundWhen:"创建 Session 时引用", mutable:"更新产生新版本", scope:"多个 Session 复用", retention:"独立于 Session", facts:["稳定 Agent ID 下维护递增版本。","Session 可使用最新版本，也可显式固定版本。","tools、skills、mcp_servers 传入数组时采用整体替换语义。"], pitfalls:["更新 Agent 不会自动改变已有 Session。","主 Agent 省略内置 Toolset 并不等于关闭工具。"], sources:["agent","skills","tools"] },
       skills: { name:"Skills", kind:"能力包", plane:"控制面", summary:"为 Agent 提供可复用的领域知识、流程和最佳实践，运行时只读挂载到 /mnt/skills。", owner:"平台或团队", createdWhen:"沉淀方法时", boundWhen:"Agent 定义时引用", mutable:"自定义 Skill 可发新版本", scope:"随 Agent 配置", retention:"独立资源", facts:["支持 SkillHub 预置与自定义 Skill。","单个 Agent 最多配置 50 个 Skills。","挂载目录对 Agent 只读。"], pitfalls:["一次性任务应通过 Session 事件传入，不应写进 Skill。"], sources:["skills","sandbox"] },
       tools: { name:"Tools", kind:"执行能力", plane:"控制面", summary:"让 Agent 操作文件、执行命令、访问网页或调用业务操作；工具范围与权限策略在 Agent 定义中配置。", owner:"方舟或业务方", createdWhen:"定义 Agent 时", boundWhen:"Session 使用 Agent 快照", mutable:"更新 Agent 后生效", scope:"工具集与单工具", retention:"随 Agent 版本", facts:["内置、MCP、自定义工具的执行责任不同。","工具集默认值和单工具 configs 共同决定最终范围。"], pitfalls:["关闭 write/edit 不代表强隔离，bash 与网络仍可能绕过意图限制。"], sources:["tools","permissions"] },
-      environment: { name:"Environment", kind:"运行模板", plane:"控制面", summary:"定义云沙箱类型、依赖包、环境变量、网络与产物存储；多个 Session 可复用模板，但沙箱彼此隔离。", owner:"平台资源", createdWhen:"准备运行环境时", boundWhen:"创建 Session 时引用", mutable:"可更新，无内建版本", scope:"多个 Session 复用", retention:"独立于 Session", facts:["每个 Session 获得独立沙箱实例。","依赖会在使用同一 Environment 的 Session 之间缓存。","已有 Session 使用创建时冻结的配置快照。"], pitfalls:["频繁更新时应在业务侧记录环境版本。"], sources:["environment","sandbox"] },
+      environment: { name:"Environment", kind:"运行模板", plane:"控制面", summary:"选择云托管或自托管执行模式，并定义相应运行配置；多个 Session 可复用模板，但运行实例彼此隔离。", owner:"平台资源", createdWhen:"准备运行环境时", boundWhen:"创建 Session 时引用", mutable:"可更新，无内建版本", scope:"多个 Session 复用", retention:"独立于 Session", facts:["云环境由方舟启动独立 Session 沙箱。","自托管环境由企业 Worker 和 Sandbox 执行内置工具。","已有 Session 使用创建时冻结的配置快照。"], pitfalls:["频繁更新时应在业务侧记录环境版本。","不要把 Environment 等同于一个正在运行的容器。"], sources:["environment","selfhosted"] },
       session: { name:"Session", kind:"运行实例", plane:"运行面", summary:"把 Agent、Environment、Vaults 与资源组合成一次隔离运行；跨多轮保留对话历史和可恢复沙箱状态。", owner:"平台资源", createdWhen:"每个任务或会话开始时", boundWhen:"创建即冻结配置快照", mutable:"可改标题/标签，可升级配置", scope:"单次隔离运行", retention:"空闲 14 天后终止", facts:["创建 Session 不会启动工作，发送 user.message 才开始。","正常轮次结束为 idle + end_turn。","可在 running 时继续排队发送消息。"], pitfalls:["idle 也可能是 requires_action 或 retries_exhausted，不能单看状态。"], sources:["start","session","events"], engineering:"生产接入通常需要在业务库维护“终端会话 → session_id”的映射，MA 不替业务方维护渠道会话关系。" },
-      sandbox: { name:"Session 沙箱", kind:"隔离执行环境", plane:"运行面", summary:"每个 Session 的独立 Linux 运行实例，承载文件工具、命令、依赖与中间状态。", owner:"方舟托管", createdWhen:"Session 初始化/恢复时", boundWhen:"由 Environment 配置", mutable:"Session 内可读写允许目录", scope:"单个 Session", retention:"随 Session 快照与终止策略", facts:["/workspace 可读写，AGENTS.md 只读。","/mnt/memory、/mnt/skills、/mnt/session/uploads 只读。","/mnt/session/outputs 与 storage 可读写。"], pitfalls:["Environment 被复用不代表 Session 共享文件系统。"], sources:["sandbox","session"] },
+      sandbox: { name:"Cloud Sandbox", kind:"方舟托管沙箱", plane:"运行面", summary:"cloud Environment 下，每个 Session 获得独立 Linux 实例，由方舟执行内置工具并维护沙箱状态。", owner:"方舟托管", createdWhen:"Session 初始化/恢复时", boundWhen:"Environment 类型为 cloud", mutable:"Session 内可读写允许目录", scope:"单个 Session", retention:"随 Session 快照与终止策略", facts:["/workspace 可读写，AGENTS.md 只读。","/mnt/memory、/mnt/skills、/mnt/session/uploads 只读。","/mnt/session/outputs 与 storage 可读写。"], pitfalls:["Environment 被复用不代表 Session 共享文件系统。","自托管模式不会由方舟代管企业 Sandbox。"], sources:["sandbox","session","selfhosted"] },
+      selfhosted: { name:"Self-hosted", kind:"Worker + 企业 Sandbox", plane:"企业运行面", summary:"自托管 Environment 把内置工具执行交给企业 Worker；Worker 领取 Work，在企业 Sandbox 执行并把结果回传给 Session。", owner:"业务方", createdWhen:"需要访问企业内网或自有算力时", boundWhen:"Environment 选择自托管", mutable:"Worker 与 Sandbox 独立部署升级", scope:"自托管 Environment", retention:"企业自行管理", facts:["Worker 负责 Poll / Ack Work。","Worker 建立专用 SSE，并用 Heartbeat 维持 Work 租约。","执行完成后通过 user.tool_result 关联 tool_use_id 回传。"], pitfalls:["业务应用不直接调用 Work API，领取任务是 Worker 的职责。","模型循环和 Session 状态仍由方舟托管，并非整套 MA 搬到企业侧。"], sources:["selfhosted","selfhostedConfig","tools"] },
       events: { name:"Events / SSE", kind:"通信与历史", plane:"运行面", summary:"应用与 Agent 之间的原子消息。SSE 负责实时推送，Events API 负责发送与历史补查。", owner:"Session", createdWhen:"任务交互时", boundWhen:"按 session_id 读写", mutable:"只增不删", scope:"Session 主线程/子线程", retention:"完整事件默认 6 个月", facts:["先建立 SSE 并等待 : ready，再发送事件。","预览帧不进入历史，业务判断以完整事件为准。","事件域包括 user.*、agent.*、session.*、span.*。"], pitfalls:["agent.message 或 SSE 关闭都不是本轮结束判据。"], sources:["events"] },
       vault: { name:"Vault / Credential", kind:"凭据隔离", plane:"安全层", summary:"为终端用户保存并隔离外部服务凭据，通过 vault_ids 在 Session 级注入。", owner:"平台安全资源", createdWhen:"用户授权或配置密钥时", boundWhen:"创建 Session 时传 vault_ids", mutable:"密钥可轮换，匹配键不可变", scope:"工作空间与用户", retention:"独立资源，删除不可恢复", facts:["每个 Vault 最多 100 个凭据。","MCP URL 或 secret_name 是不可变匹配键。","凭据会在 Session 期间周期性重新解析。"], pitfalls:["同一 Agent 服务不同用户时，应为 Session 绑定对应用户的 Vault。","环境变量凭据在沙箱出口替换，Agent 看不到真实密钥。"], sources:["vault","mcp"] },
       memory: { name:"Memory Store", kind:"长期记忆", plane:"数据层", summary:"跨 Session 保留偏好、规范和经验；创建 Session 时通过 resources 挂载，并可指定只读或读写。", owner:"平台资源", createdWhen:"需要长期上下文时", boundWhen:"仅创建 Session 时挂载", mutable:"由 access 决定 read_only/read_write", scope:"用户/团队/项目 Store", retention:"独立于 Session", facts:["单 Session 最多挂载 10 个 Store。","单 Store 最多 2,000 条 Memory，单条 100 KiB。","read_write 修改会供后续 Session 继续使用。"], pitfalls:["Memory Store 不能在运行中的 Session 追加或移除。"], sources:["memory"] },
@@ -601,6 +617,7 @@
       {id:"memory-session",from:"memory",to:"session",type:"data",label:"resources[]",detail:"Memory Store 只能在 Session 创建时挂载，并显式设置 read_only 或 read_write。"},
       {id:"files-session",from:"files",to:"session",type:"data",label:"resources[]",viaX:495,targetSide:"bottom",detail:"Files/TOS 作为 Session 输入或共享存储；文件资源可在运行中追加。"},
       {id:"session-sandbox",from:"session",to:"sandbox",type:"runtime",label:"独立实例",detail:"Session 初始化或恢复隔离沙箱，文件系统不与其他 Session 共享。"},
+      {id:"session-selfhosted",from:"session",to:"selfhosted",type:"runtime",label:"Work ⇄ tool_result",viaY:470,bidirectional:true,detail:"自托管时，Worker 主动领取并确认 Work；方舟通过 Worker SSE 下发调用，Worker 在企业 Sandbox 执行后用 user.tool_result 把结果交回 Session。"},
       {id:"session-events",from:"session",to:"events",type:"runtime",label:"append-only",detail:"状态、消息、工具调用和结果都通过事件流暴露并持久化完整事件。"},
       {id:"agent-skills",from:"agent",to:"skills",type:"control",label:"skills[]",detail:"Skill 在 Agent 定义中引用，运行时以只读能力包挂载。"},
       {id:"agent-tools",from:"agent",to:"tools",type:"control",label:"tools[]",detail:"Agent 显式配置工具集、单工具启停和权限策略。"},
@@ -614,7 +631,8 @@
     const POSITIONS = {
       app:[40,300], agent:[315,75], skills:[80,70], tools:[80,160], environment:[315,205],
       session:[450,315], sandbox:[705,180], events:[705,390], vault:[315,520], memory:[80,500],
-      files:[80,600], mcp:[900,170], multi:[705,70], advisor:[490,140], external:[900,315]
+      files:[80,600], mcp:[900,170], multi:[705,70], advisor:[490,140], external:[900,315],
+      selfhosted:[900,520]
     };
 
     const RUNTIME_SCENARIOS = {
@@ -649,12 +667,24 @@
         ["子线程回传","按线程 ID 关联消息","thread_message_sent"],
         ["协调器汇总","收到全部结果后生成最终回复","agent.message"],
         ["联合验收","主线程 end_turn 且无子线程停留/终止","verified"]
+      ]},
+      selfhosted: {label:"自托管工具执行", steps:[
+        ["业务应用订阅 Session","建立 Session SSE，等待服务端就绪","GET events/stream"],
+        ["业务应用提交任务","发送 user.message，Session 进入运行","session.status_running"],
+        ["Worker 领取工作","Poll 并 Acknowledge Work","Work API"],
+        ["Worker 订阅与续租","建立 Worker SSE，持续发送 Heartbeat","Worker SSE / Heartbeat"],
+        ["方舟下发工具调用","Session 返回待执行的内置工具","agent.tool_use"],
+        ["企业 Sandbox 执行","Worker 在企业基础设施中运行本地操作","tool execution"],
+        ["Worker 回传结果","按 tool_use_id 发送执行结果","user.tool_result"],
+        ["Session 继续 AgentLoop","方舟消费工具结果并继续推理","session.status_running"],
+        ["本轮结束","收到 idle 且 stop_reason 为 end_turn","session.status_idle"]
       ]}
     };
 
     const LIFECYCLES = [
       {id:"agent",name:"Agent",events:["创建稳定 ID / v1","更新配置 → v2","新 Session 取最新版或固定版","已有 Session 不自动切换","独立删除"]},
-      {id:"environment",name:"Environment",events:["创建唯一名称","多个 Session 复用模板","每个 Session 独立沙箱","更新影响未来 Session","有 idle/running 引用时不可删"]},
+      {id:"environment",name:"Environment",events:["创建唯一名称","选择 cloud 或 self-hosted","多个 Session 复用模板","更新影响未来 Session","有 idle/running 引用时不可删"]},
+      {id:"selfhosted",name:"Self-hosted Worker",events:["部署并注册 Worker","Poll / Ack Work","建立 Worker SSE","Heartbeat 维持租约","执行并回传 user.tool_result"]},
       {id:"session",name:"Session",events:["initializing","idle ↔ running","rescheduling → running","idle → upgrading → idle","failed / terminated"]},
       {id:"vault",name:"Vault / 凭据",events:["创建 Vault","写入 Credential","Session 周期性重新解析","轮换密钥值","硬删除且不可恢复"]},
       {id:"memory",name:"Memory Store",events:["创建 Store","预置 Memory","创建 Session 时挂载","按 access 读取或修改","跨 Session 保留"]},
@@ -663,12 +693,14 @@
 
     const FAQ_ITEMS = [
       ["Agent 和 Session 有什么区别？","Agent 是可版本化、可复用的能力定义；Session 是引用某个 Agent 与 Environment 后产生的一次隔离运行实例。","核心对象",["agent","session"]],
-      ["Environment 是模板还是正在运行的沙箱？","是模板。多个 Session 可引用同一个 Environment，但每个 Session 都会获得独立沙箱，文件系统不共享。","核心对象",["environment","sandbox"]],
+      ["Environment 是模板还是正在运行的沙箱？","是模板，不是容器。cloud 模式由方舟为每个 Session 提供独立沙箱；self-hosted 模式由企业 Worker 和 Sandbox 落实运行实例与隔离。","核心对象",["environment","sandbox","selfhosted"]],
+      ["云环境和自托管环境怎么选？","不需要维护执行基础设施时使用 cloud，由方舟提供每 Session 独立沙箱；需要访问企业内网、自有算力或受控运行环境时使用自托管，由企业 Worker 和 Sandbox 执行内置工具。","运行环境",["environment","sandbox","selfhosted"]],
+      ["自托管后哪些部分仍在方舟？","AgentLoop、模型调用、Session 状态和事件仍由方舟托管。企业侧 Worker 只负责领取 Work、在企业 Sandbox 执行内置工具，并通过 user.tool_result 回传结果。","运行环境",["session","selfhosted","events"]],
       ["Skill、Tool、MCP 应该怎么选？","Skill 沉淀知识与流程；Tool 提供执行动作；MCP 用标准协议接入一组外部系统工具。固定步骤且无需角色边界时，不必拆 Multi Agent。","能力",["skills","tools","mcp"]],
       ["为什么凭据不写在 Agent 里？","Agent 需要被复用，而终端用户凭据必须隔离。凭据存入 Vault，并在创建 Session 时通过 vault_ids 绑定当前用户。","安全",["vault","agent"]],
       ["同一个 Agent 如何代表不同用户？","为每个用户维护独立 Vault，创建用户 Session 时绑定对应 vault_id。MCP 或环境变量凭据在运行时按匹配规则注入。","安全",["vault","session"]],
       ["Session 会自动继承 Agent 新版本吗？","不会。已有 Session 保持创建时的配置快照；新建 Session 可使用最新版，也可固定版本。需要更新存量 Session 时使用升级会话能力。","生命周期",["agent","session"]],
-      ["不同 Session 会共享文件吗？","不会共享沙箱文件系统。跨 Session 共享长期记忆用 Memory Store，共享业务文件可挂载 TOS 资源。","数据",["sandbox","memory","files"]],
+      ["不同 Session 会共享文件吗？","Cloud Sandbox 的文件系统不跨 Session 共享；Self-hosted 是否共享取决于企业 Sandbox 的隔离设计。跨 Session 长期内容应显式使用 Memory Store 或 TOS 资源。","数据",["sandbox","selfhosted","memory","files"]],
       ["Memory 和 Session 历史有什么区别？","Session 历史记录本次会话的事件和上下文；Memory Store 是可跨 Session 挂载的长期内容，并可按 access 设置只读或读写。","数据",["memory","events"]],
       ["uploads、storage、outputs 有什么区别？","uploads 是 Files API 输入的只读副本；storage 是 TOS 资源的读写挂载；outputs 是最终交付目录，会注册为 Session 文件。","数据",["files","sandbox"]],
       ["Session 进入 idle 就成功了吗？","不一定。只有 idle 且 stop_reason.type=end_turn 才是正常结束；requires_action 表示等待确认或外部结果。","运行",["session","events"]],
@@ -679,16 +711,17 @@
     ];
 
     const VIEW_META = {
-      architecture:["系统模型","一个 Session，组装全部能力","Agent 定义怎么做，Environment 决定在哪跑，Session 把凭据、资源和任务组合成一次隔离运行。","MA 对象关系图","箭头指向被引用、创建或调用的一方；点击连线查看详情"],
+      architecture:["系统模型","一个 Session，组装全部能力","Agent 定义怎么做，Environment 决定由方舟云沙箱还是企业 Self-hosted Worker 执行，Session 组装凭据、资源与任务。","MA 对象关系图","箭头指向被引用、创建或调用的一方；点击连线查看详情"],
       runtime:["运行轨迹","一次任务如何真正跑起来","创建 Session 只是完成装配；建立事件流并发送 user.message 后，AgentLoop 才开始工作。","Session 运行轨迹","切换分支，查看正常完成、确认、重调度与委派"],
       permissions:["安全边界","权限不是一个开关","工具范围、执行确认、文件与网络隔离、外部凭据四层共同决定 Agent 真正能做什么。","四层权限门禁","点击任一门禁查看配置边界与常见误区"],
       lifecycle:["资源时间线","每种资源活得不一样","定义、实例、凭据、记忆、事件和产物有不同的更新、保留与删除规则。","资源生命周期泳道","横向查看资源从创建、绑定到保留或删除"],
-      faq:["常见问题","新用户最常问的 14 个问题","从对象区别到权限、事件、数据和成本，用答案反查关联组件。","可搜索问答","输入关键词，或展开问题查看结论"]
+      faq:["常见问题","新用户最常问的 16 个问题","从对象区别到权限、事件、数据和成本，用答案反查关联组件。","可搜索问答","输入关键词，或展开问题查看结论"]
     };
 
     const TOUR = [
       ["为什么是 MA","Managed Agents 托管 AgentLoop、沙箱、工具执行、上下文和长程任务状态。你主要定义业务行为，并通过事件驱动它。","architecture","agent"],
       ["四个核心对象","Agent 是定义，Environment 是模板，Session 是实例，Events 是通信。先记住这四个对象，再看扩展能力。","architecture","session"],
+      ["两种执行环境","Cloud Sandbox 由方舟管理；Self-hosted 把内置工具执行交给企业 Worker 与 Sandbox，但 AgentLoop 和 Session 仍在方舟。","architecture","selfhosted"],
       ["Session 装配台","创建 Session 时，Agent、Environment、Vaults、Memory 与文件资源才被组合到一次运行中。","architecture","session"],
       ["能力与外部系统","Skills 提供方法，Tools 提供动作，MCP 把外部系统动作标准化，Multi Agent 提供角色协作。","architecture","tools"],
       ["权限是四层门禁","工具暴露、执行确认、沙箱和网络、凭据注入共同组成真实权限边界。","permissions","tools"],
@@ -711,19 +744,43 @@
       return [centerX+dx*scale,centerY+dy*scale];
     }
 
+    function addArrowhead(group, path, atStart, type) {
+      const length=path.getTotalLength();
+      const tip=path.getPointAtLength(atStart?0:length);
+      const inner=path.getPointAtLength(atStart?Math.min(12,length):Math.max(0,length-12));
+      const dx=tip.x-inner.x, dy=tip.y-inner.y, magnitude=Math.hypot(dx,dy);
+      if(magnitude<.01) return;
+      const ux=dx/magnitude, uy=dy/magnitude, arrowLength=9, halfWidth=3.8;
+      const baseX=tip.x-ux*arrowLength, baseY=tip.y-uy*arrowLength;
+      const points=[
+        `${tip.x},${tip.y}`,
+        `${baseX-uy*halfWidth},${baseY+ux*halfWidth}`,
+        `${baseX+uy*halfWidth},${baseY-ux*halfWidth}`
+      ].join(" ");
+      const arrow=document.createElementNS("http://www.w3.org/2000/svg","polygon");
+      arrow.setAttribute("class",`edge-arrow ${type}`);
+      arrow.setAttribute("points",points);
+      arrow.setAttribute("aria-hidden","true");
+      arrow.dataset.arrow=atStart?"start":"end";
+      group.insertBefore(arrow,group.querySelector(".edge-hit"));
+    }
+
+    function renderArrowheads(svg) {
+      svg.querySelectorAll("[data-edge]").forEach(group=>{
+        const relationship=RELATIONSHIPS.find(item=>item.id===group.dataset.edge);
+        const path=group.querySelector(".edge");
+        addArrowhead(group,path,false,relationship.type);
+        if(relationship.bidirectional) addArrowhead(group,path,true,relationship.type);
+      });
+    }
+
     function renderArchitecture() {
       const svg = $("architecture-svg");
       const planes = [
         [20,28,250,660,"YOUR APP / DATA"],[290,28,360,660,"ARK CONTROL + SESSION"],
-        [675,28,200,660,"SESSION RUNTIME"],[895,28,205,660,"EXTERNAL SYSTEMS"]
+        [675,28,200,660,"SESSION RUNTIME"],[895,28,205,660,"CUSTOMER INFRA / EXTERNAL"]
       ];
-      let html = `<defs>
-        <marker id="arrow-control" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" viewBox="0 0 9 9"><path d="M1 1L8 4.5L1 8L2.4 4.5Z" fill="var(--control)"/></marker>
-        <marker id="arrow-runtime" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" viewBox="0 0 9 9"><path d="M1 1L8 4.5L1 8L2.4 4.5Z" fill="var(--runtime)"/></marker>
-        <marker id="arrow-security" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" viewBox="0 0 9 9"><path d="M1 1L8 4.5L1 8L2.4 4.5Z" fill="var(--guard)"/></marker>
-        <marker id="arrow-data" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" viewBox="0 0 9 9"><path d="M1 1L8 4.5L1 8L2.4 4.5Z" fill="var(--external)"/></marker>
-        <marker id="arrow-collab" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" viewBox="0 0 9 9"><path d="M1 1L8 4.5L1 8L2.4 4.5Z" fill="var(--collab)"/></marker>
-      </defs>`;
+      let html = "";
       planes.forEach(p => { html += `<rect class="plane" x="${p[0]}" y="${p[1]}" width="${p[2]}" height="${p[3]}" rx="6"/><text class="plane-label" x="${p[0]+14}" y="${p[1]+22}">${p[4]}</text>`; });
       RELATIONSHIPS.forEach(r => {
         if(state.filter!=="all"&&state.filter!==r.type) return;
@@ -750,7 +807,7 @@
           const midX=(sx+tx)/2;
           path=`M${sx},${sy} C${midX},${sy} ${midX},${ty} ${tx},${ty}`;
         }
-        html += `<g data-edge="${r.id}" class="edge-group"><path class="edge ${r.type} ${["agent-session","environment-session","vault-session","memory-session","files-session"].includes(r.id)?"assembly-edge":""}" d="${path}" marker-end="url(#arrow-${r.type})"/><path class="edge-hit" d="${path}" tabindex="0" role="button" aria-label="${esc(r.label)}"/><text class="edge-label" x="${labelX}" y="${labelY}" text-anchor="${labelAnchor}">${esc(r.label)}</text></g>`;
+        html += `<g data-edge="${r.id}" class="edge-group"><path class="edge ${r.type} ${["agent-session","environment-session","vault-session","memory-session","files-session"].includes(r.id)?"assembly-edge":""}" d="${path}"/><path class="edge-hit" d="${path}" tabindex="0" role="button" aria-label="${esc(r.label)}"/><text class="edge-label" x="${labelX}" y="${labelY}" text-anchor="${labelAnchor}">${esc(r.label)}</text></g>`;
       });
       Object.entries(COMPONENTS).forEach(([id,c]) => {
         const [x,y]=POSITIONS[id]; if(!x) return;
@@ -758,6 +815,7 @@
         html += `<g class="node ${klass}" data-node="${id}" tabindex="0" role="button" aria-label="${esc(c.name)}"><rect x="${x}" y="${y}" width="160" height="58"/><text class="node-title" x="${x+14}" y="${y+25}">${esc(c.name)}</text><text class="node-subtitle" x="${x+14}" y="${y+43}">${esc(c.kind)}</text></g>`;
       });
       svg.innerHTML=html;
+      renderArrowheads(svg);
       svg.querySelectorAll("[data-node]").forEach(el => {
         const activate=()=>selectComponent(el.dataset.node,el);
         el.addEventListener("click",activate); el.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();activate();}});
@@ -773,7 +831,7 @@
       const visibleRelations=RELATIONSHIPS.filter(r=>state.filter==="all"||r.type===state.filter);
       document.querySelectorAll(".node").forEach(n=>n.classList.toggle("is-selected",n.dataset.node===id));
       document.querySelectorAll(".node").forEach(n=>n.classList.toggle("is-muted",n.dataset.node!==id && !visibleRelations.some(r=>(r.from===id&&r.to===n.dataset.node)||(r.to===id&&r.from===n.dataset.node))));
-      document.querySelectorAll("[data-edge]").forEach(group=>{const r=RELATIONSHIPS.find(item=>item.id===group.dataset.edge),connected=r&&(r.from===id||r.to===id);group.classList.toggle("is-unrelated",!connected);group.querySelector(".edge").classList.toggle("is-active",connected);});
+      document.querySelectorAll("[data-edge]").forEach(group=>{const r=RELATIONSHIPS.find(item=>item.id===group.dataset.edge),connected=r&&(r.from===id||r.to===id);group.classList.toggle("is-unrelated",!connected);group.querySelectorAll(".edge,.edge-arrow").forEach(el=>el.classList.toggle("is-active",connected));});
       showComponent(COMPONENTS[id], reveal);
     }
 
@@ -796,7 +854,7 @@
     function selectRelationship(id, trigger) {
       const r=RELATIONSHIPS.find(x=>x.id===id); if(!r)return;
       state.selected={type:"relationship",id}; state.lastFocus=trigger||document.activeElement;
-      document.querySelectorAll("[data-edge]").forEach(group=>{const selected=group.dataset.edge===id;group.classList.toggle("is-unrelated",!selected);group.querySelector(".edge").classList.toggle("is-active",selected);});
+      document.querySelectorAll("[data-edge]").forEach(group=>{const selected=group.dataset.edge===id;group.classList.toggle("is-unrelated",!selected);group.querySelectorAll(".edge,.edge-arrow").forEach(el=>el.classList.toggle("is-active",selected));});
       document.querySelectorAll(".node").forEach(n=>{n.classList.remove("is-selected");n.classList.toggle("is-muted",n.dataset.node!==r.from&&n.dataset.node!==r.to);});
       const a=COMPONENTS[r.from], b=COMPONENTS[r.to];
       $("detail-empty").hidden=true; $("detail-content").hidden=false;
@@ -815,7 +873,7 @@
       $("detail-panel").classList.remove("open");$("detail-backdrop").classList.remove("open");
       state.selected=null;
       document.querySelectorAll(".node").forEach(n=>n.classList.remove("is-selected","is-muted"));
-      document.querySelectorAll("[data-edge]").forEach(group=>{group.classList.remove("is-unrelated");group.querySelector(".edge").classList.remove("is-active");});
+      document.querySelectorAll("[data-edge]").forEach(group=>{group.classList.remove("is-unrelated");group.querySelectorAll(".edge,.edge-arrow").forEach(el=>el.classList.remove("is-active"));});
       $("detail-content").hidden=true;$("detail-empty").hidden=false;
       if(state.lastFocus&&state.lastFocus.focus)state.lastFocus.focus();
     }
@@ -838,7 +896,7 @@
       const gates=[
         ["范围","暴露哪些工具","Agent Toolset 与单工具 configs","enabled / whitelist","tools"],
         ["确认","执行前是否确认","低风险自动执行，高风险等待批准","always_allow / always_ask","permissions"],
-        ["隔离","沙箱能读写和访问哪里","目录权限、Environment 网络策略共同限制","paths + networking","sandbox"],
+        ["隔离","工具实际在哪里执行","Cloud Sandbox 看目录与网络策略；Self-hosted 看 Worker 和企业 Sandbox 边界","cloud / self-hosted","environment"],
         ["凭据","凭据能注入到哪里","Vault 按用户隔离，匹配 MCP URL 或 secret_name","vault_ids + allowed_hosts","vault"]
       ];
       $("permissions-view").innerHTML=`<div class="scenario-switch"><button class="scenario-button permission-example" data-example="readonly">只读文档 Agent</button><button class="scenario-button permission-example" data-example="mcp">可信 MCP 自动调用</button><button class="scenario-button permission-example" data-example="bash">高风险 Bash 需确认</button></div>
@@ -854,15 +912,15 @@
         bash:["高风险 Bash 需确认","Toolset 可默认允许低风险工具，但在 bash 的单工具配置中覆盖为 always_ask。"]
       },x=examples[key];
       $("detail-empty").hidden=true;$("detail-content").hidden=false;
-      $("detail-content").innerHTML=`<button class="icon-button detail-close" type="button" aria-label="关闭详情">×</button><span class="detail-kind">Permission example</span><h2>${x[0]}</h2><p class="detail-summary">${x[1]}</p><section class="detail-section"><h3>官方来源</h3>${sourceLinks(["tools","permissions","sandbox","vault"])}</section>`;
+      $("detail-content").innerHTML=`<button class="icon-button detail-close" type="button" aria-label="关闭详情">×</button><span class="detail-kind">Permission example</span><h2>${x[0]}</h2><p class="detail-summary">${x[1]}</p><section class="detail-section"><h3>官方来源</h3>${sourceLinks(["tools","permissions","sandbox","selfhosted","vault"])}</section>`;
       bindDetailClose();openMobileDetail();
     }
 
     function renderLifecycle() {
       $("lifecycle-view").innerHTML=`<div class="lifecycles">${LIFECYCLES.map(row=>`<div class="life-row"><div class="life-name">${esc(row.name)}</div><div class="life-track" style="grid-template-columns:repeat(${row.events.length},minmax(120px,1fr))">${row.events.map((e,i)=>`<button class="life-event ${i===row.events.length-1?"terminal":""}" data-life="${row.id}">${esc(e)}</button>`).join("")}</div></div>`).join("")}</div>
         <section class="delete-checker"><h2>删除 Session 后，什么还在？</h2><div class="impact-grid">
-          <div class="impact deleted"><b>删除</b>Session 记录、完整事件、关联沙箱与默认存储产物</div>
-          <div class="impact"><b>保留</b>Agent、Environment、Memory、Vault、Skills、独立上传输入文件</div>
+          <div class="impact deleted"><b>删除</b>Session 记录、完整事件、Cloud Sandbox 快照与默认存储产物</div>
+          <div class="impact"><b>保留</b>Agent、Environment、Memory、Vault、Skills、企业 Worker / Sandbox</div>
           <div class="impact"><b>按自身规则保留</b>写入自有 TOS Bucket 的产物</div>
         </div></section>`;
       $("lifecycle-view").querySelectorAll("[data-life]").forEach(b=>b.addEventListener("click",()=>selectComponent(b.dataset.life,b)));
