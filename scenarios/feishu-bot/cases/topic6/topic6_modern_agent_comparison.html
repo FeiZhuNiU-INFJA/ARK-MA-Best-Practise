@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Topic6 · Agent 架构方案对比</title>
+<style>
+  :root {
+    --ink: #172235;
+    --muted: #66758a;
+    --line: #d7e0e9;
+    --paper: #ffffff;
+    --canvas: #f2f5f8;
+    --navy: #173b60;
+    --blue: #28659f;
+    --blue-soft: #eaf2fa;
+    --green: #1f7a50;
+    --green-soft: #e9f6ef;
+    --amber: #a45d12;
+    --amber-soft: #fff4e5;
+    --red: #ae4141;
+    --red-soft: #fff0f0;
+    --violet: #654b91;
+    --violet-soft: #f1ecf9;
+    --shadow: 0 14px 38px rgba(26, 48, 73, .1);
+    --radius: 8px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    color: var(--ink);
+    background: var(--canvas);
+    font: 14px/1.58 -apple-system, BlinkMacSystemFont, "PingFang SC",
+      "Microsoft YaHei", sans-serif;
+    letter-spacing: 0;
+  }
+
+  button, select { font: inherit; }
+  button:focus-visible, select:focus-visible, a:focus-visible {
+    outline: 3px solid rgba(40, 101, 159, .28);
+    outline-offset: 2px;
+  }
+  code, .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    min-height: 70px;
+    padding: 13px 26px;
+    color: #fff;
+    background: var(--navy);
+    border-bottom: 1px solid rgba(255, 255, 255, .12);
+  }
+
+  .eyebrow {
+    margin: 0 0 3px;
+    color: #b9d6ef;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .12em;
+  }
+
+  h1 { margin: 0; font-size: 21px; line-height: 1.25; }
+  .top-subtitle { margin: 3px 0 0; color: #c8d9e9; font-size: 12px; }
+
+  .top-links { display: flex; gap: 8px; flex: 0 0 auto; }
+  .top-link {
+    padding: 6px 10px;
+    border: 1px solid rgba(255, 255, 255, .34);
+    border-radius: 5px;
+    color: #fff;
+    font-size: 12px;
+    text-decoration: none;
+  }
+  .top-link:hover { background: rgba(255, 255, 255, .1); }
+
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(290px, 390px);
+    gap: 30px;
+    max-width: 1420px;
+    margin: 0 auto;
+    padding: 34px 28px 26px;
+  }
+
+  .hero h2 {
+    max-width: 850px;
+    margin: 0;
+    font-size: clamp(28px, 3.3vw, 44px);
+    line-height: 1.16;
+    letter-spacing: 0;
+  }
+
+  .hero p {
+    max-width: 820px;
+    margin: 13px 0 0;
+    color: #4f6074;
+    font-size: 15px;
+  }
+
+  .thesis {
+    align-self: stretch;
+    display: grid;
+    align-content: center;
+    gap: 8px;
+    padding: 19px;
+    border-left: 4px solid var(--green);
+    background: var(--paper);
+    box-shadow: var(--shadow);
+  }
+  .thesis b { color: var(--green); font-size: 15px; }
+  .thesis span { color: var(--muted); font-size: 13px; }
+
+  .scenario-strip {
+    position: sticky;
+    top: 70px;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    max-width: 1420px;
+    margin: 0 auto;
+    border: 1px solid var(--line);
+    background: var(--paper);
+    box-shadow: 0 7px 18px rgba(26, 48, 73, .07);
+  }
+
+  .scenario-button {
+    min-height: 68px;
+    padding: 10px 13px;
+    border: 0;
+    border-right: 1px solid var(--line);
+    color: var(--ink);
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+  }
+  .scenario-button:last-child { border-right: 0; }
+  .scenario-button:hover { background: #f6f9fc; }
+  .scenario-button[aria-current="true"] {
+    color: #174f84;
+    background: var(--blue-soft);
+    box-shadow: inset 0 -3px var(--blue);
+  }
+  .scenario-button.recommended[aria-current="true"] {
+    color: #17613e;
+    background: var(--green-soft);
+    box-shadow: inset 0 -3px var(--green);
+  }
+  .scenario-button strong { display: block; font-size: 14px; }
+  .scenario-button span { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+
+  .workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(390px, .75fr);
+    min-height: 690px;
+    max-width: 1420px;
+    margin: 18px auto 0;
+    border: 1px solid var(--line);
+    background: var(--paper);
+    box-shadow: var(--shadow);
+  }
+
+  .architecture {
+    min-width: 0;
+    padding: 24px clamp(20px, 3vw, 42px) 32px;
+    border-right: 1px solid var(--line);
+    background: #f8fafc;
+  }
+
+  .arch-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 20px;
+  }
+  .arch-head h3 { margin: 0; font-size: 20px; }
+  .arch-head p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+  .recommend-tag {
+    flex: 0 0 auto;
+    padding: 3px 8px;
+    border: 1px solid #9bc9af;
+    border-radius: 4px;
+    color: var(--green);
+    background: #fff;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .responsibility-strip {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin-bottom: 18px;
+    border: 1px solid var(--line);
+    background: var(--paper);
+  }
+  .responsibility-cell {
+    min-height: 58px;
+    padding: 9px 11px;
+    border-right: 1px solid var(--line);
+  }
+  .responsibility-cell:last-child { border-right: 0; }
+  .responsibility-cell b { display: block; font-size: 12px; }
+  .responsibility-cell span { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+  .responsibility-cell.active { box-shadow: inset 0 3px var(--blue); }
+  .responsibility-cell.focus { box-shadow: inset 0 3px var(--green); }
+
+  .diagram {
+    display: grid;
+    gap: 11px;
+    width: min(760px, 100%);
+    margin: 0 auto;
+  }
+  .diagram-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 11px;
+  }
+  .diagram-row.single { grid-template-columns: minmax(0, 1fr); }
+  .diagram-row.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .node {
+    min-height: 86px;
+    padding: 12px;
+    border: 1px solid #ccd8e4;
+    border-left: 4px solid var(--blue);
+    border-radius: var(--radius);
+    background: var(--paper);
+    cursor: pointer;
+    text-align: left;
+    transition: transform .14s, border-color .14s, box-shadow .14s;
+  }
+  .node:hover { transform: translateY(-1px); border-color: var(--blue); box-shadow: 0 7px 16px rgba(40, 101, 159, .13); }
+  .node[aria-current="true"] { outline: 3px solid rgba(40, 101, 159, .2); }
+  .node.agent { border-left-color: var(--violet); }
+  .node.workflow { border-left-color: var(--green); }
+  .node.worker { border-left-color: var(--blue); }
+  .node.human { border-left-color: var(--amber); }
+  .node.store { border-left-color: #6b7f93; }
+  .node-code { display: block; color: var(--muted); font: 700 11px/1.2 monospace; }
+  .node-title { display: block; margin-top: 4px; font-weight: 700; line-height: 1.3; }
+  .node-meta { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+
+  .arrow {
+    width: 2px;
+    height: 23px;
+    margin: -2px auto;
+    background: #9eafc0;
+    position: relative;
+  }
+  .arrow::after {
+    content: "";
+    position: absolute;
+    bottom: -2px;
+    left: -4px;
+    border-top: 6px solid #9eafc0;
+    border-right: 5px solid transparent;
+    border-left: 5px solid transparent;
+  }
+
+  .detail {
+    min-width: 0;
+    overflow-y: auto;
+    background: var(--paper);
+  }
+  .detail-head {
+    position: sticky;
+    top: 138px;
+    z-index: 2;
+    padding: 21px 21px 15px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(255, 255, 255, .97);
+    backdrop-filter: blur(7px);
+  }
+  .detail-head h3 { margin: 0; color: var(--blue); font-size: 20px; line-height: 1.3; }
+  .detail-head p { margin: 7px 0 0; color: var(--muted); font-size: 12px; }
+  .badge-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+  .badge {
+    padding: 2px 7px;
+    border-radius: 4px;
+    color: #174f84;
+    background: var(--blue-soft);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .badge.good { color: #17613e; background: var(--green-soft); }
+  .badge.warn { color: #81470c; background: var(--amber-soft); }
+  .badge.risk { color: #943333; background: var(--red-soft); }
+
+  .detail-body { display: grid; gap: 14px; padding: 18px 21px 30px; }
+  .detail-section {
+    padding-bottom: 13px;
+    border-bottom: 1px solid var(--line);
+  }
+  .detail-section:last-child { border-bottom: 0; }
+  .detail-section h4 { margin: 0 0 7px; font-size: 13px; }
+  .detail-section p { margin: 0; color: #4f6074; font-size: 13px; }
+  .detail-section ul { margin: 7px 0 0; padding-left: 18px; color: #4f6074; font-size: 12px; }
+  .detail-section li + li { margin-top: 4px; }
+  .callout {
+    padding: 11px 12px;
+    border-left: 3px solid var(--green);
+    color: #275f46;
+    background: var(--green-soft);
+    font-size: 12px;
+  }
+
+  .band {
+    max-width: 1420px;
+    margin: 18px auto 0;
+    padding: 24px 26px 28px;
+    border: 1px solid var(--line);
+    background: var(--paper);
+    box-shadow: var(--shadow);
+  }
+  .band-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 17px;
+  }
+  .band-head h3 { margin: 0; font-size: 20px; }
+  .band-head p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+
+  .toggle-group { display: flex; gap: 7px; flex-wrap: wrap; }
+  .toggle {
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    color: var(--muted);
+    background: #fff;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .toggle[aria-pressed="true"] { border-color: var(--blue); color: #fff; background: var(--blue); }
+
+  .c2-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(340px, .72fr);
+    gap: 22px;
+  }
+  .c2-flow { display: grid; gap: 9px; }
+  .c2-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 9px;
+  }
+  .c2-row.single { grid-template-columns: 1fr; }
+  .c2-row.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .c2-step {
+    min-height: 75px;
+    padding: 10px 11px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #f9fbfd;
+  }
+  .c2-step b { display: block; font-size: 12px; }
+  .c2-step span { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+  .c2-step.focus { border-color: #8fc2a7; box-shadow: inset 3px 0 var(--green); background: #fff; }
+
+  .c2-explain {
+    padding-left: 21px;
+    border-left: 1px solid var(--line);
+  }
+  .c2-explain h4 { margin: 0 0 8px; font-size: 15px; }
+  .c2-explain p { margin: 0; color: #4f6074; font-size: 13px; }
+  .c2-explain ul { margin: 10px 0 0; padding-left: 18px; color: #4f6074; font-size: 12px; }
+  .c2-explain li + li { margin-top: 5px; }
+
+  .matrix-wrap { overflow-x: auto; }
+  .matrix { width: 100%; border-collapse: collapse; min-width: 820px; font-size: 12px; }
+  .matrix th, .matrix td { padding: 10px 9px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .matrix th { color: var(--muted); background: #f7f9fc; font-weight: 700; }
+  .matrix th.recommended { color: var(--green); background: var(--green-soft); }
+  .matrix tr:last-child td { border-bottom: 0; }
+  .rating { font-family: "SFMono-Regular", Consolas, monospace; letter-spacing: .06em; white-space: nowrap; }
+
+  .footer {
+    max-width: 1420px;
+    margin: 0 auto;
+    padding: 20px 28px 40px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  @media (max-width: 1060px) {
+    .workspace { grid-template-columns: 1fr; }
+    .architecture { border-right: 0; border-bottom: 1px solid var(--line); }
+    .detail-head { position: static; }
+    .c2-grid { grid-template-columns: 1fr; }
+    .c2-explain { padding: 17px 0 0; border-top: 1px solid var(--line); border-left: 0; }
+  }
+
+  @media (max-width: 760px) {
+    .topbar, .hero { padding-left: 16px; padding-right: 16px; }
+    .top-subtitle, .top-links { display: none; }
+    .hero { grid-template-columns: 1fr; padding-top: 24px; }
+    .scenario-strip { position: static; grid-template-columns: 1fr 1fr; margin: 0 12px; }
+    .scenario-button:nth-child(2) { border-right: 0; }
+    .scenario-button:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+    .workspace, .band { margin-left: 12px; margin-right: 12px; }
+    .responsibility-strip { grid-template-columns: 1fr 1fr; }
+    .responsibility-cell:nth-child(2) { border-right: 0; }
+    .responsibility-cell:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+    .diagram-row, .diagram-row.two, .c2-row, .c2-row.two { grid-template-columns: 1fr; }
+    .band { padding: 20px 16px 24px; }
+    .band-head { display: block; }
+    .toggle-group { margin-top: 12px; }
+    .footer { padding: 18px 16px 30px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { scroll-behavior: auto !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div>
+    <p class="eyebrow">TOPIC6 · ARCHITECTURE OPTIONS</p>
+    <h1>Agent 架构方案对比</h1>
+    <p class="top-subtitle">同样是一条飞书指令，比较四种不同的执行与可靠性边界。</p>
+  </div>
+  <nav class="top-links">
+    <a class="top-link" href="./topic6_pipeline_overview.html">当前 Pipeline</a>
+    <a class="top-link" href="./topic6_c2_explorer.html">C2 细节</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <div>
+    <h2>可以只有一个 Agent，但不能只有一段需要它完整遵循的长 Prompt。</h2>
+    <p>页面比较当前实现、单 Agent 巨型 Skill、多 Agent 拆分，以及推荐的“薄 Agent + Durable Workflow”。重点不是减少文件数量，而是把阶段顺序、状态、重试和人工关卡从模型上下文移到确定性运行时。</p>
+  </div>
+  <aside class="thesis">
+    <b>推荐结论</b>
+    <span>对用户保持“一个 Agent、一个指令”的体验。</span>
+    <span>对系统采用持久化 DAG、无状态 Worker、版本化产物和显式人工任务。</span>
+  </aside>
+</section>
+
+<nav class="scenario-strip" id="scenario-strip" aria-label="架构方案">
+  <button class="scenario-button" data-scenario="current" aria-current="true">
+    <strong>当前 Pipeline</strong><span>Prompt 编排 + 脚本 + 子 Agent</span>
+  </button>
+  <button class="scenario-button" data-scenario="monolith" aria-current="false">
+    <strong>单 Agent 巨型 Skill</strong><span>最少组件，最大上下文风险</span>
+  </button>
+  <button class="scenario-button" data-scenario="multi" aria-current="false">
+    <strong>多 Agent 专业分工</strong><span>职责清晰，协调成本较高</span>
+  </button>
+  <button class="scenario-button recommended" data-scenario="durable" aria-current="false">
+    <strong>薄 Agent + Workflow</strong><span>推荐：交互 Agent 与执行解耦</span>
+  </button>
+</nav>
+
+<main class="workspace">
+  <section class="architecture">
+    <div class="arch-head">
+      <div>
+        <h3 id="arch-title"></h3>
+        <p id="arch-subtitle"></p>
+      </div>
+      <span class="recommend-tag" id="recommend-tag" hidden>推荐方案</span>
+    </div>
+    <div class="responsibility-strip" id="responsibility-strip"></div>
+    <div class="diagram" id="diagram"></div>
+  </section>
+
+  <aside class="detail" aria-live="polite">
+    <div class="detail-head">
+      <h3 id="detail-title"></h3>
+      <p id="detail-subtitle"></p>
+      <div class="badge-row" id="badge-row"></div>
+    </div>
+    <div class="detail-body" id="detail-body"></div>
+  </aside>
+</main>
+
+<section class="band" id="c2-section">
+  <div class="band-head">
+    <div>
+      <h3>C2 聚类流程对比</h3>
+      <p>比较当前 12 个阶段与新的候选图/分区裁定方案。历史事件只提供候选，不直接决定本周归属。</p>
+    </div>
+    <div class="toggle-group" id="c2-toggle">
+      <button class="toggle" data-c2="current" aria-pressed="true">当前 C2</button>
+      <button class="toggle" data-c2="modern" aria-pressed="false">新 C2</button>
+    </div>
+  </div>
+  <div class="c2-grid">
+    <div class="c2-flow" id="c2-flow"></div>
+    <aside class="c2-explain" id="c2-explain"></aside>
+  </div>
+</section>
+
+<section class="band">
+  <div class="band-head">
+    <div>
+      <h3>方案决策矩阵</h3>
+      <p>评分是架构判断，不是实测数据；正式选型仍需用同一批数据做质量、耗时和恢复演练。</p>
+    </div>
+  </div>
+  <div class="matrix-wrap">
+    <table class="matrix">
+      <thead>
+        <tr>
+          <th>维度</th>
+          <th>当前 Pipeline</th>
+          <th>单 Agent 巨型 Skill</th>
+          <th>多 Agent 专业分工</th>
+          <th class="recommended">薄 Agent + Workflow</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>指令遵循依赖</td><td>高</td><td>极高</td><td>中高</td><td><b>低</b></td></tr>
+        <tr><td>长任务恢复</td><td>部分脚本支持</td><td>依赖 Agent 自己恢复</td><td>跨 Session 恢复复杂</td><td><b>工作流原生恢复</b></td></tr>
+        <tr><td>并发控制</td><td>散落在 Prompt/脚本</td><td>Agent 临场决定</td><td>Agent 数量和配额共同约束</td><td><b>统一配额与队列</b></td></tr>
+        <tr><td>人工审核</td><td>HC 卡片 + Session 恢复</td><td>Agent 等待用户</td><td>Coordinator 汇总</td><td><b>Durable Human Task</b></td></tr>
+        <tr><td>可观测性</td><td>多份日志和状态文件</td><td>主要依赖轨迹</td><td>轨迹分散</td><td><b>统一阶段与工作单元指标</b></td></tr>
+        <tr><td>冷启动/上下文成本</td><td>中</td><td>低启动、高上下文</td><td>高</td><td><b>前台 Agent 低，Worker 无 Session</b></td></tr>
+        <tr><td>综合适配度</td><td><span class="rating">●●●○○</span></td><td><span class="rating">●●○○○</span></td><td><span class="rating">●●●○○</span></td><td><span class="rating">●●●●●</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="band">
+  <div class="band-head">
+    <div>
+      <h3>推荐迁移顺序</h3>
+      <p>先移动控制权，再替换算法；避免工作流和 C2 同时重写导致差异无法归因。</p>
+    </div>
+  </div>
+  <div class="diagram-row">
+    <div class="c2-step focus"><b>M1 · Durable 封装</b><span>现有脚本原样变成可恢复 Task，Agent 只调用 start/status/review。</span></div>
+    <div class="c2-step"><b>M2 · 当周去重</b><span>sample 并入 full；R1-R5 多标签；统一任务执行器。</span></div>
+    <div class="c2-step"><b>M3 · 重构 C2</b><span>统一抽取、实体/向量并行、候选图、分区裁定、全局复核。</span></div>
+  </div>
+</section>
+
+<footer class="footer">
+  本页用于方案评审，不会改变正在运行的 Topic6。推荐架构仍保留 HC1/HC2/HC3、权限、Token 保活、发布幂等和 online_url 验证。
+</footer>
+
+<script>
+const scenarios = {
+  current: {
+    title: "当前：Agent 兼任流程解释器和执行协调器",
+    subtitle: "System Prompt 定义阶段；Coordinator 调脚本、委派子 Agent、轮询外部任务并在 HC 处暂停。",
+    recommended: false,
+    responsibilities: [
+      ["飞书 Agent", "触发、进度、HC、最终状态", "active"],
+      ["Coordinator", "解释 Prompt 并决定下一步", "active"],
+      ["脚本 / 子 Agent", "DataHub、C2、洞察、发布", ""],
+      ["文件状态", "run_config、meta、checkpoint", ""]
+    ],
+    rows: [
+      [{id:"cur_agent", role:"agent", code:"CONTROL", title:"飞书 Gateway + Coordinator", meta:"同一 Session 长时间推进"}],
+      [{id:"cur_first", role:"worker", code:"C-FIRST", title:"C0 / C3 子 Agent", meta:"启动 DataHub worker + Coordinator 轮询"}, {id:"cur_c2", role:"worker", code:"C2", title:"C2 后台脚本", meta:"12 阶段 + checkpoint"}, {id:"cur_routes", role:"worker", code:"ROUTES", title:"R1-R5 子 Agent", meta:"5 个 DataHub task"}],
+      [{id:"cur_hc", role:"human", code:"HITL", title:"HC1 / HC2 / HC3", meta:"结构化消息触发卡片"}],
+      [{id:"cur_publish", role:"worker", code:"OUTPUT", title:"洞察 · 飞书 · HTML · 妙搭", meta:"Agent 继续调工具并确认 URL"}]
+    ],
+    defaultNode: "cur_agent"
+  },
+  monolith: {
+    title: "极简：一个 Agent 读取一个巨型 Skill",
+    subtitle: "外观最简单，但阶段状态、重试、分支、审核与发布都依赖同一个模型会话持续遵循指令。",
+    recommended: false,
+    responsibilities: [
+      ["飞书 Agent", "所有交互与全部执行", "active"],
+      ["Skill.md", "顺序、规则、异常、命令", "active"],
+      ["脚本", "被 Agent 临场调用", ""],
+      ["轨迹 / 文件", "被动保存部分证据", ""]
+    ],
+    rows: [
+      [{id:"mono_agent", role:"agent", code:"ONE SESSION", title:"单一 Agent", meta:"理解、执行、等待、恢复、发布"}],
+      [{id:"mono_skill", role:"store", code:"SKILL.MD", title:"完整 Pipeline 说明书", meta:"规则越多，上下文越长"}],
+      [{id:"mono_tools", role:"worker", code:"TOOLS", title:"Shell · API · Files · LLM", meta:"步骤由 Agent 临场决定"}],
+      [{id:"mono_hc", role:"human", code:"PAUSE", title:"人工审核", meta:"依赖 Session 正确暂停与续跑"}]
+    ],
+    defaultNode: "mono_agent"
+  },
+  multi: {
+    title: "多 Agent：按专业角色拆分任务",
+    subtitle: "每类任务有独立 Agent，但 Coordinator 仍需理解全局 DAG，并处理 Session、通信、失败和产物一致性。",
+    recommended: false,
+    responsibilities: [
+      ["前台 Agent", "用户交互与协调", "active"],
+      ["Coordinator", "路由、等待、合并", "active"],
+      ["专业 Agent", "标注、事件、洞察、发布", "active"],
+      ["共享存储", "跨 Agent 交换产物", ""]
+    ],
+    rows: [
+      [{id:"multi_front", role:"agent", code:"FRONT", title:"飞书 Agent", meta:"请求、状态与审核"}],
+      [{id:"multi_coord", role:"agent", code:"COORDINATOR", title:"编排 Agent", meta:"决定 DAG、分派与收敛"}],
+      [{id:"multi_annotation", role:"agent", code:"AGENT A", title:"标注 Agent", meta:"C0/C3/R1-R5"}, {id:"multi_event", role:"agent", code:"AGENT B", title:"事件 Agent", meta:"C2 聚类与复核"}, {id:"multi_insight", role:"agent", code:"AGENT C", title:"洞察/发布 Agent", meta:"E1-E4 与发布"}],
+      [{id:"multi_store", role:"store", code:"ARTIFACTS", title:"共享状态与产物", meta:"跨 Session 版本对齐"}]
+    ],
+    defaultNode: "multi_coord"
+  },
+  durable: {
+    title: "推荐：薄 Agent + Durable Workflow",
+    subtitle: "用户只看到一个 Agent；后台由持久化工作流执行确定性 DAG，模型能力作为可重试的无状态 Worker。",
+    recommended: true,
+    responsibilities: [
+      ["前台 Agent", "理解请求、解释状态、收集决定", ""],
+      ["Workflow", "DAG、状态、并发、重试、暂停", "focus"],
+      ["无状态 Worker", "代码、模型、外部 API", "active"],
+      ["版本化存储", "快照、事实、事件、报告、发布", "active"]
+    ],
+    rows: [
+      [{id:"dur_front", role:"agent", code:"ONE AGENT", title:"飞书 Agent + 小 Skill", meta:"start / status / review / retry"}],
+      [{id:"dur_flow", role:"workflow", code:"DURABLE CORE", title:"持久化工作流引擎", meta:"确定性 DAG + Human Task + 事件驱动"}],
+      [{id:"dur_code", role:"worker", code:"WORKER", title:"确定性 Worker", meta:"取数、校验、合并、发布"}, {id:"dur_model", role:"worker", code:"MODEL JOB", title:"模型 Worker", meta:"批量分类、Frame、事件、洞察"}, {id:"dur_human", role:"human", code:"HUMAN TASK", title:"审核与歧义队列", meta:"HC、实体冲突、事件边界"}],
+      [{id:"dur_store", role:"store", code:"VERSIONED STATE", title:"任务 DB + 对象存储 + Outbox", meta:"幂等、血缘、版本、回滚"}]
+    ],
+    defaultNode: "dur_flow"
+  }
+};
+
+const details = {
+  cur_agent: {
+    title:"当前 Coordinator", subtitle:"能力强，但可靠性依赖模型在长上下文中持续遵循阶段契约。",
+    badges:[["已跑通","good"],["Prompt 负担高","warn"]],
+    sections:[
+      ["承担内容","解析运行模式、读写 run_config、委派子 Agent、启动 C2、轮询 DataHub、输出 HC JSON、继续 E-H。"],
+      ["主要风险","同一 Session 累积大量工具轨迹；阶段转换和 HC 输出是自然语言契约，模型偶发偏离就需要 Gateway 兜底。"],
+      ["保留价值","飞书交互、用户身份、Token 保活、卡片状态与最终 URL 验证已具备生产价值。"]
+    ],
+    callout:"应保留前台交互能力，把流程执行权从 Coordinator Prompt 移到 Durable Workflow。"
+  },
+  cur_first: {
+    title:"当前 C0/C3 执行", subtitle:"子 Agent 只负责启动外部 DataHub worker，真正长时间运行发生在 DataHub。",
+    badges:[["外部批任务","warn"],["可恢复 task_id","good"]],
+    sections:[
+      ["执行边界","MA 上传 XLSX、提交 Prompt、轮询、下载与后处理；C3 的日期窗口由本地代码计算。"],
+      ["问题","子 Agent 本身没有增加推理价值，却增加 Session 与编排层；DataHub 内部并发不可观测。"],
+      ["改进","由 Workflow 直接创建 Batch Inference Task，无需 Annotator Agent。"]
+    ]
+  },
+  cur_c2: {
+    title:"当前 C2 Runner", subtitle:"已经比纯 Agent 编排稳定：有单入口、stage checkpoint、批次缓存与恢复。",
+    badges:[["已有 Durable 雏形","good"],["阶段较碎","warn"]],
+    sections:[
+      ["优点","模型调用与本地算法有明确文件契约；阶段可单独恢复；候选图不直接决定聚类结论。"],
+      ["问题","00/01/02 重复发送标题，03 串行，04 被顺序阻塞，07/x2/x3 的多轮复核拉长关键路径。"],
+      ["重构方向","收敛为统一事实抽取、实体/向量并行、候选图、分区裁定、事件卡全局复核。"]
+    ]
+  },
+  cur_routes: {
+    title:"当前 R1-R5", subtitle:"五个相近的二分类任务读取同一营销可用子集。",
+    badges:[["五路并发","good"],["重复上下文","warn"]],
+    sections:[
+      ["现状","每一路独立 Prompt、独立 DataHub task、独立结果 XLSX。"],
+      ["改进","设计一个多标签 schema，一次返回五个命中与理由；保留逐标签质量指标和版本。"],
+      ["前提","用固定评测集验证多任务干扰，特别关注少数类和解释字段。"]
+    ]
+  },
+  cur_hc: {
+    title:"当前 HITL", subtitle:"HC 是发布治理的重要组成，不应因为重构执行层而移除。",
+    badges:[["必须保留","good"],["当前绑定 Session","warn"]],
+    sections:[
+      ["现状","Coordinator 输出结构化 JSON，Gateway 落库并发送卡片；用户操作后向同一 Session 注入消息。"],
+      ["新方案","Workflow 创建 durable human task；Agent/Gateway 只是展示和提交决定，Session 可以结束甚至更换。"],
+      ["收益","审核可以等待数小时或数天，不占 Agent 上下文，也不依赖旧 Session 仍可恢复。"]
+    ]
+  },
+  cur_publish: {
+    title:"当前发布链", subtitle:"外部副作用多，需要比普通模型任务更强的幂等与验证。",
+    badges:[["权限链完整","good"],["副作用重试风险","risk"]],
+    sections:[
+      ["必须保留","飞书文档授权与所有权、HC3 后重新读取文档、HTML 验证、妙搭 online_url HTTP 验证。"],
+      ["新方案","采用 Outbox：先保存待发布 revision 和幂等键，再执行外部调用并记录资源 ID。"],
+      ["结果","重试不再盲目创建新文档或新应用版本，发布状态可以独立恢复。"]
+    ]
+  },
+  mono_agent: {
+    title:"单 Agent 巨型 Skill", subtitle:"文件数量最少，但所有复杂度都转移到上下文和指令遵循。",
+    badges:[["开发快","good"],["生产稳定性低","risk"]],
+    sections:[
+      ["看起来的优势","一个 Agent、一个 Skill、少量工具，修改说明即可改变流程。"],
+      ["真实代价","每次都要重新解释 DAG、异常分支、恢复规则、审核协议和发布约束；模型无法提供 exactly-once 保证。"],
+      ["典型失败","跳过步骤、重复计费、错误复用样本结果、在 HC 前多输出文字、Session 结束后无法确定恢复点。"]
+    ],
+    callout:"适合 Demo 或短流程，不适合当前这种 10 小时、有外部副作用和三次人工暂停的生产任务。"
+  },
+  mono_skill: {
+    title:"巨型 Skill.md", subtitle:"文档可以描述流程，但不能成为可靠的运行时状态机。",
+    badges:[["易读","good"],["不可执行契约","risk"]],
+    sections:[
+      ["适合承载","业务术语、工具说明、审核口径、何时调用统一入口。"],
+      ["不适合承载","逐阶段状态、并发锁、幂等键、事务、超时、事件订阅、任务恢复。"],
+      ["正确瘦身","Skill 只保留 start/status/review/retry 四类工具的使用说明。"]
+    ]
+  },
+  mono_tools: {
+    title:"临场工具执行", subtitle:"工具本身可以可靠，但调用顺序和重试时机仍由 Agent 决定。",
+    badges:[["灵活","good"],["不可预测","risk"]],
+    sections:[
+      ["问题","429、503、后台任务、超时、文件半写、重复发布等情况会不断扩大 Skill 中的特殊规则。"],
+      ["结果","随着防线增加，Skill 逐渐重新长成当前 Coordinator System Prompt。"],
+      ["替代","把特殊规则写进 Worker 与 Workflow policy，由代码测试覆盖。"]
+    ]
+  },
+  mono_hc: {
+    title:"Agent 等待人工", subtitle:"短暂停可以工作，长时间等待会放大 Session、Token 和恢复风险。",
+    badges:[["体验直接","good"],["恢复脆弱","risk"]],
+    sections:[
+      ["风险","用户可能数小时后操作；Agent Session、凭据、资源快照和上下文都可能变化。"],
+      ["替代","人工任务独立落库，任意 Agent 实例都可按 run_id 恢复展示。"]
+    ]
+  },
+  multi_front: {
+    title:"多 Agent 前台", subtitle:"用户仍只接触一个入口，但内部会产生多个 Session 和轨迹。",
+    badges:[["角色清晰","good"],["系统成本增加","warn"]],
+    sections:[
+      ["适用","任务之间需要不同工具、不同权限、独立长程推理或相互辩论。"],
+      ["不适用","单纯批量分类、文件转换、轮询和模型 API 调用无需 Agent。"]
+    ]
+  },
+  multi_coord: {
+    title:"多 Agent Coordinator", subtitle:"子任务拆开了，但全局可靠性仍由一个 Agent 的编排判断承担。",
+    badges:[["隔离上下文","good"],["协调仍是 LLM","risk"]],
+    sections:[
+      ["新增问题","子 Agent 返回格式、重复启动、超时、取消、版本不一致、部分成功和跨 Session 血缘。"],
+      ["性能代价","冷启动、IPC、上下文注入和更多轨迹；3950 个子 Agent 尤其不合理。"],
+      ["结论","多 Agent 不能替代工作流引擎，只适合少量真正 agentic 的专业任务。"]
+    ],
+    callout:"把并行批处理做成 Worker，不要把每个并发单元都包装成 Agent。"
+  },
+  multi_annotation: {
+    title:"标注 Agent", subtitle:"对外部 DataHub 的上传和轮询并不需要独立推理角色。",
+    badges:[["可独立部署","good"],["Agent 价值低","warn"]],
+    sections:[
+      ["可替换","Batch Inference Worker 直接接收 task spec，完成提交、恢复、校验与记账。"],
+      ["收益","消除子 Session，同时保留任务隔离和并行能力。"]
+    ]
+  },
+  multi_event: {
+    title:"事件 Agent", subtitle:"C2 有较强语义判断，但大部分操作仍应由代码和模型 Worker 完成。",
+    badges:[["语义复杂","warn"],["不需完整 Agent","warn"]],
+    sections:[
+      ["适合模型","Frame 抽取、实体歧义、候选分区归档、事件卡 merge/split。"],
+      ["适合代码","候选召回、图分区、覆盖校验、缓存、重试、结果回填。"],
+      ["结论","按工作单元调用模型，比维护一个长期事件 Agent Session 更稳定。"]
+    ]
+  },
+  multi_insight: {
+    title:"洞察/发布 Agent", subtitle:"写作需要模型，但发布权限和外部资源操作应保持确定性。",
+    badges:[["写作适合模型","good"],["发布不应 Agent 化","risk"]],
+    sections:[
+      ["拆分","Insight Worker 生成候选正文；Publish Worker 负责文档、权限、HTML、妙搭和验证。"],
+      ["原因","把生成文本和有副作用操作放在同一 Agent 中，不利于重试和审计。"]
+    ]
+  },
+  multi_store: {
+    title:"多 Agent 共享状态", subtitle:"所有 Agent 必须对输入、Prompt、模型和产物 revision 达成一致。",
+    badges:[["必需","warn"],["实现复杂","warn"]],
+    sections:[
+      ["最小要求","统一 run_id、artifact revision、任务状态、错误、成本和人工决定。"],
+      ["事实","一旦引入这些能力，本质上已经在建设工作流引擎。"]
+    ]
+  },
+  dur_front: {
+    title:"薄前台 Agent", subtitle:"Skill 很短，但用户体验仍是一个自然语言入口。",
+    badges:[["单 Agent 体验","good"],["可替换实例","good"]],
+    sections:[
+      ["只做四件事","解析用户意图；调用 start；解释 status；提交 review/retry。"],
+      ["不做","决定阶段顺序、等待后台任务、读取 checkpoint、拼接 shell、管理发布事务。"],
+      ["优势","Agent Session 可以结束；工作流继续运行，新 Session 仍可凭 run_id 接管。"]
+    ]
+  },
+  dur_flow: {
+    title:"Durable Workflow 核心", subtitle:"把当前散落在 Prompt、run_config、SQLite、后台 worker 中的状态收拢为一套执行语义。",
+    badges:[["推荐核心","good"],["确定性控制面","good"]],
+    sections:[
+      ["负责","DAG、动态分支、并发上限、超时、重试、幂等、checkpoint、取消、人工暂停与事件通知。"],
+      ["不负责","业务语义判断；语义任务以结构化 job 交给模型 Worker。"],
+      ["可选实现","Temporal 最完整；也可用 Prefect/Dagster，或先以 Python 状态机 + Postgres/SQLite 实现。"]
+    ],
+    callout:"现代 Agent 系统的关键不是让 Agent 更聪明，而是让 Agent 不必记住系统状态。"
+  },
+  dur_code: {
+    title:"确定性 Worker", subtitle:"所有可程序化行为都由代码负责，并可做单元测试与幂等重试。",
+    badges:[["高可测","good"],["无 Agent 开销","good"]],
+    sections:[
+      ["任务","取数、标准化、日历计算、候选召回、分块、覆盖校验、宽表、权限、发布和 HTTP 验证。"],
+      ["契约","输入与输出都有 schema、版本和内容哈希；失败不会靠自然语言猜测。"]
+    ]
+  },
+  dur_model: {
+    title:"模型 Worker", subtitle:"模型作为无状态计算资源，而不是拥有流程控制权的长期 Agent。",
+    badges:[["有界并发","good"],["可路由模型","good"]],
+    sections:[
+      ["任务","批量营销标注、统一 Frame 抽取、实体歧义裁定、事件分区、事件卡复核、洞察写作。"],
+      ["执行","工作单元幂等；有限并发；429/5xx 退避；结构校验；坏单元局部重跑。"],
+      ["模型路由","便宜模型处理行级多标签；强模型处理事件边界、merge/split 和最终洞察。"]
+    ]
+  },
+  dur_human: {
+    title:"Durable Human Task", subtitle:"审核是工作流状态，不是某个 Agent 正在等待。",
+    badges:[["长期可等待","good"],["可追溯","good"]],
+    sections:[
+      ["任务类型","HC1/HC2/HC3、实体冲突、低置信事件归属、报告内容审核。"],
+      ["状态","创建、通知、查看证据、通过/打回/备注、操作人、时间与关联 revision。"],
+      ["恢复","用户几天后操作也不会丢；任何前台 Agent 都能继续展示结果。"]
+    ]
+  },
+  dur_store: {
+    title:"版本化状态与 Outbox", subtitle:"工作流可靠性的底座，不依赖 Agent 轨迹作为唯一证据。",
+    badges:[["幂等","good"],["可回滚","good"]],
+    sections:[
+      ["任务 DB","run、task、attempt、依赖、锁、审核、错误、耗时、token、成本。"],
+      ["对象存储","原始快照、模型原始响应、JSONL/XLSX、报告、HTML。"],
+      ["Outbox","飞书和妙搭发布先落待执行记录，再以资源 ID 和验证结果确认完成。"]
+    ]
+  }
+};
+
+const c2Views = {
+  current: {
+    rows: [
+      [["00","平台清洗","四平台并行"],["x0","合流","本地"],["01","事件性","Chat"]],
+      [["02","Frame","Chat"],["03","实体归一","串行 Chat"],["04","Embedding","外部 API"]],
+      [["05","候选召回","本地"],["06","有界分块","本地"],["07","块内归档","块间并发"]],
+      [["x2","置信筛查","条件 Chat"],["x3","双向复核","merge → split"],["x4","明细回写","本地"]]
+    ],
+    title:"当前 C2：层次清晰，但关键路径较长",
+    text:"每一步都有明确产物与恢复能力，这是应保留的优点。主要耗时来自三次前置 Chat、串行实体注册表和后续多轮事件复核。",
+    bullets:[
+      "00、01、02 重复发送同一标题。",
+      "03 必须看前批注册表，形成串行链。",
+      "04 实际不使用 actor_id，却被排在 03 后。",
+      "固定 cap 分块后还需要 x3 修复跨块碎片。"
+    ]
+  },
+  modern: {
+    rows: [
+      [["F1","统一事实抽取","clean + eventness + frame"]],
+      [["E","实体链接","alias + 歧义裁定"],["V","Embedding","与实体链接并行"]],
+      [["G","候选事件图","实体 + 动作 + 时间 + 向量"]],
+      [["P","分区裁定","独立连通区域并行"],["H","大区层级归档","记录 → 临时事件卡"]],
+      [["R","事件卡全局复核","merge / split / related"],["O","周内事件表","跨周只建关系"]]
+    ],
+    title:"新 C2：候选图 + 分区裁定 + 事件卡复核",
+    text:"先把所有可并行工作并行化，再让强模型只处理真正可能互相关联的候选区域。图算法仍只生成候选范围，不直接决定聚类。",
+    bullets:[
+      "统一抽取减少重复调用，NON_EVENT 直接 frame=null。",
+      "实体链接与 Embedding 同时运行。",
+      "独立候选区域全部并行；失败只重跑一个区域。",
+      "超大区域先生成临时事件卡，再对短事件卡做二级归并。",
+      "历史 2–4 周事件只作为候选，并输出 FOLLOW_UP/RELATED，不直接吸收本周成员。"
+    ]
+  }
+};
+
+let activeScenario = "current";
+let activeNode = scenarios.current.defaultNode;
+let activeC2 = "current";
+
+function badgeMarkup(items) {
+  return (items || []).map(([text, cls]) => `<span class="badge ${cls || ""}">${text}</span>`).join("");
+}
+
+function detailMarkup(item) {
+  const sections = (item.sections || []).map(([title, body]) =>
+    `<section class="detail-section"><h4>${title}</h4><p>${body}</p></section>`
+  ).join("");
+  return sections + (item.callout ? `<section class="callout">${item.callout}</section>` : "");
+}
+
+function showDetail(id) {
+  const item = details[id];
+  if (!item) return;
+  activeNode = id;
+  document.getElementById("detail-title").textContent = item.title;
+  document.getElementById("detail-subtitle").textContent = item.subtitle;
+  document.getElementById("badge-row").innerHTML = badgeMarkup(item.badges);
+  document.getElementById("detail-body").innerHTML = detailMarkup(item);
+}
+
+function rowClass(row) {
+  return row.length === 1 ? "single" : row.length === 2 ? "two" : "";
+}
+
+function renderScenario() {
+  const scenario = scenarios[activeScenario];
+  document.getElementById("arch-title").textContent = scenario.title;
+  document.getElementById("arch-subtitle").textContent = scenario.subtitle;
+  document.getElementById("recommend-tag").hidden = !scenario.recommended;
+  document.getElementById("responsibility-strip").innerHTML = scenario.responsibilities.map(([title, text, cls]) =>
+    `<div class="responsibility-cell ${cls || ""}"><b>${title}</b><span>${text}</span></div>`
+  ).join("");
+  const parts = [];
+  scenario.rows.forEach((row, index) => {
+    if (index > 0) parts.push(`<div class="arrow" aria-hidden="true"></div>`);
+    parts.push(`<div class="diagram-row ${rowClass(row)}">${row.map(node =>
+      `<button class="node ${node.role}" data-node="${node.id}" aria-current="${node.id === activeNode}">
+        <span class="node-code">${node.code}</span>
+        <span class="node-title">${node.title}</span>
+        <span class="node-meta">${node.meta}</span>
+      </button>`
+    ).join("")}</div>`);
+  });
+  document.getElementById("diagram").innerHTML = parts.join("");
+  document.querySelectorAll(".node").forEach(button => {
+    button.addEventListener("click", () => {
+      showDetail(button.dataset.node);
+      renderScenario();
+    });
+  });
+}
+
+function switchScenario(name) {
+  activeScenario = name;
+  activeNode = scenarios[name].defaultNode;
+  document.querySelectorAll("[data-scenario]").forEach(button =>
+    button.setAttribute("aria-current", String(button.dataset.scenario === name))
+  );
+  showDetail(activeNode);
+  renderScenario();
+}
+
+function renderC2() {
+  const view = c2Views[activeC2];
+  const parts = [];
+  view.rows.forEach((row, index) => {
+    if (index > 0) parts.push(`<div class="arrow" aria-hidden="true"></div>`);
+    parts.push(`<div class="c2-row ${rowClass(row)}">${row.map(([code, title, meta], itemIndex) =>
+      `<div class="c2-step ${(activeC2 === "modern" && ((index === 1) || (index === 3 && itemIndex === 0))) ? "focus" : ""}">
+        <b><span class="mono">${code}</span> · ${title}</b><span>${meta}</span>
+      </div>`
+    ).join("")}</div>`);
+  });
+  document.getElementById("c2-flow").innerHTML = parts.join("");
+  document.getElementById("c2-explain").innerHTML =
+    `<h4>${view.title}</h4><p>${view.text}</p><ul>${view.bullets.map(item => `<li>${item}</li>`).join("")}</ul>`;
+  document.querySelectorAll("[data-c2]").forEach(button =>
+    button.setAttribute("aria-pressed", String(button.dataset.c2 === activeC2))
+  );
+}
+
+document.querySelectorAll("[data-scenario]").forEach(button =>
+  button.addEventListener("click", () => switchScenario(button.dataset.scenario))
+);
+document.querySelectorAll("[data-c2]").forEach(button =>
+  button.addEventListener("click", () => {
+    activeC2 = button.dataset.c2;
+    renderC2();
+  })
+);
+
+switchScenario("current");
+renderC2();
+</script>
+</body>
+</html>
