@@ -9,7 +9,7 @@ description: 同步火山方舟（Volcengine Ark）文档中心的一段连续�
 **连续 DocumentID 区间**的页面，抓取拼接成一个 Markdown 合集文件。
 
 本仓库默认目标：`common/docs/火山方舟_ManagedAgents_docs.md`
-（Managed Agents 文档，DocumentID `2553713..2553730`，共 18 页）。
+（Managed Agents 文档，DocumentID `2553713..2553731`，共 19 页）。
 
 ## 何时使用
 
@@ -44,7 +44,7 @@ description: 同步火山方舟（Volcengine Ark）文档中心的一段连续�
 ## 用法
 
 ```bash
-# 默认：更新本仓库的方舟 MA 合集（2553713..2553730 -> common/docs/火山方舟_ManagedAgents_docs.md）
+# 默认：更新本仓库的方舟 MA 合集（2553713..2553731 -> common/docs/火山方舟_ManagedAgents_docs.md）
 python3 common/skills/volc-docs-sync/update_docs.py
 
 # 只抓取并打印诊断（每页标题 / MDContent 长度 / 最近更新时间），不写文件
@@ -52,7 +52,7 @@ python3 common/skills/volc-docs-sync/update_docs.py --dry-run
 
 # 自定义区间与输出路径（复用到其它文档合集）
 python3 common/skills/volc-docs-sync/update_docs.py \
-    --start 2553713 --end 2553730 \
+    --start 2553713 --end 2553731 \
     --out common/docs/火山方舟_ManagedAgents_docs.md
 
 # 跳过 Prettier（环境无 npx 时；输出为拼接原文，可能有格式抖动）
@@ -68,12 +68,12 @@ python3 common/skills/volc-docs-sync/update_docs.py --no-format
 - DocumentID 是火山引擎**全局递增、跨产品共享**的 ID，**不保证连续**。相邻 ID 很
   可能来自其它库（如 `cr` / `Cloudphone` / `DoubaoVoice`），**不能**简单扩区间。
 - 判定"属于本合集"的可靠特征：`LibraryCode == "ark"` **且** `ParentCode` 在抓取
-  时收集到的父节点集合内（本次区间 `2553713..2553730` 对应 `managed-agents-*` 的
+  时收集到的父节点集合内（本次区间 `2553713..2553731` 对应 `managed-agents-*` 的
   若干组）。
 - 脚本在抓取完成后自动做 `±probe-radius` 的边界探测：对两侧 ID 发轻量请求，命中
-  上述特征的会**只打印提示**（不自动改区间，避免误并入他库文档）。例如本次 dry-run
-  发现 `2553731 定义 Outcome`（ParentCode=`managed-agents-advanced-capabilities`），
-  需人工决定是否 `--end 2553731` 把它纳入。
+  上述特征的会**只打印提示**（不自动改区间，避免误并入他库文档）。例如 2026-10-09
+  通过探测发现并纳入 `2553731 定义 Outcome`。再次发现同类提示时，手工评估后调整
+  `--start/--end`（或默认值 `DEFAULT_START/DEFAULT_END`）即可。
 
 ## 依赖
 
@@ -84,7 +84,7 @@ python3 common/skills/volc-docs-sync/update_docs.py --no-format
 ## 建议校验（更新后）
 
 ```bash
-# 结构完整性：以下三项都应为区间页数（默认 18）
+# 结构完整性：以下三项都应为区间页数（默认 19）
 grep -cE '<a id="doc-[0-9]+"></a>' common/docs/火山方舟_ManagedAgents_docs.md
 grep -cE '^\- \[.*\]\(#doc-[0-9]+\)'  common/docs/火山方舟_ManagedAgents_docs.md
 grep -c   '来源：\[https'             common/docs/火山方舟_ManagedAgents_docs.md

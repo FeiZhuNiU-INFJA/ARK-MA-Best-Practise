@@ -42,7 +42,7 @@ API_TMPL = "https://docs.volcengine.com/api/doc/getDocDetail?DocumentID={doc_id}
 # 文档中心的卡片库 ID（用于拼「来源」链接 https://.../docs/{LIBRARY_ID}/{doc_id}）。
 LIBRARY_ID = 82379
 DEFAULT_START = 2553713
-DEFAULT_END = 2553730  # 闭区间
+DEFAULT_END = 2553731  # 闭区间
 
 # 脚本相对 common/ 目录的默认输出（common/skills/volc-docs-sync/ -> common/ -> docs/...）。
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

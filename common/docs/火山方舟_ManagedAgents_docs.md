@@ -1,6 +1,6 @@
 # 火山方舟 · Managed Agents 文档合集
 
-> 来源：`docs.volcengine.com/docs/82379/{2553713..2553730}?lang=zh`
+> 来源：`docs.volcengine.com/docs/82379/{2553713..2553731}?lang=zh`
 > 由页面自带的「复制 Markdown」原文拼接而成，未做二次改写。
 
 ## 目录
@@ -23,6 +23,7 @@
 - [持久化记忆](#doc-2553728) · `2553728`
 - [Advisor](#doc-2553729) · `2553729`
 - [编排 Multi Agent](#doc-2553730) · `2553730`
+- [定义 Outcome](#doc-2553731) · `2553731`
 
 <a id="doc-2553713"></a>
 
@@ -1981,7 +1982,7 @@ MCP 工具集通过 `type: "mcp_toolset"` 将一个 MCP Server 暴露的工具�
 自定义工具通过 `type: "custom"` 声明。每个工具需要配置名称、用途描述和输入参数 Schema。以下示例使用 `curl` 创建 Agent，并使用 `jq` 保存返回的 Agent ID。示例同时显式关闭内置工具集，避免主 Agent 回退启用全部内置工具：
 
 <Tabs>
-<Tab zoneid="n4rpplv7Dl" title="Curl">
+<Tab zoneid="hy6iWwGeDq" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -1991,7 +1992,7 @@ AGENT_RESPONSE=$(curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/ap
   -d '{
     "name": "CustomToolDemo",
     "model": {
-      "id": "doubao-seed-2-1-pro-260628"
+      "id": "doubao-seed-2-1-pro-260915"
     },
     "system": "你是一个可以调用业务工具的助手。需要外部业务能力时，调用已声明的自定义工具。不要编造工具结果。",
     "tools": [
@@ -2051,7 +2052,7 @@ printf 'Agent ID: %s\n' "$AGENT_ID"
 如果 Agent 需要使用全部基础执行能力，挂载 `agent_toolset_20260701`，并显式启用工具集和权限策略：
 
 <Tabs>
-<Tab zoneid="sI5poBW8D9" title="Curl">
+<Tab zoneid="ZoeAjZh31X" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -2087,7 +2088,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 如果 Agent 不应访问网页，可以保持工具集启用，再通过 `configs` 关闭 `web_fetch` 和 `web_search`：
 
 <Tabs>
-<Tab zoneid="OuB101nD1s" title="Curl">
+<Tab zoneid="cIejHXvjlF" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -2133,7 +2134,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 如果 Agent 只需要读取和检索沙箱文件，先将工具集整体关闭，再显式启用 `read`、`glob` 和 `grep`：
 
 <Tabs>
-<Tab zoneid="LSEea8ZSAd" title="Curl">
+<Tab zoneid="TYp1QOeJ9v" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -2452,7 +2453,7 @@ Session 返回 `stop_reason.type=requires_action` 时，先读取 `stop_reason.e
 ## 相关文档
 
 <columns>
-<columnsItem zoneid="gkdBnB72cv">
+<columnsItem zoneid="jdCVbVui0D">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/define-agent" >
 
@@ -2471,7 +2472,7 @@ Skills 用于给 Agent 补充领域知识、操作流程和最佳实践。
 </card>
 
 </columnsItem>
-<columnsItem zoneid="JNsNfG8hPM">
+<columnsItem zoneid="GUqlTiD1HM">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/mcp" >
 
@@ -6917,3 +6918,438 @@ fi
 - [Tools](https://ark.volcengine.com/region:cn-beijing/docs/ark/tools)
 
 - [管理 Session](https://ark.volcengine.com/region:cn-beijing/docs/ark/manage-session)
+
+<a id="doc-2553731"></a>
+
+---
+
+## 定义 Outcome
+
+> 来源：[https://docs.volcengine.com/docs/82379/2553731?lang=zh](https://docs.volcengine.com/docs/82379/2553731?lang=zh)
+
+Outcome（任务验收）是方舟 Managed Agents 提供的进阶能力，也是「Agent 自我进化」能力的重要组成部分。在对话中定义任务目标和验收标准后，系统会自动拉起独立的评分器（Grader）对 Agent 的产出进行评估，让 Agent 检查要求可完成度，并根据反馈继续迭代优化，直到满足验收标准、达到迭代上限或任务失败。
+
+Outcome 将 Session 从「对话」提升为「工作」——你只需要定义「完成」是什么样子，Agent 会自动朝着目标努力，自我评估、不断迭代，直到达成结果。
+
+<div data-tips="true" data-tips-type="tip" data-tips-is-title="true">说明</div>
+
+<div data-tips="true" data-tips-type="tip">此为邀测能力，如需使用，提交 <a href="https://console.volcengine.com/auth/login?redirectURI=%2Fworkorder%2Fcreate%3Fstep%3D2%26SubProductID%3DP00001166">测试申请工单</a>。</div>
+
+<span id=".5YeG5aSH5bel5L2c"></span>
+
+## 准备工作
+
+开始前你需要：
+
+- 已创建的 API Key：配置为环境变量 `ARK_API_KEY`，详情请参见 [API Key 管理](https://ark.volcengine.com/region:cn-beijing/apiKey)。
+
+- 已创建的 Agent：详情请参见 [定义 Agent](https://ark.volcengine.com/region:cn-beijing/docs/ark/define-agent)。
+
+- 已创建的 Environment：详情请参见 [配置云环境](https://ark.volcengine.com/region:cn-beijing/docs/ark/configure-cloud-environment)。
+
+本章节示例的 Base URL 与鉴权方式详情请参见 [Base URL 及鉴权](https://ark.volcengine.com/region:cn-beijing/docs/ark/base-url-and-authentication)。
+
+在使用 Outcome 之前，你需要：
+
+1. 已经创建好 Agent 和 Environment，并能正常启动 Session。
+
+2. 明确任务的验收标准。
+
+Outcome 通过 Session 事件定义，无需创建专用 Agent。可以直接使用已有 Agent 的 `agent_id` 创建 Session。
+
+<span id=".5L2_55SoLW91dGNvbWU="></span>
+
+## 使用 Outcome
+
+<span id=".5Z-65pys5rWB56iL"></span>
+
+### 基本流程
+
+按照以下顺序创建任务并观察评估结果：
+
+1. 通过 [创建会话](https://ark.volcengine.com/region:cn-beijing/docs/ark/create-session-api) 创建绑定 Agent 和 Environment 的 Session。
+
+2. 通过 [流式获取会话事件](https://ark.volcengine.com/region:cn-beijing/docs/ark/stream-events-api) 订阅 Session 事件流，并等待服务端返回 `: ready`。
+
+3. 通过 [发送会话事件](https://ark.volcengine.com/region:cn-beijing/docs/ark/send-event-api) 发送 `user.define_outcome` 事件，定义任务和验收标准。
+
+4. 通过 SSE 持续接收 `span.outcome_evaluation_start`、`span.outcome_evaluation_ongoing` 和 `span.outcome_evaluation_end` 事件。
+
+Agent 收到 `user.define_outcome` 事件后会立即开始工作，无需额外发送 `user.message`。
+
+<span id=".5a6a5LmJLW91dGNvbWU="></span>
+
+### 定义 Outcome
+
+向 Session 的事件入口提交 `user.define_outcome` 事件：
+
+<Tabs>
+<Tab zoneid="dVyu5SbTcD" title="cURL">
+<TabTitle>cURL</TabTitle>
+
+```Bash
+curl "https://ark.cn-beijing.volces.com/api/v3/sessions/$SESSION_ID/events" \
+  -H "Authorization: Bearer $ARK_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "events": [
+      {
+        "type": "user.define_outcome",
+        "description": "为 Costco 构建一个 DCF 财务模型，并输出到 /mnt/session/outputs/costco_dcf.xlsx",
+        "rubric": {
+          "type": "text",
+          "content": "# DCF 模型验收标准\n\n## 收入预测\n- 使用了过去 5 个财年的历史收入数据\n- 至少预测了未来 5 年的收入\n- 增长率假设明确说明且合理\n\n## 输出质量\n- 所有数据写入 /mnt/session/outputs/costco_dcf.xlsx\n- 工作表命名清晰\n- 关键假设在单独的「假设」工作表中"
+        },
+        "max_iterations": 5
+      }
+    ]
+  }'
+```
+
+</Tab>
+</Tabs>
+
+`max_iterations` 用于限制评估轮数，取值范围为 1～20，默认值为 3。`user.define_outcome` 的完整字段结构，请参见 [会话事件结构参考](https://ark.volcengine.com/region:cn-beijing/docs/ark/sessions-events-reference-v2)。
+
+发送成功后，Session 状态会从 `idle` 切换到 `running`，Agent 开始执行任务。
+
+<span id=".6KeC5a-f5omn6KGM54q25oCB"></span>
+
+### 观察执行状态
+
+<div data-tips="true" data-tips-type="warning" data-tips-is-title="true">先建 SSE，再发 user.define_outcome</div>
+
+<div data-tips="true" data-tips-type="warning">SSE 只推送连接建立后产生的事件。请先通过 <a href="https://ark.volcengine.com/region:cn-beijing/docs/ark/stream-events-api">流式获取会话事件</a> 建立连接并等待 <code>: ready</code>，再通过 <a href="https://ark.volcengine.com/region:cn-beijing/docs/ark/send-event-api">发送会话事件</a> 提交 <code>user.define_outcome</code> 事件，避免遗漏首轮评估事件。</div>
+
+<span id=".b3V0Y29tZS3kuovku7bmtYHovaw="></span>
+
+#### Outcome 事件流转
+
+下图展示一次 Outcome 中，任务执行、结果评估和自动修订之间的关系。客户端主要根据 `span.outcome_evaluation_end.result` 判断是继续等待下一轮评估，还是等待 Session 结束。
+
+<img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3MjAiIGhlaWdodD0iODMwIiB2aWV3Qm94PSIwIDAgNzIwIDgzMCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsbGVkYnk9InRpdGxlIGRlc2MiPjx0aXRsZSBpZD0idGl0bGUiPk91dGNvbWUg5omn6KGM44CB6K+E5Lyw5ZKM5L+u6K6i55qE5LqL5Lu25rWB6L2sPC90aXRsZT48ZGVzYyBpZD0iZGVzYyI+5a6i5oi356uv5o+Q5LqkIE91dGNvbWUg5ZCO77yMU2Vzc2lvbiDov5DooYwgQWdlbnQg5bm26K+E5Lyw5Lqn5Ye644CC6ZyA6KaB5L+u6K6i5pe26L+U5ZueIEFnZW50IOe7p+e7reaJp+ihjO+8jOe7iOaAgee7k+aenOWkhOeQhuWujOaIkOWQjiBTZXNzaW9uIOWbnuWIsOepuumXsueKtuaAgeOAgjwvZGVzYz48ZGVmcz48bWFya2VyIGlkPSJhIiBtYXJrZXJXaWR0aD0iOCIgbWFya2VySGVpZ2h0PSI4IiByZWZYPSI3IiByZWZZPSI0IiBvcmllbnQ9ImF1dG8iIG1hcmtlclVuaXRzPSJzdHJva2VXaWR0aCI+PHBhdGggZD0iTTAgMEw4IDQgMCA4WiIgZmlsbD0iIzMxNTM2ZiIvPjwvbWFya2VyPjxzdHlsZT4udHtmb250LWZhbWlseTotYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmO2ZvbnQtc2l6ZToxM3B4O3RleHQtYW5jaG9yOm1pZGRsZTtmaWxsOiMxNzJiM2F9LnN7Zm9udC1zaXplOjEycHg7ZmlsbDojNTI2YjdhfS5se3N0cm9rZTojMzE1MzZmO3N0cm9rZS13aWR0aDoxLjY7ZmlsbDpub25lO21hcmtlci1lbmQ6dXJsKCNhKX0uYntyeDo0O3N0cm9rZTojOTFhNGIzO2ZpbGw6I2Y0ZjdmOX0uZXtyeDo0O3N0cm9rZTojZDg5YjU1O2ZpbGw6I2ZmZjNlMH0uZ3tyeDo0O3N0cm9rZTojNzVhZDdiO2ZpbGw6I2U4ZjVlOX08L3N0eWxlPjwvZGVmcz48cmVjdCB3aWR0aD0iNzIwIiBoZWlnaHQ9IjgzMCIgZmlsbD0iI2ZmZiIvPjx0ZXh0IGNsYXNzPSJ0IiB4PSIzNjAiIHk9IjMwIiBmb250LXNpemU9IjE3IiBmb250LXdlaWdodD0iNjAwIj5PdXRjb21lIOaJp+ihjOOAgeivhOS8sOWSjOS/ruiuoueahOS6i+S7tua1gei9rDwvdGV4dD48cmVjdCBjbGFzcz0iYiIgeD0iMTkwIiB5PSI1MiIgd2lkdGg9IjM0MCIgaGVpZ2h0PSI0NiIvPjx0ZXh0IGNsYXNzPSJ0IiB4PSIzNjAiIHk9IjgwIj7lu7rnq4sgU1NFIOi/nuaOpSDCtyDnrYnlvoUgOiByZWFkeTwvdGV4dD48cGF0aCBjbGFzcz0ibCIgZD0iTTM2MCA5OHYyNiIvPjxyZWN0IHg9IjE5MCIgeT0iMTI1IiB3aWR0aD0iMzQwIiBoZWlnaHQ9IjQ2IiByeD0iNCIgZmlsbD0iI2UzZjJmZCIgc3Ryb2tlPSIjNjRhNWQyIi8+PHRleHQgY2xhc3M9InQiIHg9IjM2MCIgeT0iMTUzIiBmaWxsPSIjMTc0YjczIj51c2VyLmRlZmluZV9vdXRjb21lIMK3IOaPkOS6pOebruagh+S4juagh+WHhjwvdGV4dD48cGF0aCBjbGFzcz0ibCIgZD0iTTM2MCAxNzF2MjYiLz48cmVjdCBjbGFzcz0iZyIgeD0iMTkwIiB5PSIxOTgiIHdpZHRoPSIzNDAiIGhlaWdodD0iNDYiLz48dGV4dCBjbGFzcz0idCIgeD0iMzYwIiB5PSIyMjYiIGZpbGw9IiMyNDVjMmEiPnNlc3Npb24uc3RhdHVzX3J1bm5pbmcgwrcg5byA5aeL5aSE55CG5Lu75YqhPC90ZXh0PjxwYXRoIGNsYXNzPSJsIiBkPSJNMzYwIDI0NHYyNiIvPjxyZWN0IGNsYXNzPSJiIiB4PSIxOTAiIHk9IjI3MSIgd2lkdGg9IjM0MCIgaGVpZ2h0PSI1MiIvPjx0ZXh0IGNsYXNzPSJ0IiB4PSIzNjAiIHk9IjI5MyI+QWdlbnQg5omn6KGM5oiW5L+u6K6i5Lu75YqhPC90ZXh0Pjx0ZXh0IGNsYXNzPSJ0IHMiIHg9IjM2MCIgeT0iMzEyIj7mnJ/pl7Tlj6/ov5Tlm54gYWdlbnQuKuOAgeW3peWFt+WSjOaooeWei+iwg+eUqOS6i+S7tjwvdGV4dD48cGF0aCBjbGFzcz0ibCIgZD0iTTM2MCAzMjN2MjYiLz48cmVjdCBjbGFzcz0iZSIgeD0iMTkwIiB5PSIzNTAiIHdpZHRoPSIzNDAiIGhlaWdodD0iNDYiLz48dGV4dCBjbGFzcz0idCIgeD0iMzYwIiB5PSIzNzgiIGZpbGw9IiM3YTQzMDAiPnNwYW4ub3V0Y29tZV9ldmFsdWF0aW9uX3N0YXJ0IMK3IOW8gOWni+acrOi9ruivhOS8sDwvdGV4dD48cGF0aCBjbGFzcz0ibCIgZD0iTTM2MCAzOTZ2MjYiLz48cmVjdCBjbGFzcz0iZSIgeD0iMTkwIiB5PSI0MjMiIHdpZHRoPSIzNDAiIGhlaWdodD0iNDYiIHN0cm9rZS1kYXNoYXJyYXk9IjUgNCIvPjx0ZXh0IGNsYXNzPSJ0IiB4PSIzNjAiIHk9IjQ1MSIgZmlsbD0iIzdhNDMwMCI+c3Bhbi5vdXRjb21lX2V2YWx1YXRpb25fb25nb2luZyDCtyDlj6/pgInjgIHlj6/ph43lpI08L3RleHQ+PHBhdGggZD0iTTUzMCA0NDZjNjAgMCA2MC0yNiAwLTI2IiBmaWxsPSJub25lIiBzdHJva2U9IiNkODliNTUiIHN0cm9rZS13aWR0aD0iMS40IiBzdHJva2UtZGFzaGFycmF5PSI1IDQiIG1hcmtlci1lbmQ9InVybCgjYSkiLz48cGF0aCBjbGFzcz0ibCIgZD0iTTM2MCA0Njl2MjYiLz48cmVjdCBjbGFzcz0iZSIgeD0iMTkwIiB5PSI0OTYiIHdpZHRoPSIzNDAiIGhlaWdodD0iNDYiLz48dGV4dCBjbGFzcz0idCIgeD0iMzYwIiB5PSI1MjQiIGZpbGw9IiM3YTQzMDAiPnNwYW4ub3V0Y29tZV9ldmFsdWF0aW9uX2VuZCDCtyDov5Tlm54gcmVzdWx0PC90ZXh0PjxwYXRoIGNsYXNzPSJsIiBkPSJNMzYwIDU0MnYyNiIvPjxwb2x5Z29uIHBvaW50cz0iMzYwIDU2OSA0NzQgNjEyIDM2MCA2NTUgMjQ2IDYxMiIgZmlsbD0iI2YzZTVmNSIgc3Ryb2tlPSIjOWM3MmFkIi8+PHRleHQgY2xhc3M9InQiIHg9IjM2MCIgeT0iNjA4IiBmaWxsPSIjNWYyYTcwIj7or4TkvLDnu5Pmnpw8L3RleHQ+PHRleHQgY2xhc3M9InQgcyIgeD0iMzYwIiB5PSI2MjgiIGZpbGw9IiM1ZjJhNzAiPuaYr+WQpumcgOimgee7p+e7reS/ruiuou+8nzwvdGV4dD48cGF0aCBkPSJNMjQ2IDYxMkg3OFYyOTdoMTEyIiBmaWxsPSJub25lIiBzdHJva2U9IiNjMzZhMjEiIHN0cm9rZS13aWR0aD0iMS44IiBtYXJrZXItZW5kPSJ1cmwoI2EpIi8+PHJlY3QgY2xhc3M9ImUiIHg9IjIyIiB5PSI1ODQiIHdpZHRoPSIxOTAiIGhlaWdodD0iNTgiLz48dGV4dCBjbGFzcz0idCIgeD0iMTE3IiB5PSI2MDciIGZpbGw9IiM3YTQzMDAiPm5lZWRzX3JldmlzaW9uPC90ZXh0Pjx0ZXh0IGNsYXNzPSJ0IHMiIHg9IjExNyIgeT0iNjI3IiBmaWxsPSIjN2E0MzAwIj5BZ2VudCDkv67orqIgwrcgaXRlcmF0aW9uICsgMTwvdGV4dD48cGF0aCBjbGFzcz0ibCIgZD0iTTQ3NCA2MTJoNzR2NzAiLz48cmVjdCBjbGFzcz0iYiIgeD0iNDcyIiB5PSI2ODMiIHdpZHRoPSIyMjYiIGhlaWdodD0iNzYiLz48dGV4dCBjbGFzcz0idCBzIiB4PSI1ODUiIHk9IjcwNiI+c2F0aXNmaWVkIC8gZmFpbGVkIC8gaW50ZXJydXB0ZWQ8L3RleHQ+PHRleHQgY2xhc3M9InQgcyIgeD0iNTg1IiB5PSI3MjYiPm1heF9pdGVyYXRpb25zX3JlYWNoZWQ8L3RleHQ+PHRleHQgY2xhc3M9InQgcyIgeD0iNTg1IiB5PSI3NDciPue7k+adn+ivhOS8sO+8m+aMiemcgOWujOaIkOaUtuWwvjwvdGV4dD48cGF0aCBjbGFzcz0ibCIgZD0iTTQ3MiA3MjFIMzYwdjU5Ii8+PHJlY3QgY2xhc3M9ImciIHg9IjE5MCIgeT0iNzgxIiB3aWR0aD0iMzQwIiBoZWlnaHQ9IjQ2Ii8+PHRleHQgY2xhc3M9InQiIHg9IjM2MCIgeT0iODA5IiBmaWxsPSIjMjQ1YzJhIj5zZXNzaW9uLnN0YXR1c19pZGxlIMK3IOW9k+WJjSBPdXRjb21lIOe7k+adnzwvdGV4dD48L3N2Zz4=" width="720px" />
+
+1. 客户端发送 `user.define_outcome` 后，Session 返回 `session.status_running`，Agent 开始执行任务。
+
+2. Agent 生成本轮产出后，Session 返回 `span.outcome_evaluation_start`。评估期间可能多次返回 `span.outcome_evaluation_ongoing`，该事件只表示评估仍在进行。
+
+3. Session 通过 `span.outcome_evaluation_end` 返回本轮评估结果。
+
+4. 如果 `result=needs_revision`，Agent 根据评估反馈修订产出，然后进入下一轮评估；`iteration` 随评估轮次递增。
+
+5. 如果返回其他结果，继续监听至 `session.status_idle`。`max_iterations_reached` 返回后，Agent 还会执行一次收尾。
+
+如何建立和恢复 SSE 连接，请参见 [Session 事件流](https://ark.volcengine.com/region:cn-beijing/docs/ark/session-event-stream)。各事件的字段、取值和关联 ID，请参见 [会话事件结构参考](https://ark.volcengine.com/region:cn-beijing/docs/ark/sessions-events-reference-v2)。
+
+<span id=".6K-E5Lyw57uT5p6c57G75Z6L"></span>
+
+#### 评估结果类型
+
+`span.outcome_evaluation_end` 事件中的 `result` 字段表示本轮评估的结论：
+
+| result                   | 含义                             | 后续行为                                                                                         |
+| ------------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `satisfied`              | 产出物满足所有验收标准           | 继续监听至 `session.status_idle`，然后下载并验证交付物                                           |
+| `needs_revision`         | 产出物未达标，需要修改           | 无需发送新事件；继续监听 Agent 修订和下一轮评估                                                  |
+| `max_iterations_reached` | 已达到最大迭代次数               | 等待 Agent 完成收尾并进入 `idle`；如产物仍未达标，调整目标、验收标准或迭代次数后启动新的 Outcome |
+| `failed`                 | 任务无法有效评估或存在根本性问题 | 查看 `explanation`，修正任务目标、验收标准或相关依赖后启动新的 Outcome                           |
+| `interrupted`            | 任务被中断                       | 等待 Session 进入 `idle` 后，再决定是否启动新的 Outcome                                          |
+
+<span id=".6K-E5Lyw57uT5p2f5LqL5Lu256S65L6L"></span>
+
+#### 评估结束事件示例
+
+```json
+{
+  "type": "span.outcome_evaluation_end",
+  "id": "sevt-20260702070410-xxxxx",
+  "outcome_evaluation_start_id": "eval-20260702070405-xxxxx",
+  "outcome_id": "outc-20260702070355-xxxxx",
+  "result": "satisfied",
+  "explanation": "所有 12 条标准均已满足：收入预测使用了 5 年历史数据，WACC 假设已说明，包含敏感性分析表...",
+  "iteration": 0,
+  "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 22240,
+    "input_tokens": 2400,
+    "output_tokens": 350
+  },
+  "processed_at": "2026-07-02T07:04:10Z"
+}
+```
+
+<span id=".5Lit5pat5Lu75Yqh"></span>
+
+### 中断任务
+
+如果需要在 Outcome 运行过程中停止，可以发送 `user.interrupt` 事件：
+
+<Tabs>
+<Tab zoneid="uvAE3H57in" title="cURL">
+<TabTitle>cURL</TabTitle>
+
+```Bash
+curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260702070355-xxxxx/events \
+  -H "Authorization: Bearer $ARK_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "events": [
+      {
+        "type": "user.interrupt"
+      }
+    ]
+  }'
+```
+
+</Tab>
+</Tabs>
+
+中断后，当前 Outcome 会停止，`span.outcome_evaluation_end.result` 将标记为 `interrupted`。你可以在中断后启动一个新的 Outcome。
+
+<span id=".5aSa5LiqLW91dGNvbWUt5Liy6IGU"></span>
+
+### 多个 Outcome 串联
+
+一次只支持一个 Outcome 运行，但你可以按顺序串联多个 Outcome。在前一个 Outcome 的终止事件（`span.outcome_evaluation_end`）之后，发送新的 `user.define_outcome` 事件即可启动下一个任务。
+
+这对于多阶段工作流非常有用，例如：
+
+1. 阶段一：需求分析
+
+2. 阶段二：方案设计
+
+3. 阶段三：编码实现
+
+4. 阶段四：测试验证
+
+<span id=".57yW5YaZ6aqM5pS25qCH5YeG"></span>
+
+## 编写验收标准
+
+验收标准（Rubric）是 Outcome 的核心，它定义了任务完成的评判标准。清晰、可验证的验收标准可以帮助 Agent 判断产出是否达标。
+
+<span id=".57yW5YaZ5Y6f5YiZ"></span>
+
+### 编写原则
+
+**1. 明确、可量化，而非模糊描述**
+
+✅ 好：`报告包含至少 3 个数据图表，且每个图表都有明确的标题和数据来源`
+
+❌ 不好：`报告看起来不错`
+
+**2. 描述「是什么」，而非「怎么做」**
+
+验收标准用来判断「交付物是否达标」，而不是指导 Agent「怎么完成任务」。让 Agent 自己选择执行方式，你只需要定义终点。
+
+✅ 好：`代码通过所有单元测试，覆盖率不低于 80%`
+
+❌ 不好：`你应该先写测试再写代码，使用 pytest 框架...`
+
+**3. 结构化、分条列项**
+
+使用 Markdown 标题和列表组织，让评分器能够逐条评估。
+
+**4. 从示例反推**
+
+如果你手头有已知合格的产出物示例，可以先分析「是什么让它合格」，然后将这些特质转化为验收标准条目。
+
+<span id=".6aqM5pS25qCH5YeG5qih5p2_"></span>
+
+### 验收标准模板
+
+以下是一个 DCF 财务模型的 Rubric 示例，供参考：
+
+```markdown
+# DCF 模型验收标准
+
+## 收入预测
+
+- 使用了过去 5 个财年的历史收入数据
+- 至少预测了未来 5 年的收入
+- 增长率假设明确说明且合理
+
+## 成本结构
+
+- 销货成本（COGS）和运营费用分别建模
+- 利润率与历史趋势一致，或有合理解释
+
+## 折现率
+
+- WACC 计算包含权益成本和债务成本的假设说明
+- Beta、无风险利率、股权风险溢价有来源或说明
+
+## 终值
+
+- 使用了永续增长法或退出倍数法（明确说明使用哪种）
+- 终值增长率不超过长期 GDP 增长率
+
+## 输出质量
+
+- 所有数据在一个 .xlsx 文件中，工作表命名清晰
+- 关键假设在单独的「假设」工作表中
+- 包含 WACC 和终值增长率的敏感性分析
+```
+
+<span id=".6I635Y-W5bm26aqM6K-B5Lqk5LuY54mp"></span>
+
+## 获取并验证交付物
+
+Agent 将输出文件写入沙箱内的 `/mnt/session/outputs/` 目录。Session 进入 `idle` 后，文件可能仍在注册。下面的示例从已完成的 `$SESSION_ID` 出发，完成以下操作：
+
+1. 分页查询 `purpose=agent` 的文件。
+
+2. 按文件名选择 `costco_dcf.xlsx`；文件尚未注册时，每 2 秒重试一次，最多重试 10 次。
+
+3. 从文件对象中提取 `download_url` 并下载。
+
+4. 校验服务端返回的文件名与目标名称一致，并确认下载文件非空；任一条件不满足时返回非零状态。
+
+省略 `purpose=agent` 时，Files API 查询结果还可能包含用户挂载到该 Session 的文件副本。
+
+需要将交付物长期保存在自己的 TOS Bucket 时，在创建 Environment 时配置 `config.tos`。未配置时，平台将产物存入方舟公共 TOS，请在平台 TTL 到期前下载所需文件。
+
+<Tabs>
+<Tab zoneid="FdKw5q5Uss" title="cURL">
+<TabTitle>cURL</TabTitle>
+
+```Bash
+set -euo pipefail
+
+: "\\${ARK_API_KEY:?Set ARK_API_KEY before running this script}"
+: "\\${SESSION_ID:?Set SESSION_ID to the completed Session ID}"
+
+OUTPUT_FILENAME="\\${OUTPUT_FILENAME:-costco_dcf.xlsx}"
+OUTPUT_PATH="\\${OUTPUT_PATH:-./$OUTPUT_FILENAME}"
+MAX_ATTEMPTS="\\${MAX_ATTEMPTS:-10}"
+POLL_INTERVAL_SECONDS="\\${POLL_INTERVAL_SECONDS:-2}"
+
+command -v jq >/dev/null 2>&1 || {
+  echo "jq is required to parse the Files API response." >&2
+  exit 1
+}
+
+file=""
+for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do
+  after=""
+
+  while :; do
+    url="https://ark.cn-beijing.volces.com/api/v3/files?scope_id=$SESSION_ID&purpose=agent&limit=100&order=desc"
+    if [[ -n "$after" ]]; then
+      url="$url&after=$after"
+    fi
+
+    response=$(curl -fsS "$url" \
+      -H "Authorization: Bearer $ARK_API_KEY")
+
+    file=$(jq -cer --arg filename "$OUTPUT_FILENAME" '
+      [.data[]?
+        | select(.filename == $filename)
+        | select(.status == "active")
+        | select((.download_url // "") != "")]
+      | first // empty
+    ' <<<"$response" || true)
+
+    if [[ -n "$file" ]]; then
+      break 2
+    fi
+
+    if [[ $(jq -r '.has_more // false' <<<"$response") != "true" ]]; then
+      break
+    fi
+    after=$(jq -er '.last_id' <<<"$response")
+  done
+
+  if ((attempt < MAX_ATTEMPTS)); then
+    sleep "$POLL_INTERVAL_SECONDS"
+  fi
+done
+
+if [[ -z "$file" ]]; then
+  echo "File not ready after $MAX_ATTEMPTS attempts: $OUTPUT_FILENAME" >&2
+  exit 1
+fi
+
+filename=$(jq -r '.filename' <<<"$file")
+download_url=$(jq -er '.download_url' <<<"$file")
+if [[ "$filename" != "$OUTPUT_FILENAME" ]]; then
+  echo "Unexpected filename: $filename" >&2
+  exit 1
+fi
+
+curl -fsSL "$download_url" -o "$OUTPUT_PATH"
+if [[ ! -s "$OUTPUT_PATH" ]]; then
+  echo "Downloaded file is empty: $OUTPUT_PATH" >&2
+  exit 1
+fi
+
+printf 'Downloaded %s (%s bytes)\n' "$OUTPUT_PATH" "$(wc -c <"$OUTPUT_PATH")"
+```
+
+</Tab>
+</Tabs>
+
+如果脚本重试后仍未找到目标文件，先确认 Session 已进入 `idle`，并检查 Agent 是否将文件写入 `/mnt/session/outputs/costco_dcf.xlsx`。仅重新执行查询脚本即可，不需要重新提交 Outcome。
+
+查询和下载产物的方法，详情请参见 [上传与挂载文件](https://ark.volcengine.com/region:cn-beijing/docs/ark/upload-and-mount-files)。配置产物存储的方法，详情请参见 [配置产物存储](https://ark.volcengine.com/region:cn-beijing/docs/ark/configure-cloud-environment#configure-output-storage)。
+
+<span id=".5pyA5L2z5a6e6Le1"></span>
+
+## 最佳实践
+
+**从简单开始**：初次使用 Outcome 时，建议从简单、明确的任务开始，逐步调优验收标准。
+
+**迭代优化验收标准**：根据实际运行结果调整验收标准。如果 Agent 总是在同一环节出错，增加对应的检查项。
+
+**设置合理的迭代次数**：初次使用时可以保持默认值 3。如果多次出现 `max_iterations_reached`，先检查任务目标和验收标准是否明确，再在 1～20 的范围内调整 `max_iterations`。
+
+<span id=".6K6h6LS56K-05piO"></span>
+
+## 计费说明
+
+Outcome 的费用包含以下部分：
+
+- **Agent 执行费用**：Agent 每轮迭代产生的模型 Token 费用，按 Agent 配置的模型价格计费。
+
+- **评分器费用**：每轮评估产生的模型 Token 费用，评分器使用独立模型，按对应价格计费。
+
+- **沙箱费用**：Session 运行期间的沙箱资源费用。
+
+具体计费规则请参考方舟 Managed Agents 的 [计费说明](https://ark.volcengine.com/region:cn-beijing/docs/ark/model-pricing#ma_billing)。
+
+<span id=".55u45YWz5paH5qGj"></span>
+
+## 相关文档
+
+<columns>
+<columnsItem zoneid="cl1D2jED2f">
+
+<card mode="section" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/advisor" >
+
+[Advisor](https://ark.volcengine.com/region:cn-beijing/docs/ark/advisor)
+
+Advisor 在 Agent 遇到困难时自动唤起更强的顾问模型提供指导。
+
+</card>
+
+<card mode="section" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/multi-agent" >
+
+[编排 Multi Agent](https://ark.volcengine.com/region:cn-beijing/docs/ark/multi-agent)
+
+Multi Agent 支持一个协调器 Agent 将任务委派给多个子智能体并行执行。
+
+</card>
+
+</columnsItem>
+<columnsItem zoneid="SyHl705rvN">
+
+<card mode="section" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/session-event-stream" >
+
+[Session 事件流](https://ark.volcengine.com/region:cn-beijing/docs/ark/session-event-stream)
+
+通过事件流实时观测 Agent 的执行过程，包括 Outcome 评估。
+
+</card>
+
+</columnsItem>
+</columns>
