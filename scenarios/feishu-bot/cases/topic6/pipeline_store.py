@@ -375,6 +375,14 @@ class PipelineStore:
                 (current_phase, _now(), job_id),
             )
 
+    def update_project_dir(self, job_id: str, project_dir: str) -> None:
+        """记录 Coordinator 创建后的真实沙箱项目目录。"""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE pipeline_jobs SET project_dir = ?, updated_at = ? WHERE job_id = ?",
+                (project_dir, _now(), job_id),
+            )
+
     def mark_wait_hc(self, job_id: str, hc_kind: str) -> None:
         with self._lock:
             self._conn.execute(

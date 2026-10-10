@@ -13,7 +13,8 @@
 | `/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md` | **每次启动** | 八任务(C0/R1~R5/C2/C3)当前活跃 Prompt 版本 |
 
 > `lm/执行日志.md`(项目级临时状态)不进 memory;
-> 执行状态由 gateway `pipeline_jobs` 表 + 沙箱内 `/workspace/{PROJECT_DIR}/run_config.yaml` 承接。
+> 执行状态由 gateway `pipeline_jobs` 表 + 沙箱内
+> `/workspace/Projects/{PROJECT_DIR}/run_config.yaml` 承接。
 
 ---
 
@@ -23,7 +24,7 @@
 - 日期默认:当前时间的上一个完整自然周(周一到周日)
 - 人工干预点:**3 个 HC,不可跳过,不可合并**;由 gateway 渲染飞书交互卡片,回帖以 `user.message` 塞回 MA Session
 - Prompt 管理:不通过验收时,skill 内新建 `v{N+1}.md`,不覆盖旧版本;重新打包上传 → SkillHub 生成新 version → 协调器 pin 到明确 version
-- 成本记录:每个 LLM 任务完成后立即调用 `python3 /mnt/skills/topic6-annotation/tool/cost-tracker/cost_tracker.py --project-dir /workspace/{PROJECT_DIR} ...`,不攒着批量写
+- 成本记录:每个 LLM 任务完成后立即调用 `python3 /mnt/skills/topic6-annotation/tool/cost-tracker/cost_tracker.py --project-dir /workspace/Projects/{PROJECT_DIR} ...`,不攒着批量写
 
 ---
 
@@ -43,7 +44,7 @@
 
 ## 架构要点
 
-1. **路径基准**:所有 skill 相对路径走沙箱挂载 `/mnt/skills/topic6-xxx/`;记忆文件走 `/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/`(memstore id 由 gateway env 注入);项目产物走 `/workspace/{PROJECT_DIR}/`。
+1. **路径基准**:所有 skill 相对路径走沙箱挂载 `/mnt/skills/topic6-xxx/`;记忆文件走 `/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/`(memstore id 由 gateway env 注入);项目运行工作区走 `/workspace/Projects/{PROJECT_DIR}/`;节点完成后仅用 `publish_node_artifacts.py` 把稳定产物复制到 `/mnt/session/outputs/{PROJECT_DIR}/` 并更新 manifest,禁止复制日志、PID、checkpoint 和临时分块。
 2. **工具依赖**:
    - 消息与卡片:gateway 侧 `FeishuSender`(卡片渲染与消息推送)
    - 数据接入:MA MCP 挂载(`datahub-cli` / `hot-topics-mcp`)

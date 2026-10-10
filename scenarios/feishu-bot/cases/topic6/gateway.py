@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 from arkagent.feishu import IncomingMessage
 from arkagent.store import GatewayStore
 
+from artifact_sync import Topic6ArtifactSync
 from pipeline_store import (
     STATUS_RUNNING,
     STATUS_WAIT_HC,
@@ -52,6 +54,7 @@ class Topic6Gateway:
         reply,
         loop: asyncio.AbstractEventLoop,
         pipeline_store: PipelineStore | None = None,
+        artifact_sync: Topic6ArtifactSync | None = None,
     ) -> None:
         self._config = config
         self._store = store
@@ -61,6 +64,7 @@ class Topic6Gateway:
         self._reply = reply
         self._loop = loop
         self._pipeline_store = pipeline_store
+        self._artifact_sync = artifact_sync
         self._authorized = set(config.authorized_open_ids)
         self._token_keepalive_tasks: dict[str, asyncio.Task] = {}
         # 每个 open_id 同时只允许一个 in-chat 授权流程
@@ -104,6 +108,18 @@ class Topic6Gateway:
                     )
                 else:
                     self._stop_token_keepalive(cancelled.job_id)
+                    if self._artifact_sync is not None:
+                        self._artifact_sync.stop(cancelled.job_id)
+                        try:
+                            await self._artifact_sync.sync_once(
+                                cancelled.job_id, cancelled.ma_session_id
+                            )
+                        except Exception as error:  # noqa: BLE001
+                            log.warning(
+                                "topic6 final artifact sync failed job=%s: %s",
+                                cancelled.job_id,
+                                error,
+                            )
                     await self._reply(
                         message.chat_id,
                         f"[/new] 已取消当前任务 job_id={cancelled.job_id}(状态置为 failed:cancelled_by_user)。可再发触发词开新一轮。",
@@ -142,6 +158,8 @@ class Topic6Gateway:
                     user_vault_id=user_vault_id,
                 )
                 self._start_token_keepalive(job, user_vault_id)
+                if self._artifact_sync is not None:
+                    self._artifact_sync.start(job, self._loop)
             except (Topic6RunnerError, UserAuthorizationRequired) as error:
                 await self._reply(message.chat_id, str(error))
             self._store.complete_event(message.event_id, "completed")
@@ -327,6 +345,12 @@ def build_gateway(config: Topic6Config, ark, sender, loop: asyncio.AbstractEvent
     )
     hitl = Topic6Hitl(Topic6HitlDeps(store=pipeline_store, runner=runner))
     runner.bind_card_sender(hitl)
+    artifact_sync = Topic6ArtifactSync(
+        ark,
+        Path(config.artifact_sync_dir),
+        pipeline_store.get_job,
+        poll_interval_sec=config.artifact_poll_interval_sec,
+    )
 
     async def reply(chat_id: str, text: str) -> None:
         await loop.run_in_executor(None, sender.send_to_chat, chat_id, text)
@@ -340,4 +364,5 @@ def build_gateway(config: Topic6Config, ark, sender, loop: asyncio.AbstractEvent
         reply,
         loop,
         pipeline_store=pipeline_store,
+        artifact_sync=artifact_sync,
     )

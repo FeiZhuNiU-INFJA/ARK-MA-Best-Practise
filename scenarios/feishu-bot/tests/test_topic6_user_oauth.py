@@ -5,6 +5,7 @@ import asyncio
 import importlib.util
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -349,6 +350,7 @@ async def test_missing_authorization_triggers_in_chat_flow_and_rejects_on_failur
 async def test_gateway_passes_scanned_users_vault_to_runner():
     calls = []
     keepalive_calls = []
+    artifact_calls = []
     job = SimpleNamespace(job_id="job-1")
 
     class Store:
@@ -372,6 +374,10 @@ async def test_gateway_passes_scanned_users_vault_to_runner():
     async def reply(_chat_id, _text):
         pass
 
+    class ArtifactSync:
+        def start(self, started_job, loop):
+            artifact_calls.append((started_job.job_id, loop))
+
     gateway = Topic6Gateway(
         SimpleNamespace(authorized_open_ids=()),
         Store(),
@@ -380,6 +386,7 @@ async def test_gateway_passes_scanned_users_vault_to_runner():
         UserAuth(),
         reply,
         None,
+        artifact_sync=ArtifactSync(),
     )
     gateway._start_token_keepalive = (
         lambda started_job, vault_id: keepalive_calls.append(
@@ -389,6 +396,50 @@ async def test_gateway_passes_scanned_users_vault_to_runner():
     await gateway._process(_message())
     assert calls[0]["user_vault_id"] == "vlt-user"
     assert keepalive_calls == [("job-1", "vlt-user")]
+    assert artifact_calls == [("job-1", None)]
+
+
+async def test_new_command_stops_poller_and_runs_final_artifact_sync():
+    calls = []
+    replies = []
+    job = SimpleNamespace(job_id="job-1", ma_session_id="session-1")
+
+    class Store:
+        def complete_event(self, *_args):
+            pass
+
+    class Runner:
+        async def cancel_active_job(self, **_kwargs):
+            return job
+
+    class ArtifactSync:
+        def stop(self, job_id):
+            calls.append(("stop", job_id))
+
+        async def sync_once(self, job_id, session_id):
+            calls.append(("sync", job_id, session_id))
+
+    async def reply(_chat_id, text):
+        replies.append(text)
+
+    gateway = Topic6Gateway(
+        SimpleNamespace(authorized_open_ids=()),
+        Store(),
+        Runner(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+        reply,
+        None,
+        artifact_sync=ArtifactSync(),
+    )
+
+    await gateway._process(replace(_message(), text="/new"))
+
+    assert calls == [
+        ("stop", "job-1"),
+        ("sync", "job-1", "session-1"),
+    ]
+    assert "已取消当前任务" in replies[0]
 
 
 async def test_runner_mounts_static_and_user_vaults_on_new_session(tmp_path):

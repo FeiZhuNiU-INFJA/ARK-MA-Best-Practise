@@ -192,6 +192,28 @@ def test_global_active_job_is_released_after_terminal_status(tmp_path):
     assert store.get_active_job() is None
 
 
+def test_runner_persists_coordinator_reported_project_dir(loop, tmp_path):
+    runner, store = _make_runner(tmp_path, loop)
+    job = store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="full",
+        project_dir="",
+    )
+    project_dir = "/workspace/Projects/W40热点周报_20260928-20261004"
+
+    assert runner._maybe_update_project_dir(  # noqa: SLF001
+        job.job_id, f"[project_dir] {project_dir}"
+    )
+    assert store.get_job(job.job_id).project_dir == project_dir
+    assert not runner._maybe_update_project_dir(  # noqa: SLF001
+        job.job_id, "[project_dir] /workspace/Projects/nested/invalid"
+    )
+    assert store.get_job(job.job_id).project_dir == project_dir
+
+
 def test_resuming_and_completing_job_clear_stale_terminal_error(tmp_path):
     store = PipelineStore(str(tmp_path / "topic6.db"))
     job = store.create_job(

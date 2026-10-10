@@ -190,7 +190,8 @@ class ArkClient:
         if not response.content:
             return {}
         try:
-            return response.json()
+            payload = response.json()
+            return payload if isinstance(payload, dict) else {}
         except json.JSONDecodeError:
             return {}
 
@@ -551,6 +552,57 @@ class ArkClient:
         if not file_id:
             raise ArkError(f"上传文件 {name} 成功，但响应中没有 File ID")
         return file_id
+
+    async def list_agent_files(self, session_id: str, limit: int = 100) -> list[dict]:
+        """List all purpose=agent files registered for a Session."""
+        if not session_id:
+            raise ValueError("session_id must not be empty")
+        page_size = max(1, min(limit, 100))
+        after = ""
+        files: list[dict] = []
+        seen_cursors: set[str] = set()
+        while True:
+            query = {
+                "scope_id": session_id,
+                "purpose": "agent",
+                "limit": str(page_size),
+                "order": "asc",
+            }
+            if after:
+                query["after"] = after
+            payload = await self._request("GET", f"/files?{urlencode(query)}")
+            page = _items(payload)
+            files.extend(page)
+            data = payload.get("data")
+            page_meta = data if isinstance(data, dict) else payload
+            has_more = bool(page_meta.get("has_more"))
+            if not has_more or not page:
+                break
+            next_after = str(
+                page_meta.get("next_after")
+                or page_meta.get("last_id")
+                or page[-1].get("id")
+                or ""
+            )
+            if not next_after or next_after in seen_cursors:
+                raise ArkError("Files API pagination did not advance")
+            seen_cursors.add(next_after)
+            after = next_after
+        return files
+
+    async def download_file(self, download_url: str) -> bytes:
+        """Download one Files API object from its presigned URL."""
+        if not download_url.startswith(("https://", "http://")):
+            raise ValueError("download_url must be an HTTP(S) URL")
+        response = await self._client.get(download_url, timeout=REQUEST_TIMEOUT)
+        if response.status_code >= 400:
+            body = response.text[:300]
+            raise ArkError(
+                f"下载文件失败 {response.status_code}: {body}",
+                status_code=response.status_code,
+                body=body,
+            )
+        return response.content
 
     async def add_session_resource(self, session_id: str, resource: dict) -> None:
         """向运行中的 Session 追加一个文件资源（POST /sessions/{id}/resources）。
