@@ -544,7 +544,7 @@ def test_agent_prompts_use_canonical_model_id_and_allow_one_retry():
     coordinator = COORDINATOR_PROMPT.read_text(encoding="utf-8")
     annotator = ANNOTATOR_PROMPT.read_text(encoding="utf-8")
 
-    assert "`gpt-4o-mini`" in coordinator
+    assert "`Doubao-Seed-1.6-lite`" in coordinator
     assert '--model-id "$DATAHUB_MODEL_ID"' in annotator
     assert "C2_CHAT_MODEL_ID" in coordinator
     assert "`doubao-seed-evolving`" in coordinator
@@ -583,7 +583,7 @@ def test_c2_runner_uses_platform_00_then_merged_remaining_stages(tmp_path):
         " ".join(command) for _stage, commands in plan[2:] for command in commands
     )
     assert "doubao-seed-evolving" in merged_commands
-    assert "Doubao-Seed-Evolving" not in merged_commands
+    assert "Doubao-Seed-1.6-lite" not in merged_commands
 
 
 def test_c2_runner_parallel_stage_passes_command_and_log_path(tmp_path, monkeypatch):
@@ -1339,7 +1339,7 @@ def test_datahub_background_launch_is_idempotent(tmp_path, monkeypatch):
         project_dir=str(tmp_path),
         input=str(tmp_path / "input.xlsx"),
         prompt_file=str(tmp_path / "prompt.md"),
-        model_id="gpt-4o-mini",
+        model_id="Doubao-Seed-1.6-lite",
         run_id=1,
         mode="full",
     )
@@ -1390,7 +1390,7 @@ def test_datahub_background_launch_does_not_reuse_different_input(
         project_dir=str(tmp_path),
         input=str(full),
         prompt_file=str(tmp_path / "prompt.md"),
-        model_id="gpt-4o-mini",
+        model_id="Doubao-Seed-1.6-lite",
         run_id=1,
         mode="skip_sampling",
     )
@@ -1420,7 +1420,7 @@ def test_datahub_worker_resumes_matching_submitted_task(tmp_path, monkeypatch):
                 "task": "c0",
                 "task_id": 5041,
                 "run_id": 2,
-                "model_id": "gpt-4o-mini",
+                "model_id": "Doubao-Seed-1.6-lite",
                 "platform": "ByteDance",
                 "input_price": 0,
                 "output_price": 0,
@@ -1441,7 +1441,7 @@ def test_datahub_worker_resumes_matching_submitted_task(tmp_path, monkeypatch):
         "_list_models",
         lambda _key: [
             {
-                "model_id": "gpt-4o-mini",
+                "model_id": "Doubao-Seed-1.6-lite",
                 "platform": "ByteDance",
                 "input_price": 0,
                 "output_price": 0,
@@ -1491,7 +1491,7 @@ def test_datahub_worker_resumes_matching_submitted_task(tmp_path, monkeypatch):
         str(tmp_path),
         str(input_path),
         str(prompt_path),
-        "gpt-4o-mini",
+        "Doubao-Seed-1.6-lite",
         run_id=2,
     )
 
@@ -1613,7 +1613,7 @@ def test_environment_preinstalls_openai_for_insight_pipeline():
 
     assert "openai>=1.0" in environment["config"]["packages"]["pip"]
     assert "httpx>=0.27" in environment["config"]["packages"]["pip"]
-    assert environment["config"]["env"]["DATAHUB_MODEL_ID"] == "gpt-4o-mini"
+    assert environment["config"]["env"]["DATAHUB_MODEL_ID"] == "Doubao-Seed-1.6-lite"
     assert environment["config"]["env"]["C2_CHAT_MODEL_ID"] == "doubao-seed-evolving"
     assert (
         environment["config"]["env"]["EMBEDDING_MODEL_ID"]

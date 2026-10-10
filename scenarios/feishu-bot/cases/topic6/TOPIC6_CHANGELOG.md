@@ -367,7 +367,7 @@
   重复 runner 并发写缓存。
 - **真正并发**：R1~R5 五个委派发出后立即后台启动 C2，六路同时运行；不再等待五路
   DataHub 任务结束后才开始 C2。
-- **模型隔离**：Environment 分设 `DATAHUB_MODEL_ID=Doubao-Seed-Evolving`、
+- **模型隔离**：Environment 分设 `DATAHUB_MODEL_ID=Doubao-Seed-1.6-lite`、
   `C2_CHAT_MODEL_ID=doubao-seed-evolving` 和
   `EMBEDDING_MODEL_ID=doubao-embedding-vision-251215`，避免跨 API 混用模型 ID。
 - **状态一致性**：新增 `run_config_state.py`，通过文件锁、YAML 深合并和
@@ -419,10 +419,10 @@
 - **实现**：demo 调用 `sample_500.py --size 50`，test 继续使用 `--size 500`；兼容既有合并与断点恢复逻辑，产物文件名仍为 `sample_500.xlsx`，实际行数以 `status.sample.sample_rows` 为准。
 - **口径**：50 条仅用于流程演示，不用于标注质量或正式业务结论；报告和 HC1 卡片同步标明 demo 样本量。
 
-### DataHub 默认模型切换为 Doubao-Seed-Evolving
+### DataHub 默认模型切换为 Doubao-Seed-1.6-lite
 
-- **依据**：方舟 Environment 实际调用 `/api/v1/model/list` 返回 113 个模型，确认精确 ID `Doubao-Seed-Evolving` 可用。
-- **实现**：Coordinator 与 Annotator 的默认 `--model-id` 从 `Doubao-pro-32k` 切换为 `Doubao-Seed-Evolving`；仍以接口返回列表做运行前精确校验，并以 completion metadata 的实际模型和成本记账。
+- **依据**：方舟 Environment 实际调用 `/api/v1/model/list` 返回 113 个模型，确认精确 ID `Doubao-Seed-1.6-lite` 可用。
+- **实现**：Coordinator 与 Annotator 的默认 `--model-id` 从 `Doubao-pro-32k` 切换为 `Doubao-Seed-1.6-lite`；仍以接口返回列表做运行前精确校验，并以 completion metadata 的实际模型和成本记账。
 
 ### DataHub 模型 ID 预检与单次纠错重试
 
