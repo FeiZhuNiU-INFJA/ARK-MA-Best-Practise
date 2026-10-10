@@ -384,7 +384,12 @@
     border: 1px solid var(--line);
     border-radius: 6px;
     background: #f9fbfd;
+    color: var(--ink);
+    text-align: left;
+    cursor: pointer;
   }
+  .c2-step:hover { border-color: #8eb6ca; background: #fff; }
+  .c2-step[aria-current="true"] { border-color: var(--blue); box-shadow: inset 3px 0 var(--blue); background: #fff; }
   .c2-step b { display: block; font-size: 12px; }
   .c2-step span { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
   .c2-step.focus { border-color: #8fc2a7; box-shadow: inset 3px 0 var(--green); background: #fff; }
@@ -397,6 +402,81 @@
   .c2-explain p { margin: 0; color: #4f6074; font-size: 13px; }
   .c2-explain ul { margin: 10px 0 0; padding-left: 18px; color: #4f6074; font-size: 12px; }
   .c2-explain li + li { margin-top: 5px; }
+  .c2-explain h5 {
+    margin: 18px 0 8px;
+    color: var(--blue);
+    font-size: 11px;
+    letter-spacing: .06em;
+  }
+  .c2-map {
+    display: grid;
+    gap: 6px;
+    margin-top: 9px;
+  }
+  .c2-map-row {
+    display: grid;
+    grid-template-columns: 90px minmax(0, 1fr);
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid #e5edf1;
+  }
+  .c2-map-row:last-child { border-bottom: 0; }
+  .c2-map-row b { color: var(--ink); font-size: 11px; }
+  .c2-map-row span { color: var(--muted); font-size: 11px; line-height: 1.45; }
+  .c2-stage-sheet {
+    margin-top: 12px;
+    padding: 13px 14px;
+    border: 1px solid #c9dce5;
+    border-left: 3px solid var(--blue);
+    border-radius: 5px;
+    background: #f6fbfc;
+  }
+  .c2-stage-sheet h5 { margin: 0 0 8px; color: var(--ink); font-size: 13px; letter-spacing: 0; }
+  .c2-stage-sheet dl { display: grid; grid-template-columns: 66px minmax(0, 1fr); gap: 7px 10px; margin: 0; }
+  .c2-stage-sheet dt { color: var(--blue); font-size: 11px; font-weight: 700; }
+  .c2-stage-sheet dd { margin: 0; color: #4f6074; font-size: 11px; line-height: 1.48; }
+  .c2-io-section {
+    margin-top: 25px;
+    padding-top: 19px;
+    border-top: 1px solid var(--line);
+  }
+  .c2-io-section h4 { margin: 0; color: var(--ink); font-size: 16px; }
+  .c2-io-section > p { margin: 5px 0 13px; color: var(--muted); font-size: 12px; }
+  .c2-io-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: #fff;
+  }
+  .c2-io-table {
+    width: 100%;
+    min-width: 1020px;
+    border-collapse: collapse;
+    font-size: 11px;
+    line-height: 1.46;
+  }
+  .c2-io-table th {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--line);
+    color: var(--blue);
+    background: #f1f7f8;
+    font-size: 10px;
+    letter-spacing: .04em;
+    text-align: left;
+  }
+  .c2-io-table td {
+    padding: 10px;
+    border-bottom: 1px solid #e7eef2;
+    color: #4f6074;
+    vertical-align: top;
+  }
+  .c2-io-table tr:last-child td { border-bottom: 0; }
+  .c2-io-table td:first-child { width: 98px; color: var(--ink); font-weight: 700; }
+  .c2-io-table td:nth-child(2) { width: 120px; color: var(--blue); font-weight: 650; }
+  .c2-io-table td:nth-child(3),
+  .c2-io-table td:nth-child(4) { width: 185px; }
+  .c2-io-table td:nth-child(5) { width: 215px; }
+  .c2-io-table tr:hover td { background: #f8fbfc; }
 
   .speed-grid {
     display: grid;
@@ -880,6 +960,25 @@
     <div class="c2-flow" id="c2-flow"></div>
     <aside class="c2-explain" id="c2-explain"></aside>
   </div>
+  <section class="c2-io-section" aria-labelledby="c2-io-title">
+    <h4 id="c2-io-title">新 C2 输入输出对照表</h4>
+    <p>以当前已运行的 C2 文件契约为基线。新节点必须保留可审计输入、稳定产物和明确的前置依赖。</p>
+    <div class="c2-io-wrap">
+      <table class="c2-io-table">
+        <thead>
+          <tr>
+            <th>新节点</th>
+            <th>对应当前节点</th>
+            <th>当前输入</th>
+            <th>当前输出</th>
+            <th>新方案输入</th>
+            <th>新方案输出与依赖</th>
+          </tr>
+        </thead>
+        <tbody id="c2-io-body"></tbody>
+      </table>
+    </div>
+  </section>
 </section>
 
 <section class="band" id="speed-section">
@@ -1281,29 +1380,160 @@ const c2Views = {
       "03 必须看前批注册表，形成串行链。",
       "04 实际不使用 actor_id，却被排在 03 后。",
       "固定 cap 分块后还需要 x3 修复跨块碎片。"
-    ]
+    ],
+    mapping:[
+      ["00 → F1","标题清洗会并入统一事实抽取。"],
+      ["x0","仍保留为确定性合流，但不再阻塞 01/02。"],
+      ["01 + 02 → F1","一次 Chat 同时判断事件性并提取 Frame。"],
+      ["03 → E","从串行注册表改为别名命中 + 候选簇裁定。"],
+      ["04 → V","从 frames.jsonl 直接运行，与 E 并行。"],
+      ["05 + 06 → G","候选边与连通区域共同构成候选事件图。"],
+      ["07 → P/H","按独立区域裁定；超大区域再层级归档。"],
+      ["x2 + x3 → R","边界筛查和全局事件卡复核收敛为一处。"],
+      ["x4 → O","回写当周事件表，同时生成跨周关系。"]
+    ],
+    stages:{
+      "00": ["00 平台标题清洗","input.csv 中按平台筛选的 record_id、title。","clean_titles.jsonl，新增 clean_title 与 ops。","四个平台并行；每个平台内 Chat batch 并发。","新方案将它与 01、02 合为 F1，仍保留本地“只删不加”校验。"],
+      "x0": ["x0 跨平台合流","四个平台各自的 clean_titles.jsonl。","merged/work/clean_titles.jsonl。","本地确定性合并，无模型调用。","新方案仍需合流，但把它移到 F1 后，不再成为事件性判定的全局屏障。"],
+      "01": ["01 事件性判定","合流后的 record_id、clean_title。","eventness.jsonl，含 EVENT/NON_EVENT/UNCERTAIN。","Chat batch 并发。","新方案在 F1 同次调用输出 eventness；NON_EVENT 直接得到 frame=null。"],
+      "02": ["02 Frame 抽取","01 中 EVENT/UNCERTAIN 的 record_id、clean_title。","frames.jsonl，含主体、动作、对象、类型、父事件线索。","Chat batch 并发。","新方案在 F1 同次调用输出 Frame，避免第三次发送同一标题。"],
+      "03": ["03 实体归一","frames.jsonl 中提取的实体 mention、类型、出现次数，以及前序实体注册表。","entities.jsonl 与 frames_resolved.jsonl，新增 actor_id 等归一结果。","当前 60 实体一批，批次串行。","新方案 E 先精确匹配别名库，再将歧义候选簇并行裁定，仅冲突项进入小范围复核。"],
+      "04": ["04 Embedding","frames_resolved.jsonl 中的主体、动作、对象、类型、父事件线索、标题。","embeddings.json，record_id 对应向量和文本哈希。","Embedding API 8 路并发。","实际向量文本不含 actor_id，因此新方案 V 可直接读 frames.jsonl，与 E 并行。"],
+      "05": ["05 候选召回","归一 Frame、向量、主体/对象/锚点等字段。","candidates.jsonl，记录级候选边和被拒绝候选。","本地计算，需等待 E 与 V。","新方案 G 必须保留“候选而非结论”的边语义，并保留 rejected 审计。"],
+      "06": ["06 有界分块","全部候选边与 Frame。","blocks.jsonl、skipped_edges.jsonl；每块受 cap 与输出 token 预算约束。","本地 Union-Find，必须等完整候选边。","新方案 G 仍必须保留有界分区、稳定 block ID 和被容量拒绝的边；不能直接把连通分量送模型。"],
+      "07": ["07 块内事件归档","一个有界 block 内完整 Frame、锚点和必要历史卡片。","block_events.jsonl，事件名、成员、置信度与关系。","block 间 Chat 并发；截断/拒答时原样重试后局部缩块。","新方案 P 保留普通块归档，H 只把超大候选区域的分区和层级汇总显式化。"],
+      "x2": ["x2 归属置信度筛查","07 的事件成员、置信度、说明。","更新后的 block_events.jsonl 和边界审计结果。","低/高置信规则本地处理，边界带条件调用 Chat。","新方案必须保留为 R1，且在任何跨块合并前执行。"],
+      "x3": ["x3 双向复核","x2 后的事件表、Frame 和跨块候选。","更新后的 block_events.jsonl，记录 merge、split、改名。","先 merge 后 split，每个方向内部并发。","新方案必须拆成有顺序的 R2 合并和 R3 拆分/改名，不能合成一个无序节点。"],
+      "x4": ["x4 明细回写","input.csv、eventness、最终事件表。","热点明细 CSV、事件清单，以及给 Phase D 的 c2_event_result.xlsx。","本地确定性回写。","新方案 O 保持相同的周内交付契约；跨周关系是独立可选任务，不应混入本周结果。"]
+    }
   },
   modern: {
     rows: [
-      [["F1","统一事实抽取","clean + eventness + frame"]],
+      [["F1","统一事实抽取","按平台：clean + eventness + frame"]],
       [["E","实体链接","alias + 歧义裁定"],["V","Embedding","与实体链接并行"]],
-      [["G","候选事件图","实体 + 动作 + 时间 + 向量"]],
-      [["P","分区裁定","独立连通区域并行"]],
-      [["H","大区层级归档","仅超大区域：记录 → 临时事件卡"]],
-      [["R","事件卡全局复核","merge / split / related"]],
-      [["O","周内事件表","跨周只建关系"]]
+      [["G","候选图与有界分区","候选边 + token/cap + skipped edges"]],
+      [["P","普通块归档","有界块之间并行"],["H","超大区域层级归档","保留跨分区边审计"]],
+      [["R1","成员置信筛查","必须先于事件合并"]],
+      [["R2","跨块/跨区合并","事件卡候选并行"]],
+      [["R3","拆分与改名","必须等待 R2 落地"]],
+      [["O","周内事件表","保持 x4 交付契约"]]
     ],
-    title:"新 C2：候选图 + 分区裁定 + 事件卡复核",
-    text:"先把所有可并行工作并行化，再让强模型只处理真正可能互相关联的候选区域。图算法仍只生成候选范围，不直接决定聚类。",
+    title:"新 C2：保留质量护栏的并行 DAG",
+    text:"新方案不是删除现有防线，而是把可证明独立的工作并行化，并把当前隐含在脚本里的有界分区、成员筛查和先合后拆顺序显式化。图算法仍只提供候选范围，绝不直接决定事件归属。",
     bullets:[
-      "统一抽取减少重复调用，NON_EVENT 直接 frame=null。",
-      "实体链接与 Embedding 同时运行。",
-      "独立候选区域全部并行；失败只重跑一个区域。",
-      "超大区域先生成临时事件卡，再对短事件卡做二级归并。",
-      "历史 2-4 周事件只作为候选，并输出 FOLLOW_UP/RELATED，不直接吸收本周成员。"
-    ]
+      "F1 是候选改造，需要对照旧 00/01/02 的清洗回退率、NON_EVENT 误杀率和 Frame 质量后才能启用。",
+      "E 与 V 并行是已由当前字段依赖证明的低风险优化：04 的向量文本不使用 actor_id。",
+      "G 保留 cap、输出 token 预算和 skipped_edges；大连通分量不能直接视为一个模型输入。",
+      "P/H 之后必须按 R1 → R2 → R3 执行：先剔除搭错车成员，再合并碎片，最后检查误合并。",
+      "跨周关系若要建设，应是独立的可选任务；本周 C2 结果仍只定义本周事件。"
+    ],
+    mapping:[
+      ["F1 + x0","F1 合并当前 00 + 01 + 02；x0 保留为 F1 后的确定性合流。"],
+      ["E","替代当前 03，但保留实体身份与别名归一目标。"],
+      ["V","替代当前 04，改为直接从原始 Frame 并行启动。"],
+      ["G","收敛当前 05 + 06，但保留有界分区、token 预算和 skipped_edges。"],
+      ["P/H","P 对应普通块的 07；H 显式处理超大区域，不能取消 cap。"],
+      ["R1","对应 x2，成员置信筛查必须最先执行。"],
+      ["R2 + R3","对应 x3：先合并，落地后再重新计算并拆分/改名。"],
+      ["O","对应 x4，仅输出本周明细和 Phase D 契约。"]
+    ],
+    stages:{
+      "F1": ["F1 统一事实抽取（候选改造）","C0 已判为营销可用的当周子集，按平台分片：record_id、platform、title、heat；平台清洗规则作为固定 Prompt 上下文。","每平台事实审计表：clean_title、ops、flags、reverted、eventness、reason_code、model_confidence、frame；NON_EVENT 必须为 frame=null。随后 x0 确定性合流。","四个平台与 batch 有界并发。先做本地“只删不加”校验；任何 clean_title 回退、漏返或 schema 异常的记录，必须用最终标题局部重跑事件性与 Frame。","技术上可行，但不是无条件替换：旧 00 的全量清洗审计和 01 的 NON_EVENT 抽检必须转化为 F1 的等价质量门禁，并通过固定样本 A/B。"],
+      "E": ["E 实体链接","F1 的 EVENT/UNCERTAIN Frame、带命名空间和版本的别名库、本周未知实体集合。","resolved_frames 与 entity_registry_revision：每个主体追加 canonical_entity_id、parent_entity_id、映射来源和置信状态。","精确别名命中本地完成；未知/歧义实体按候选簇并行 Chat 裁定；冲突簇才串行复核。实体 ID 必须是跨 run 稳定 ID，不能继续使用每轮从 ENT0001 开始的局部编号。","保留当前 03 的“宁可新实体，不可错归一”和父子谱系规则。可并行化是重构项，需要别名库治理、冲突策略和回滚版本，不能只把现有 03 的 batch 并发化。"],
+      "V": ["V Frame 向量化","F1 的原始 Frame 文本及 frame_schema_version、embedding_model。","embedding_cache：文本哈希、模型版本、record_id、vector；必须记录输入文本以供审计。","每条文本独立 Embedding 请求，受统一配额控制的有界并发。","已验证可与 E 并行：当前 04 的 frame_text 只读 actor.name、action、object、event_type、parent_hint、title，不读取 actor_id 或 parent_entity_id。若未来把 canonical 名写入向量文本，此并行关系就失效。"],
+      "G": ["G 候选图与有界分区","E 的归一实体、V 的向量、动作、对象、parent_hint、热度及原始 Frame。","candidate_edges（含召回通道、分数、rejected）、bounded_blocks（稳定 ID、cap、token 预算）、skipped_edges 和 oversized_component 标记。","本地确定性计算，必须等待 E 与 V；候选边仍使用 Top-K 和精确通道，图算法只划定工作范围。","这是 05 + 06 的收敛，不是删除 06。当前实证表明不受 cap 约束的传递闭包可扩张到 1783 条，不能把“连通区域”直接交给模型。"],
+      "P": ["P 普通有界块归档","G 输出的普通 bounded_blocks、完整 Frame、已知锚点和必要的先验事件卡。","event_drafts：事件、成员、成员置信度、说明、facets、事件关系，以及块级审计。","互不共享记录的块可并行 Chat；保留当前 07 的内容哈希缓存、原样重试、局部缩块和失败降级。","直接对应当前 07。优化点是调度与局部恢复，而不是弱化“完整有界块一次看完”的语义。"],
+      "H": ["H 超大候选区域层级归档","G 标记的超大候选区域、其中的 bounded_blocks、skipped_edges 和跨分区边。","temporary_event_cards、跨分区候选审计、仍需 R2 复核的边界事件对。","先按现有 token/cap 规则得到子块并并行归档，再以短事件卡做二级候选；失败只回滚该区域。","这是对当前 07 自动缩块和 x3 补救的显式化，不是废除 cap。二级事件卡合并仍必须保留被切边证据，避免因层级压缩漏并。"],
+      "R1": ["R1 成员置信筛查","P/H 的 event_drafts、member_confidence、member_notes 和 Frame。","成员保留/降级结果、边界带裁定审计，以及更新后的事件草案。","确定阈值先处理；只有 50-74 等边界带进入模型或人工裁定。","严格对应 x2。必须先执行，因为把低置信“搭错车”成员带进合并候选会扩大误合并范围。"],
+      "R2": ["R2 跨块/跨区事件合并","R1 后的事件草案、锚点通道、skipped_edges 汇总和必要事件卡。","合并后的事件草案、二级角度和合并审计。","候选事件组之间可并行 Chat；每个候选组仍限制事件卡数量和输出预算。","严格对应 x3 的 merge 方向。它只能在 R1 完成后运行，且图/锚点只负责召回候选，模型才决定是否合并。"],
+      "R3": ["R3 拆分与改名","R2 已落地的事件草案和其全部成员 Frame。","final_weekly_events、拆分/改名审计和覆盖率校验。","本地先挑出疑似过合事件，再对彼此独立的候选并行 Chat。","严格对应 x3 的 split 方向。必须在 R2 后重新计算候选；不能与 R2 并行，否则会在旧事件表上拆分并丢失合并结果。"],
+      "O": ["O 周内事件表与回写","F1 全量事实表、R3 的 final_weekly_events 与原始输入快照。","周内热点明细、事件清单、Phase D 所需 row_id + 一级事件名、质量/覆盖率报告。","本地确定性 join、每条 record_id 恰好一次覆盖校验、版本化产物发布。","对应当前 x4。跨周关系若要做，应是读取已发布周内事件表的独立可选任务，不能改变本周 C2 的交付语义。"]
+    }
   }
 };
+
+const c2IoComparison = [
+  [
+    "F1 统一事实抽取",
+    "00 + 01 + 02<br>x0 保留",
+    "00：按平台原始 CSV<br>01：clean_titles.jsonl<br>02：eventness.jsonl",
+    "clean_titles.jsonl<br>eventness.jsonl<br>frames.jsonl",
+    "C0 营销可用子集，按平台分片：record_id、platform、title、heat；平台清洗规则。",
+    "每平台事实审计表：clean_title、ops、flags、reverted、eventness、reason_code、confidence、frame。<br>本地校验后才 x0 合流。清洗回退或漏返记录局部重跑。"
+  ],
+  [
+    "E 实体链接",
+    "03 实体归一",
+    "frames.jsonl 的 actor 名/类型、出现次数；当前 run 累积的局部注册表。",
+    "entities.jsonl<br>frames_resolved.jsonl",
+    "F1 的 EVENT/UNCERTAIN Frame；版本化别名库；本周未知/歧义实体。",
+    "entity_registry_revision + resolved_frames。<br>精确命中本地完成，歧义候选簇并行裁定，冲突项复核。与 V 并行。"
+  ],
+  [
+    "V Frame 向量化",
+    "04 Embedding",
+    "frames_resolved.jsonl，缺失时回退 frames.jsonl；Frame 六字段拼装文本。",
+    "embeddings_cache.json<br>embeddings.json",
+    "F1 的原始 Frame 文本、frame schema 版本、Embedding 模型版本。",
+    "text_hash + model version + record_id + vector。<br>不读 actor_id，故可与 E 并行；G 前汇合。"
+  ],
+  [
+    "G 候选图与有界分区",
+    "05 + 06",
+    "05：resolved Frame + vectors<br>06：candidates.jsonl + Frame",
+    "candidates.jsonl<br>blocks.jsonl<br>skipped_edges.jsonl",
+    "E 的 canonical 实体；V 的向量；动作、对象、parent_hint、热度、Frame。",
+    "candidate_edges、rejected、bounded_blocks、skipped_edges、oversized 标记。<br>必须等 E + V；Top-K 和精确通道只生成候选，不产生事件结论。"
+  ],
+  [
+    "P 普通有界块归档",
+    "07 普通块",
+    "blocks.jsonl + 完整 Frame + 已知锚点/先验事件。",
+    "block_events.jsonl<br>raw/block_archive/*",
+    "G 的普通 bounded_blocks、完整 Frame、锚点和必要先验事件卡。",
+    "event_drafts：事件、成员、置信度、说明、facets、关系、块级审计。<br>互不共享记录的块可并发；保留缓存、重试、缩块和失败降级。"
+  ],
+  [
+    "H 超大区域层级归档",
+    "07 缩块 + x3 补救",
+    "超长或拒答 block 的原始 Frame；07 局部二分；06 丢弃边由 x3 后续读取。",
+    "局部子块结果<br>block_events.jsonl<br>skipped_edges.jsonl",
+    "G 的 oversized 区域、其中 bounded_blocks、skipped_edges、跨分区边。",
+    "temporary_event_cards + 跨分区候选审计。<br>仍使用 cap/token 预算得到子块，二级归并只产生候选，交 R2 定案。"
+  ],
+  [
+    "R1 成员置信筛查",
+    "x2",
+    "block_events.jsonl 的成员置信度/理由 + resolved Frame。",
+    "更新后的 block_events.jsonl<br>边界带与剔除审计 CSV",
+    "P/H 的 event_drafts、member_confidence、member_notes、Frame。",
+    "成员保留/降级与边界裁定审计。<br>必须先于 R2，避免低置信成员污染合并候选。"
+  ],
+  [
+    "R2 跨块/跨区合并",
+    "x3 merge",
+    "x2 后事件表；锚点候选；skipped_edges 聚合；Frame。",
+    "合并后的 block_events.jsonl<br>x3 合并审计 CSV",
+    "R1 后事件草案、锚点通道、skipped_edges 汇总、事件卡。",
+    "合并后的事件草案、二级角度、合并审计。<br>候选事件组可并发，但仅模型决定是否合并。R3 必须等待其落地。"
+  ],
+  [
+    "R3 拆分与改名",
+    "x3 split/rename",
+    "merge 已落地的事件表 + 全部成员 Frame。",
+    "最终 block_events.jsonl<br>x3 拆分/改名审计 CSV",
+    "R2 后事件草案及其全部成员 Frame。",
+    "final_weekly_events、拆分/改名审计、覆盖率校验。<br>重新计算过合候选后并发裁定，不能与 R2 并行。"
+  ],
+  [
+    "O 周内事件表回写",
+    "x4",
+    "原始 input.csv + eventness.jsonl + 最终 block_events.jsonl。",
+    "热点明细 CSV<br>事件清单 CSV<br>c2_event_result.xlsx",
+    "F1 全量事实表、R3 final_weekly_events、原始输入快照。",
+    "周内热点明细、事件清单、row_id + 一级事件名、质量报告。<br>本地确定性 join，要求每个 record_id 恰好一次；保持 Phase D 契约。"
+  ]
+];
 
 const speedViews = {
   model: {
@@ -1311,7 +1541,7 @@ const speedViews = {
     intro:"将相互独立的记录、batch、Embedding 文本和事件候选区域并行处理，但由统一配额控制器限制并发，而不是一次发出 3950 个请求。",
     metrics:[
       ["C0/C3","3h03m → 40-75m","前提是 DataHub 分片或直接 Ark Chat 压测成功"],
-      ["C2","3h12m → 1-2h","统一抽取、实体/向量并行、候选区域并发"],
+      ["C2","3h12m → 1.6-2.4h","统一抽取、实体/向量并行；保留有界分区和 R1-R3 复核"],
       ["约束","RPM / TPM / p95","并发超过有效上限只会增加排队与重试"]
     ],
     bullets:[
@@ -1379,7 +1609,7 @@ const forecastViews = {
     total:"6.5-7.5h",
     note:"主要采用 sample 复用、C2 合并前处理、03/04 并行和现有节点并发压测；DataHub 仍是最大瓶颈。",
     rows:[
-      ["sample + HC1",120,144],["全量 C0/C3",160,183],["新 C2",90,192],
+      ["sample + HC1",120,144],["全量 C0/C3",160,183],["新 C2",125,192],
       ["E/F/G/H + 审核",50,62]
     ]
   },
@@ -1388,7 +1618,7 @@ const forecastViews = {
     total:"3-4.5h",
     note:"需要验证 DataHub 分片或直接 Ark Chat 能把全量 C0/C3 压至约 40-75 分钟；这是合理目标，不是未压测承诺。",
     rows:[
-      ["sample + HC1",45,144],["剩余 C0/C3",60,183],["新 C2",90,192],
+      ["sample + HC1",45,144],["剩余 C0/C3",60,183],["新 C2",105,192],
       ["E/F/G/H + 审核",40,62]
     ]
   },
@@ -1397,7 +1627,7 @@ const forecastViews = {
     total:"1.5-2.5h",
     note:"依赖稳定 16-32 路有效并发、低重试、均衡候选区域和快速审核；仅作为容量实验上限，不作为首期承诺。",
     rows:[
-      ["sample + HC1",25,144],["剩余 C0/C3",35,183],["新 C2",60,192],
+      ["sample + HC1",25,144],["剩余 C0/C3",35,183],["新 C2",75,192],
       ["E/F/G/H + 审核",30,62]
     ]
   }
@@ -1406,6 +1636,7 @@ const forecastViews = {
 let activeScenario = "current";
 let activeNode = scenarios.current.defaultNode;
 let activeC2 = "current";
+let activeC2Stage = "00";
 let activeSpeed = "model";
 let activeForecast = "target";
 
@@ -1478,19 +1709,48 @@ function renderC2() {
   view.rows.forEach((row, index) => {
     if (index > 0) parts.push(`<div class="arrow" aria-hidden="true"></div>`);
     parts.push(`<div class="c2-row ${rowClass(row)}">${row.map(([code, title, meta], itemIndex) =>
-      `<div class="c2-step ${(activeC2 === "modern" && ((index === 1) || (index === 3 && itemIndex === 0))) ? "focus" : ""}">
+      `<button class="c2-step ${(activeC2 === "modern" && ((index === 1) || (index === 3 && itemIndex === 0))) ? "focus" : ""}" data-c2-stage="${code}" aria-current="${code === activeC2Stage}">
         <b><span class="mono">${code}</span> · ${title}</b><span>${meta}</span>
-      </div>`
+      </button>`
     ).join("")}</div>`);
   });
   const c2Flow = document.getElementById("c2-flow");
   c2Flow.className = `c2-flow c2-${activeC2}`;
   c2Flow.innerHTML = parts.join("");
+  const stage = view.stages[activeC2Stage] || view.stages[Object.keys(view.stages)[0]];
+  const stageMarkup = stage
+    ? `<div class="c2-stage-sheet">
+         <h5>${stage[0]}</h5>
+         <dl>
+           <dt>输入</dt><dd>${stage[1]}</dd>
+           <dt>输出</dt><dd>${stage[2]}</dd>
+           <dt>执行</dt><dd>${stage[3]}</dd>
+           <dt>对应</dt><dd>${stage[4]}</dd>
+         </dl>
+       </div>`
+    : "";
   document.getElementById("c2-explain").innerHTML =
-    `<h4>${view.title}</h4><p>${view.text}</p><ul>${view.bullets.map(item => `<li>${item}</li>`).join("")}</ul>`;
+    `<h4>${view.title}</h4><p>${view.text}</p>
+     <h5>当前与新方案的阶段映射</h5>
+     <div class="c2-map">${view.mapping.map(([name, note]) =>
+       `<div class="c2-map-row"><b>${name}</b><span>${note}</span></div>`
+     ).join("")}</div>
+     <h5>选中阶段说明</h5>${stageMarkup}`;
+  document.querySelectorAll("[data-c2-stage]").forEach(button => {
+    button.addEventListener("click", () => {
+      activeC2Stage = button.dataset.c2Stage;
+      renderC2();
+    });
+  });
   document.querySelectorAll("[data-c2]").forEach(button =>
     button.setAttribute("aria-pressed", String(button.dataset.c2 === activeC2))
   );
+}
+
+function renderC2IoTable() {
+  document.getElementById("c2-io-body").innerHTML = c2IoComparison.map(row =>
+    `<tr>${row.map(cell => `<td>${cell}</td>`).join("")}</tr>`
+  ).join("");
 }
 
 function renderSpeed() {
@@ -1528,6 +1788,7 @@ document.querySelectorAll("[data-scenario]").forEach(button =>
 document.querySelectorAll("[data-c2]").forEach(button =>
   button.addEventListener("click", () => {
     activeC2 = button.dataset.c2;
+    activeC2Stage = Object.keys(c2Views[activeC2].stages)[0];
     renderC2();
   })
 );
@@ -1553,6 +1814,7 @@ speedSection.after(c2Section);
 
 switchScenario("current");
 renderC2();
+renderC2IoTable();
 renderSpeed();
 renderForecast();
 </script>
