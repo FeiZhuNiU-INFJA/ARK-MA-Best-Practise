@@ -352,6 +352,15 @@
   }
   .band-head h3 { margin: 0; font-size: 20px; }
   .band-head p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+  .c2-reading-note {
+    margin: 19px 0 16px;
+    padding: 10px 12px;
+    border-left: 3px solid var(--blue);
+    color: #4f6074;
+    background: #f6fbfc;
+    font-size: 12px;
+    line-height: 1.55;
+  }
 
   .toggle-group { display: flex; gap: 7px; flex-wrap: wrap; }
   .toggle {
@@ -423,6 +432,17 @@
   .c2-map-row:last-child { border-bottom: 0; }
   .c2-map-row b { color: var(--ink); font-size: 11px; }
   .c2-map-row span { color: var(--muted); font-size: 11px; line-height: 1.45; }
+  .c2-overview {
+    display: grid;
+    grid-template-columns: minmax(220px, .42fr) minmax(0, 1fr);
+    gap: 24px;
+    margin: 0;
+    padding: 0 0 17px;
+    border-bottom: 1px solid var(--line);
+  }
+  .c2-overview h4 { margin: 0 0 7px; color: var(--ink); font-size: 16px; }
+  .c2-overview p { margin: 0; color: #4f6074; font-size: 12px; line-height: 1.65; }
+  .c2-overview .c2-map { margin-top: 0; }
   .c2-stage-sheet {
     margin-top: 12px;
     padding: 13px 14px;
@@ -435,48 +455,43 @@
   .c2-stage-sheet dl { display: grid; grid-template-columns: 66px minmax(0, 1fr); gap: 7px 10px; margin: 0; }
   .c2-stage-sheet dt { color: var(--blue); font-size: 11px; font-weight: 700; }
   .c2-stage-sheet dd { margin: 0; color: #4f6074; font-size: 11px; line-height: 1.48; }
-  .c2-io-section {
-    margin-top: 25px;
-    padding-top: 19px;
+  .c2-stage-comparison {
+    margin-top: 14px;
+    padding-top: 13px;
     border-top: 1px solid var(--line);
   }
-  .c2-io-section h4 { margin: 0; color: var(--ink); font-size: 16px; }
-  .c2-io-section > p { margin: 5px 0 13px; color: var(--muted); font-size: 12px; }
-  .c2-io-wrap {
-    overflow-x: auto;
-    border: 1px solid var(--line);
-    border-radius: 5px;
-    background: #fff;
+  .c2-stage-comparison h5 { margin: 0 0 8px; color: var(--blue); font-size: 11px; letter-spacing: .06em; }
+  .c2-stage-comparison-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
   }
-  .c2-io-table {
-    width: 100%;
-    min-width: 1020px;
-    border-collapse: collapse;
-    font-size: 11px;
-    line-height: 1.46;
-  }
-  .c2-io-table th {
+  .c2-stage-compare-cell {
     padding: 9px 10px;
-    border-bottom: 1px solid var(--line);
-    color: var(--blue);
-    background: #f1f7f8;
-    font-size: 10px;
-    letter-spacing: .04em;
-    text-align: left;
+    border: 1px solid #d9e5eb;
+    border-radius: 4px;
+    background: #fbfdfe;
   }
-  .c2-io-table td {
-    padding: 10px;
-    border-bottom: 1px solid #e7eef2;
-    color: #4f6074;
-    vertical-align: top;
+  .c2-stage-compare-cell b { display: block; color: var(--blue); font-size: 10px; }
+  .c2-stage-compare-cell span { display: block; margin-top: 4px; color: #4f6074; font-size: 11px; line-height: 1.46; }
+  .c2-stage-mission {
+    margin-top: 12px;
+    padding: 11px 12px;
+    border-left: 3px solid var(--green);
+    border-radius: 4px;
+    background: var(--green-soft);
   }
-  .c2-io-table tr:last-child td { border-bottom: 0; }
-  .c2-io-table td:first-child { width: 98px; color: var(--ink); font-weight: 700; }
-  .c2-io-table td:nth-child(2) { width: 120px; color: var(--blue); font-weight: 650; }
-  .c2-io-table td:nth-child(3),
-  .c2-io-table td:nth-child(4) { width: 185px; }
-  .c2-io-table td:nth-child(5) { width: 215px; }
-  .c2-io-table tr:hover td { background: #f8fbfc; }
+  .c2-stage-mission b { display: block; color: #275f46; font-size: 11px; }
+  .c2-stage-mission span { display: block; margin-top: 4px; color: #275f46; font-size: 11px; line-height: 1.5; }
+  .c2-stage-terms { margin-top: 13px; }
+  .c2-stage-terms h5 { margin: 0 0 7px; color: var(--blue); font-size: 11px; letter-spacing: .06em; }
+  .c2-stage-term {
+    padding: 8px 0;
+    border-bottom: 1px solid #e5edf1;
+  }
+  .c2-stage-term:last-child { border-bottom: 0; }
+  .c2-stage-term b { color: var(--ink); font-size: 11px; }
+  .c2-stage-term span { display: block; margin-top: 3px; color: #4f6074; font-size: 11px; line-height: 1.5; }
 
   .speed-grid {
     display: grid;
@@ -594,6 +609,7 @@
     .detail-head { position: static; }
     .c2-grid, .speed-grid, .forecast { grid-template-columns: 1fr; }
     .c2-explain { padding: 17px 0 0; border-top: 1px solid var(--line); border-left: 0; }
+    .c2-overview { grid-template-columns: 1fr; }
     .speed-detail { padding: 17px 0 0; border-top: 1px solid var(--line); border-left: 0; }
   }
 
@@ -862,6 +878,7 @@
     .role-legend { display: grid; grid-template-columns: 1fr 1fr; }
     .c2-flow { padding-left: 15px; }
     .c2-grid, .speed-grid, .forecast { gap: 20px; }
+    .c2-stage-comparison-grid { grid-template-columns: 1fr; }
     .speed-detail, .forecast-panel { padding-left: 0; }
     .forecast-row { grid-template-columns: 94px minmax(55px, 1fr) 70px; }
   }
@@ -949,36 +966,18 @@
   <div class="band-head">
     <div>
       <h3>C2 聚类流程对比</h3>
-      <p>纵向箭头表示必须完成的前置依赖；只有横向并列的方块才可以并行。节点内标注的“并行”表示该节点内部的批次/分区并发。</p>
     </div>
     <div class="toggle-group" id="c2-toggle">
       <button class="toggle" data-c2="current" aria-pressed="true">当前 C2</button>
       <button class="toggle" data-c2="modern" aria-pressed="false">新 C2</button>
     </div>
   </div>
+  <section class="c2-overview" id="c2-overview" aria-live="polite"></section>
+  <p class="c2-reading-note">纵向箭头表示必须完成的前置依赖；只有横向并列的方块才可以并行。节点内标注的“并行”表示该节点内部的批次/分区并发。</p>
   <div class="c2-grid">
     <div class="c2-flow" id="c2-flow"></div>
     <aside class="c2-explain" id="c2-explain"></aside>
   </div>
-  <section class="c2-io-section" aria-labelledby="c2-io-title">
-    <h4 id="c2-io-title">新 C2 输入输出对照表</h4>
-    <p>以当前已运行的 C2 文件契约为基线。新节点必须保留可审计输入、稳定产物和明确的前置依赖。</p>
-    <div class="c2-io-wrap">
-      <table class="c2-io-table">
-        <thead>
-          <tr>
-            <th>新节点</th>
-            <th>对应当前节点</th>
-            <th>当前输入</th>
-            <th>当前输出</th>
-            <th>新方案输入</th>
-            <th>新方案输出与依赖</th>
-          </tr>
-        </thead>
-        <tbody id="c2-io-body"></tbody>
-      </table>
-    </div>
-  </section>
 </section>
 
 <section class="band" id="speed-section">
@@ -1452,6 +1451,82 @@ const c2Views = {
   }
 };
 
+const c2ModernContext = {
+  F1: {
+    mission: "理解单条热点：清洗标题，判断是否为事件，并为事件抽取 Frame。它不把不同记录合并。",
+    terms: [
+      ["热点记录", "一条原始榜单内容，例如“苹果发布 iPhone 17”。每条记录有唯一 record_id。"],
+      ["Frame", "把标题拆成结构化事实卡：主体、动作、对象、事件类型、时间、地点和父事件线索。NON_EVENT 的 Frame 必须为 null。"],
+      ["主体", "当前标题里的“谁”，例如“苹果”。后续 E 会把不同写法统一为稳定实体。"]
+    ]
+  },
+  E: {
+    mission: "统一“谁”：建立稳定实体身份和父子关系，解决别名问题；不负责把同实体的记录并成同一事件。",
+    terms: [
+      ["实体", "跨标题统一后的稳定身份。例如“苹果 / Apple / Apple Inc.”可以映射为同一个实体。实体相同不代表事件相同。"],
+      ["别名库", "已知名称、简称和外文名到稳定实体 ID 的受控映射。精确命中可本地完成，歧义才进入模型裁定。"],
+      ["父子关系", "例如子品牌与母品牌、团体与成员。它是候选召回信号，不直接等于事件关系。"]
+    ]
+  },
+  V: {
+    mission: "表达语义相近：把 Frame 转成向量，为后续候选召回提供相似度信号；向量分数不直接决定事件归属。",
+    terms: [
+      ["向量 / Embedding", "把 Frame 文本转换为数字表示。语义相近的文本在向量空间中通常距离更近。"],
+      ["文本哈希缓存", "相同的 Frame 文本和模型版本直接复用已有向量，避免重复调用。"]
+    ]
+  },
+  G: {
+    mission: "圈出可比较范围：生成候选边并做有界分区，既尽量不漏候选，也不让模型被巨型输入压垮。",
+    terms: [
+      ["候选边 / 候选图", "“可能相关，值得一起看”的连接，来自向量 Top-K、同实体、同对象或同锚点。它不是同一事件的结论。"],
+      ["有界分区", "把候选图组织成模型可处理的块，同时受记录数 cap 和输出 token 预算限制。"],
+      ["skipped_edges", "因 cap 或 token 预算暂时不能放进同一块的候选边；不能静默丢弃，后续 R2 会据此复核跨块碎片。"]
+    ]
+  },
+  P: {
+    mission: "普通块归档：在一个完整有界块中做首轮事件定案，输出事件、成员、角度和成员置信度。",
+    terms: [
+      ["归档", "模型真正判断哪些记录描述同一现实事件、事件叫什么、有哪些角度、哪些应保持单条热点。归档不是纯相似度聚类。"],
+      ["成员置信度", "一条记录属于所在事件的可信度。它会被 R1 用于筛掉“搭错车”的成员。"]
+    ]
+  },
+  H: {
+    mission: "处理超大区域：对容量超限的候选区域分层归档，保留跨分区边，避免截断或单块失败拖累整轮。",
+    terms: [
+      ["超大候选区域", "经候选边传递连接后超过 cap 或 token 预算的区域，不能整体交给模型。"],
+      ["事件卡", "已归档事件的压缩表示：事件名、锚点、成员数、描述、角度和代表标题。用于二级比较，避免反复发送全部原始记录。"]
+    ]
+  },
+  R1: {
+    mission: "先清理搭错车成员：在跨块合并前剔除低置信成员，避免错误记录扩大后续合并污染。",
+    terms: [
+      ["边界带", "成员置信度既不够高也不够低的区间。这些记录才需要模型或人工额外裁定。"],
+      ["降级", "将不可靠成员从多成员事件移出，恢复为独立热点或等待后续处理。"]
+    ]
+  },
+  R2: {
+    mission: "补回被切碎事件：基于锚点、事件卡和 skipped_edges 召回跨块候选，再由模型决定是否合并。",
+    terms: [
+      ["跨块碎片", "同一现实事件因有界分区被放入不同块，首轮归档无法同时看到。"],
+      ["合并", "将模型确认属于同一现实事件的两个或多个事件草案合为一个事件；候选图只负责召回，模型才做决定。"]
+    ]
+  },
+  R3: {
+    mission: "修正误合并和名称：在 R2 已落地的事件表上检查是否需要拆分或改名，保证成员覆盖完整。",
+    terms: [
+      ["拆分", "把错误合并的多个现实事件重新拆开。必须在 R2 之后执行，否则会基于过期事件表判断。"],
+      ["改名", "根据最终成员事实修正事件名称，避免名称只反映其中一条记录。"]
+    ]
+  },
+  O: {
+    mission: "生成稳定交付物：把最终事件回写到每条原始热点，验证每个 record_id 恰好出现一次，输出给 Phase D。",
+    terms: [
+      ["覆盖率校验", "确认每条输入热点都获得且只获得一次事件归属，防止漏行、重行或 join 错配。"],
+      ["周内事件表", "只定义本周快照中的事件和成员，是 Phase D 的稳定输入；跨周关系不应改变这个交付语义。"]
+    ]
+  }
+};
+
 const c2IoComparison = [
   [
     "F1 统一事实抽取",
@@ -1718,24 +1793,59 @@ function renderC2() {
   c2Flow.className = `c2-flow c2-${activeC2}`;
   c2Flow.innerHTML = parts.join("");
   const stage = view.stages[activeC2Stage] || view.stages[Object.keys(view.stages)[0]];
+  const modernContext = activeC2 === "modern" ? c2ModernContext[activeC2Stage] : null;
+  const missionMarkup = modernContext
+    ? `<div class="c2-stage-mission"><b>本节点使命</b><span>${modernContext.mission}</span></div>`
+    : "";
+  const termsMarkup = modernContext && modernContext.terms.length
+    ? `<div class="c2-stage-terms"><h5>本节点首次出现的概念</h5>${modernContext.terms.map(([term, description]) =>
+        `<div class="c2-stage-term"><b>${term}</b><span>${description}</span></div>`
+      ).join("")}</div>`
+    : "";
+  const comparison = activeC2 === "modern"
+    ? c2IoComparison.find(row => row[0].startsWith(`${activeC2Stage} `))
+    : null;
+  const comparisonMarkup = comparison
+    ? `<div class="c2-stage-comparison">
+         <h5>当前与新方案的输入输出对照</h5>
+         <div class="c2-stage-comparison-grid">
+           <div class="c2-stage-compare-cell"><b>对应当前节点</b><span>${comparison[1]}</span></div>
+           <div class="c2-stage-compare-cell"><b>当前输入</b><span>${comparison[2]}</span></div>
+           <div class="c2-stage-compare-cell"><b>当前输出</b><span>${comparison[3]}</span></div>
+           <div class="c2-stage-compare-cell"><b>新方案输入</b><span>${comparison[4]}</span></div>
+           <div class="c2-stage-compare-cell"><b>新方案执行</b><span>${stage[3]}</span></div>
+           <div class="c2-stage-compare-cell" style="grid-column:1 / -1"><b>新方案输出与依赖</b><span>${comparison[5]}</span></div>
+         </div>
+       </div>`
+    : "";
+  const currentStageDetails = activeC2 === "current"
+    ? `<dl>
+         <dt>输入</dt><dd>${stage[1]}</dd>
+         <dt>输出</dt><dd>${stage[2]}</dd>
+         <dt>执行</dt><dd>${stage[3]}</dd>
+         <dt>对应</dt><dd>${stage[4]}</dd>
+       </dl>`
+    : "";
   const stageMarkup = stage
     ? `<div class="c2-stage-sheet">
          <h5>${stage[0]}</h5>
-         <dl>
-           <dt>输入</dt><dd>${stage[1]}</dd>
-           <dt>输出</dt><dd>${stage[2]}</dd>
-           <dt>执行</dt><dd>${stage[3]}</dd>
-           <dt>对应</dt><dd>${stage[4]}</dd>
-         </dl>
+         ${currentStageDetails}
+         ${missionMarkup}
+         ${termsMarkup}
+         ${comparisonMarkup}
        </div>`
     : "";
   document.getElementById("c2-explain").innerHTML =
-    `<h4>${view.title}</h4><p>${view.text}</p>
-     <h5>当前与新方案的阶段映射</h5>
-     <div class="c2-map">${view.mapping.map(([name, note]) =>
-       `<div class="c2-map-row"><b>${name}</b><span>${note}</span></div>`
-     ).join("")}</div>
-     <h5>选中阶段说明</h5>${stageMarkup}`;
+    `<h4>选中阶段说明</h4>
+     <p>点击左侧节点，查看它的职责、概念和输入输出契约。</p>
+     ${stageMarkup}`;
+  document.getElementById("c2-overview").innerHTML =
+    `<div><h4>${view.title}</h4><p>${view.text}</p></div>
+     <div><h4>当前与新方案的阶段映射</h4>
+       <div class="c2-map">${view.mapping.map(([name, note]) =>
+         `<div class="c2-map-row"><b>${name}</b><span>${note}</span></div>`
+       ).join("")}</div>
+     </div>`;
   document.querySelectorAll("[data-c2-stage]").forEach(button => {
     button.addEventListener("click", () => {
       activeC2Stage = button.dataset.c2Stage;
@@ -1745,12 +1855,6 @@ function renderC2() {
   document.querySelectorAll("[data-c2]").forEach(button =>
     button.setAttribute("aria-pressed", String(button.dataset.c2 === activeC2))
   );
-}
-
-function renderC2IoTable() {
-  document.getElementById("c2-io-body").innerHTML = c2IoComparison.map(row =>
-    `<tr>${row.map(cell => `<td>${cell}</td>`).join("")}</tr>`
-  ).join("");
 }
 
 function renderSpeed() {
@@ -1814,7 +1918,6 @@ speedSection.after(c2Section);
 
 switchScenario("current");
 renderC2();
-renderC2IoTable();
 renderSpeed();
 renderForecast();
 </script>
