@@ -37,6 +37,8 @@ from config import Topic6Config
 
 log = logging.getLogger("arkagent.case.topic6")
 TOKEN_KEEPALIVE_INTERVAL_S = 60.0
+# in-chat 授权等待扫码的最大秒数；超过后取消 poll，用户需重新发送触发词。
+IN_CHAT_AUTH_TIMEOUT_S = 300.0
 
 
 class Topic6Gateway:
@@ -65,6 +67,8 @@ class Topic6Gateway:
         self._artifact_sync = artifact_sync
         self._authorized = set(config.authorized_open_ids)
         self._token_keepalive_tasks: dict[str, asyncio.Task] = {}
+        # 每个 open_id 同时只允许一个 in-chat 授权流程
+        self._pending_authorizations: dict[str, asyncio.Task] = {}
 
     def accept(self, message: IncomingMessage) -> bool:
         if not _should_handle_message(message):
@@ -142,8 +146,8 @@ class Topic6Gateway:
                 return
 
             try:
-                user_vault_id = await self._user_authorization.vault_id(
-                    message.user_open_id
+                user_vault_id = await self._ensure_user_authorized(
+                    message.chat_id, message.user_open_id
                 )
                 job = await self._runner.start_job(
                     chat_id=message.chat_id,
@@ -163,6 +167,75 @@ class Topic6Gateway:
             self._store.complete_event(message.event_id, "failed")
             reason = str(error)
             await self._reply(message.chat_id, f"执行失败:{reason[:240]}")
+
+    async def _ensure_user_authorized(
+        self, chat_id: str, user_open_id: str
+    ) -> str:
+        """获取用户 vault_id；若未授权则在聊天中发授权链接并等待扫码。
+
+        防护措施：
+        - 并发去重：同一 open_id 同时只有一个 Device Flow，后续请求复用
+        - 超时控制：IN_CHAT_AUTH_TIMEOUT_S 后自动取消，不阻塞 _process
+        - 授权完成后直接从 authorize 返回值构建 vault_id，避免冗余远程调用
+        """
+        try:
+            return await self._user_authorization.vault_id(user_open_id)
+        except UserAuthorizationRequired:
+            pass
+
+        # ---- 并发去重：复用已有的授权任务 ----
+        existing = self._pending_authorizations.get(user_open_id)
+        if existing is not None and not existing.done():
+            await self._reply(
+                chat_id,
+                "正在等待你完成飞书授权，请点击之前发送的链接完成扫码。",
+            )
+            try:
+                return await asyncio.shield(existing)
+            except (asyncio.CancelledError, Exception) as error:
+                raise UserAuthorizationRequired(
+                    f"飞书授权失败：{error!s}。请重新发送触发词再试。"
+                ) from error
+
+        # ---- 发起新的 in-chat Device Flow ----
+        task = asyncio.ensure_future(
+            self._do_in_chat_authorize(chat_id, user_open_id)
+        )
+        self._pending_authorizations[user_open_id] = task
+        try:
+            return await asyncio.wait_for(task, timeout=IN_CHAT_AUTH_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            task.cancel()
+            raise UserAuthorizationRequired(
+                "授权链接已超时（5 分钟），请重新发送触发词获取新的授权链接。"
+            )
+        except Exception as error:
+            raise UserAuthorizationRequired(
+                f"飞书授权失败：{error!s}。请重新发送触发词再试。"
+            ) from error
+        finally:
+            if self._pending_authorizations.get(user_open_id) is task:
+                del self._pending_authorizations[user_open_id]
+
+    async def _do_in_chat_authorize(
+        self, chat_id: str, user_open_id: str
+    ) -> str:
+        """实际执行 Device Flow：发链接 → poll → 返回 vault_id。"""
+        await self._reply(
+            chat_id,
+            "首次使用需要完成飞书账号授权，正在生成授权链接…",
+        )
+        open_id = await self._user_authorization.authorize(
+            expected_open_id=user_open_id,
+            on_device_ready=lambda device: self._reply(
+                chat_id,
+                f"请点击以下链接完成飞书授权（5 分钟内有效）：\n{device.verification_url}",
+            ),
+        )
+        log.info("topic6 in-chat authorization completed user=%s", open_id)
+        await self._reply(chat_id, "✅ 授权成功，正在继续执行任务…")
+        # authorize 成功后 store 已写入，直接取 vault_id
+        return await self._user_authorization.vault_id(open_id)
 
     def _start_token_keepalive(
         self, job: PipelineJob, expected_vault_id: str

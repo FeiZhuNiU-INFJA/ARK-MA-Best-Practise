@@ -308,7 +308,7 @@ async def test_gateway_token_keepalive_retries_temporary_refresh_failure(monkeyp
     assert job.ma_session_id == "sesn-stable"
 
 
-async def test_missing_authorization_is_rejected_before_job_start():
+async def test_missing_authorization_triggers_in_chat_flow_and_rejects_on_failure():
     replies = []
 
     class Store:
@@ -317,7 +317,7 @@ async def test_missing_authorization_is_rejected_before_job_start():
 
     class Runner:
         async def start_job(self, **_kwargs):
-            raise AssertionError("未授权时不应创建任务")
+            raise AssertionError("授权失败时不应创建任务")
 
     class Hitl:
         async def handle_remark_message(self, **_kwargs):
@@ -326,6 +326,9 @@ async def test_missing_authorization_is_rejected_before_job_start():
     class UserAuth:
         async def vault_id(self, _open_id):
             raise UserAuthorizationRequired("请先扫码授权")
+
+        async def authorize(self, *, expected_open_id="", on_device_ready=None):
+            raise RuntimeError("飞书 OAuth 网络错误")
 
     async def reply(_chat_id, text):
         replies.append(text)
@@ -340,7 +343,8 @@ async def test_missing_authorization_is_rejected_before_job_start():
         None,
     )
     await gateway._process(_message())
-    assert replies == ["请先扫码授权"]
+    assert any("授权" in r for r in replies)
+    assert any("失败" in r or "错误" in r for r in replies)
 
 
 async def test_gateway_passes_scanned_users_vault_to_runner():
