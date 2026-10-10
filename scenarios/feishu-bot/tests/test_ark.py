@@ -731,6 +731,65 @@ async def test_upload_file_propagates_http_error():
 
 
 @respx.mock
+async def test_list_agent_files_paginates_by_session_scope():
+    route = respx.get(f"{BASE}/files").mock(
+        side_effect=[
+            httpx.Response(
+            200,
+            json={
+                "data": {
+                    "items": [{"id": "f1"}, {"id": "f2"}],
+                    "has_more": True,
+                    "last_id": "f2",
+                }
+            },
+            ),
+            httpx.Response(
+                200,
+                json={"data": {"items": [{"id": "f3"}], "has_more": False}},
+            ),
+        ]
+    )
+    client = _client()
+    files = await client.list_agent_files("session-1", limit=2)
+    await client.aclose()
+
+    assert [item["id"] for item in files] == ["f1", "f2", "f3"]
+    assert route.call_count == 2
+    assert route.calls[0].request.url.params["scope_id"] == "session-1"
+    assert route.calls[0].request.url.params.get("after") is None
+    assert route.calls[1].request.url.params["after"] == "f2"
+
+
+@respx.mock
+async def test_list_agent_files_treats_json_null_as_empty_page():
+    respx.get(f"{BASE}/files").mock(
+        return_value=httpx.Response(
+            200,
+            content=b"null",
+            headers={"content-type": "application/json"},
+        )
+    )
+    client = _client()
+    files = await client.list_agent_files("session-without-files")
+    await client.aclose()
+
+    assert files == []
+
+
+@respx.mock
+async def test_download_file_reads_presigned_url_without_ark_auth():
+    url = "https://files.example/download/f1?signature=abc"
+    route = respx.get(url).mock(return_value=httpx.Response(200, content=b"artifact"))
+    client = _client()
+    content = await client.download_file(url)
+    await client.aclose()
+
+    assert content == b"artifact"
+    assert "authorization" not in route.calls.last.request.headers
+
+
+@respx.mock
 async def test_add_session_file_mounts_to_uploads_path():
     route = respx.post(f"{BASE}/sessions/sesn-1/resources").mock(
         return_value=httpx.Response(200, json={})

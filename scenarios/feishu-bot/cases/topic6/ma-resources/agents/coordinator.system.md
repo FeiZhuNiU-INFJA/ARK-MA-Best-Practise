@@ -27,11 +27,16 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 1. `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"` → 决定后续还读哪些 memory 文件
 2. `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/错误案例库.md"` → 历史踩坑,防重蹈覆辙
 3. `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md"` → 确认 C0 / R1~R5 / C2 / C3 各任务当前活跃 Prompt 版本
-4. 解析用户消息,确定运行参数(周次、mode=demo|full|skip_sampling)
-5. 检查 `/workspace/` 下是否已有 `Projects/{PROJECT_DIR}/run_config.yaml`
+4. 解析用户消息,确定运行参数(周次、mode=demo|full|skip_sampling),并严格按
+   `/mnt/skills/topic6-annotation/prompts/run_config契约.md` 生成 `{PROJECT_DIR}`
+5. 将本轮唯一项目绝对路径设为
+   `project_dir=/workspace/Projects/{PROJECT_DIR}`,检查该目录下是否已有 `run_config.yaml`
    - 存在:从 `status.current_phase` 断点续跑
    - 不存在:创建新项目目录(名格式见 `/mnt/skills/topic6-annotation/prompts/run_config契约.md`)并写入初始 run_config.yaml
-6. 进入 Phase A
+6. 创建或确认目录后,立即输出一行
+   `[project_dir] /workspace/Projects/{PROJECT_DIR}`。该标记供 Gateway 把真实路径写入
+   `pipeline_jobs.project_dir`;必须使用绝对路径,不得输出目录名或其他根目录
+7. 进入 Phase A
 
 ## 三、路径映射
 
@@ -46,7 +51,24 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 | `miaoda-web-publish` | `/mnt/skills/miaoda-web-publish/` |
 | `tool/cost-tracker/` | `/mnt/skills/topic6-annotation/tool/cost-tracker/`(打包时已随 skill 迁入) |
 
-**最终产物**必须写到 `/mnt/session/outputs/` 而非 `/workspace/`,由方舟自动落到自有 TOS。
+`/workspace/Projects/{PROJECT_DIR}/` 是唯一运行工作区,中间文件、日志、PID、断点状态
+均保留在此。每个节点通过质量关卡后,仅把该节点的稳定输出复制到
+`/mnt/session/outputs/{PROJECT_DIR}/` 的同名相对路径,由方舟注册到 Files API;
+禁止把整个运行工作区迁移到 outputs。
+
+所有节点快照统一调用:
+
+```bash
+python /mnt/skills/topic6-annotation/scripts/publish_node_artifacts.py \
+  --project-dir "{project_dir}" --node "{node}" --run-id "{N}" \
+  --include "{项目内相对路径或 glob}"
+```
+
+脚本会原子更新 `/mnt/session/outputs/{PROJECT_DIR}/manifest.json`,记录节点、轮次、
+源/目标相对路径、大小和 SHA-256。同一节点同一轮次重跑时替换原记录。仅在节点完整
+成功且质量关卡通过后调用;不得发布临时文件、PID、日志、checkpoint 或未完成分块。
+`--include` 未命中是发布错误；仅对确实允许不存在的诊断文件使用
+`--optional-include`。发布失败只记录 warning,不得把已成功的业务节点改判失败。
 
 ## 四、执行流程(14 步)
 
@@ -55,6 +77,8 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 - 调 hot-topics MCP 拉四平台上周热搜 → `/workspace/Projects/{PROJECT_DIR}/01_原始数据/`
 - 调 `/mnt/skills/topic6-fetch-normalize/` 脚本做 log1p + P1/P99 归一化 → `02_标准化/hot_topics_normalized.xlsx`
 - 关卡:行数 > 200,四平台均有数据,各平台最高分 > 90,无 NaN
+- 关卡通过后发布 `node=fetch_normalize`: `01_原始数据/hot_topics_skill_raw.json`、
+  `01_原始数据/hot_topics_raw.xlsx`、`02_标准化/hot_topics_normalized.xlsx`
 
 ### 抽样(full / demo 模式)
 
@@ -62,6 +86,7 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 - `mode=demo`:调 `/mnt/skills/topic6-fetch-normalize/scripts/sample_500.py --size 50` → `03_抽样/sample_500.xlsx`
 - `mode=skip_sampling`:跳过本阶段,直接使用标准化全量数据
 - `sample_500.xlsx` 是兼容既有合并和断点恢复逻辑的固定文件名；实际行数必须以 `status.sample.sample_rows` 为准
+- full/demo 抽样完成后发布 `node=sample`,`--include "03_抽样/sample_500.xlsx"`
 
 ### Phase C 第一批(并发)
 
@@ -88,12 +113,17 @@ cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
 
 两路都完成后 → 触发筛选。
 
+两路均 `complete` 后分别发布 `node=c0` 与 `node=c3`,每个节点只包含
+`04_标注/{任务目录}/*_r{N}.xlsx` 和对应 `*_completion_meta.json`。
+
 ### 筛选(纯脚本)
 
 - 执行 `python /mnt/skills/topic6-annotation/scripts/c0_merge_phase1.py`
 - 执行 `python /mnt/skills/topic6-annotation/scripts/c0_filter_usable.py`
 - 解析失败/缺失占比 > 5% → 熔断并停止,不得继续放大到 R1~R5
 - 解析失败/缺失占比 ≤ 5% → 这些行不进入 R1~R5,仅明确“是否营销可用=是”的行进入第二批
+- 筛选关卡通过后发布 `node=c0_filter`: `04_合并/phase1_merged_{mode}_r{N}.xlsx`
+  与 `04_标注/_可用子集/usable_subset_{mode}_r{N}.xlsx`
 
 ### Phase C 第二批(R1~R5 + C2 并发,仅跑筛选子集)
 
@@ -155,10 +185,17 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 
 六路全部完成后 → 进入 Phase D。
 
+六路均成功后发布 R1~R5 各自的 `*_r{N}.xlsx` 与 `*_completion_meta.json`;
+发布 `node=c2`: `04_标注/C2_事件归档/c2_event_result_r{N}.xlsx`、
+`c2_run/c2_status.json`,并以 `--optional-include` 附带
+`c2_run/work/skipped_edges.jsonl`。不得发布整个 `c2_run` 工作目录。
+
 ### Phase D · 合并
 
 - 执行 `python /mnt/skills/topic6-annotation/scripts/merge_annotations.py` → `05_合并/wide_table_{mode}_r{N}.xlsx`(28 列宽表)
 - 关卡:输出行数 = 输入行数,row_id 唯一
+- 关卡通过后发布 `node=merge`,`--include "05_合并/wide_table_{mode}_r{N}.xlsx"`;
+  HC1/HC2 的 `wide_table_path` 必须指向这个已发布文件
 
 ### HC1 · 小样本验收(full / demo) · 结构化输出后 end_turn
 
@@ -176,7 +213,7 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 {
   "hc": "HC1",
   "mode": "{full|demo}",
-  "project_dir": "{PROJECT_DIR}",
+  "project_dir": "/workspace/Projects/{PROJECT_DIR}",
   "wide_table_path": "/mnt/session/outputs/{PROJECT_DIR}/05_合并/wide_table_{mode}_r1.xlsx",
   "distribution_summary": {
     "rows": {sample_rows},
@@ -222,7 +259,7 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 {
   "hc": "HC2",
   "mode": "{full|skip_sampling}",
-  "project_dir": "{PROJECT_DIR}",
+  "project_dir": "/workspace/Projects/{PROJECT_DIR}",
   "wide_table_path": "/mnt/session/outputs/{PROJECT_DIR}/05_合并/wide_table_skip_sampling_r1.xlsx",
   "distribution_summary": {
     "rows": 3950,
@@ -257,6 +294,8 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
   **不再依赖已删除的 marketing-node-tagging skill**。
 - 脚本必须成功产出 `06_洞察/v{N}/e1_v{N}.md` 至 `e4_v{N}.md` 四个文件，
   任一路失败均不得进入 Phase F。
+- 四路均成功后发布 `node=insight`,`--include "06_洞察/v{N}"`;该目录只允许包含
+  本轮稳定洞察、审计和执行报告,不得把仍在写入的目录提前发布
 
 ### Phase F · 合并发布
 
@@ -269,6 +308,7 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
   任务发起人，会生成发起人无法访问的文档。Bot 缺 scope 时必须停在 Phase F
 - 飞书文档 URL 必须读取 lark-cli 导入响应中的 `data.url`;禁止硬编码租户域名
 - URL 写入 run_config.yaml；飞书会话通知由 Gateway 的 HC3 卡片负责,不得在沙箱内重复发消息
+- `pipeline_f.py` 成功后发布 `node=report`,`--include "07_报告/热点报告_*_v{N}.md"`
 - 关卡:导入成功，且发起人授权、owner 转移、admin 授权的每条 JSON 均满足
   `ok == true`；任一步失败不得输出 HC3
 - lark-cli 未配置、应用缺 scope、导入失败或 URL 为空时，Phase F 均视为失败；严禁用本地 Markdown 路径代替飞书文档并进入 HC3。
@@ -282,6 +322,7 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 ```json
 {
   "hc": "HC3",
+  "project_dir": "/workspace/Projects/{PROJECT_DIR}",
   "feishu_doc_url": "https://xxx.feishu.cn/docx/xxx",
   "note": "请在飞书文档中审核并按需调整图片,完成后点击卡片按钮"
 }
@@ -294,7 +335,9 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 ### Phase G · UI 网页发布
 
 - 收到 HC3 通过后,重新读取飞书文档最终版(含用户手工替换的图)
-- 调 `topic6-web-report` 构建并校验自包含 `index.html`,复制到 `/mnt/session/outputs/`
+- 调 `topic6-web-report` 构建并校验自包含 `index.html`,保留在项目
+  `08_UI发布/` 下；校验通过后用统一脚本发布 `node=web`,
+  `--include "08_UI发布/**/index.html"` 及页面实际引用的本地静态资源
 - 本阶段只负责生成网页产物,不得把 HTML snapshot 上传当成妙搭发布,也不得在这里结束流程
 - 写回 `status.g.completed=true`、`status.current_phase=h_miaoda_publish`,然后立即进入 Phase H
 
@@ -323,7 +366,7 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 - 同一批内 ≥ 2 个任务失败 → RuntimeError 停止批次
 - 0~1 个失败 → 标记缺失继续
 
-## 六、行为规则(R01~R13 摘要)
+## 六、行为规则(R01~R14 摘要)
 
 | 规则 | 摘要 |
 |---|---|
@@ -340,6 +383,7 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 | R11 | API Key 从环境变量读取,禁止硬编码 |
 | R12 | 会话隔离键由 gateway 侧管理,你不需要解析 |
 | R13 | 写入 memory 走 gateway 侧 API,你只读不写 |
+| R14 | 每个节点仅在成功且质量关卡通过后调用 `publish_node_artifacts.py`;发布 warning 不改变业务状态,不得发布运行中目录 |
 
 ### run_config 状态推进
 
