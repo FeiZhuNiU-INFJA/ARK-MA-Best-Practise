@@ -70,7 +70,16 @@ Topic 6 使用 `1 Coordinator + 2 类子 Agent`：
 | `topic6-web-report`      | 网页版报告生成                   |
 | `miaoda-web-publish`     | 妙搭 HTML 应用发布与发布状态确认 |
 
-运行中间产物位于 `/workspace/Projects/<project_dir>/`，最终交付物写入 `/mnt/session/outputs/`。
+运行工作区位于 `/workspace/Projects/<project_dir>/`。每个节点完成后，稳定产物会复制到
+`/mnt/session/outputs/<project_dir>/` 并更新 `manifest.json`。Gateway 通过方舟 Files
+API 轮询这些文件，默认同步到本仓库
+`scenarios/feishu-bot/cases/topic6/data/artifacts/<job_id>/<project_dir>/`。
+
+同步完成不会额外发送飞书消息，避免每个节点刷屏。Gateway 日志会输出
+`artifact synced job=... file=... path=...`；本地目录中的 `index.json` 记录
+`file_id` 和同步状态，项目目录中的 `manifest.json` 记录节点、轮次、相对路径、大小
+和 SHA-256。同步根目录和轮询间隔可用 `TOPIC6_ARTIFACT_SYNC_DIR`、
+`TOPIC6_ARTIFACT_POLL_INTERVAL_SEC` 调整。
 
 ## 维护约定
 

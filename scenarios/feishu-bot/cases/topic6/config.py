@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Mapping, Optional
 
 
@@ -25,6 +26,8 @@ class Topic6Config:
     environment_id: str
     memory_store_id: str
     pipeline_db_path: str
+    artifact_sync_dir: str
+    artifact_poll_interval_sec: float
     vault_id: str
     authorized_open_ids: tuple[str, ...]
 
@@ -39,6 +42,10 @@ def load_case_config(env: Optional[Mapping[str, str]] = None) -> Topic6Config:
         for i in (environ.get("AUTHORIZED_OPEN_IDS") or "").replace(",", " ").split()
         if i.strip()
     )
+    poll_interval = float(environ.get("TOPIC6_ARTIFACT_POLL_INTERVAL_SEC") or "60")
+    if poll_interval <= 0:
+        raise RuntimeError("TOPIC6_ARTIFACT_POLL_INTERVAL_SEC 必须大于 0")
+    default_artifact_dir = Path(__file__).resolve().parent / "data" / "artifacts"
     return Topic6Config(
         ark_api_key=environ["ARK_API_KEY"],
         ark_base_url=(environ.get("ARK_BASE_URL") or "https://ark.cn-beijing.volces.com/api/v3").rstrip("/"),
@@ -48,6 +55,10 @@ def load_case_config(env: Optional[Mapping[str, str]] = None) -> Topic6Config:
         environment_id=environ["TOPIC6_ENVIRONMENT_ID"].strip(),
         memory_store_id=(environ.get("TOPIC6_MEMORY_STORE_ID") or "").strip(),
         pipeline_db_path=(environ.get("TOPIC6_PIPELINE_DB_PATH") or "").strip(),
+        artifact_sync_dir=(
+            environ.get("TOPIC6_ARTIFACT_SYNC_DIR") or str(default_artifact_dir)
+        ).strip(),
+        artifact_poll_interval_sec=poll_interval,
         vault_id=(environ.get("ARK_VAULT_ID") or "").strip(),
         authorized_open_ids=open_ids,
     )

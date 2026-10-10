@@ -11,6 +11,49 @@
 
 ---
 
+## 2026-10-10
+
+### 节点产物发布与 Gateway 本地同步
+
+- **触发现象**：节点中间产物只保留在沙箱 `/workspace/Projects/`，Gateway 和本地主机
+  无法在任务运行期间检查；把整个工作区迁到 outputs 又会把日志、PID、checkpoint 和
+  临时分块全部注册成 Files。
+- **修复**：新增统一发布脚本。节点通过质量关卡后，按项目相对路径复制稳定文件到
+  `/mnt/session/outputs/{PROJECT_DIR}/`，并以文件锁和原子替换维护 `manifest.json`。
+  Gateway 按 Session 轮询 Files API，以 `file_id` 增量下载，再按 manifest 的大小和
+  SHA-256 校验后重建本地可读目录。
+- **用户可见性**：默认不额外发送飞书通知；Gateway 日志输出 `artifact synced`。
+  本地默认路径为 `data/artifacts/<job_id>/<PROJECT_DIR>/`，可通过
+  `TOPIC6_ARTIFACT_SYNC_DIR` 修改。
+- **影响文件**：
+  - `ma-resources/skills/topic6-annotation/scripts/publish_node_artifacts.py`
+  - `ma-resources/agents/coordinator.system.md`
+  - `arkagent/ark.py`
+  - `artifact_sync.py`
+  - `gateway.py`
+  - `config.py`
+
+### Gateway 持久化真实沙箱项目目录
+
+- **触发现象**：Topic6 实际在 `/workspace/Projects/{PROJECT_DIR}/` 运行，但 Gateway
+  创建 Job 时把 `/workspace/topic6-{mode}-{session}` 占位路径写入
+  `pipeline_jobs.project_dir`，导致调试、HC 兜底产物路径和真实工作目录不一致。
+- **根因**：业务目录名依赖 Coordinator 解析出的报告周期，Gateway 创建 Session 时尚
+  不知道 `{PROJECT_DIR}`，却提前写入了一个不会被后续更新的假路径。
+- **修复**：Job 初始目录保持未知；Coordinator 创建或恢复项目后立即输出
+  `[project_dir] /workspace/Projects/{PROJECT_DIR}`，Gateway 校验该路径必须是
+  `/workspace/Projects` 的直属子目录后原地回写。HC1-HC3 的 `project_dir` 同步统一为
+  绝对路径。
+- **边界**：运行工作区继续使用 `/workspace/Projects/{PROJECT_DIR}/`；仅节点完成后的
+  稳定产物和最终交付物复制到 `/mnt/session/outputs/`，避免临时文件全部注册到 Files API。
+- **影响文件**：
+  - `pipeline_store.py`
+  - `topic6_runner.py`
+  - `ma-resources/agents/coordinator.system.md`
+  - `ma-resources/memory/topic6/MEMORY.md`
+  - `tests/test_topic6_hc_fallback.py`
+  - `tests/test_topic6_new_command.py`
+
 ## 2026-10-09
 
 ### DataHub 默认模型切换为 gpt-4o-mini

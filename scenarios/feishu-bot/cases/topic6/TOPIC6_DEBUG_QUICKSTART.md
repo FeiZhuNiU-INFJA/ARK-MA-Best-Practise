@@ -123,6 +123,19 @@ FEISHU_APP_SECRET=xxx
 `LARKSUITE_CLI_APP_ID`。只有 Gateway 与沙箱需要使用不同飞书应用时，才在配置中
 显式设置 `LARK_APP_ID` 和 `LARK_APP_SECRET`。
 
+节点产物会由 Gateway 从方舟 Session Files 增量同步到本地。以下配置可选：
+
+```env
+# 缺省为仓库 scenarios/feishu-bot/cases/topic6/data/artifacts
+TOPIC6_ARTIFACT_SYNC_DIR=/absolute/path/to/topic6-artifacts
+TOPIC6_ARTIFACT_POLL_INTERVAL_SEC=60
+```
+
+本地查看路径为
+`$TOPIC6_ARTIFACT_SYNC_DIR/<job_id>/<PROJECT_DIR>/`。同步不会发送额外飞书消息；
+观察 Gateway 日志中的 `artifact synced`，或查看同级 `index.json`。Files API 是
+轮询接口，不是沙箱目录挂载，因此节点完成后最多需要等待一个轮询周期。
+
 ### 2.2 业务侧 API Key(向业务对接人获取)
 
 ```env

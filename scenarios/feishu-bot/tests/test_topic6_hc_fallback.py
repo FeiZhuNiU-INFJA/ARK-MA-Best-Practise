@@ -30,6 +30,7 @@ progress_card_mod = _load("topic6_progress_card", "topic6_progress_card.py")
 hitl_mod = _load("topic6_hitl", "topic6_hitl.py")
 detect_hc_intent = runner_mod.detect_hc_intent
 extract_hc_payload = runner_mod.extract_hc_payload
+extract_project_dir = runner_mod.extract_project_dir
 build_hc_fallback_payload = runner_mod.build_hc_fallback_payload
 parse_trigger = runner_mod.parse_trigger
 normalize_user_text = runner_mod.normalize_user_text
@@ -170,6 +171,14 @@ def test_extract_hc_payload_supports_nested_json_in_markdown_fence():
         },
         "issues_detected": [],
     }
+
+
+def test_extract_project_dir_accepts_only_direct_topic6_project_path():
+    project = "/workspace/Projects/W40热点周报_20260928-20261004"
+    assert extract_project_dir(f"已创建目录\n[project_dir] {project}") == project
+    assert extract_project_dir("[project_dir] /workspace/topic6-demo") is None
+    assert extract_project_dir("[project_dir] /workspace/Projects/a/nested") is None
+    assert extract_project_dir("[project_dir] /workspace/Projects/../secrets") is None
 
 
 def test_intent_detects_bad_meta_description():

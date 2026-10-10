@@ -63,6 +63,9 @@ MODE_SKIP_SAMPLING_KEYWORDS = (
 # 进度卡片 patch 节流:同一卡片至少间隔多少秒才发一次 patch,避免飞书频控。
 PROGRESS_MIN_INTERVAL_SEC = 4.0
 
+# Topic6 业务项目只能落在该目录的直属子目录。Coordinator 负责按周期契约生成子目录名。
+PROJECTS_ROOT = PurePosixPath("/workspace/Projects")
+
 
 def normalize_user_text(text: str, mentioned_bot: bool = False) -> str:
     """群聊入站先去掉开头的 @机器人，避免机器人名称参与命令/触发词判断。"""
@@ -136,6 +139,25 @@ def extract_hc_payload(text: str) -> Optional[dict]:
     return payload
 
 
+def normalize_project_dir(value: object) -> Optional[str]:
+    """校验 Topic6 项目绝对路径，只允许 ``/workspace/Projects`` 的直属子目录。"""
+    raw = str(value or "").strip().strip("`")
+    if not raw:
+        return None
+    candidate = PurePosixPath(raw)
+    if candidate.parent != PROJECTS_ROOT or candidate.name in {"", ".", ".."}:
+        return None
+    return str(candidate)
+
+
+def extract_project_dir(text: str) -> Optional[str]:
+    """解析 Coordinator 的 ``[project_dir]`` 状态标记。"""
+    if not text:
+        return None
+    match = re.search(r"(?m)^\[project_dir\]\s+([^\r\n]+?)\s*$", text)
+    return normalize_project_dir(match.group(1)) if match else None
+
+
 def detect_hc_intent(text: str) -> Optional[str]:
     """兜底:Agent 违约时,从文本里嗅出它**想**触发的 HC 类型。
 
@@ -172,7 +194,9 @@ def build_hc_fallback_payload(
     并保留 ``__fallback__``，让卡片明确提示结构化载荷来自 Gateway 兜底。
     """
     transcript = "\n".join(collected_messages[-12:])
-    project_name = PurePosixPath(job.project_dir.rstrip("/")).name
+    project_name = (
+        PurePosixPath(job.project_dir.rstrip("/")).name if job.project_dir else ""
+    )
     payload: dict = {
         "hc": hc_kind,
         "mode": job.mode,
@@ -183,11 +207,12 @@ def build_hc_fallback_payload(
     if hc_kind not in {"HC1", "HC2"}:
         return payload
 
-    artifact_mode = job.mode if hc_kind == "HC1" else "skip_sampling"
-    payload["wide_table_path"] = (
-        f"/mnt/session/outputs/{project_name}/05_合并/"
-        f"wide_table_{artifact_mode}_r1.xlsx"
-    )
+    if project_name:
+        artifact_mode = job.mode if hc_kind == "HC1" else "skip_sampling"
+        payload["wide_table_path"] = (
+            f"/mnt/session/outputs/{project_name}/05_合并/"
+            f"wide_table_{artifact_mode}_r1.xlsx"
+        )
 
     summary: dict = {}
     shape_match = re.search(r"(\d[\d,]*)\s*行\s*[×xX*]\s*(\d+)\s*列", transcript)
@@ -379,9 +404,9 @@ class Topic6Runner:
             env_overrides=env_overrides,
             resources=resources,
         )
-        # project_dir 由 coordinator 自己创建,这里先占位;pipeline 落库时统一按
-        # /workspace/YYYYMMDD-mode-job_id 的规约(coordinator system prompt 里已定义)。
-        project_dir = f"/workspace/topic6-{mode}-{session_id[:8]}"
+        # 业务目录名依赖 Coordinator 解析出的周期。创建 Job 时保持未知，Coordinator
+        # 创建目录后必须输出 [project_dir] 标记，SSE 消费器会立即回写真值。
+        project_dir = ""
         job = self._store.create_job(
             chat_id=chat_id,
             thread_id=thread_id,
@@ -395,7 +420,10 @@ class Topic6Runner:
             job.job_id, session_id, mode, chat_id, user_open_id,
         )
 
-        prompt = f"[topic6] 触发词=热点报告 mode={mode} project_dir={project_dir}\n用户原始消息:{user_message}"
+        prompt = (
+            f"[topic6] 触发词=热点报告 mode={mode} "
+            f"workspace_root={PROJECTS_ROOT}\n用户原始消息:{user_message}"
+        )
         # 先发一张进度卡片当作"启动确认",拿到 message_id 落库,后续 patch 覆写这张卡即可,
         # 不再对每条 tool 事件单独 send_to_chat 刷屏。发失败也不阻塞主流程,只是这一次没有卡片。
         state = _ProgressState()
@@ -507,6 +535,7 @@ class Topic6Runner:
                 body = event_text(event)
                 if body:
                     collected_messages.append(body)
+                    self._maybe_update_project_dir(job_id, body)
                     phase_changed = self._maybe_update_phase(job_id, body)
 
             # 进度事件:塞进环形缓冲,由 patch 节流器决定何时刷卡片。
@@ -570,6 +599,12 @@ class Topic6Runner:
                 payload = build_hc_fallback_payload(job, intent_hc, collected)
         if payload:
             hc_kind = str(payload["hc"])
+            payload_project_dir = normalize_project_dir(payload.get("project_dir"))
+            if payload_project_dir:
+                self._maybe_update_project_dir(
+                    job_id, f"[project_dir] {payload_project_dir}"
+                )
+                job = self._store.get_job(job_id) or job
             payload_error = validate_hc_payload(payload)
             if payload_error:
                 log.error(
@@ -644,6 +679,24 @@ class Topic6Runner:
         if job and job.current_phase == new_phase:
             return False
         self._store.update_phase(job_id, new_phase)
+        return True
+
+    def _maybe_update_project_dir(self, job_id: str, body: str) -> bool:
+        project_dir = extract_project_dir(body)
+        if not project_dir:
+            return False
+        job = self._store.get_job(job_id)
+        if not job or job.project_dir == project_dir:
+            return False
+        if job.project_dir:
+            log.warning(
+                "topic6 project_dir changed job=%s old=%s new=%s",
+                job_id,
+                job.project_dir,
+                project_dir,
+            )
+        self._store.update_project_dir(job_id, project_dir)
+        log.info("topic6 project_dir resolved job=%s path=%s", job_id, project_dir)
         return True
 
     def _append_progress_line(self, job_id: str, progress: str) -> None:
