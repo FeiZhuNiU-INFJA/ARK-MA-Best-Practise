@@ -417,32 +417,13 @@
     font-size: 11px;
     letter-spacing: .06em;
   }
-  .c2-map {
-    display: grid;
-    gap: 6px;
-    margin-top: 9px;
-  }
-  .c2-map-row {
-    display: grid;
-    grid-template-columns: 90px minmax(0, 1fr);
-    gap: 8px;
-    padding: 8px 0;
-    border-bottom: 1px solid #e5edf1;
-  }
-  .c2-map-row:last-child { border-bottom: 0; }
-  .c2-map-row b { color: var(--ink); font-size: 11px; }
-  .c2-map-row span { color: var(--muted); font-size: 11px; line-height: 1.45; }
   .c2-overview {
-    display: grid;
-    grid-template-columns: minmax(220px, .42fr) minmax(0, 1fr);
-    gap: 24px;
     margin: 0;
     padding: 0 0 17px;
     border-bottom: 1px solid var(--line);
   }
   .c2-overview h4 { margin: 0 0 7px; color: var(--ink); font-size: 16px; }
-  .c2-overview p { margin: 0; color: #4f6074; font-size: 12px; line-height: 1.65; }
-  .c2-overview .c2-map { margin-top: 0; }
+  .c2-overview p { max-width: 780px; margin: 0; color: #4f6074; font-size: 12px; line-height: 1.65; }
   .c2-stage-sheet {
     margin-top: 12px;
     padding: 13px 14px;
@@ -609,7 +590,6 @@
     .detail-head { position: static; }
     .c2-grid, .speed-grid, .forecast { grid-template-columns: 1fr; }
     .c2-explain { padding: 17px 0 0; border-top: 1px solid var(--line); border-left: 0; }
-    .c2-overview { grid-template-columns: 1fr; }
     .speed-detail { padding: 17px 0 0; border-top: 1px solid var(--line); border-left: 0; }
   }
 
@@ -790,8 +770,17 @@
   .band-head p { max-width: 760px; margin-top: 6px; }
   .toggle-group { margin-top: 13px; }
   .toggle { border-radius: 4px; }
+  #c2-section > .band-head {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 13px;
+    margin-bottom: 12px;
+  }
+  #c2-section > .band-head .toggle-group { margin-top: 0; }
 
-  .c2-grid { grid-template-columns: minmax(300px, .86fr) minmax(310px, .94fr); gap: 28px; }
+  .c2-grid { grid-template-columns: minmax(280px, .55fr) minmax(0, 1.1fr); gap: 28px; }
   .c2-flow {
     position: relative;
     gap: 6px;
@@ -1840,12 +1829,7 @@ function renderC2() {
      <p>点击左侧节点，查看它的职责、概念和输入输出契约。</p>
      ${stageMarkup}`;
   document.getElementById("c2-overview").innerHTML =
-    `<div><h4>${view.title}</h4><p>${view.text}</p></div>
-     <div><h4>当前与新方案的阶段映射</h4>
-       <div class="c2-map">${view.mapping.map(([name, note]) =>
-         `<div class="c2-map-row"><b>${name}</b><span>${note}</span></div>`
-       ).join("")}</div>
-     </div>`;
+    `<h4>${view.title}</h4><p>${view.text}</p>`;
   document.querySelectorAll("[data-c2-stage]").forEach(button => {
     button.addEventListener("click", () => {
       activeC2Stage = button.dataset.c2Stage;
