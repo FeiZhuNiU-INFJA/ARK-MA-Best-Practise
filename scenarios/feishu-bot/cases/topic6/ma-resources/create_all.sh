@@ -3,7 +3,8 @@
 # 依赖: curl / jq / ARK_API_KEY 环境变量
 #
 # 幂等策略:
-#   - Environment / MemoryStore 按 name 查找,存在则复用(重建代价大且没意义)
+#   - Environment 优先复用 TOPIC6_ENVIRONMENT_ID,缺失或失效时再按 name 查找
+#   - MemoryStore 按 name 查找,存在则复用(重建代价大且没意义)
 #   - 3 个 Agent 每次都重建(prompt/skill 更新是主要驱动),同名旧 Agent 先删后建
 #
 # 使用:
@@ -102,6 +103,21 @@ find_by_name() {
   ' <<<"$body" | head -1
 }
 
+find_environment_by_id() {
+  local environment_id="$1"
+  local tmp code body
+  tmp=$(mktemp)
+  code=$(curl -sS -o "$tmp" -w "%{http_code}" "$BASE_URL/environments/$environment_id" \
+    -H "Authorization: Bearer $ARK_API_KEY" \
+    -H "$ARK_BETA_HEADER")
+  body=$(cat "$tmp")
+  rm -f "$tmp"
+  if [ "$code" != "200" ]; then
+    return 1
+  fi
+  jq -er '.data.id // .id' <<<"$body"
+}
+
 find_memory_id_by_path() {
   local store_id="$1" path="$2"
   local body
@@ -123,9 +139,21 @@ ark_delete() {
 }
 
 # ---- 1. Environment ----
-step "1) 创建 Environment(幂等:按 name 查找,存在复用;--update-env 时原地更新 config)"
+step "1) 创建 Environment(幂等:优先按 ID 复用,其次按 name 查找;--update-env 时原地更新 config)"
 env_name=$(jq -r '.name' "$ROOT/environment.json")
-ENVIRONMENT_ID=$(find_by_name "environments" "$env_name" || true)
+ENVIRONMENT_ID=""
+if [ -n "${TOPIC6_ENVIRONMENT_ID:-}" ]; then
+  existing_id=$(find_environment_by_id "$TOPIC6_ENVIRONMENT_ID" 2>/dev/null || true)
+  if [ "$existing_id" = "$TOPIC6_ENVIRONMENT_ID" ]; then
+    ENVIRONMENT_ID="$existing_id"
+    echo "按配置 ID 复用: $env_name -> $ENVIRONMENT_ID"
+  else
+    echo "配置中的 TOPIC6_ENVIRONMENT_ID 无效或不可访问，将按名称查找: $TOPIC6_ENVIRONMENT_ID" >&2
+  fi
+fi
+if [ -z "$ENVIRONMENT_ID" ]; then
+  ENVIRONMENT_ID=$(find_by_name "environments" "$env_name" || true)
+fi
 # environment.json 里 config.env 用 ${VAR} 字面占位,先展开一次。
 # 方舟不做二次插值,不展开就把 "${DATAHUB_ENDPOINT}" 死字符串灌进沙箱。
 # macOS 默认不带 envsubst,改用 jq 遍历字符串值做 ${VAR} 替换(未 export 的变量替成空串,与 envsubst 行为一致)。

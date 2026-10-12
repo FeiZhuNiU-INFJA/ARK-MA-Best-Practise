@@ -11,6 +11,22 @@
 
 ---
 
+## 2026-10-12
+
+### Environment 更新优先复用已记录 ID
+
+- **触发现象**：执行 `update_ma.sh` 时，创建同名 `topic6-prod-env` 返回
+  `409 ResourceConflict`，提示该名称已存在于 `default` 项目。
+- **排查结论**：实测当前 `GET /environments` 仍返回
+  `{"data":[...], "next_page":"..."}`，且第一页包含目标 Environment；并非已证实的
+  响应结构变更。旧脚本仅按名称查找，且 `ark_get` 会静默吞掉 GET 的 HTTP 错误，任何
+  临时网络、鉴权或上下文异常都会被误判为“环境不存在”，继而错误发起创建。
+- **修复**：`create_all.sh` 现在优先校验并复用
+  `TOPIC6_ENVIRONMENT_ID`，仅在 ID 缺失、失效或不可访问时才按名称查找；Environment
+  继续原地更新，不删除已有资源。
+- **影响文件**：
+  - [ma-resources/create_all.sh](./ma-resources/create_all.sh)
+
 ## 2026-10-10
 
 ### 节点产物发布与 Gateway 本地同步
