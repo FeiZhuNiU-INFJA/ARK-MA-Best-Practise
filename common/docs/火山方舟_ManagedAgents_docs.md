@@ -37,12 +37,12 @@
 
 基于模型 API 构建一个可用的 Agent，需要自行实现 AgentLoop、工具调用、上下文管理、沙箱调度、断点续跑与权限隔离等通用组件。建设周期通常需要 4 至 8 周，且需随模型迭代持续适配。方舟 Managed Agents 提供 Agent 层的完整基础设施，你只需定义 Agent 行为、发送用户事件并订阅结果流。
 
-> 方舟目前提供两种基于豆包大模型的构建方式：需对 Agent 循环进行细粒度控制时，选用 **模型 API**；需将完整 Agent 交由平台托管、聚焦业务逻辑时，选用 **Managed Agents**。两者的详细差异参见下文 [与模型 API 对比](https://www.volcengine.com/docs/82379/2553713#vs_model_api)。
+> 方舟目前提供两种基于豆包大模型的构建方式：需对 Agent 循环进行细粒度控制时，选用 **模型 API**；需将完整 Agent 交由平台托管、聚焦业务逻辑时，选用 **Managed Agents**。两者的详细差异参见下文 [与模型 API 对比](https://ark.volcengine.com/region:cn-beijing/docs/ark/overview#vs_model_api)。
 
 <columns>
-<columnsItem zoneid="dF1gNxNSJG">
+<columnsItem zoneid="J6nQgzbqV9">
 
-<card mode="container" href="/docs/82379/2553714" >
+<card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/quick-start-code" >
 
 **快速入门**
 
@@ -51,9 +51,9 @@
 </card>
 
 </columnsItem>
-<columnsItem zoneid="MLOvZNjbVX">
+<columnsItem zoneid="GsNHwzff0G">
 
-<card mode="container" href="/docs/82379/2553723" >
+<card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/start-session" >
 
 **启动 Session**
 
@@ -150,13 +150,14 @@
 
 在上述特征之上，以下为已验证 PMF 的典型业务场景：
 
-| 场景                   | 重复度 | 风险 | 说明                                       |
-| ---------------------- | ------ | ---- | ------------------------------------------ |
-| **IT 工单处理**        | 高     | 低   | 结构化强、模板化程度高，Agent 处理准确率高 |
-| **报表自动生成**       | 高     | 低   | 数据抓取与汇总逻辑固定，易于 Agent 化      |
-| **供应商邮件处理**     | 中     | 低   | 分类与回复流程明确，适合规则化自动化       |
-| **代码 Review 与文档** | 高     | 低   | 研发团队收益直观，ROI 显著                 |
-| **销售线索初筛**       | 中     | 低   | CRM 录入自动化，释放销售人力               |
+| 场景                   | 重复度 | 风险 | 说明                                                                       |
+| ---------------------- | ------ | ---- | -------------------------------------------------------------------------- |
+| **IT 工单处理**        | 高     | 低   | 结构化强、模板化程度高，Agent 处理准确率高                                 |
+| **报表自动生成**       | 高     | 低   | 数据抓取与汇总逻辑固定，易于 Agent 化                                      |
+| **供应商邮件处理**     | 中     | 低   | 分类与回复流程明确，适合规则化自动化                                       |
+| **代码 Review 与文档** | 高     | 低   | 研发团队收益直观，ROI 显著                                                 |
+| **销售线索初筛**       | 中     | 低   | CRM 录入自动化，释放销售人力                                               |
+| **视觉内容创作**       | 中     | 中   | 组合视觉搜索、图片生成、视频生成和视频合成工具，适合广告素材与短视频生产。 |
 
 正在使用开源 Agent 自建业务、或通过脚本拼接 Agent 能力的团队，均可考虑迁移至方舟 Managed Agents 进行试点验证。
 
@@ -178,15 +179,15 @@
 
 上手方式提供以下两种路径：
 
-- 如需以 **可视化方式** 快速完成原型验证，参见 [快速入门（控制台）](https://www.volcengine.com/docs/82379/2553715)。
+- 如需以 **可视化方式** 快速完成原型验证，参见 [快速入门（控制台）](https://ark.volcengine.com/region:cn-beijing/docs/ark/quick-start-console)。
 
-- 如需直接以 **代码 / API** 完成端到端接入，参见 [快速入门（代码）](https://www.volcengine.com/docs/82379/2553714)。
+- 如需直接以 **代码 / API** 完成端到端接入，参见 [快速入门（代码）](https://ark.volcengine.com/region:cn-beijing/docs/ark/quick-start-code)。
 
 <span id="pricing"></span>
 
 # 计费说明
 
-Managed Agents 按照 Agent 运行过程中实际消耗的 Tokens、Agent 运行时时长和工具调用次数三项累加计费。详情参见 [Managed Agents 计费](https://www.volcengine.com/docs/82379/1544106#ma_billing)。
+Managed Agents 按照 Agent 运行过程中实际消耗的 Tokens、Agent 运行时时长和工具调用次数三项累加计费。详情参见 [Managed Agents 计费](https://ark.volcengine.com/region:cn-beijing/docs/ark/model-pricing#ma_billing)。
 
 <a id="doc-2553714"></a>
 
@@ -1012,7 +1013,7 @@ public class ManagedAgentsQuickStart {
 
 方舟 Managed Agents 控制台提供可视化界面，让你无需编写 API 代码即可创建、配置并测试 Agent。你可以在控制台里交互式地打磨 Agent 配置，验证行为符合预期后，再拿到对应的 ID 接入到自己的业务代码中。
 
-> 首次访问需登录 [火山方舟控制台](https://console.volcengine.com/ark/region:cn-beijing/managed-agents/agents?projectName=default)，进入 **Managed Agents** 模块。
+> 首次访问需登录 [火山方舟控制台](https://ark.volcengine.com/region:cn-beijing/managed-agents/agents?projectName=default)，进入 **Managed Agents** 模块。
 
 <span id="prerequisites"></span>
 
@@ -1022,19 +1023,21 @@ public class ManagedAgentsQuickStart {
 
 ## 1. 获取 API Key
 
-访问 [API Key 管理](https://console.volcengine.com/ark/region:cn-beijing/apiKey)，单击 **创建 API Key**，作为后续接入业务代码的访问密钥。
+访问 [API Key 管理](https://ark.volcengine.com/region:cn-beijing/apiKey)，单击 **创建 API Key**，作为后续接入业务代码的访问密钥。
 
 <span id="enable_managed_agent"></span>
 
 ## 2. 开通 Managed Agents 服务
 
-访问 [开通管理页面](https://console.volcengine.com/ark/region:cn-beijing/openManagement)，切换到 **Managed Agents** 页签开通服务。
+访问 [开通管理页面](https://ark.volcengine.com/region:cn-beijing/openManagement)，切换到 **Managed Agents** 页签开通服务。
 
 <span id="enable_model_service"></span>
 
 ## 3. 开通模型服务
 
-访问 [开通管理页面](https://console.volcengine.com/ark/region:cn-beijing/openManagement) 开通模型服务。
+访问 [开通管理页面](https://ark.volcengine.com/region:cn-beijing/openManagement) 开通模型服务。
+
+创建视觉增强 Agent 前，根据控制台提示开通视觉增强 Agent 使用权限及所需的模型和工具服务。
 
 <span id="build_agent"></span>
 
@@ -1046,7 +1049,9 @@ public class ManagedAgentsQuickStart {
 
 Agent 是可版本化、可复用的智能体配置资产，定义角色、能力、行为边界和运行规则，是所有任务运行的模板和基准。
 
-访问 [火山方舟控制台](https://console.volcengine.com/ark/region:cn-beijing/managed-agents/agents?projectName=default)，进入 **Managed Agents** 模块。在 **Agents** 页面单击 **创建 Agent**，跟随界面引导填写：
+访问 [火山方舟控制台](https://ark.volcengine.com/region:cn-beijing/managed-agents/agents?projectName=default)，进入 **Managed Agents** 模块。在 **Agents** 页面单击 **创建 Agent**，跟随界面引导填写：
+
+- **Agent 版本**：根据任务类型选择通用 Agent 或视觉增强 Agent。
 
 - **模型和系统提示词**：选择一个 **模型**，并编写 **系统提示词**，为 Agent 设定角色、做事风格与工作原则。
 
@@ -1066,7 +1071,7 @@ Agent 是可版本化、可复用的智能体配置资产，定义角色、能�
 
 定义 Agent 的运行环境模板，预置依赖、环境变量和产物存储等。创建 Session 时绑定 Environment，确保代码在一致环境中执行。
 
-在 [Environments 页面](https://console.volcengine.com/ark/region:cn-beijing/managed-agents/environments?projectName=default) 单击 **创建 Environment**，跟随界面引导填写：
+在 [Environments 页面](https://ark.volcengine.com/region:cn-beijing/managed-agents/environments?projectName=default) 单击 **创建 Environment**，跟随界面引导填写：
 
 - **类型**：当前仅支持 **云托管**——沙箱由方舟按需拉起、自动休眠。
 
@@ -1090,7 +1095,7 @@ Agent 是可版本化、可复用的智能体配置资产，定义角色、能�
 
 Session 是一次独立的 Agent 任务运行会话，包含从发起、执行到结束的完整生命周期：
 
-1. 在 [Sessions 页面](https://console.volcengine.com/ark/region:cn-beijing/managed-agents/sessions?projectName=default) 单击 **创建 Session**，选择要绑定的 **Agent** 和 **Environment**。Session 默认继承该 Environment 的产物存储配置。
+1. 在 [Sessions 页面](https://ark.volcengine.com/region:cn-beijing/managed-agents/sessions?projectName=default) 单击 **创建 Session**，选择要绑定的 **Agent** 和 **Environment**。Session 默认继承该 Environment 的产物存储配置。
 
 2. 在 **Session 详情** 页面调试会话：
 
@@ -1116,7 +1121,7 @@ Agent 配置验证通过后，把它接入到业务代码中只需两步。
 
 - 从 **Environment 详情页** 复制 `environment_id`。
 
-- 前往 [API Key 管理](https://console.volcengine.com/ark/region:cn-beijing/apiKey) 单击 **创建 API Key**，作为访问密钥。
+- 前往 [API Key 管理](https://ark.volcengine.com/region:cn-beijing/apiKey) 单击 **创建 API Key**，作为访问密钥。
 
 <span id="create_session_in_code"></span>
 
@@ -1135,7 +1140,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
   }'
 ```
 
-拿到返回的 `session_id` 后，即可通过 Events API 向 Session 发送消息，并通过 SSE 流式接收 Agent 的响应事件。详情请参见 [Session 事件流](https://www.volcengine.com/docs/82379/2553725)。
+拿到返回的 `session_id` 后，即可通过 Events API 向 Session 发送消息，并通过 SSE 流式接收 Agent 的响应事件。详情请参见 [Session 事件流](https://ark.volcengine.com/region:cn-beijing/docs/ark/session-event-stream)。
 
 <a id="doc-2553716"></a>
 
@@ -1146,6 +1151,16 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 > 来源：[https://docs.volcengine.com/docs/82379/2553716?lang=zh](https://docs.volcengine.com/docs/82379/2553716?lang=zh)
 
 方舟 Managed Agents 是火山方舟平台推出的全托管 Agent 服务，给您带来开箱即用的 Agent 体验。Agent 是方舟 Managed Agents 的基础元件，是一套包含基本信息、System Prompt、扩展能力（Skills、Tools、MCP 等）的配置模板，可以被任意 Session 复用，并支持版本化管理。本文介绍如何定义一个 Agent。
+
+<span id=".YWdlbnQt54mI5pys"></span>
+
+## Agent 版本
+
+创建 Agent 时，先根据任务选择 Agent 版本：
+
+- 通用 Agent：适用于代码执行、内容检索和文档处理等通用任务。
+
+- 视觉增强 Agent：适用于图片生成、视频生成、视觉搜索和视频合成等任务。
 
 <span id=".YWdlbnQt5a6a5LmJ5a2X5q61"></span>
 
@@ -1166,7 +1181,7 @@ Agent 的完整字段定义（包括名称、模型、System Prompt、Skills、T
    将以下命令中的 `your_api_key_here` 替换为你的 API Key，并在终端中运行命令，即可将 API Key 配置到环境变量中。详见[环境变量配置指南](https://ark.volcengine.com/region:cn-beijing/docs/ark/environment-variable-configuration-guide)。
 
    <Tabs>
-   <Tab zoneid="ZGeUT3SOIW" title="macOS">
+   <Tab zoneid="Sdb0lllBTC" title="macOS">
    <TabTitle>macOS</TabTitle>
 
    ```Bash
@@ -1174,7 +1189,7 @@ Agent 的完整字段定义（包括名称、模型、System Prompt、Skills、T
    ```
 
    </Tab>
-   <Tab zoneid="MeKGmZDoxq" title="Linux">
+   <Tab zoneid="GQraEiVrwe" title="Linux">
    <TabTitle>Linux</TabTitle>
 
    ```Bash
@@ -1182,7 +1197,7 @@ Agent 的完整字段定义（包括名称、模型、System Prompt、Skills、T
    ```
 
    </Tab>
-   <Tab zoneid="LLpN1ZISaL" title="Windows_CMD">
+   <Tab zoneid="NtqRzywaJ2" title="Windows_CMD">
    <TabTitle>Windows_CMD</TabTitle>
 
    ```CMD
@@ -1190,7 +1205,7 @@ Agent 的完整字段定义（包括名称、模型、System Prompt、Skills、T
    ```
 
    </Tab>
-   <Tab zoneid="WK19Z4W4tY" title="Windows_PowerShell">
+   <Tab zoneid="UNdllyiZGr" title="Windows_PowerShell">
    <TabTitle>Windows_PowerShell</TabTitle>
 
    ```PowerShell
@@ -1419,7 +1434,7 @@ printf 'Updated Agent version: %s\n' "$AGENT_VERSION"
 ## 相关文档
 
 <columns>
-<columnsItem zoneid="Artsyf5RmA">
+<columnsItem zoneid="BCOfCDtTCr">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/skills" >
 
@@ -1438,7 +1453,7 @@ MCP（Model Context Protocol）用于把第三方系统的工具与数据源接�
 </card>
 
 </columnsItem>
-<columnsItem zoneid="M0Vn6YrnUZ">
+<columnsItem zoneid="dQiBhfFqJA">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/tools" >
 
@@ -1932,6 +1947,8 @@ Tools 决定 Agent 在 Session 中能主动调用哪些执行能力。
 
 - 任务需要在云环境中操作文件、执行命令或获取网页信息时，使用内置工具。
 
+- 任务需要生成图片、视频或组合视觉素材时，使用多模态工具。
+
 - 任务需要访问已经接入 MCP Server 的外部系统时，使用 MCP 工具。
 
 - 任务只需调用少量自有业务操作，且由业务应用执行时，使用自定义工具。
@@ -1961,6 +1978,33 @@ Tools 决定 Agent 在 Session 中能主动调用哪些执行能力。
 
 <div data-tips="true" data-tips-type="warning">Web Search 按实际调用次数计费。</div>
 
+<span id=".5L2_55So5aSa5qih5oCB5bel5YW3"></span>
+
+### 使用多模态工具
+
+视觉增强 Agent 使用 `agent_toolset_multimodal_20260825` 提供图片生成、视频生成、视觉搜索、视频合成和任务进度管理能力。创建视觉增强 Agent 时，还必须同时配置 `agent_toolset_20260916` 或兼容的 `agent_toolset_20260701`。
+
+<span aceTableMode="list" aceTableWidth="1,1,3"></span>
+
+| 配置名           | 是否必须启用     | 说明                                                                                                     |
+| ---------------- | ---------------- | -------------------------------------------------------------------------------------------------------- |
+| `image_generate` | 是               | 生成图片。通过 `configs[].models` 绑定已开通的图片生成模型。                                             |
+| `video_generate` | 否               | 生成视频。启用时，通过 `configs[].models` 绑定已开通的视频生成模型。                                     |
+| `visual_search`  | 是               | 检索与创作任务相关的视觉素材。                                                                           |
+| `general_search` | 是               | 检索创作任务需要的通用信息。                                                                             |
+| `compose_video`  | 是               | 将视频、图片和音频素材合成为视频。                                                                       |
+| `todo_write`     | 默认启用，可关闭 | 为复杂、长耗时任务维护待办和进度。不需要该能力时，在对应的 `configs[]` 项中将 `enabled` 设置为 `false`。 |
+
+多模态工具产生的模型调用费用和工具调用费用，详情请参见 [Managed Agents 计费说明](https://ark.volcengine.com/region:cn-beijing/docs/ark/model-pricing#ma_billing)。
+
+在请求的 `configs[].models[]` 中，只需填写模型 ID（`id`）和是否为默认模型（`default`）。响应中的模型名称（`name`）和版本（`version`）由服务端返回，不需要在请求中填写。
+
+<div data-tips="true" data-tips-type="warning" data-tips-is-title="true">注意</div>
+
+<div data-tips="true" data-tips-type="warning">启用 <code>general_search</code> 时，必须在基础工具集中关闭 <code>web_search</code>。两个搜索工具同时启用时，服务端返回 400 <code>InvalidParameter</code>。</div>
+
+视觉增强 Agent 的完整工具配置和执行流程，详情请参见 [[基础] 使用视觉增强 Agent 生成图片和视频](https://ark.volcengine.com/region:cn-beijing/docs/ark/visual-creation-agent)。
+
 <span id=".5o6l5YWlLW1jcC3lt6Xlhbc="></span>
 
 ### 接入 MCP 工具
@@ -1982,7 +2026,7 @@ MCP 工具集通过 `type: "mcp_toolset"` 将一个 MCP Server 暴露的工具�
 自定义工具通过 `type: "custom"` 声明。每个工具需要配置名称、用途描述和输入参数 Schema。以下示例使用 `curl` 创建 Agent，并使用 `jq` 保存返回的 Agent ID。示例同时显式关闭内置工具集，避免主 Agent 回退启用全部内置工具：
 
 <Tabs>
-<Tab zoneid="hy6iWwGeDq" title="Curl">
+<Tab zoneid="FKu75brnSe" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -2052,7 +2096,7 @@ printf 'Agent ID: %s\n' "$AGENT_ID"
 如果 Agent 需要使用全部基础执行能力，挂载 `agent_toolset_20260701`，并显式启用工具集和权限策略：
 
 <Tabs>
-<Tab zoneid="ZoeAjZh31X" title="Curl">
+<Tab zoneid="brCgtZhld7" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -2066,7 +2110,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
     },
     "tools": [
       {
-        "type": "agent_toolset_20260701",
+        "type": "agent_toolset_20260916",
         "default_config": {
           "enabled": true,
           "permission_policy": {
@@ -2088,7 +2132,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 如果 Agent 不应访问网页，可以保持工具集启用，再通过 `configs` 关闭 `web_fetch` 和 `web_search`：
 
 <Tabs>
-<Tab zoneid="cIejHXvjlF" title="Curl">
+<Tab zoneid="oPR3FX4W1P" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -2134,7 +2178,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 如果 Agent 只需要读取和检索沙箱文件，先将工具集整体关闭，再显式启用 `read`、`glob` 和 `grep`：
 
 <Tabs>
-<Tab zoneid="TYp1QOeJ9v" title="Curl">
+<Tab zoneid="wBB3jb5R6U" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -2453,7 +2497,7 @@ Session 返回 `stop_reason.type=requires_action` 时，先读取 `stop_reason.e
 ## 相关文档
 
 <columns>
-<columnsItem zoneid="jdCVbVui0D">
+<columnsItem zoneid="AltenpXUxW">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/define-agent" >
 
@@ -2472,7 +2516,7 @@ Skills 用于给 Agent 补充领域知识、操作流程和最佳实践。
 </card>
 
 </columnsItem>
-<columnsItem zoneid="GUqlTiD1HM">
+<columnsItem zoneid="W8YhAxdiht">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/mcp" >
 
@@ -2505,7 +2549,11 @@ MCP（Model Context Protocol）用于把第三方系统的工具与数据源接�
 
 当前权限策略只作用于服务端执行的工具：
 
-- 内置工具集 `agent_toolset_20260701`
+- 内置工具集 `agent_toolset_20260916`
+
+- 兼容版内置工具集 `agent_toolset_20260701`
+
+- 多模态工具集 `agent_toolset_multimodal_20260825`
 
 - MCP 工具集 `mcp_toolset`
 
@@ -2541,7 +2589,7 @@ MCP（Model Context Protocol）用于把第三方系统的工具与数据源接�
 下面的示例把内置工具集的默认策略改成 `always_ask`：
 
 <Tabs>
-<Tab zoneid="z2MRkS8JUy" title="Curl">
+<Tab zoneid="DGj8ShVfVk" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -2581,7 +2629,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 下面的示例保留内置工具集默认自动执行，但要求 `bash` 每次执行前都先确认：
 
 <Tabs>
-<Tab zoneid="vVekHNFx4l" title="Curl">
+<Tab zoneid="j1l8n6wfD0" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -2628,7 +2676,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 下面的示例将可信 MCP Server 的工具集显式设置为 `always_allow`，便于直接核对自动执行范围：
 
 <Tabs>
-<Tab zoneid="agvBzPWIlp" title="Curl">
+<Tab zoneid="FF0e0Ffcou" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -2695,7 +2743,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 ## 相关文档
 
 <columns>
-<columnsItem zoneid="JqDDSpoKWg">
+<columnsItem zoneid="pEn8oWUZhW">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/define-agent" >
 
@@ -2714,7 +2762,7 @@ Skills 用于给 Agent 补充领域知识、操作流程和最佳实践。
 </card>
 
 </columnsItem>
-<columnsItem zoneid="itFDPGI5eK">
+<columnsItem zoneid="trZb8A3Pe2">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/mcp" >
 
@@ -4886,18 +4934,18 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 
 本章节示例的 Base URL 与鉴权方式详情请参见 [Base URL 及鉴权](https://ark.volcengine.com/region:cn-beijing/docs/ark/base-url-and-authentication)。
 
-<span id=".5Yib5bu6LXZhdWx0cw=="></span>
+<span id=".5Yib5bu6LXZhdWx0"></span>
 
-## 创建 Vaults
+## 创建 Vault
 
-<div data-tips="true" data-tips-type="warning" data-tips-is-title="true">注意</div>
+<div data-tips="true" data-tips-type="warning" data-tips-is-title="true">权限边界</div>
 
-<div data-tips="true" data-tips-type="warning"><strong>作用域。</strong> Vaults 与凭据按工作空间隔离，同工作空间的 API Key 都能引用。要撤销访问，删除对应 Vaults 或凭据。</div>
+<div data-tips="true" data-tips-type="warning">Vault 和凭据在工作空间内共享，不按 API Key 单独隔离。持有同一工作空间任一 API Key 的服务，都可以通过 Vault ID 在 Session 中引用其中的凭据。仅向受信任的服务开放工作空间 API Key。</div>
 
-Vaults 是绑定到某个终端用户的凭据集合。给它一个 `display_name`，可选用 `metadata` 标记以便映射回你自己的用户记录：
+Vault 是绑定到某个终端用户的凭据集合。给它一个 `display_name`，可选用 `metadata` 标记以便映射回你自己的用户记录：
 
 <Tabs>
-<Tab zoneid="OtNL8vELCf" title="Curl">
+<Tab zoneid="wO67TfP9hj" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -4913,7 +4961,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults \
 </Tab>
 </Tabs>
 
-响应是完整的 Vaults 记录：
+响应是完整的 Vault 记录：
 
 ```json
 {
@@ -4957,7 +5005,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults \
 - `client_secret_post`：把 `client_secret` 放在 POST 请求体里。
 
 <Tabs>
-<Tab zoneid="VRZlKQf6x9" title="Curl">
+<Tab zoneid="WqIRi5Vmmk" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -4995,7 +5043,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 当 MCP 服务器接受固定 Bearer token（API Key、个人访问令牌） 时，用 `static_bearer`。无需刷新流程：
 
 <Tabs>
-<Tab zoneid="qJ9IkqTeZn" title="Curl">
+<Tab zoneid="OOJMlaAXxF" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -5058,7 +5106,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 - `"type": "unrestricted"`（仅当调用方访问的域名无法提前枚举时使用）。
 
 <Tabs>
-<Tab zoneid="cQmhHlhw6i" title="Curl">
+<Tab zoneid="YTooOsWFsc" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -5124,7 +5172,7 @@ MCP 类型凭据（`mcp_oauth`、`static_bearer`、`mcp_static`）在创建时�
 创建 Session 时传 `vault_ids` 数组，把一个或多个 Vaults 挂到 Session：
 
 <Tabs>
-<Tab zoneid="ozH9Q5hHad" title="Curl">
+<Tab zoneid="V1SvEBgzUU" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -5157,7 +5205,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 密钥值和 `display_name` 可以更新。结构性字段（`mcp_server_url`、`secret_name`、`token_endpoint`、`client_id`） 在创建后即被锁定。要修改结构性字段，删除旧凭据再创建新的：
 
 <Tabs>
-<Tab zoneid="GKr3Y7RgXv" title="Curl">
+<Tab zoneid="SHOsqspAoa" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -5198,9 +5246,9 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 
 ## 其他操作
 
-- 列出 Vaults 、凭据：`GET /vaults` 或 `GET /vaults/{id}/credentials`；分页返回，按最新优先排序。
+- 列出 Vault、凭据：`GET /vaults` 或 `GET /vaults/{vault_id}/credentials`；分页返回，按最新优先排序。
 
-- 删除 Vaults 、凭据：硬删除，所有相关记录与密钥一并清除，不可恢复。
+- 如需停用单个凭据，删除对应凭据；如需停用某个终端用户的全部凭据，删除对应 Vault。删除操作不可恢复。
 
 <a id="doc-2553727"></a>
 
@@ -5226,70 +5274,70 @@ Managed Agents 支持挂载通过 [文件输入(Files API)](https://ark.volcengi
 
 - 使用 Files API：
 
-先将本地文件上传到 Files API。上传成功后，平台会返回 `file_id`，后续创建 Session 或向运行中的 Session 追加文件资源时都需要使用该 ID。
+  先将本地文件上传到 Files API。上传成功后，平台会返回 `file_id`，后续创建 Session 或向运行中的 Session 追加文件资源时都需要使用该 ID。
 
-<div data-tips="true" data-tips-type="tip" data-tips-is-title="true">说明</div>
+   <div data-tips="true" data-tips-type="tip" data-tips-is-title="true" data-wrapper-indent="1">说明   </div>
 
-<div data-tips="true" data-tips-type="tip">设置 <code>purpose=agent</code>，指定该文件供 Agent 使用。</div>
+   <div data-tips="true" data-tips-type="tip" data-wrapper-indent="1">设置 <code>purpose=agent</code>，指定该文件供 Agent 使用。   </div>
 
-```Bash
-file=$(
-  curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/files" \
-    -H "Authorization: Bearer $ARK_API_KEY" \
-    -F 'purpose=agent' \
-    -F 'file=@path/of/your/file'
-)
+  ```Bash
+  file=$(
+    curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/files" \
+      -H "Authorization: Bearer $ARK_API_KEY" \
+      -F 'purpose=agent' \
+      -F 'file=@path/of/your/file'
+  )
 
-FILE_ID=$(jq -er '.id' <<<"$file")
+  FILE_ID=$(jq -er '.id' <<<"$file")
 
-echo "File ID: $FILE_ID"
-```
+  echo "File ID: $FILE_ID"
+  ```
 
 - 使用 TOS 上传：
 
-以下示例使用 TOS Python SDK 上传本地文件，更多使用方式，请参考 [TOS 官方文档](https://www.volcengine.com/docs/6349/74820?lang=zh)。
+  以下示例使用 TOS Python SDK 上传本地文件，更多使用方式，请参考 [TOS 官方文档](https://www.volcengine.com/docs/6349/74820?lang=zh)。
 
-```python
-import os
-import tos
+  ```python
+  import os
+  import tos
 
-ak = os.getenv("TOS_ACCESS_KEY")
-sk = os.getenv("TOS_SECRET_KEY")
+  ak = os.getenv("TOS_ACCESS_KEY")
+  sk = os.getenv("TOS_SECRET_KEY")
 
-endpoint = "tos-cn-beijing.volces.com"
-region = "cn-beijing"
+  endpoint = "tos-cn-beijing.volces.com"
+  region = "cn-beijing"
 
-bucket_name = "<BUCKET_NAME>"
-object_key = "<OBJECT_KEY>"   # The path of the uploaded file. For example: agent-files/skill.md
-file_name = "/path/of/your/file"  # Local file path
+  bucket_name = "<BUCKET_NAME>"
+  object_key = "<OBJECT_KEY>"   # The path of the uploaded file. For example: agent-files/skill.md
+  file_name = "/path/of/your/file"  # Local file path
 
-try:
-    client = tos.TosClientV2(ak, sk, endpoint, region)
+  try:
+      client = tos.TosClientV2(ak, sk, endpoint, region)
 
-    result = client.put_object_from_file(
-        bucket_name,
-        object_key,
-        file_name,
-    )
+      result = client.put_object_from_file(
+          bucket_name,
+          object_key,
+          file_name,
+      )
 
-    print("upload success")
-    print("request_id:", result.request_id)
-    print("etag:", result.etag)
+      print("upload success")
+      print("request_id:", result.request_id)
+      print("etag:", result.etag)
 
-except tos.exceptions.TosClientError as e:
-    print("client error:", e.message)
-    print("cause:", e.cause)
+  except tos.exceptions.TosClientError as e:
+      print("client error:", e.message)
+      print("cause:", e.cause)
 
-except tos.exceptions.TosServerError as e:
-    print("server error code:", e.code)
-    print("request_id:", e.request_id)
-    print("message:", e.message)
-    print("status_code:", e.status_code)
-    print("request_url:", e.request_url)
+  except tos.exceptions.TosServerError as e:
+      print("server error code:", e.code)
+      print("request_id:", e.request_id)
+      print("message:", e.message)
+      print("status_code:", e.status_code)
+      print("request_url:", e.request_url)
 
-except Exception as e:
-    print("unknown error:", str(e))
-```
+  except Exception as e:
+      print("unknown error:", str(e))
+  ```
 
 <span id=".5Zyo5Yib5bu6LXNlc3Npb24t5pe25oyC6L295paH5Lu2"></span>
 
@@ -5429,7 +5477,7 @@ curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/sessions/$SE
   -H "Authorization: Bearer $ARK_API_KEY"
 ```
 
-<span id=".6I635Y-WLXNlc3Npb24t6L-Q6KGM5pe25Lqn54mp"></span>
+<span id="query-session-output-files"></span>
 
 ## 获取 Session 运行时产物
 
@@ -5441,8 +5489,10 @@ Agent 将需要交付的文件写入 `/mnt/session/outputs/` 后，平台会将�
 
 3. 使用 `download_url` 下载文件内容。
 
+视觉增强 Agent 生成的图片和视频也遵循相同规则。生成工具会将最终产物写入 `/mnt/session/outputs/` 并注册到 Files API，业务系统通过 Session ID 查询和下载产物。
+
 ```Bash
-# List files associated with a session
+# List files associated with a session.
 curl -sS --fail-with-body \
   "https://ark.cn-beijing.volces.com/api/v3/files?scope_id=$SESSION_ID&purpose=agent" \
   -H "Authorization: Bearer $ARK_API_KEY"
