@@ -127,6 +127,25 @@ class Topic6Gateway:
                 self._store.complete_event(message.event_id, "completed")
                 return
 
+            if text in ("/continue", "/resume"):
+                resumed = await self._runner.continue_job(
+                    chat_id=message.chat_id,
+                    thread_id=message.thread_id,
+                    user_open_id=message.user_open_id,
+                )
+                if resumed is None:
+                    await self._reply(
+                        message.chat_id,
+                        "[/continue] 当前会话没有可续跑的任务。若要开新一轮，请发送「热点周报 demo」「热点周报 full」或「热点周报 skip_sampling」。",
+                    )
+                else:
+                    await self._reply(
+                        message.chat_id,
+                        f"[/continue] 已向 Session 注入「继续」并重新订阅进度 job_id={resumed.job_id}。若该 Session 已在方舟侧终止，稍后进度卡片会回落为失败。",
+                    )
+                self._store.complete_event(message.event_id, "completed")
+                return
+
             if await self._hitl.handle_remark_message(
                 chat_id=message.chat_id,
                 thread_id=message.thread_id,
@@ -140,7 +159,7 @@ class Topic6Gateway:
             if mode is None:
                 await self._reply(
                     message.chat_id,
-                    "当前 Bot 仅启用 topic6 场景。发送「热点周报 demo」(50 条出报告)、「热点周报 full」(先 500 条校准再跑全量)或「热点周报 skip_sampling」(跳过 500 条采样,直接跑全量)触发;发送 /new 可取消当前任务。",
+                    "当前 Bot 仅启用 topic6 场景。发送「热点周报 demo」(50 条出报告)、「热点周报 full」(先 500 条校准再跑全量)或「热点周报 skip_sampling」(跳过 500 条采样,直接跑全量)触发;发送 /continue 续跑最近一次任务;发送 /new 可取消当前任务。",
                 )
                 self._store.complete_event(message.event_id, "completed")
                 return
