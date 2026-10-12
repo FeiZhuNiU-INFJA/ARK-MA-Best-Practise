@@ -406,6 +406,98 @@ def test_final_online_url_rejects_non_runtime_feishu_urls():
     ) == ""
 
 
+def test_get_resumable_job_includes_failed_and_stopped(tmp_path):
+    """get_resumable_job_by_session_key 必须能捞到 failed/stopped(供 /continue 用)。
+
+    get_active_job_by_session_key 只认 running/wait_hc,拿不到本地收口成 failed 的 job;
+    /continue 的主场景正是“卡片已失败但 Session 可能还 idle”,故需要更宽的查询。
+    """
+    store = PipelineStore(str(tmp_path / "topic6.db"))
+    job = store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="full",
+        project_dir="/workspace/x",
+    )
+    store.mark_failed(job.job_id, "sse_stream_error: boom")
+
+    # 窄查询拿不到(已非 running/wait_hc)
+    assert store.get_active_job_by_session_key("c1", "", "u1") is None
+    # 宽查询能拿到同一个 job
+    resumable = store.get_resumable_job_by_session_key("c1", "", "u1")
+    assert resumable is not None
+    assert resumable.job_id == job.job_id
+    assert resumable.status == STATUS_FAILED
+
+    # done 不算可续跑
+    store.mark_done(job.job_id, "https://topic6-demo.aiforce.cloud/report")
+    assert store.get_resumable_job_by_session_key("c1", "", "u1") is None
+    store.close()
+
+
+def test_continue_job_resumes_failed_session(loop, tmp_path):
+    """/continue:对本地已 failed 的 job 注入「继续」并重订 SSE,把它拉回 running。"""
+    runner, store = _make_runner(tmp_path, loop)
+    job = store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="full",
+        project_dir="/workspace/x",
+    )
+    store.update_phase(job.job_id, "D")
+    store.mark_failed(job.job_id, "sse_stream_error: boom")
+
+    injected: dict = {}
+    spawned = object()
+
+    def _fake_spawn(job_arg, first_user_message):
+        injected["session"] = job_arg.ma_session_id
+        injected["message"] = first_user_message
+        return spawned
+
+    runner._spawn_stream = _fake_spawn  # type: ignore[method-assign]
+
+    resumed = loop.run_until_complete(
+        runner.continue_job(chat_id="c1", thread_id="", user_open_id="u1")
+    )
+
+    assert resumed is not None
+    assert resumed.job_id == job.job_id
+    # 注入了「继续」到同一个 Session,并重订 SSE
+    assert injected == {"session": "session-1", "message": "继续"}
+    assert runner._active_streams["session-1"] is spawned
+    # 落库被 resume_running 拉回 running、清掉 last_error、沿用原 phase
+    reloaded = store.get_job(job.job_id)
+    assert reloaded.status == pipeline_store.STATUS_RUNNING
+    assert reloaded.last_error == ""
+    assert reloaded.current_phase == "D"
+
+
+def test_continue_job_without_candidate_returns_none(loop, tmp_path):
+    """没有可续跑 job(只有 done)时 /continue 返回 None,不误动任何行。"""
+    runner, store = _make_runner(tmp_path, loop)
+    job = store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="full",
+        project_dir="/workspace/x",
+    )
+    store.mark_done(job.job_id, "https://topic6-demo.aiforce.cloud/report")
+
+    result = loop.run_until_complete(
+        runner.continue_job(chat_id="c1", thread_id="", user_open_id="u1")
+    )
+    assert result is None
+    # done 态不被改动
+    assert store.get_job(job.job_id).status == pipeline_store.STATUS_DONE
+
+
 def test_resume_immediately_restores_single_card_to_running(loop, tmp_path):
     class _Sender:
         def __init__(self):

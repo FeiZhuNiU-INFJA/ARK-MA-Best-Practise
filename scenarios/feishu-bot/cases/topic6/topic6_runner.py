@@ -470,6 +470,31 @@ class Topic6Runner:
         task = self._spawn_stream(job, first_user_message=decision_message)
         self._active_streams[job.ma_session_id] = task
 
+    async def continue_job(
+        self, chat_id: str, thread_id: str, user_open_id: str, message: str = "继续"
+    ) -> Optional[PipelineJob]:
+        """/continue 续跑:把一条 user.message 注入最近一个可续跑的 Session,重订 SSE。
+
+        - 无可续跑 job → 返回 None(调用方给“没有可续跑任务”的提示)。
+        - 命中(running/wait_hc/failed/stopped)→ 复用 resume_job 注入 message 并重新
+          订阅 SSE,返回该 job。
+
+        主场景:卡片已显示“失败”,但 MA Session 其实还 idle(SSE 断线/HC 契约错/
+        reject/cancel 等本地收口),用它把误判为死的任务捞回来继续跑。若 Session 已真
+        terminated,send_message 会在 _drive_session 里报错并兜底回落为失败卡片。
+        """
+        job = self._store.get_resumable_job_by_session_key(
+            chat_id, thread_id, user_open_id
+        )
+        if job is None:
+            return None
+        log.info(
+            "topic6 /continue resume job=%s session=%s prev_status=%s phase=%s",
+            job.job_id, job.ma_session_id, job.status, job.current_phase,
+        )
+        await self.resume_job(job, message)
+        return job
+
     async def cancel_active_job(
         self, chat_id: str, thread_id: str, user_open_id: str
     ) -> Optional[PipelineJob]:
@@ -566,6 +591,13 @@ class Topic6Runner:
                     if etype == "session.status_terminated"
                     else "session_failed"
                 )
+                # 这条终态分支过去是静默的(只改库+刷卡),导致日志里无法区分
+                # “真·Session 终态(failed/terminated)”和其他本地收口的假失败
+                # (SSE 断线/契约错/reject)。补一行 error 日志作为真失败实锤。
+                log.error(
+                    "topic6 session terminal job=%s etype=%s error=%s",
+                    job_id, etype, error[:400],
+                )
                 self._store.mark_failed(job_id, error[:400])
                 await self._render_and_patch(
                     job_id, status=STATUS_FAILED, error=error[:400], force=True
@@ -630,7 +662,7 @@ class Topic6Runner:
                 await self._render_and_patch(job_id, status=STATUS_WAIT_HC, force=True)
                 await self._reply_async_by_job(
                     job_id,
-                    f"⏸️ 等你审 {hc_kind}(卡片发送器未注入,回复 pass/reject/remark:xxx 继续)",
+                    f"⏸️ 等你审 {hc_kind}(卡片发送器未注入,发送 /continue 注入「继续」推进该阶段)",
                 )
                 return
             try:
