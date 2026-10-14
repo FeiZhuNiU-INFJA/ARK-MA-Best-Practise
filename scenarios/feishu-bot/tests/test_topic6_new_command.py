@@ -477,6 +477,99 @@ def test_continue_job_resumes_failed_session(loop, tmp_path):
     assert reloaded.current_phase == "D"
 
 
+def test_continue_job_passes_user_supplied_message(loop, tmp_path):
+    runner, store = _make_runner(tmp_path, loop)
+    store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="full",
+        project_dir="/workspace/x",
+    )
+    injected = {}
+
+    def _fake_spawn(job_arg, first_user_message):
+        injected["session"] = job_arg.ma_session_id
+        injected["message"] = first_user_message
+        return object()
+
+    runner._spawn_stream = _fake_spawn  # type: ignore[method-assign]
+
+    loop.run_until_complete(
+        runner.continue_job(
+            chat_id="c1",
+            thread_id="",
+            user_open_id="u1",
+            message="请优先检查异常热点",
+        )
+    )
+
+    assert injected == {
+        "session": "session-1",
+        "message": "请优先检查异常热点",
+    }
+
+
+def test_sse_reconnect_does_not_resend_initial_message(loop, tmp_path, monkeypatch):
+    class _Stream:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class _Ark:
+        def __init__(self):
+            self.connects = 0
+            self.sent_messages = []
+
+        def _open_event_stream(self, _session_id):
+            self.connects += 1
+            return _Stream()
+
+        async def send_message(self, _session_id, message):
+            self.sent_messages.append(message)
+
+    store = PipelineStore(str(tmp_path / "topic6.db"))
+    ark = _Ark()
+    runner = Topic6Runner(
+        ark,
+        _StubSender(),
+        store,
+        RunnerConfig(coordinator_agent_id="agent-x", environment_id="env-x"),
+        loop=loop,
+    )
+    job = store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="demo",
+        project_dir="/workspace/x",
+    )
+    consume_calls = 0
+
+    async def _consume(*_args, **_kwargs):
+        nonlocal consume_calls
+        consume_calls += 1
+        if consume_calls == 1:
+            raise OSError("temporary network failure")
+        return True
+
+    async def _no_sleep(_delay):
+        return None
+
+    runner._consume_events = _consume  # type: ignore[method-assign]
+    monkeypatch.setattr(topic6_runner.asyncio, "sleep", _no_sleep)
+    monkeypatch.setattr(topic6_runner.random, "uniform", lambda _a, _b: 1.0)
+
+    loop.run_until_complete(runner._drive_session(job, "initial request"))
+
+    assert ark.connects == 2
+    assert ark.sent_messages == ["initial request"]
+
+
 def test_continue_job_without_candidate_returns_none(loop, tmp_path):
     """没有可续跑 job(只有 done)时 /continue 返回 None,不误动任何行。"""
     runner, store = _make_runner(tmp_path, loop)
@@ -545,4 +638,144 @@ def test_resume_immediately_restores_single_card_to_running(loop, tmp_path):
     assert any("HC1 · ✅ 通过 · 俞麟" in content for content in contents)
     assert any("Phase D merge" in content for content in contents)
     assert runner._active_streams[job.ma_session_id] is spawned
+    store.close()
+
+
+def test_startup_recovery_resubscribes_running_session_without_user_message(
+    loop, tmp_path
+):
+    class _Ark:
+        async def list_session_events(self, _session_id):
+            return [{"type": "agent.message", "content": [{"type": "text", "text": "[phase] C2"}]}]
+
+    store = PipelineStore(str(tmp_path / "topic6.db"))
+    job = store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="full",
+        project_dir="/workspace/x",
+    )
+    runner = Topic6Runner(
+        _Ark(),
+        _StubSender(),
+        store,
+        RunnerConfig(coordinator_agent_id="agent-x", environment_id="env-x"),
+        loop=loop,
+    )
+    spawned = object()
+    injected = {}
+
+    def _fake_spawn(job_arg, first_user_message):
+        injected["session"] = job_arg.ma_session_id
+        injected["message"] = first_user_message
+        return spawned
+
+    runner._spawn_stream = _fake_spawn  # type: ignore[method-assign]
+
+    result = loop.run_until_complete(runner.recover_job(job))
+
+    assert result == "subscribed"
+    assert injected == {"session": "session-1", "message": None}
+    assert runner._active_streams["session-1"] is spawned
+    assert store.get_job(job.job_id).current_phase == "C2"
+    store.close()
+
+
+def test_startup_recovery_reuses_existing_pending_hc_card(loop, tmp_path):
+    class _Ark:
+        async def list_session_events(self, _session_id):
+            return [
+                {
+                    "type": "agent.message",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": '{"hc":"HC1","mode":"full","project_dir":"/workspace/x"}',
+                        }
+                    ],
+                },
+                {"type": "session.status_idle", "stop_reason": {"type": "end_turn"}},
+            ]
+
+    class _CardSender:
+        def __init__(self):
+            self.calls = []
+
+        async def send_hc_card(self, job, hc_kind, event_id, payload):
+            self.calls.append((job.job_id, hc_kind, event_id, payload))
+            return "message-recovered"
+
+    store = PipelineStore(str(tmp_path / "topic6.db"))
+    job = store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="full",
+        project_dir="/workspace/x",
+    )
+    event_id = store.append_hc_event(
+        job.job_id,
+        "HC1",
+        {"hc": "HC1", "mode": "full", "project_dir": "/workspace/x"},
+        card_message_id="message-old",
+    )
+    store.mark_wait_hc(job.job_id, "HC1")
+    runner = Topic6Runner(
+        _Ark(),
+        _StubSender(),
+        store,
+        RunnerConfig(coordinator_agent_id="agent-x", environment_id="env-x"),
+        loop=loop,
+    )
+    cards = _CardSender()
+    runner.bind_card_sender(cards)
+
+    result = loop.run_until_complete(runner.recover_job(store.get_job(job.job_id)))
+
+    assert result == pipeline_store.STATUS_WAIT_HC
+    assert cards.calls == [
+        (
+            job.job_id,
+            "HC1",
+            event_id,
+            {"hc": "HC1", "mode": "full", "project_dir": "/workspace/x"},
+        )
+    ]
+    hc_event = store.latest_hc_for_job(job.job_id, "HC1")
+    assert hc_event is not None
+    assert hc_event.id == event_id
+    assert hc_event.card_message_id == "message-recovered"
+    store.close()
+
+
+def test_startup_recovery_marks_ma_failed_session_failed(loop, tmp_path):
+    class _Ark:
+        async def list_session_events(self, _session_id):
+            return [
+                {
+                    "type": "session.status_failed",
+                    "error": {"message": "model_rate_limited_error"},
+                }
+            ]
+
+    runner, store = _make_runner(tmp_path, loop)
+    job = store.create_job(
+        chat_id="c1",
+        thread_id="",
+        user_open_id="u1",
+        ma_session_id="session-1",
+        mode="full",
+        project_dir="/workspace/x",
+    )
+    runner._ark = _Ark()
+
+    result = loop.run_until_complete(runner.recover_job(job))
+
+    assert result == "failed"
+    recovered = store.get_job(job.job_id)
+    assert recovered.status == STATUS_FAILED
+    assert "model_rate_limited_error" in recovered.last_error
     store.close()

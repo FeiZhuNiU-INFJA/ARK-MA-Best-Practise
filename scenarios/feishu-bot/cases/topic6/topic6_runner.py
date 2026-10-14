@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import re
 import time
 from collections import deque
@@ -62,6 +63,10 @@ MODE_SKIP_SAMPLING_KEYWORDS = (
 
 # 进度卡片 patch 节流:同一卡片至少间隔多少秒才发一次 patch,避免飞书频控。
 PROGRESS_MIN_INTERVAL_SEC = 4.0
+# SSE 网络断线后的有限重连：1/2/4/8/16 秒，加抖动避免大量 Gateway 同时重连。
+SSE_RECONNECT_MAX_ATTEMPTS = 5
+SSE_RECONNECT_BASE_DELAY_SEC = 1.0
+SSE_RECONNECT_MAX_DELAY_SEC = 16.0
 
 # Topic6 业务项目只能落在该目录的直属子目录。Coordinator 负责按周期契约生成子目录名。
 PROJECTS_ROOT = PurePosixPath("/workspace/Projects")
@@ -519,19 +524,159 @@ class Topic6Runner:
         )
         return job
 
+    async def recover_active_jobs(self) -> dict[str, str]:
+        """Gateway 重启后对账所有活跃任务，并恢复必要的 SSE 订阅。
+
+        恢复过程只读取 MA 已持久化事件，绝不发送 ``user.message``。因此它不会替
+        用户执行 ``/continue``，只会把本地 SQLite 状态追到 MA 的最后可见状态。
+        """
+        results: dict[str, str] = {}
+        for job in self._store.list_active_jobs():
+            try:
+                results[job.job_id] = await self.recover_job(job)
+            except Exception as error:  # noqa: BLE001 - 单个 Session 失败不阻塞其它恢复
+                log.exception(
+                    "topic6 startup recovery failed job=%s session=%s: %s",
+                    job.job_id,
+                    job.ma_session_id,
+                    error,
+                )
+                results[job.job_id] = "recovery_error"
+        return results
+
+    async def recover_job(self, job: PipelineJob) -> str:
+        """根据历史事件恢复一个本地活跃任务，返回已采取的恢复动作。"""
+        events = await self._ark.list_session_events(job.ma_session_id)
+        messages = [
+            body
+            for event in events
+            if event.get("type") == "agent.message"
+            for body in [event_text(event)]
+            if body
+        ]
+        for body in messages:
+            self._maybe_update_project_dir(job.job_id, body)
+            self._maybe_update_phase(job.job_id, body)
+
+        terminal_types = {
+            "user.interrupt",
+            "session.error",
+            "session.status_failed",
+            "session.status_terminated",
+            "session.status_idle",
+        }
+        last_terminal_index = max(
+            (
+                index
+                for index, event in enumerate(events)
+                if event.get("type") in terminal_types
+            ),
+            default=-1,
+        )
+        # 某个旧 idle/error 之后如果又有事件，说明用户或审核回调已让 Session
+        # 进入下一轮；历史尾部尚无终态时仅恢复订阅，不能把旧 idle 当当前状态。
+        if last_terminal_index == -1 or last_terminal_index < len(events) - 1:
+            self._restore_stream(job)
+            return "subscribed"
+
+        terminal = events[last_terminal_index]
+        terminal_type = terminal.get("type") or ""
+        if terminal_type == "user.interrupt":
+            reason = "用户在方舟后台手动停止了 Session"
+            self._store.mark_stopped(job.job_id, reason)
+            await self._render_and_patch(
+                job.job_id, status=STATUS_STOPPED, error=reason, force=True
+            )
+            return "stopped"
+        if terminal_type in {
+            "session.error",
+            "session.status_failed",
+            "session.status_terminated",
+        }:
+            error = event_error(terminal) or (
+                "session_terminated"
+                if terminal_type == "session.status_terminated"
+                else "session_failed"
+            )
+            self._store.mark_failed(job.job_id, error[:400])
+            await self._render_and_patch(
+                job.job_id, status=STATUS_FAILED, error=error[:400], force=True
+            )
+            return "failed"
+
+        # idle：用完整消息历史重建 HC 或 Phase H 的最终结果。recovering=True
+        # 会复用已有的未决 HC 事件，避免 Gateway 重启时重复生成审核卡。
+        await self._handle_idle(job.job_id, messages, recovering=True)
+        current = self._store.get_job(job.job_id)
+        return current.status if current is not None else "missing"
+
+    def _restore_stream(self, job: PipelineJob) -> None:
+        """为仍未见终态的 Session 恢复 SSE，不注入任何新消息。"""
+        existing = self._active_streams.get(job.ma_session_id)
+        if existing is not None and not existing.done():
+            return
+        self._progress.setdefault(
+            job.job_id, _ProgressState(started_at_wall=float(job.started_at))
+        )
+        self._card_locks.setdefault(job.job_id, asyncio.Lock())
+        task = self._spawn_stream(job, first_user_message=None)
+        self._active_streams[job.ma_session_id] = task
+        log.info(
+            "topic6 restored SSE subscription job=%s session=%s",
+            job.job_id,
+            job.ma_session_id,
+        )
+
     # ---- SSE 消费 ----------------------------------------------------------
 
-    def _spawn_stream(self, job: PipelineJob, first_user_message: str) -> asyncio.Task:
+    def _spawn_stream(
+        self, job: PipelineJob, first_user_message: Optional[str]
+    ) -> asyncio.Task:
         loop = self._loop or asyncio.get_event_loop()
         return loop.create_task(self._drive_session(job, first_user_message))
 
-    async def _drive_session(self, job: PipelineJob, first_user_message: str) -> None:
+    async def _drive_session(
+        self, job: PipelineJob, first_user_message: Optional[str]
+    ) -> None:
+        """消费 MA 事件流；瞬时网络断线时重连但不重复发送 user.message。"""
         session_id = job.ma_session_id
         job_id = job.job_id
+        sent_initial_message = first_user_message is None
+        seen_event_ids: set[str] = set()
         try:
-            async with self._ark._open_event_stream(session_id) as stream:
-                await self._ark.send_message(session_id, first_user_message)
-                await self._consume_events(job_id, stream)
+            for attempt in range(SSE_RECONNECT_MAX_ATTEMPTS + 1):
+                try:
+                    async with self._ark._open_event_stream(session_id) as stream:
+                        if not sent_initial_message:
+                            await self._ark.send_message(session_id, first_user_message)
+                            sent_initial_message = True
+                        terminal = await self._consume_events(
+                            job_id, stream, seen_event_ids=seen_event_ids
+                        )
+                        if terminal:
+                            return
+                        raise RuntimeError("方舟事件流意外结束，未观察到 Session 终态")
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    if attempt >= SSE_RECONNECT_MAX_ATTEMPTS:
+                        raise
+                    delay = min(
+                        SSE_RECONNECT_BASE_DELAY_SEC * (2**attempt),
+                        SSE_RECONNECT_MAX_DELAY_SEC,
+                    )
+                    # 20% 抖动，既避免同步重连，也让最长等待受上限约束。
+                    delay *= random.uniform(0.8, 1.2)
+                    log.warning(
+                        "topic6 SSE disconnected; reconnecting job=%s session=%s "
+                        "attempt=%s/%s delay=%.1fs",
+                        job_id,
+                        session_id,
+                        attempt + 1,
+                        SSE_RECONNECT_MAX_ATTEMPTS,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
         except asyncio.CancelledError:
             log.info("topic6 stream cancelled job=%s session=%s", job_id, session_id)
             raise
@@ -544,13 +689,25 @@ class Topic6Runner:
             )
         finally:
             # 消费退出即清引用,避免 dict 里挂着 done Task。
-            if self._active_streams.get(session_id) and self._active_streams[session_id].done():
+            if self._active_streams.get(session_id) is asyncio.current_task():
                 self._active_streams.pop(session_id, None)
 
-    async def _consume_events(self, job_id: str, stream) -> None:
+    async def _consume_events(
+        self,
+        job_id: str,
+        stream,
+        *,
+        seen_event_ids: Optional[set[str]] = None,
+    ) -> bool:
         """SSE 事件循环:tool 事件 → 环形缓冲 + 节流 patch;terminal 走终态渲染。"""
         collected_messages: list[str] = []
         async for event in stream:
+            event_id = event.get("id")
+            if isinstance(event_id, str) and event_id:
+                if seen_event_ids is not None:
+                    if event_id in seen_event_ids:
+                        continue
+                    seen_event_ids.add(event_id)
             etype = event.get("type") or ""
 
             # 阶段推进标记:coordinator 在切阶段时会调 `phase.mark` 之类的工具或直接发一句
@@ -578,7 +735,7 @@ class Topic6Runner:
                 await self._render_and_patch(
                     job_id, status=STATUS_STOPPED, error=reason, force=True
                 )
-                return
+                return True
 
             # 失败终态。
             if etype in (
@@ -602,14 +759,17 @@ class Topic6Runner:
                 await self._render_and_patch(
                     job_id, status=STATUS_FAILED, error=error[:400], force=True
                 )
-                return
+                return True
 
             # 空闲终态:HC 或最终完成。
             if etype == "session.status_idle" and not event_requires_action(event):
                 await self._handle_idle(job_id, collected_messages)
-                return
+                return True
+        return False
 
-    async def _handle_idle(self, job_id: str, collected: list[str]) -> None:
+    async def _handle_idle(
+        self, job_id: str, collected: list[str], *, recovering: bool = False
+    ) -> None:
         """Session 空闲了:看最后一条 agent.message 是否落了 HC JSON。"""
         job = self._store.get_job(job_id)
         if not job:
@@ -653,6 +813,32 @@ class Topic6Runner:
                     force=True,
                 )
                 await self._reply_async_by_job(job_id, f"❌ {payload_error}")
+                return
+            existing_hc = self._store.latest_hc_for_job(job_id, hc_kind)
+            if recovering and existing_hc and existing_hc.resolved_at is None:
+                # Gateway 断线后本地已记下 HC，但卡片 patch 尚未送达或旧卡不可见。
+                # 重建同一条审核事件，不能 append，否则同一个按钮会生成两段决策审计。
+                self._store.mark_wait_hc(job_id, hc_kind)
+                job = self._store.get_job(job_id) or job
+                if self._card_sender is not None:
+                    message_id = await self._card_sender.send_hc_card(
+                        job, hc_kind, existing_hc.id, existing_hc.payload
+                    )
+                    if message_id and message_id != existing_hc.card_message_id:
+                        self._store._conn.execute(  # noqa: SLF001 - runner 与 store 同包
+                            "UPDATE pipeline_hc_events SET card_message_id = ? WHERE id = ?",
+                            (message_id, existing_hc.id),
+                        )
+                else:
+                    await self._render_and_patch(
+                        job_id, status=STATUS_WAIT_HC, force=True
+                    )
+                log.info(
+                    "topic6 restored pending hc card job=%s hc=%s event=%s",
+                    job_id,
+                    hc_kind,
+                    existing_hc.id,
+                )
                 return
             event_id = self._store.append_hc_event(job_id, hc_kind, payload)
             self._store.mark_wait_hc(job_id, hc_kind)

@@ -64,6 +64,17 @@ def test_serialize_and_parse_roundtrip_quotes_values():
     assert parse_env_text(text) == {"TOKEN": "a b#c"}
 
 
+def test_parse_env_text_normalizes_unquoted_json_literals_to_strings():
+    result = parse_env_text(
+        'POLL_INTERVAL=60\nENABLED=true\nEMPTY=null\n'
+    )
+    assert result == {
+        "POLL_INTERVAL": "60",
+        "ENABLED": "true",
+        "EMPTY": "null",
+    }
+
+
 def test_update_env_file_updates_key_and_preserves_others(tmp_path):
     path = os.path.join(str(tmp_path), "config.env")
     with open(path, "w", encoding="utf-8") as fh:

@@ -171,9 +171,44 @@ refresh token 仅保存在权限为 `0600` 的 Topic6 SQLite 数据库中，不�
 `running` 和 `wait_hc`，不会改变 Session ID、Vault ID 或 Credential ID。未授权用户
 会在任务启动前收到提示。
 
+临时演示若只需跑到妙搭发布前，可在 `config.env` 加：
+
+```env
+TOPIC6_SKIP_MIAODA_OAUTH=true
+```
+
+Gateway 会跳过用户扫码和 Vault 注入；Phase H 因缺少妙搭用户凭据而失败是预期行为。
+完成演示后删除该配置或设为 `false`，恢复正常权限校验。
+
+### 2.4 清理中断任务状态
+
+若 Gateway 异常退出后，飞书仍提示“已有热点周报任务运行中”，先确认没有真实任务在执行，
+停止 Gateway 后运行：
+
+```bash
+cd scenarios/feishu-bot
+python cases/topic6/reset_pipeline_state.py --yes
+```
+
+该脚本只删除本地 `pipeline_jobs` 与 HC 记录，不会停止方舟 Session、删除远端资源或产物，
+也会保留妙搭 OAuth 授权。只有明确需要清除本地 refresh token 时才加 `--include-oauth`。
+
+### 2.5 网络中断与继续执行
+
+Gateway 与方舟 MA 的 SSE 事件流短暂断开时，会以约 `1 / 2 / 4 / 8 / 16` 秒的退避间隔
+自动重连，且不会重复发送初始触发词。多次重连仍失败时，任务会落为失败；网络恢复后可在
+原飞书会话发送：
+
+```text
+/continue
+/continue 请优先检查异常热点
+```
+
+后者会把命令后的文字作为新的 `user.message` 注入原 MA Session，并重新订阅进度。
+
 自有 TOS Bucket 调试期不必配置，`environment.json` 已禁用 output storage。
 
-### 2.4 白名单(建议设,防误触)
+### 2.6 白名单(建议设,防误触)
 
 ```env
 AUTHORIZED_OPEN_IDS=ou_xxx ou_yyy   # 空格或逗号分隔
