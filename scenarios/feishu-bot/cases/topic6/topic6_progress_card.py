@@ -118,7 +118,10 @@ def build_progress_card(
         elements.append(
             {
                 "tag": "markdown",
-                "content": f"👉 请在当前卡片完成 **{job.current_phase}** 审核(通过/打回/备注)。",
+                "content": (
+                    f"👉 请在当前卡片完成 **{job.current_phase}** 审核"
+                    "（通过，或填写打回原因后让 Agent 回退处理）。"
+                ),
             }
         )
     elif status in (STATUS_FAILED, STATUS_STOPPED) and error:

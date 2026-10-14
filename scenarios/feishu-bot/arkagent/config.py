@@ -62,7 +62,12 @@ def parse_env_text(text: str) -> dict[str, str]:
         if not key:
             continue
         try:
-            result[key] = json.loads(value)
+            decoded = json.loads(value)
+            # os.environ only accepts strings. Preserve quoted JSON strings and
+            # normalize unquoted JSON literals from hand-edited config.env files.
+            result[key] = decoded if isinstance(decoded, str) else json.dumps(
+                decoded, ensure_ascii=False
+            )
         except (json.JSONDecodeError, ValueError):
             result[key] = value.strip('"')
     return result

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 
 from arkagent.feishu import IncomingMessage
@@ -39,6 +40,7 @@ log = logging.getLogger("arkagent.case.topic6")
 TOKEN_KEEPALIVE_INTERVAL_S = 60.0
 # in-chat 授权等待扫码的最大秒数；超过后取消 poll，用户需重新发送触发词。
 IN_CHAT_AUTH_TIMEOUT_S = 300.0
+CONTINUE_COMMAND_RE = re.compile(r"^/(?:continue|resume)(?:\s+(.*))?$", re.IGNORECASE)
 
 
 class Topic6Gateway:
@@ -86,6 +88,39 @@ class Topic6Gateway:
         )
         return True
 
+    async def recover_active_jobs(self) -> None:
+        """Gateway 启动后把本地活跃任务与 MA 历史事件对齐。
+
+        恢复不会发送 ``/continue`` 或任意 user.message：MA 尚在运行时只重建 SSE
+        订阅；已到 HC 时重建同一张待审卡；已终态时更新本地 SQLite 与进度卡。
+        """
+        if self._pipeline_store is None:
+            return
+        active_jobs = self._pipeline_store.list_active_jobs()
+        if not active_jobs:
+            return
+
+        log.info("topic6 startup recovery begins active_jobs=%s", len(active_jobs))
+        results = await self._runner.recover_active_jobs()
+        for job in active_jobs:
+            current = self._pipeline_store.get_job(job.job_id)
+            if current is None or current.status not in (STATUS_RUNNING, STATUS_WAIT_HC):
+                continue
+            if self._artifact_sync is not None:
+                self._artifact_sync.start(current, self._loop)
+            if getattr(self._config, "skip_miaoda_oauth", False):
+                continue
+            try:
+                vault_id = await self._user_authorization.vault_id(current.user_open_id)
+                self._start_token_keepalive(current, vault_id)
+            except Exception as error:  # noqa: BLE001 - 过期授权不应阻断 MA 状态恢复
+                log.warning(
+                    "topic6 recovery token keepalive unavailable job=%s: %s",
+                    current.job_id,
+                    error,
+                )
+        log.info("topic6 startup recovery completed results=%s", results)
+
     async def _process(self, message: IncomingMessage) -> None:
         try:
             if self._authorized and message.user_open_id not in self._authorized:
@@ -127,11 +162,14 @@ class Topic6Gateway:
                 self._store.complete_event(message.event_id, "completed")
                 return
 
-            if text in ("/continue", "/resume"):
+            continue_match = CONTINUE_COMMAND_RE.fullmatch(text)
+            if continue_match:
+                continuation_message = (continue_match.group(1) or "").strip() or "继续"
                 resumed = await self._runner.continue_job(
                     chat_id=message.chat_id,
                     thread_id=message.thread_id,
                     user_open_id=message.user_open_id,
+                    message=continuation_message,
                 )
                 if resumed is None:
                     await self._reply(
@@ -139,9 +177,14 @@ class Topic6Gateway:
                         "[/continue] 当前会话没有可续跑的任务。若要开新一轮，请发送「热点周报 demo」「热点周报 full」或「热点周报 skip_sampling」。",
                     )
                 else:
+                    message_hint = (
+                        "补充消息已注入。"
+                        if continue_match.group(1) and continue_match.group(1).strip()
+                        else "已注入「继续」。"
+                    )
                     await self._reply(
                         message.chat_id,
-                        f"[/continue] 已向 Session 注入「继续」并重新订阅进度 job_id={resumed.job_id}。若该 Session 已在方舟侧终止，稍后进度卡片会回落为失败。",
+                        f"[/continue] {message_hint}已重新订阅进度 job_id={resumed.job_id}。若该 Session 已在方舟侧终止，稍后进度卡片会回落为失败。",
                     )
                 self._store.complete_event(message.event_id, "completed")
                 return
@@ -165,9 +208,17 @@ class Topic6Gateway:
                 return
 
             try:
-                user_vault_id = await self._ensure_user_authorized(
-                    message.chat_id, message.user_open_id
-                )
+                if getattr(self._config, "skip_miaoda_oauth", False):
+                    user_vault_id = ""
+                    log.warning(
+                        "topic6 user OAuth bypassed for temporary run user=%s; "
+                        "Miaoda publishing is expected to fail without another credential",
+                        message.user_open_id,
+                    )
+                else:
+                    user_vault_id = await self._ensure_user_authorized(
+                        message.chat_id, message.user_open_id
+                    )
                 job = await self._runner.start_job(
                     chat_id=message.chat_id,
                     thread_id=message.thread_id,
@@ -176,7 +227,8 @@ class Topic6Gateway:
                     user_message=text,
                     user_vault_id=user_vault_id,
                 )
-                self._start_token_keepalive(job, user_vault_id)
+                if user_vault_id:
+                    self._start_token_keepalive(job, user_vault_id)
                 if self._artifact_sync is not None:
                     self._artifact_sync.start(job, self._loop)
             except (Topic6RunnerError, UserAuthorizationRequired) as error:

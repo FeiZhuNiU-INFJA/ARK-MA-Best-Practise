@@ -111,6 +111,11 @@ def _run(args: list[str] | None = None) -> None:
 
         thread = threading.Thread(target=loop.run_forever, name="gateway-loop", daemon=True)
         thread.start()
+        recover_active_jobs = getattr(gateway, "recover_active_jobs", None)
+        if callable(recover_active_jobs):
+            # topic6 在 Gateway 重启后从 MA 历史事件恢复 SSE / HC 卡片；不能阻塞
+            # 飞书 WebSocket 建连，也不能向 Session 伪造一条 /continue。
+            asyncio.run_coroutine_threadsafe(recover_active_jobs(), loop)
 
         print(f"Gateway 配置(case={case_name}):")
         print(f"- 飞书 App ID:{config.feishu_app_id}")

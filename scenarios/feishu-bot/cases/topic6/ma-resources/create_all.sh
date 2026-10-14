@@ -89,18 +89,32 @@ ark_get() {
     -H "$ARK_BETA_HEADER" 2>/dev/null || echo '{}'
 }
 
-# 幂等辅助:按 name 在指定 collection 里查找,找到返回 id 到 stdout,找不到 stdout 为空。
-# 兼容 list 响应可能是 {"data":[...]} 也可能裸数组或 {"items":[...]}
+# 幂等辅助:按 name 在指定 collection 的全部分页中查找,找到返回 id 到 stdout。
+# 方舟列表响应使用 next_page;目标资源不一定在 page_size=200 的第一页。
+# 兼容 list 响应可能是 {"data":[...]} 也可能裸数组或 {"items":[...]}。
 find_by_name() {
   local collection="$1" name="$2"
-  local body
-  body=$(ark_get "/$collection?page_size=200")
-  jq -r --arg n "$name" '
-    (.data // .items // .) as $arr
-    | if ($arr | type) == "array" then
-        ($arr[] | select(.name == $n) | .id) // empty
-      else empty end
-  ' <<<"$body" | head -1
+  local body page="" encoded_page found
+  while :; do
+    if [ -n "$page" ]; then
+      encoded_page=$(jq -rn --arg value "$page" '$value | @uri')
+      body=$(ark_get "/$collection?page_size=200&page=$encoded_page")
+    else
+      body=$(ark_get "/$collection?page_size=200")
+    fi
+    found=$(jq -r --arg n "$name" '
+      (.data // .items // .) as $arr
+      | if ($arr | type) == "array" then
+          ($arr[] | select(.name == $n) | .id) // empty
+        else empty end
+    ' <<<"$body" | head -1)
+    if [ -n "$found" ]; then
+      printf '%s\n' "$found"
+      return 0
+    fi
+    page=$(jq -r '.next_page // empty' <<<"$body")
+    [ -n "$page" ] || return 0
+  done
 }
 
 find_environment_by_id() {

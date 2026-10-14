@@ -635,6 +635,31 @@ class ArkClient:
             {"events": events},
         )
 
+    async def list_session_events(self, session_id: str, limit: int = 200) -> list[dict]:
+        """读取已持久化的 Session 事件，用于 Gateway 重启后的本地状态对账。"""
+        page_size = max(1, min(limit, 200))
+        events: list[dict] = []
+        page = ""
+        seen_pages: set[str] = set()
+        while True:
+            query = urlencode(
+                {"limit": str(page_size), **({"page": page} if page else {})}
+            )
+            payload = await self._request(
+                "GET",
+                f"/sessions/{quote(session_id, safe='')}/events?{query}",
+            )
+            batch = payload.get("data")
+            if isinstance(batch, list):
+                events.extend(event for event in batch if isinstance(event, dict))
+            next_page = str(payload.get("next_page") or "")
+            if not next_page:
+                return events
+            if next_page in seen_pages:
+                raise ArkError("Session events API pagination did not advance")
+            seen_pages.add(next_page)
+            page = next_page
+
     async def send_custom_tool_result(
         self,
         session_id: str,
@@ -771,8 +796,7 @@ class ArkClient:
         for attempt in range(3):
             if attempt:
                 await asyncio.sleep(5)
-            payload = await self._request("GET", f"/sessions/{quote(session_id, safe='')}/events?limit=200")
-            events = payload.get("data") if isinstance(payload.get("data"), list) else []
+            events = await self.list_session_events(session_id)
             result = result_from_events(events, started_at)
             if result:
                 return result

@@ -25,6 +25,39 @@ def _client():
     return ArkClient("key", BASE)
 
 
+@respx.mock
+async def test_list_session_events_follows_next_page():
+    requests: list[str] = []
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        if request.url.params.get("page") == "page-2":
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "event-2", "type": "session.status_idle"}]},
+            )
+        return httpx.Response(
+            200,
+            json={
+                "data": [{"id": "event-1", "type": "agent.message"}],
+                "next_page": "page-2",
+            },
+        )
+
+    route = respx.get(f"{BASE}/sessions/session-1/events").mock(side_effect=responder)
+
+    client = _client()
+    events = await client.list_session_events("session-1")
+    await client.aclose()
+
+    assert [event["id"] for event in events] == ["event-1", "event-2"]
+    assert route.call_count == 2
+    assert requests == [
+        f"{BASE}/sessions/session-1/events?limit=200",
+        f"{BASE}/sessions/session-1/events?limit=200&page=page-2",
+    ]
+
+
 def test_capture_ma_request_id_writes_success_trace_only_file(tmp_path, monkeypatch):
     path = tmp_path / "ma-request-ids.jsonl"
     monkeypatch.setenv("MA_DEBUG_REQUEST_IDS", "1")

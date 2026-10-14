@@ -399,6 +399,89 @@ async def test_gateway_passes_scanned_users_vault_to_runner():
     assert artifact_calls == [("job-1", None)]
 
 
+async def test_gateway_bypasses_user_oauth_when_explicitly_configured():
+    calls = []
+    keepalive_calls = []
+    job = SimpleNamespace(job_id="job-1")
+
+    class Store:
+        def complete_event(self, *_args):
+            pass
+
+    class Runner:
+        async def start_job(self, **kwargs):
+            calls.append(kwargs)
+            return job
+
+    class Hitl:
+        async def handle_remark_message(self, **_kwargs):
+            return False
+
+    class UserAuth:
+        async def vault_id(self, _open_id):
+            raise AssertionError("bypass mode must not request user authorization")
+
+    async def reply(_chat_id, _text):
+        pass
+
+    gateway = Topic6Gateway(
+        SimpleNamespace(authorized_open_ids=(), skip_miaoda_oauth=True),
+        Store(),
+        Runner(),
+        Hitl(),
+        UserAuth(),
+        reply,
+        None,
+    )
+    gateway._start_token_keepalive = (  # type: ignore[method-assign]
+        lambda *_args: keepalive_calls.append(True)
+    )
+
+    await gateway._process(_message())
+
+    assert calls[0]["user_vault_id"] == ""
+    assert keepalive_calls == []
+
+
+async def test_continue_command_passes_trailing_text_to_runner():
+    calls = []
+    replies = []
+
+    class Store:
+        def complete_event(self, *_args):
+            pass
+
+    class Runner:
+        async def continue_job(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(job_id="job-1")
+
+    async def reply(_chat_id, text):
+        replies.append(text)
+
+    gateway = Topic6Gateway(
+        SimpleNamespace(authorized_open_ids=()),
+        Store(),
+        Runner(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+        reply,
+        None,
+    )
+
+    await gateway._process(
+        replace(_message(), text="/continue 请优先检查异常热点")
+    )
+
+    assert calls == [{
+        "chat_id": "chat-1",
+        "thread_id": "",
+        "user_open_id": "ou-scanned",
+        "message": "请优先检查异常热点",
+    }]
+    assert "补充消息已注入" in replies[0]
+
+
 async def test_new_command_stops_poller_and_runs_final_artifact_sync():
     calls = []
     replies = []
