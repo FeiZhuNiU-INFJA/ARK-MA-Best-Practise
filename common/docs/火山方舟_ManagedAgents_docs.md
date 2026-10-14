@@ -1737,18 +1737,18 @@ MCP（Model Context Protocol）用于把第三方系统的工具与数据源接�
 
 <span aceTableMode="list" aceTableWidth="1,3"></span>
 
-| 字段   | 说明                                                                                                                                                                                                                                                                               |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type` | MCP Server 的声明方式。当前统一使用 URL 方式声明，值为 `url`。                                                                                                                                                                                                                     |
-| `name` | MCP Server 名称，需在当前 Agent 内唯一。服务端会将符合 `[a-zA-Z0-9_-]{1,64}` 格式的名称转换为小写；名称不合规时，会尝试替换空格或根据 URL 生成名称；名称冲突时，会自动追加数字后缀。为保证后续引用稳定，建议直接填写归一化后仍唯一的 `[a-z0-9_-]{1,64}` 小写名称，不依赖自动生成。 |
-| `url`  | MCP Server 的访问地址。                                                                                                                                                                                                                                                            |
+| 字段   | 说明                                                                                                                                                                                                                                                                    |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type` | MCP Server 的声明方式。当前统一使用 URL 方式声明，值为 `url`。                                                                                                                                                                                                          |
+| `name` | MCP Server 名称，最长 255 个字符。省略名称或名称不符合命名规则时，服务端会根据 `url` 生成名称；多个名称冲突时，服务端会为后续名称添加数字后缀，调用方无需保证名称唯一。为保证后续引用稳定，建议主动填写归一化后仍唯一的 `[a-z0-9_-]{1,64}` 小写名称，不依赖服务端生成。 |
+| `url`  | MCP Server 的访问地址。同一 Agent 中不能配置重复的地址。                                                                                                                                                                                                                |
 
 每个 `mcp_toolset` 都必须通过 `mcp_server_name` 引用一个已声明的 MCP Server。你也可以只声明 MCP Server，暂不添加对应的 `mcp_toolset`；此时该 Server 的工具不会启用。
 
 下面的示例把一个 GitHub MCP Server 挂到 Agent：
 
 <Tabs>
-<Tab zoneid="Q9fBu7h65x" title="Curl">
+<Tab zoneid="fTUCrQ9Cn4" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -1791,7 +1791,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 如果某个 MCP Server 暴露的工具很多，建议先整体关闭，再按白名单开启：
 
 <Tabs>
-<Tab zoneid="OiuldGrClM" title="Curl">
+<Tab zoneid="nw6T9sTDA0" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -1853,7 +1853,7 @@ MCP Server 的认证不在 Agent 定义阶段传入，而是在创建 Session �
 最简示例如下：
 
 <Tabs>
-<Tab zoneid="mXynIWFpap" title="Curl">
+<Tab zoneid="bqkCLvQ4lA" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -1876,7 +1876,7 @@ Vaults 的创建方法、`mcp_oauth` / `static_bearer` 等凭据类型，以及�
 
 # 约束与建议
 
-- 同一个 Agent 中，`mcp_servers.name` 必须唯一。
+- 同一个 Agent 中，`mcp_servers.url` 不能重复；`mcp_servers.name` 冲突时，服务端会自动追加数字后缀。
 
 - 每个 `mcp_toolset` 必须引用一个已声明的 MCP Server；只声明 MCP Server 不会启用其工具。
 
@@ -1889,7 +1889,7 @@ Vaults 的创建方法、`mcp_oauth` / `static_bearer` 等凭据类型，以及�
 # 相关文档
 
 <columns>
-<columnsItem zoneid="QkHYmjkmle">
+<columnsItem zoneid="dz23NLhiXX">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/define-agent" >
 
@@ -1908,7 +1908,7 @@ Skills 用于给 Agent 补充领域知识、操作流程和最佳实践。
 </card>
 
 </columnsItem>
-<columnsItem zoneid="MDjHrb24jz">
+<columnsItem zoneid="yPHVWWbTxi">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/tools" >
 
@@ -3004,7 +3004,7 @@ SESSION_ID=$(jq -er '.id' <<<"$session")
 echo "Session ID: $SESSION_ID"
 ```
 
-如果只有某次任务需要使用不同的产物存储位置，可以在创建 Session 时使用 Environment 覆写，不需要修改可复用的 Environment。详情请参见 [覆写产物存储（可选）](https://ark.volcengine.com/region:cn-beijing/docs/ark/start-session#override-output-storage)。
+如果只有某次任务需要使用不同的产物存储位置，可以在创建 Session 时使用 Environment 覆写，不需要修改可复用的 Environment。详情请参见 [覆写产物存储](https://ark.volcengine.com/region:cn-beijing/docs/ark/start-session#override-output-storage)。
 
 <span id="environment-lifecycle"></span>
 
@@ -3285,7 +3285,7 @@ Session 是托管 Agent 在某个 Environment 中跑某个 Agent 的一次实例
 Agent 是带版本的资源，以字符串形式传入 `agent` ID 时，Session 会用该 Agent 的**最新版本**启动。
 
 <Tabs>
-<Tab zoneid="WSMbp6Doof" title="Curl">
+<Tab zoneid="ZHhZT8qDUr" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3330,7 +3330,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 当你需要把 Session 锁定到 Agent 的某个具体版本（用于回滚、灰度对比、产品定版）时，以对象形式传入 `agent`，显式指定 `version`：
 
 <Tabs>
-<Tab zoneid="cwogc5kDov" title="Curl">
+<Tab zoneid="dI95NvOcl7" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3348,9 +3348,79 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 
 固定版本后，即使该 Agent 后续发布了新版本，本 Session 仍按 `version: 1` 的行为运行。这让你可以分阶段灰度推出新版本，而不影响存量 Session 的行为一致性。
 
+<span id="override-environment-config"></span>
+
+## 覆写 Environment 配置（可选）
+
+大多数 Session 直接传入 `environment_id`，沿用 Environment 的完整运行配置。只有当前任务需要不同的依赖包、环境变量、初始化脚本或产物存储位置时，改用 `environment` 对象。
+
+Environment 覆写遵循以下规则：
+
+- `environment.id` 指向作为基础配置的 Environment。
+
+- `environment.config.type` 必须与基础 Environment 的类型相同。
+
+- `environment_id` 与 `environment` 允许同时提供，但同时提供时，`environment.id` 必须与 `environment_id` 相同，否则请求会被拒绝。
+
+- 省略的 `config` 子字段沿用基础 Environment 的配置。提供的子字段只写入当前 Session 的环境快照，不修改原 Environment，也不影响之后创建的其他 Session。
+
+<span id=".6KaG5YaZ5L6d6LWW5YyF44CB546v5aKD5Y-Y6YeP5ZKM5Yid5aeL5YyW6ISa5pys"></span>
+
+### 覆写依赖包、环境变量和初始化脚本
+
+需要为单个 Session 增加依赖、注入任务专用变量或执行初始化命令时，覆写 `config.packages`、`config.env` 和 `config.setup_script`：
+
+<Tabs>
+<Tab zoneid="WSBpH02gZe" title="Curl">
+<TabTitle>Curl</TabTitle>
+
+```Bash
+session=$(
+  curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/sessions" \
+    -H "Authorization: Bearer $ARK_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d @- <<EOF
+{
+  "agent": "$AGENT_ID",
+  "environment": {
+    "type": "environment_with_overrides",
+    "id": "$ENVIRONMENT_ID",
+    "config": {
+      "type": "cloud",
+      "packages": {
+        "pip": ["pyfiglet==1.0.2"]
+      },
+      "env": {
+        "SESSION_PROFILE": "document-analysis"
+      },
+      "setup_script": "mkdir -p /workspace/bootstrap && echo ready > /workspace/bootstrap/status.txt"
+    }
+  },
+  "title": "Session with runtime configuration overrides"
+}
+EOF
+)
+
+SESSION_ID=$(jq -er '.id' <<<"$session")
+echo "Session ID: $SESSION_ID"
+```
+
+</Tab>
+</Tabs>
+
+- `config.packages`：配置当前 Session 启动时预装的 `pip`、`apt`、`npm`、`cargo`、`gem` 或 `go` 依赖。提供该对象时，整体替换基础 Environment 的依赖包配置。
+
+- `config.env`：以字符串键值对配置当前 Session 的环境变量。提供该对象时，整体替换基础 Environment 的环境变量。
+
+- `config.setup_script`：配置当前 Session 启动时执行的初始化脚本。脚本可在 `/workspace` 中准备任务所需的目录或文件。
+
+<div data-tips="true" data-tips-type="tip" data-tips-is-title="true">说明</div>
+
+<div data-tips="true" data-tips-type="tip">这些字段用于覆写 <code>cloud</code> Environment 的托管运行环境。<code>self_hosted</code> Environment 的依赖、环境变量和初始化过程由企业 Worker 管理。</div>
+
 <span id="override-output-storage"></span>
 
-## 覆写产物存储（可选）
+### 覆写产物存储
 
 需要沿用 Environment 的产物存储配置时，在创建 Session 时传入 `environment_id`：
 
@@ -3361,7 +3431,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 只有当前任务需要使用不同的 Bucket 或 `prefix` 时，改用 `environment` 对象创建 Session，并通过 `environment_with_overrides` 临时覆写 `config.tos`：
 
 <Tabs>
-<Tab zoneid="LibIpSaA0U" title="Curl">
+<Tab zoneid="hv59EETzWT" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3395,17 +3465,11 @@ echo "Session ID: $SESSION_ID"
 </Tab>
 </Tabs>
 
-Environment 覆写遵循以下规则：
-
-- `environment_id` 与 `environment` 允许同时提供，但同时提供时，`environment.id` 必须与 `environment_id` 相同，否则请求会被拒绝。
-
-- `environment.id` 指向作为基础配置的 Environment。
+产物存储覆写遵循以下规则：
 
 - `config.tos` 是原子配置。传非空对象时，`bucket` 和 `prefix` 必须同时提供。
 
 - 省略 `config.tos` 时，产物使用 Environment 中配置的存储位置；传空对象 `{}` 时，本次 Session 的产物存入方舟公共 TOS。
-
-- 覆写只对当前 Session 生效，不会修改原 Environment，也不会影响之后创建的其他 Session。
 
 <div data-tips="true" data-tips-type="warning" data-tips-is-title="true">注意</div>
 
@@ -3415,12 +3479,12 @@ Environment 覆写遵循以下规则：
 
 ## 通过 Vaults 注入终端用户凭据（可选）
 
-如果 Agent 配置了需要鉴权的 MCP 工具（详情请参见 [使用 Vaults 认证](https://ark.volcengine.com/region:cn-beijing/docs/ark/use-vaults-authentication)），创建 Session 时通过 `vault_ids` 引用预存凭据。方舟会自动管理 token 刷新与注入。
+如果 Agent 需要在 MCP 工具、CLI、SDK 等第三方调用中使用鉴权信息（详情请参见 [使用 Vaults 认证](https://ark.volcengine.com/region:cn-beijing/docs/ark/use-vaults-authentication)），创建 Session 时通过 `vault_ids` 引用预存凭据。方舟会按凭据类型注入密钥，并在配置 `expires_at` 和 `refresh` 后自动刷新 OAuth 访问令牌。
 
 最简示例，把 Vaults（凭据保管库）挂到 Session：
 
 <Tabs>
-<Tab zoneid="K0fezpzT0c" title="Curl">
+<Tab zoneid="zR2p4fX1d6" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3464,7 +3528,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 以下示例需要本地已安装 `curl` 和 `jq`：
 
 <Tabs>
-<Tab zoneid="lLZlGoNYhI" title="Curl">
+<Tab zoneid="oDQr4ZLNxJ" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -4102,13 +4166,15 @@ Session 资源记录、完整事件、沙箱状态和 Agent 产物使用独立�
 
 ## 发送事件
 
-客户端通过 `POST /sessions/{session_id}/events` 向 Session 发送 `user.message` 事件，`content` 是一个块数组，可混合文本（`text`）、图片（`image`）、文档（`document`）三类块。
+客户端通过 `POST /sessions/{session_id}/events` 向 Session 发送 `user.message` 事件，`content` 是一个块数组，可混合文本（`text`）、图片（`image`）、文档（`document`）、视频（`video`）四类块。
 
 - 图片 `image` 的 `source.type` 支持三种：`base64`（内联 base64，需带 `media_type`）、`url`（公网可访问 URL）、`file`（已上传文件 ID，字段为 `file_id`）。
 
 - 文档 `document` 的 `source.type` 支持四种：`file`（已上传文件 ID）、`url`（公网可访问 URL）、`base64`（内联 base64，需带 `media_type`）、`text`（直接内联纯文本，`media_type: text/plain` + `data` 字段）；可选 `title` 与 `context` 字段为文档附加标题与背景说明。
 
-- 同一请求的 `content` 数组可混合多个图片或文档块。
+- 视频 `video` 的 `source.type` 支持三种：`base64`（内联 Base64，需带 `media_type` 和 `data`）、`url`（公网可访问 URL）、`file`（已上传视频文件 ID，字段为 `file_id`）。三种来源均可通过 `fps` 设置抽帧频率，取值范围为 0.2～5。
+
+- 同一请求的 `content` 数组可混合多个图片、文档或视频块。
 
 - 如需为当前轮次动态追加系统提示词，可在 `events` 数组里 `user.message` 后紧跟一个 `system.message`，详情请参见 [动态系统提示词](https://ark.volcengine.com/region:cn-beijing/docs/ark/session-event-stream#dynamic-system-prompt)。
 
@@ -4117,7 +4183,7 @@ Session 资源记录、完整事件、沙箱状态和 Agent 产物使用独立�
 ### 常见内容组合示例
 
 <Tabs>
-<Tab zoneid="DjEtTO2DxJ" title="纯文本">
+<Tab zoneid="zTjSW65jQz" title="纯文本">
 <TabTitle>纯文本</TabTitle>
 
 ```Bash
@@ -4133,7 +4199,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="Pt5ENY8CSR" title="文本 + 图片（URL）">
+<Tab zoneid="y20YEKygVR" title="文本 + 图片（URL）">
 <TabTitle>文本 + 图片（URL）</TabTitle>
 
 ```Bash
@@ -4152,7 +4218,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="OGWEtTXDDp" title="文本 + 图片（base64）">
+<Tab zoneid="cnAWitiduW" title="文本 + 图片（base64）">
 <TabTitle>文本 + 图片（base64）</TabTitle>
 
 ```Bash
@@ -4171,7 +4237,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="bpvTXiUdis" title="文本 + 图片（file_id）">
+<Tab zoneid="oVBo4mP9xO" title="文本 + 图片（file_id）">
 <TabTitle>文本 + 图片（file_id）</TabTitle>
 
 ```Bash
@@ -4190,7 +4256,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="FlIwKBZl60" title="文本 + 文档（file_id）">
+<Tab zoneid="QjlyKkBUEs" title="文本 + 文档（file_id）">
 <TabTitle>文本 + 文档（file_id）</TabTitle>
 
 ```Bash
@@ -4209,7 +4275,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="Id48DPzyim" title="文本 + 文档（内联纯文本）">
+<Tab zoneid="uf1vlqhTcz" title="文本 + 文档（内联纯文本）">
 <TabTitle>文本 + 文档（内联纯文本）</TabTitle>
 
 ```Bash
@@ -4228,7 +4294,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="gJkBokkSdy" title="文本 + 文档（base64 PDF）">
+<Tab zoneid="n1x44ZqSC7" title="文本 + 文档（base64 PDF）">
 <TabTitle>文本 + 文档（base64 PDF）</TabTitle>
 
 ```Bash
@@ -4247,7 +4313,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="wNq9wTjaVk" title="文本 + 文档（URL）">
+<Tab zoneid="qZiql8rSPY" title="文本 + 文档（URL）">
 <TabTitle>文本 + 文档（URL）</TabTitle>
 
 ```Bash
@@ -4266,7 +4332,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="JnspumT6g7" title="文本 + 多附件混合">
+<Tab zoneid="wuDrz27gkY" title="文本 + 多附件混合">
 <TabTitle>文本 + 多附件混合</TabTitle>
 
 ```Bash
@@ -4340,7 +4406,7 @@ Session 处于 `running` 状态时，你仍可以继续发送 `user.message`。�
 单独发送 `system.message`、未紧跟 `user.message` 或未放在 `events` 数组末尾，都会返回 HTTP 400 `InvalidPayload`。
 
 <Tabs>
-<Tab zoneid="jrbaWCcQP3" title="Curl">
+<Tab zoneid="OLhI3REQlj" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -4796,7 +4862,7 @@ run_session_turn \
 如果你只是补充当前任务的信息，直接继续发送 `user.message` 即可，消息会按队列顺序处理；如果你要放弃当前执行并切换到新任务，先发送 `user.interrupt`，等 Session 回到 `idle` 后再发送新的 `user.message`：
 
 <Tabs>
-<Tab zoneid="Ezlv4tnUpH" title="Curl">
+<Tab zoneid="WKlT0clZWZ" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -4945,7 +5011,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 Vault 是绑定到某个终端用户的凭据集合。给它一个 `display_name`，可选用 `metadata` 标记以便映射回你自己的用户记录：
 
 <Tabs>
-<Tab zoneid="wO67TfP9hj" title="Curl">
+<Tab zoneid="wbwtf9TgSY" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -4980,13 +5046,13 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults \
 
 <span aceTableMode="list" aceTableWidth="1,2,2"></span>
 
-| 类型                   | 适用场景                                                           | 注入方式                                                           |
-| ---------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| `mcp_oauth`            | MCP 服务器用 OAuth 2.0                                             | 平台代刷 token，Session 连接 MCP URL 时自动注入                    |
-| `static_bearer`        | MCP 用固定 Bearer token（API Key、个人访问令牌）                   | 无刷新流程，直接注入                                               |
-| `mcp_static`           | MCP 使用固定密钥，需要以 Bearer、自定义 Header 或 URL 查询参数注入 | 通过 `injection_type` 选择注入位置                                 |
-| `environment_variable` | 通过环境变量鉴权的命令行、SDK、直接 API 调用                       | 沙箱内是不透明占位符，**出口处**替换为真实值，Agent 永远看不到密钥 |
-| `env_oauth`            | 使用 OAuth 访问令牌，并通过环境变量向运行环境注入                  | 按 `secret_name` 注入，作用范围由 `networking` 限制                |
+| 类型                   | 适用场景                                                           | 注入方式                                                                                |
+| ---------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `mcp_oauth`            | MCP 服务器用 OAuth 2.0                                             | 平台代刷 token，Session 连接 MCP URL 时自动注入                                         |
+| `static_bearer`        | MCP 用固定 Bearer token（API Key、个人访问令牌）                   | 无刷新流程，直接注入                                                                    |
+| `mcp_static`           | MCP 使用固定密钥，需要以 Bearer、自定义 Header 或 URL 查询参数注入 | 通过 `injection_type` 选择注入位置                                                      |
+| `environment_variable` | 通过环境变量鉴权的命令行、SDK、直接 API 调用                       | 沙箱内是不透明占位符，**出口处**替换为真实值，Agent 永远看不到密钥                      |
+| `env_oauth`            | CLI 或 SDK 使用短效 OAuth 访问令牌                                 | 按 `secret_name` 注入；配置 `expires_at` 和 `refresh` 后，在 Session 使用凭据时自动刷新 |
 
 你提供的实际密钥（`token`、`access_token`、`refresh_token`、`client_secret`、`secret_value`）是敏感的**只写**字段，API 响应不会返回这些字段。
 
@@ -4994,7 +5060,9 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults \
 
 ### MCP OAuth 凭据
 
-当 MCP 服务器使用 OAuth 2.0 时，用 `mcp_oauth`。提供 `refresh` 块后，平台会在 access token 过期时代你刷新。
+当 MCP 服务器使用 OAuth 2.0 时，使用 `mcp_oauth`。创建凭据时，配置 MCP 服务地址和当前访问令牌。
+
+同时配置 `expires_at` 和 `refresh` 后，Session 连接 MCP 服务时，平台读取该凭据。访问令牌进入 `expires_at` 前 5 分钟刷新窗口时，平台自动换取并注入新令牌。该机制由读取操作触发，不在后台定时刷新。
 
 `refresh.token_endpoint_auth.type` 三选一：
 
@@ -5005,7 +5073,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults \
 - `client_secret_post`：把 `client_secret` 放在 POST 请求体里。
 
 <Tabs>
-<Tab zoneid="WqIRi5Vmmk" title="Curl">
+<Tab zoneid="w8lnjKxZEE" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -5043,7 +5111,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 当 MCP 服务器接受固定 Bearer token（API Key、个人访问令牌） 时，用 `static_bearer`。无需刷新流程：
 
 <Tabs>
-<Tab zoneid="OOJMlaAXxF" title="Curl">
+<Tab zoneid="VvEhNT7qG8" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -5106,7 +5174,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 - `"type": "unrestricted"`（仅当调用方访问的域名无法提前枚举时使用）。
 
 <Tabs>
-<Tab zoneid="YTooOsWFsc" title="Curl">
+<Tab zoneid="eiBm7Htv1C" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -5138,20 +5206,69 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 
 ### 环境 OAuth 凭据
 
-当命令行或 SDK 需要从环境变量读取 OAuth 访问令牌时，使用 `env_oauth`。创建时提供 `access_token`、`secret_name` 和 `networking`；访问令牌仍在沙箱出口处注入，不会直接暴露给 Agent。
+当 CLI 或 SDK 需要从环境变量读取 OAuth 访问令牌时，使用 `env_oauth`。创建凭据时，先配置当前访问令牌（`access_token`）、注入令牌的环境变量名（`secret_name`），以及允许携带该令牌的目标主机（`networking`）。
 
-访问令牌过期后，调用更新凭据接口写入新的 `access_token`。
+对于会过期的访问令牌，可以让平台自动换取新令牌。平台需要知道以下信息：
+
+- 刷新时机：通过 `expires_at` 提供当前访问令牌的过期时间。
+
+- 令牌端点：通过 `refresh.token_endpoint` 提供第三方 OAuth 服务的令牌端点。
+
+- 刷新令牌：通过 `refresh.refresh_token` 提供换取新访问令牌的凭据。
+
+- 客户端身份：通过 `refresh.client_id` 和 `refresh.token_endpoint_auth` 提供 OAuth 客户端身份及鉴权方式。鉴权方式需要客户端密钥时，还需提供 `refresh.token_endpoint_auth.client_secret`。
+
+Session 访问 `networking` 允许的目标主机时，平台读取该凭据。访问令牌进入 `expires_at` 前 5 分钟刷新窗口时，平台调用 `refresh.token_endpoint` 获取新令牌、更新凭据，再把新令牌注入出站请求。该机制由读取操作触发，不在后台定时刷新。
+
+<Tabs>
+<Tab zoneid="e9s9Z7pzHP" title="Curl">
+<TabTitle>Curl</TabTitle>
+
+```Bash
+curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/credentials \
+  -H "Authorization: Bearer $ARK_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "display_name": "GitHub CLI OAuth",
+    "auth": {
+      "type": "env_oauth",
+      "access_token": "<OAUTH_ACCESS_TOKEN>",
+      "expires_at": "<ACCESS_TOKEN_EXPIRES_AT>",
+      "refresh": {
+        "token_endpoint": "https://github.com/login/oauth/access_token",
+        "client_id": "<OAUTH_CLIENT_ID>",
+        "refresh_token": "<OAUTH_REFRESH_TOKEN>",
+        "token_endpoint_auth": {
+          "type": "client_secret_post",
+          "client_secret": "<OAUTH_CLIENT_SECRET>"
+        }
+      },
+      "secret_name": "GITHUB_TOKEN",
+      "networking": {
+        "type": "limited",
+        "allowed_hosts": ["api.github.com"]
+      }
+    }
+  }'
+```
+
+</Tab>
+</Tabs>
 
 <div data-tips="true" data-tips-type="warning" data-tips-is-title="true">注意</div>
+
+- <div data-tips="true" data-tips-type="warning"><strong>自动刷新需要同时配置 </strong><strong><code>expires_at</code></strong><strong> 和 </strong><strong><code>refresh</code></strong><strong>。</strong> 缺少 <code>expires_at</code> 时，平台无法判断刷新时机；缺少 <code>refresh</code> 时，平台不会调用 OAuth 令牌端点。</div>
+
+- <div data-tips="true" data-tips-type="warning"><strong>OAuth 令牌端点必须返回 JSON。</strong> <code>access_token</code> 必须是字符串；如果返回 <code>expires_in</code>，该字段必须是整数秒数。<code>expires_in</code> 返回 <code>"3600"</code> 等字符串值时，刷新失败。平台会保留当前访问令牌，本次出站请求可能因令牌过期返回 401。检查 <code>refresh.token_endpoint</code> 返回字段的类型和 <code>refresh.token_endpoint_auth</code> 配置；刷新令牌失效时，重新授权并更新凭据。</div>
 
 - <div data-tips="true" data-tips-type="warning"><strong>替换发生在沙箱出口处，不在沙箱内。</strong> 沙箱里的进程看到的是不透明占位符，而不是真实值。具体影响如下：</div>
   - <div data-tips="true" data-tips-type="warning">启动时校验凭据格式的客户端可能拒绝占位符。</div>
 
-  - <div data-tips="true" data-tips-type="warning">用密钥做请求签名的客户端（例如 AWS SigV4） 会生成无效签名。</div>
+  - <div data-tips="true" data-tips-type="warning">用密钥做请求签名的客户端（例如 AWS SigV4）会生成无效签名。</div>
 
-  - <div data-tips="true" data-tips-type="warning">环境变量凭据<strong>只适合「把密钥值原样塞进出站请求头」的客户端</strong>。</div>
+  - <div data-tips="true" data-tips-type="warning">环境变量注入只适合把密钥值原样写入出站请求头的客户端。</div>
 
-- <div data-tips="true" data-tips-type="warning"><strong>通过 Credential 限制凭据注入目标。</strong> 在 Credential 的 <code>networking</code> 中设置 <code>type: limited</code>，并通过 <code>allowed_hosts</code> 显式列出允许注入的出站主机。</div>
+- <div data-tips="true" data-tips-type="warning"><strong>通过凭据限制注入目标。</strong> 在凭据的 <code>networking</code> 中设置 <code>type: limited</code>，并通过 <code>allowed_hosts</code> 显式列出允许注入的出站主机。</div>
 
 <span id=".5Yet5o2u57qm5p2f"></span>
 
@@ -5172,7 +5289,7 @@ MCP 类型凭据（`mcp_oauth`、`static_bearer`、`mcp_static`）在创建时�
 创建 Session 时传 `vault_ids` 数组，把一个或多个 Vaults 挂到 Session：
 
 <Tabs>
-<Tab zoneid="V1SvEBgzUU" title="Curl">
+<Tab zoneid="N1tDi1igKv" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -5205,7 +5322,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 密钥值和 `display_name` 可以更新。结构性字段（`mcp_server_url`、`secret_name`、`token_endpoint`、`client_id`） 在创建后即被锁定。要修改结构性字段，删除旧凭据再创建新的：
 
 <Tabs>
-<Tab zoneid="SHOsqspAoa" title="Curl">
+<Tab zoneid="SvBwnT6bsE" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -5230,17 +5347,9 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 
 ## 凭据生命周期
 
-凭据会在 Session 期间与 Vaults 生命周期内**周期性重新解析**。这确保凭据的轮换、删除、刷新失败都能传播到正在运行的 Session，无需重启。
+Session 运行期间，平台在使用凭据时重新解析当前值。更新或删除凭据后，后续请求会读取新的凭据状态，无需重启 Session。
 
-对于 `mcp_oauth` 凭据，重新解析还会在 access token 过期时刷新它。如果刷新失败，系统会记录失败事件。未来版本将支持通过 Webhook 订阅 `vault.* / vault_credential.*` 事件，届时可在本节订阅这些生命周期事件。
-
-<span aceTableMode="list" aceTableWidth="1,2"></span>
-
-| 事件                              | 触发                                                                            |
-| --------------------------------- | ------------------------------------------------------------------------------- |
-| `vault.deleted`                   | Vaults 被删除（级联触发底层凭据 `vault_credential.deleted`）                    |
-| `vault_credential.deleted`        | 凭据被删除（直接删除或因 Vaults 删除）                                          |
-| `vault_credential.refresh_failed` | `mcp_oauth` 凭据刷新失败（refresh token 无效，或 OAuth 服务器返回不可恢复错误） |
+对于配置了 `expires_at` 和 `refresh` 的 `mcp_oauth`、`env_oauth` 凭据，读取操作会在访问令牌进入 5 分钟刷新窗口时触发自动刷新。刷新成功后，平台持久化新的访问令牌和过期时间；OAuth 服务同时轮换 `refresh_token` 时，平台也会保存新的 `refresh_token`。
 
 <span id=".5YW25LuW5pON5L2c"></span>
 
@@ -5513,7 +5622,7 @@ curl -sS --fail-with-body \
 | 不配置 `config.tos`                               | 方舟公共 TOS                                                                   | 在平台 TTL 到期前下载所需文件。删除 Session 时，平台会清理默认存储中的关联产物。 |
 | 在 Environment 或 Session 覆写中配置 `config.tos` | 你的 TOS Bucket，完整对象路径为 `{prefix}outputs/{env-id}/{session-id}/{file}` | 在 TOS 中管理对象生命周期。删除 Session 不会删除 Bucket 中的对象。               |
 
-配置 Environment 产物存储及按 Session 临时覆写的方法，详情请参见 [配置产物存储](https://ark.volcengine.com/region:cn-beijing/docs/ark/configure-cloud-environment#configure-output-storage) 和 [覆写产物存储（可选）](https://ark.volcengine.com/region:cn-beijing/docs/ark/start-session#override-output-storage)。
+配置 Environment 产物存储及按 Session 临时覆写的方法，详情请参见 [配置产物存储](https://ark.volcengine.com/region:cn-beijing/docs/ark/configure-cloud-environment#configure-output-storage) 和 [覆写产物存储](https://ark.volcengine.com/region:cn-beijing/docs/ark/start-session#override-output-storage)。
 
 <div data-tips="true" data-tips-type="tip" data-tips-is-title="true">说明</div>
 
@@ -5886,7 +5995,7 @@ configs.**enabled** `boolean` `选填`
 ### 创建时开启
 
 <Tabs>
-<Tab zoneid="OgYYDCYNLm" title="cURL">
+<Tab zoneid="ciLaZdnrLA" title="cURL">
 <TabTitle>cURL</TabTitle>
 
 ```Bash
@@ -5959,10 +6068,10 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 
 <div data-tips="true" data-tips-type="tip" data-tips-is-title="true">说明</div>
 
-<div data-tips="true" data-tips-type="tip">更新时需要传入当前 <code>version</code>，版本号不匹配会更新失败。更新成功后会生成新版本。</div>
+<div data-tips="true" data-tips-type="tip">更新时需要传入当前 <code>version</code>，版本号不匹配会更新失败。仅更新 <code>display_name</code> 时不生成新版本；更新 <code>advisors</code>、<code>system</code> 等版本化字段时，即使提交值与当前版本相同，也会生成新版本。</div>
 
 <Tabs>
-<Tab zoneid="O2DpGUXSb9" title="cURL">
+<Tab zoneid="eJLe6rZyK8" title="cURL">
 <TabTitle>cURL</TabTitle>
 
 ```Bash
@@ -6059,7 +6168,7 @@ Advisor 调用产生的 Token 费用按顾问模型的价格单独计费，不�
 # 相关文档
 
 <columns>
-<columnsItem zoneid="q5UNKU9wAS">
+<columnsItem zoneid="bTkxWFI2wY">
 
 <card mode="section" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/tools" >
 
@@ -6082,7 +6191,7 @@ Multi Agent 支持一个协调器 Agent 将任务委派给多个子智能体并�
 </card>
 
 </columnsItem>
-<columnsItem zoneid="jS87a6P4FQ">
+<columnsItem zoneid="y7o5bdMbk9">
 
 <card mode="section" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/define-outcome" >
 
