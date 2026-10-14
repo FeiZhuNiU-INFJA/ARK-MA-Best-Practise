@@ -112,7 +112,7 @@ def test_hc_card_uses_payload_hc_kind_instead_of_stale_job_phase():
     )
     assert form["elements"][0] == {
         "tag": "input",
-        "name": "remark_note",
+        "name": "reject_reason",
         "required": True,
         "input_type": "multiline_text",
         "rows": 2,
@@ -120,14 +120,25 @@ def test_hc_card_uses_payload_hc_kind_instead_of_stale_job_phase():
         "max_rows": 4,
         "max_length": 500,
         "width": "fill",
-        "label": {"tag": "plain_text", "content": "备注"},
+        "label": {"tag": "plain_text", "content": "打回原因"},
         "placeholder": {
             "tag": "plain_text",
-            "content": "填写补充说明，提交后继续执行",
+            "content": "说明需要回退或调整的内容，提交后由 Agent 继续处理",
         },
     }
     assert form["elements"][1]["form_action_type"] == "submit"
-    assert form["elements"][1]["name"] == "remark_submit"
+    assert form["elements"][1]["name"] == "reject_submit"
+    assert form["elements"][1]["behaviors"] == [
+        {
+            "type": "callback",
+            "value": {
+                "job_id": job.job_id,
+                "hc": "HC3",
+                "event_id": 3,
+                "decision": "reject",
+            },
+        }
+    ]
 
 
 def test_hc3_payload_requires_published_feishu_document():

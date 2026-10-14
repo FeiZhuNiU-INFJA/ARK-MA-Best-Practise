@@ -134,16 +134,33 @@ def test_resolve_label_without_feishu_client_uses_open_id_suffix():
     assert _resolve_operator_label(action, feishu=None) == "操作人 ...xy1234"
 
 
-def test_extracts_remark_form_submission_from_card_callback():
+def test_extracts_reject_form_submission_from_card_callback():
     action = {
         "action": {
-            "name": "remark_submit",
-            "form_value": '{"remark_note":"请重新执行 Phase F"}',
+            "name": "reject_submit",
+            "value": {
+                "job_id": "job-1",
+                "hc": "HC3",
+                "event_id": 7,
+                "decision": "reject",
+            },
+            "form_value": '{"reject_reason":"请重新执行 Phase F"}',
         }
     }
 
-    assert _extract_action_value(action) == {"decision": "remark"}
+    assert _extract_action_value(action) == {
+        "job_id": "job-1",
+        "hc": "HC3",
+        "event_id": 7,
+        "decision": "reject",
+    }
     assert _extract_action_note(action) == "请重新执行 Phase F"
+
+
+def test_reject_form_name_is_a_fallback_when_callback_value_is_missing():
+    assert _extract_action_value({"action": {"name": "reject_submit"}}) == {
+        "decision": "reject"
+    }
 
 
 def test_hc_reuses_progress_card_instead_of_sending_new_message(tmp_path):
@@ -229,4 +246,66 @@ def test_followup_message_resolves_pending_remark_and_resumes_job(tmp_path):
     assert resolved.user_note == "权限已发布，请重新执行 Phase F 飞书发布"
     assert resolved.operator_label == "操作人 ...user-1"
     assert resolved.resolved_at is not None
+    store.close()
+
+
+def test_reject_reason_resumes_session_for_agent_rollback(tmp_path):
+    store = pipeline_store_mod.PipelineStore(str(tmp_path / "topic6.db"))
+    job = store.create_job(
+        chat_id="chat-1",
+        thread_id="",
+        user_open_id="user-1",
+        ma_session_id="session-1",
+        mode="demo",
+        project_dir="/workspace/demo",
+    )
+    event_id = store.append_hc_event(
+        job.job_id, "HC1", {"hc": "HC1"}, card_message_id="message-hc"
+    )
+    store.mark_wait_hc(job.job_id, "HC1")
+
+    class _Runner:
+        _feishu = _FakeFeishu({"ou_reviewer": "审核人"})
+
+        def __init__(self):
+            self.resumed = []
+            self.patches = []
+
+        async def patch_job_card(self, job_id, card):
+            self.patches.append((job_id, card))
+            return "message-hc"
+
+        async def resume_job(self, current_job, message):
+            self.resumed.append((current_job, message))
+
+    runner = _Runner()
+    hitl = hitl_mod.Topic6Hitl(hitl_mod.Topic6HitlDeps(store=store, runner=runner))
+    asyncio.run(
+        hitl.handle_card_action(
+            {
+                "open_message_id": "message-hc",
+                "chat_id": "chat-1",
+                "operator": {"open_id": "ou_reviewer"},
+                "action": {
+                    "name": "reject_submit",
+                    "value": {
+                        "job_id": job.job_id,
+                        "hc": "HC1",
+                        "event_id": event_id,
+                        "decision": "reject",
+                    },
+                    "form_value": {"reject_reason": "异常数据需要清洗后重跑"},
+                },
+            }
+        )
+    )
+
+    resolved = store.get_hc_event(event_id)
+    assert resolved is not None
+    assert resolved.user_decision == "reject"
+    assert resolved.user_note == "异常数据需要清洗后重跑"
+    assert resolved.operator_label == "审核人"
+    assert resolved.resolved_at is not None
+    assert store.get_job(job.job_id).status == pipeline_store_mod.STATUS_WAIT_HC
+    assert runner.resumed[0][1] == "HC1 reject: 异常数据需要清洗后重跑"
     store.close()
