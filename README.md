@@ -31,6 +31,7 @@ ark-agent-feishu-bot/
     │   ├── cases/                    # Topic 6、数字员工、客户 A 四卡点
     │   └── tests/
     └── ma-replica/                   # 场景2：客户 Agent 轨迹在 MA 重放对比
+    └── maimai-fde-browser/           # 场景3：MA × headless 浏览器扫码登录脉脉抓 FDE 职位
 ```
 
 ## 浏览入口
@@ -46,6 +47,7 @@ Topic 6 架构图和完整流水线。本地也可以直接打开 [index.html](i
 | --- | --- | --- |
 | **MA × 飞书 Bot** | 把飞书对话机器人接到 MA；包含 Topic 6 社媒热点周刊、数字员工阿 J、客户 A 四卡点三个案例。 | [scenarios/feishu-bot/](scenarios/feishu-bot/) |
 | **客户 Agent 轨迹重放** | 将客户自研 Agent 的运行轨迹在 MA 上模拟重放，对比耗时、token、cache 与结果等效性。 | [scenarios/ma-replica/](scenarios/ma-replica/) |
+| **MA × headless 浏览器** | 在 MA 云端沙箱跑 headless 浏览器：扫码登录脉脉（二维码回传客户端由你扫）、搜「FDE」抓前 10 个职位；额外验证时暂停通知。 | [scenarios/maimai-fde-browser/](scenarios/maimai-fde-browser/) |
 
 ## 通用件（common/）
 

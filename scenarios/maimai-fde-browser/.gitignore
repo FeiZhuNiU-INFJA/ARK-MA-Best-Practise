@@ -1,0 +1,5 @@
+# 本 demo 的本地产物与密钥，不进仓库。
+config.env
+out/
+__pycache__/
+*.pyc
