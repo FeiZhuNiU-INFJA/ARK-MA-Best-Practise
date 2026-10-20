@@ -1,0 +1,86 @@
+{
+  "_comment": "自愈式选择器库。沙箱脚本启动时加载它覆盖内置默认；运行中把真实学到的 href/选择器写进 discovered.json，编排侧在 done 时合并回这里，下次先用学到的、失败再降级重学。所有字段都是候选列表，按顺序尝试，命中即用。本场景目标：登录后从首页『招聘管理』进入，关键词搜『人才』，抓非会员可见的概括性人才信息（约 3 条）。",
+  "updated_at": "2026-10-20T22:13:26+0800",
+  "recruit_nav": {
+    "_comment": "登录后社区页进入『招聘管理』的入口。优先匹配文案『招聘管理』（HR/B 端人才搜索入口），再退到『招聘』。脉脉招聘入口可能是 target=_blank 新标签页，不能只靠原地 click，要么读 href 直接 goto，要么捕获新标签页。resolved_href 为上轮学到的真实 href（固化优先）。",
+    "nav_text": [
+      "招聘管理",
+      "招聘",
+      "找人才",
+      "人才"
+    ],
+    "href_candidates": [
+      "/ent",
+      "/zp",
+      "/recruit",
+      "/talent",
+      "/job"
+    ],
+    "anchor_selectors": [
+      "a[href*='/ent']",
+      "a:has-text('招聘管理')",
+      "a[href*='recruit']",
+      "a[href*='talent']",
+      "nav a:has-text('招聘')",
+      "a:has-text('招聘')"
+    ],
+    "resolved_href": "https://maimai.cn/ent/index?fr=community_pc"
+  },
+  "search_box": {
+    "_comment": "招聘管理页里输入关键词搜人才的搜索框。",
+    "selectors": [
+      "input[type='search']",
+      "input[placeholder*='搜索']",
+      "input[placeholder*='人才']",
+      "input[placeholder*='职位']",
+      "input[placeholder*='关键词']",
+      "input[class*='search']",
+      ".search-input input",
+      "input[type='text']"
+    ]
+  },
+  "talent_card": {
+    "_comment": "搜索结果里的人才卡片（非会员通常约 3 条，只有概括性描述）。",
+    "selectors": [
+      "div[class*='talent']",
+      "div[class*='candidate']",
+      "div[class*='resume']",
+      "div[class*='person-card']",
+      "div[class*='user-card']",
+      "li[class*='talent']",
+      "li[class*='card']",
+      "div[class*='card']"
+    ]
+  },
+  "talent_fields": {
+    "_comment": "单张人才卡片内的字段子选择器。非会员卡片以概括性描述为主，姓名/公司常被隐藏。",
+    "headline": [
+      "[class*='title']",
+      "[class*='name']",
+      "[class*='position']",
+      "h3",
+      "h4"
+    ],
+    "company": [
+      "[class*='company']",
+      "[class*='corp']",
+      "[class*='org']"
+    ],
+    "experience": [
+      "[class*='exp']",
+      "[class*='year']",
+      "[class*='work']"
+    ],
+    "location": [
+      "[class*='city']",
+      "[class*='location']",
+      "[class*='area']"
+    ],
+    "summary": [
+      "[class*='desc']",
+      "[class*='summary']",
+      "[class*='intro']",
+      "p"
+    ]
+  }
+}

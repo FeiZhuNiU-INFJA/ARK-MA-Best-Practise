@@ -214,7 +214,7 @@ Managed Agents 按照 Agent 运行过程中实际消耗的 Tokens、Agent 运行
 配置持久化环境变量方法参见 [环境变量配置指南](https://ark.volcengine.com/region:cn-beijing/docs/ark/environment-variable-configuration-guide)。
 
 <Tabs>
-<Tab zoneid="lUGILl8vfx" title="macOS">
+<Tab zoneid="NJzVbbAdI9" title="macOS">
 <TabTitle>macOS</TabTitle>
 
 ```Bash
@@ -222,7 +222,7 @@ export ARK_API_KEY="your_api_key_here"
 ```
 
 </Tab>
-<Tab zoneid="uUwKggQuzj" title="Linux">
+<Tab zoneid="QGU1oCY42i" title="Linux">
 <TabTitle>Linux</TabTitle>
 
 ```Bash
@@ -230,7 +230,7 @@ export ARK_API_KEY="your_api_key_here"
 ```
 
 </Tab>
-<Tab zoneid="nyR36GiDOf" title="Windows_CMD">
+<Tab zoneid="OJdEqFf66A" title="Windows_CMD">
 <TabTitle>Windows_CMD</TabTitle>
 
 ```Bash
@@ -238,7 +238,7 @@ setx ARK_API_KEY "your_api_key_here"
 ```
 
 </Tab>
-<Tab zoneid="uwHrSGWnA9" title="Windows_PowerShell">
+<Tab zoneid="zpWnKXkXec" title="Windows_PowerShell">
 <TabTitle>Windows_PowerShell</TabTitle>
 
 ```PowerShell
@@ -277,7 +277,7 @@ agent=$(
   "model": {"id": "doubao-seed-2-1-pro-260628"},
   "system": "你是一个高效的编程助手，擅长代码编写和问题排查。",
   "tools": [
-    {"type": "agent_toolset_20260701"}
+    {"type": "agent_toolset_20260916"}
   ]
 }
 EOF
@@ -489,7 +489,7 @@ agent=$(
   "model": {"id": "doubao-seed-2-1-pro-260628"},
   "system": "你是一个高效的编程助手，擅长代码编写和问题排查。",
   "tools": [
-    {"type": "agent_toolset_20260701"}
+    {"type": "agent_toolset_20260916"}
   ]
 }
 EOF
@@ -587,7 +587,8 @@ EOF
 stream_finished=false
 while IFS= read -r line <&3; do
   [[ $line == data:* ]] || continue
-  json=${line#data: }
+  json=${line:5}
+  json=${json# }
   case $(jq -r '.type' <<<"$json") in
     agent.message)
       jq -j '.content[] | select(.type == "text") | .text' <<<"$json"
@@ -617,7 +618,7 @@ trap - EXIT
 ## SDK 完整示例
 
 <Tabs>
-<Tab zoneid="YnugBF04CM" title="Python">
+<Tab zoneid="zvNrdm53LX" title="Python">
 <TabTitle>Python</TabTitle>
 
 ```Python
@@ -639,7 +640,7 @@ agent = client.agents.create(
     name=f"quick-start-agent-{suffix}",
     model={"id": "doubao-seed-2-1-pro-260915"},
     system="你是一个高效的编程助手，擅长代码编写和问题排查。",
-    tools=[{"type": "agent_toolset_20260701"}],
+    tools=[{"type": "agent_toolset_20260916"}],
 )
 environment = client.environments.create(
     name=f"quick-start-env-{suffix}",
@@ -710,7 +711,7 @@ finally:
 ```
 
 </Tab>
-<Tab zoneid="zv95YwUW9e" title="Go">
+<Tab zoneid="Uwb4on9x3V" title="Go">
 <TabTitle>Go</TabTitle>
 
 ```Go
@@ -740,7 +741,7 @@ func main() {
         Name:   "quick-start-agent-" + suffix,
         Model:  agentmodel.ModelConfig{ID: "doubao-seed-2-1-pro-260915"},
         System: agentmodel.NewOptString("你是一个高效的编程助手。"),
-        Tools:  []agentmodel.ToolItem{{Type: "agent_toolset_20260701"}},
+        Tools:  []agentmodel.ToolItem{{Type: "agent_toolset_20260916"}},
     })
     if err != nil {
         panic(err)
@@ -816,7 +817,7 @@ func main() {
 ```
 
 </Tab>
-<Tab zoneid="oUndr01Wp1" title="Java">
+<Tab zoneid="QldhtpxdDD" title="Java">
 <TabTitle>Java</TabTitle>
 
 ```Java
@@ -859,7 +860,7 @@ public class ManagedAgentsQuickStart {
                         .name("quick-start-agent-" + suffix)
                         .model(ModelConfig.builder().id("doubao-seed-2-1-pro-260915").build())
                         .system("你是一个高效的编程助手。")
-                        .tools(Arrays.asList(ToolItem.builder().type("agent_toolset_20260701").build()))
+                        .tools(Arrays.asList(ToolItem.builder().type("agent_toolset_20260916").build()))
                         .build());
         Environment environment = service.createEnvironment(
                 CreateEnvironmentRequest.builder()
@@ -963,7 +964,7 @@ public class ManagedAgentsQuickStart {
 # 后续步骤
 
 <columns>
-<columnsItem zoneid="Yc3exU1uIN">
+<columnsItem zoneid="mi662fGdtk">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/define-agent" >
 
@@ -982,7 +983,7 @@ public class ManagedAgentsQuickStart {
 </card>
 
 </columnsItem>
-<columnsItem zoneid="CQYA3NWOAn">
+<columnsItem zoneid="xzaz3lieHm">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/tools" >
 
@@ -1181,7 +1182,7 @@ Agent 的完整字段定义（包括名称、模型、System Prompt、Skills、T
    将以下命令中的 `your_api_key_here` 替换为你的 API Key，并在终端中运行命令，即可将 API Key 配置到环境变量中。详见[环境变量配置指南](https://ark.volcengine.com/region:cn-beijing/docs/ark/environment-variable-configuration-guide)。
 
    <Tabs>
-   <Tab zoneid="Sdb0lllBTC" title="macOS">
+   <Tab zoneid="o8OeLLQh1I" title="macOS">
    <TabTitle>macOS</TabTitle>
 
    ```Bash
@@ -1189,7 +1190,7 @@ Agent 的完整字段定义（包括名称、模型、System Prompt、Skills、T
    ```
 
    </Tab>
-   <Tab zoneid="GQraEiVrwe" title="Linux">
+   <Tab zoneid="n5DjjtdSko" title="Linux">
    <TabTitle>Linux</TabTitle>
 
    ```Bash
@@ -1197,7 +1198,7 @@ Agent 的完整字段定义（包括名称、模型、System Prompt、Skills、T
    ```
 
    </Tab>
-   <Tab zoneid="NtqRzywaJ2" title="Windows_CMD">
+   <Tab zoneid="ToR6gVXttN" title="Windows_CMD">
    <TabTitle>Windows_CMD</TabTitle>
 
    ```CMD
@@ -1205,7 +1206,7 @@ Agent 的完整字段定义（包括名称、模型、System Prompt、Skills、T
    ```
 
    </Tab>
-   <Tab zoneid="UNdllyiZGr" title="Windows_PowerShell">
+   <Tab zoneid="LHOnWU99KH" title="Windows_PowerShell">
    <TabTitle>Windows_PowerShell</TabTitle>
 
    ```PowerShell
@@ -1251,7 +1252,7 @@ AGENT_RESPONSE=$(curl -sS --fail-with-body https://ark.cn-beijing.volces.com/api
     ],
     "tools": [
       {
-        "type": "agent_toolset_20260701",
+        "type": "agent_toolset_20260916",
         "default_config": {
           "enabled": true,
           "permission_policy": {
@@ -1287,7 +1288,7 @@ printf 'Agent ID: %s\nAgent version: %s\n' "$AGENT_ID" "$AGENT_VERSION"
   "system": "你是一名热点新闻查询总结小助手，可将每天的前 10 条热点新闻以摘要图片的方式总结出来。",
   "tools": [
     {
-      "type": "agent_toolset_20260701",
+      "type": "agent_toolset_20260916",
       "default_config": {
         "enabled": true,
         "permission_policy": {
@@ -1367,7 +1368,7 @@ printf 'Updated Agent version: %s\n' "$AGENT_VERSION"
   "system": "你是一名热点新闻查询总结小助手，可将每天的前 10 条热点新闻以摘要图片和音频播报的方式总结出来。",
   "tools": [
     {
-      "type": "agent_toolset_20260701",
+      "type": "agent_toolset_20260916",
       "default_config": {
         "enabled": true,
         "permission_policy": {
@@ -1434,7 +1435,7 @@ printf 'Updated Agent version: %s\n' "$AGENT_VERSION"
 ## 相关文档
 
 <columns>
-<columnsItem zoneid="BCOfCDtTCr">
+<columnsItem zoneid="IuNd4HlyXM">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/skills" >
 
@@ -1453,7 +1454,7 @@ MCP（Model Context Protocol）用于把第三方系统的工具与数据源接�
 </card>
 
 </columnsItem>
-<columnsItem zoneid="dQiBhfFqJA">
+<columnsItem zoneid="z1VkhVhgc2">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/tools" >
 
@@ -1737,18 +1738,18 @@ MCP（Model Context Protocol）用于把第三方系统的工具与数据源接�
 
 <span aceTableMode="list" aceTableWidth="1,3"></span>
 
-| 字段   | 说明                                                                                                                                                                                                                                                                               |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type` | MCP Server 的声明方式。当前统一使用 URL 方式声明，值为 `url`。                                                                                                                                                                                                                     |
-| `name` | MCP Server 名称，需在当前 Agent 内唯一。服务端会将符合 `[a-zA-Z0-9_-]{1,64}` 格式的名称转换为小写；名称不合规时，会尝试替换空格或根据 URL 生成名称；名称冲突时，会自动追加数字后缀。为保证后续引用稳定，建议直接填写归一化后仍唯一的 `[a-z0-9_-]{1,64}` 小写名称，不依赖自动生成。 |
-| `url`  | MCP Server 的访问地址。                                                                                                                                                                                                                                                            |
+| 字段   | 说明                                                                                                                                                                                                                                                                    |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type` | MCP Server 的声明方式。当前统一使用 URL 方式声明，值为 `url`。                                                                                                                                                                                                          |
+| `name` | MCP Server 名称，最长 255 个字符。省略名称或名称不符合命名规则时，服务端会根据 `url` 生成名称；多个名称冲突时，服务端会为后续名称添加数字后缀，调用方无需保证名称唯一。为保证后续引用稳定，建议主动填写归一化后仍唯一的 `[a-z0-9_-]{1,64}` 小写名称，不依赖服务端生成。 |
+| `url`  | MCP Server 的访问地址。同一 Agent 中不能配置重复的地址。                                                                                                                                                                                                                |
 
 每个 `mcp_toolset` 都必须通过 `mcp_server_name` 引用一个已声明的 MCP Server。你也可以只声明 MCP Server，暂不添加对应的 `mcp_toolset`；此时该 Server 的工具不会启用。
 
 下面的示例把一个 GitHub MCP Server 挂到 Agent：
 
 <Tabs>
-<Tab zoneid="Q9fBu7h65x" title="Curl">
+<Tab zoneid="R415kYFene" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -1769,7 +1770,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
     ],
     "tools": [
       {
-        "type": "agent_toolset_20260701"
+        "type": "agent_toolset_20260916"
       },
       {
         "type": "mcp_toolset",
@@ -1791,7 +1792,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 如果某个 MCP Server 暴露的工具很多，建议先整体关闭，再按白名单开启：
 
 <Tabs>
-<Tab zoneid="OiuldGrClM" title="Curl">
+<Tab zoneid="vJs4owypmt" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -1853,7 +1854,7 @@ MCP Server 的认证不在 Agent 定义阶段传入，而是在创建 Session �
 最简示例如下：
 
 <Tabs>
-<Tab zoneid="mXynIWFpap" title="Curl">
+<Tab zoneid="WTQueMditG" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -1876,7 +1877,7 @@ Vaults 的创建方法、`mcp_oauth` / `static_bearer` 等凭据类型，以及�
 
 # 约束与建议
 
-- 同一个 Agent 中，`mcp_servers.name` 必须唯一。
+- 同一个 Agent 中，`mcp_servers.url` 不能重复；`mcp_servers.name` 冲突时，服务端会自动追加数字后缀。
 
 - 每个 `mcp_toolset` 必须引用一个已声明的 MCP Server；只声明 MCP Server 不会启用其工具。
 
@@ -1889,7 +1890,7 @@ Vaults 的创建方法、`mcp_oauth` / `static_bearer` 等凭据类型，以及�
 # 相关文档
 
 <columns>
-<columnsItem zoneid="QkHYmjkmle">
+<columnsItem zoneid="HhedCdzRmm">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/define-agent" >
 
@@ -1908,7 +1909,7 @@ Skills 用于给 Agent 补充领域知识、操作流程和最佳实践。
 </card>
 
 </columnsItem>
-<columnsItem zoneid="MDjHrb24jz">
+<columnsItem zoneid="TvrymtiShp">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/tools" >
 
@@ -1939,8 +1940,6 @@ Tools 决定 Agent 在 Session 中能主动调用哪些执行能力。
 
 模型可以理解任务并生成内容，但无法仅靠推理直接操作文件、执行命令或访问业务系统。为 Agent 配置 Tools 后，Agent 可以调用相应的执行能力，并根据工具结果继续处理任务，完成从理解需求到执行操作的闭环。
 
-<span id=".6YCJ5oup5bel5YW3"></span>
-
 ## 选择工具
 
 根据任务需要访问的资源和工具执行方，选择对应的工具类型。
@@ -1953,15 +1952,11 @@ Tools 决定 Agent 在 Session 中能主动调用哪些执行能力。
 
 - 任务只需调用少量自有业务操作，且由业务应用执行时，使用自定义工具。
 
-<span id=".5L2_55So5YaF572u5bel5YW3"></span>
-
 ### 使用内置工具
 
-当任务需要在方舟提供的云环境中处理文件、运行命令或获取网页信息时，使用内置工具集 `agent_toolset_20260701`。典型场景包括整理上传的文件、生成并运行代码，以及检索和汇总公开信息。
+当任务需要在方舟提供的云环境中处理文件、运行命令或获取网页信息时，新建 Agent 使用当前内置工具集 `agent_toolset_20260916`。典型场景包括整理上传的文件、生成并运行代码，以及检索和汇总公开信息。
 
-把 `agent_toolset_20260701` 加到 Agent 后，以下工具默认全部启用。
-
-<span aceTableMode="list" aceTableWidth="1,1,3"></span>
+把 `agent_toolset_20260916` 加到 Agent 后，以下工具默认全部启用。
 
 | 工具       | 配置名       | 说明                     |
 | ---------- | ------------ | ------------------------ |
@@ -1974,38 +1969,36 @@ Tools 决定 Agent 在 Session 中能主动调用哪些执行能力。
 | Web Fetch  | `web_fetch`  | 抓取指定 URL 内容。      |
 | Web Search | `web_search` | 发起联网搜索。           |
 
-<div data-tips="true" data-tips-type="warning" data-tips-is-title="true">注意</div>
+不同版本的基础工具集包含相同的工具。历史取值仅用于兼容已有 Agent 配置，新建 Agent 使用 `agent_toolset_20260916`。
 
-<div data-tips="true" data-tips-type="warning">Web Search 按实际调用次数计费。</div>
+> **注意**
 
-<span id=".5L2_55So5aSa5qih5oCB5bel5YW3"></span>
+> Web Search 按实际调用次数计费。
 
 ### 使用多模态工具
 
-视觉增强 Agent 使用 `agent_toolset_multimodal_20260825` 提供图片生成、视频生成、视觉搜索、视频合成和任务进度管理能力。创建视觉增强 Agent 时，还必须同时配置 `agent_toolset_20260916` 或兼容的 `agent_toolset_20260701`。
+视觉增强 Agent 使用 `agent_toolset_multimodal_20260825` 提供图片生成、视频生成、视觉搜索、通用搜索、视频合成和任务进度管理能力。创建视觉增强 Agent 时，还必须同时配置 `agent_toolset_20260916`。
 
-<span aceTableMode="list" aceTableWidth="1,1,3"></span>
+| 配置名           | 事件中的工具名  | 是否必须启用     | 说明                                                                                                                   |
+| ---------------- | --------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `image_generate` | `GenImage`      | 是               | 生成图片。通过 `configs[].models` 绑定已开通的图片生成模型。                                                           |
+| `video_generate` | `GenVideo`      | 否               | 生成视频。启用时，通过 `configs[].models` 绑定已开通的视频生成模型。                                                   |
+| `visual_search`  | `VisualSearch`  | 是               | 检索与创作任务相关的视觉素材。                                                                                         |
+| `general_search` | `GeneralSearch` | 是               | 检索创作任务需要的通用信息。                                                                                           |
+| `compose_video`  | `ComposeVideo`  | 是               | 将视频、图片和音频素材合成为视频。                                                                                     |
+| `todo_write`     | `TodoWrite`     | 默认启用，可关闭 | 为复杂、长耗时任务维护待办和进度。将 `default_config.enabled` 设置为 `false` 时，需要在 `configs[]` 中显式启用该工具。 |
 
-| 配置名           | 是否必须启用     | 说明                                                                                                     |
-| ---------------- | ---------------- | -------------------------------------------------------------------------------------------------------- |
-| `image_generate` | 是               | 生成图片。通过 `configs[].models` 绑定已开通的图片生成模型。                                             |
-| `video_generate` | 否               | 生成视频。启用时，通过 `configs[].models` 绑定已开通的视频生成模型。                                     |
-| `visual_search`  | 是               | 检索与创作任务相关的视觉素材。                                                                           |
-| `general_search` | 是               | 检索创作任务需要的通用信息。                                                                             |
-| `compose_video`  | 是               | 将视频、图片和音频素材合成为视频。                                                                       |
-| `todo_write`     | 默认启用，可关闭 | 为复杂、长耗时任务维护待办和进度。不需要该能力时，在对应的 `configs[]` 项中将 `enabled` 设置为 `false`。 |
+事件流还可能出现 `ViewMedia` 和 `record_search_quality`。这两个工具由平台自动提供，不能通过 `configs[]` 配置。工具调用的顺序和次数由任务内容决定。
 
-多模态工具产生的模型调用费用和工具调用费用，详情请参见 [Managed Agents 计费说明](https://ark.volcengine.com/region:cn-beijing/docs/ark/model-pricing#ma_billing)。
+多模态工具产生的模型调用费用和工具调用费用，详情请参见 [Managed Agents 计费说明](https://ark.volcengine.com/region:cn-beijing/docs/model-pricing#ma_billing)。
 
-在请求的 `configs[].models[]` 中，只需填写模型 ID（`id`）和是否为默认模型（`default`）。响应中的模型名称（`name`）和版本（`version`）由服务端返回，不需要在请求中填写。
+在请求的 `configs[].models[]` 中，每项只需填写模型 ID 或推理接入点 ID（`id`）和是否为默认模型（`default`）。每个生成工具最多配置 10 项，ID 不能重复；配置多项时，必须且只能将一项的 `default` 设置为 `true`。省略已启用生成工具的 `models` 时，服务端绑定平台默认模型，并在响应中返回实际绑定结果。响应中的模型名称（`name`）和版本（`version`）由服务端返回，不需要在请求中填写。
 
-<div data-tips="true" data-tips-type="warning" data-tips-is-title="true">注意</div>
+> **注意**
 
-<div data-tips="true" data-tips-type="warning">启用 <code>general_search</code> 时，必须在基础工具集中关闭 <code>web_search</code>。两个搜索工具同时启用时，服务端返回 400 <code>InvalidParameter</code>。</div>
+> 启用 `general_search` 时，必须在基础工具集中关闭 `web_search`。两个搜索工具同时启用时，服务端返回 400 `InvalidParameter`。
 
-视觉增强 Agent 的完整工具配置和执行流程，详情请参见 [[基础] 使用视觉增强 Agent 生成图片和视频](https://ark.volcengine.com/region:cn-beijing/docs/ark/visual-creation-agent)。
-
-<span id=".5o6l5YWlLW1jcC3lt6Xlhbc="></span>
+视觉增强 Agent 的完整工具配置和执行流程，详情请参见 [[基础] 使用视觉增强 Agent 生成图片和视频](https://ark.volcengine.com/region:cn-beijing/docs/visual-creation-agent)。
 
 ### 接入 MCP 工具
 
@@ -2013,11 +2006,9 @@ Tools 决定 Agent 在 Session 中能主动调用哪些执行能力。
 
 MCP 工具集通过 `type: "mcp_toolset"` 将一个 MCP Server 暴露的工具提供给 Agent。`mcp_server_name` 必须与 `mcp_servers[].name` 一致；只声明 MCP Server 而不添加对应的 `mcp_toolset` 时，Agent 无法调用该 Server 的工具。
 
-可以通过 `default_config` 设置该 Server 下工具的默认状态，再通过 `configs` 按工具名称覆盖。完整配置和鉴权方式请参见 [MCP](https://ark.volcengine.com/region:cn-beijing/docs/ark/mcp)。
+可以通过 `default_config` 设置该 Server 下工具的默认状态，再通过 `configs` 按工具名称覆盖。完整配置和鉴权方式请参见 [MCP](https://ark.volcengine.com/region:cn-beijing/docs/mcp)。
 
 显式提供 `default_config` 但省略 `permission_policy` 时，MCP 工具运行时使用 `always_ask`，内置工具使用 `always_allow`。为避免 MCP 调用意外暂停，建议显式配置权限策略。
-
-<span id=".5o6l5YWl6Ieq5a6a5LmJ5bel5YW3"></span>
 
 ### 接入自定义工具
 
@@ -2025,9 +2016,7 @@ MCP 工具集通过 `type: "mcp_toolset"` 将一个 MCP Server 暴露的工具�
 
 自定义工具通过 `type: "custom"` 声明。每个工具需要配置名称、用途描述和输入参数 Schema。以下示例使用 `curl` 创建 Agent，并使用 `jq` 保存返回的 Agent ID。示例同时显式关闭内置工具集，避免主 Agent 回退启用全部内置工具：
 
-<Tabs>
-<Tab zoneid="FKu75brnSe" title="Curl">
-<TabTitle>Curl</TabTitle>
+**Curl**
 
 ```Bash
 AGENT_RESPONSE=$(curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/agents" \
@@ -2041,7 +2030,7 @@ AGENT_RESPONSE=$(curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/ap
     "system": "你是一个可以调用业务工具的助手。需要外部业务能力时，调用已声明的自定义工具。不要编造工具结果。",
     "tools": [
       {
-        "type": "agent_toolset_20260701",
+        "type": "agent_toolset_20260916",
         "default_config": {
           "enabled": false,
           "permission_policy": {
@@ -2074,30 +2063,21 @@ export AGENT_ID
 printf 'Agent ID: %s\n' "$AGENT_ID"
 ```
 
-</Tab>
-</Tabs>
-
-配置后，Agent 需要查询订单时会发送 `agent.custom_tool_use`。业务应用读取工具名称和输入参数，执行查询，再通过 `user.custom_tool_result` 回传结果。完整接入流程和多媒体场景示例请参见 [[基础] Custom Tool 使用教程](https://ark.volcengine.com/region:cn-beijing/docs/ark/managed-agent-custom-tool-tutorial)。
-
-<span id=".6YWN572u5YaF572u5bel5YW3"></span>
+配置后，Agent 需要查询订单时会发送 `agent.custom_tool_use`。业务应用读取工具名称和输入参数，执行查询，再通过 `user.custom_tool_result` 回传结果。完整接入流程和多媒体场景示例请参见 [[基础] Custom Tool 使用教程](https://ark.volcengine.com/region:cn-beijing/docs/managed-agent-custom-tool-tutorial)。
 
 ## 配置内置工具
 
 创建 Agent 前，先确定任务必须使用哪些工具、哪些工具可以修改数据，以及哪些调用需要业务应用确认。显式配置 `default_config.enabled` 和 `permission_policy`，再通过 `configs` 覆盖单个工具，可以避免不同工具类型的默认行为造成权限范围偏差。
 
-<div data-tips="true" data-tips-type="warning" data-tips-is-title="true">注意</div>
+> **注意**
 
-<div data-tips="true" data-tips-type="warning">不要通过省略 <code>tools</code>、传入空数组 <code>[]</code>，或只配置 MCP、自定义工具等其他工具来关闭主 Agent 的内置工具。主 Agent 在未找到内置工具集配置时会回退为启用全部内置工具，并使用 <code>always_allow</code>；如需限制工具范围，请显式配置 <code>agent_toolset_20260701</code>，将 <code>default_config.enabled</code> 设为 <code>false</code>，再逐项启用必要工具。详细行为请参见 <a href="https://ark.volcengine.com/region:cn-beijing/docs/ark/tools#tool-defaults-and-boundaries">核对默认工具范围</a>。</div>
-
-<span id=".5ZCv55So5YWo6YOo5YaF572u5bel5YW3"></span>
+> 不要通过省略 `tools`、传入空数组 `[]`，或只配置 MCP、自定义工具等其他工具来关闭主 Agent 的内置工具。主 Agent 在未找到内置工具集配置时会回退为启用全部内置工具，并使用 `always_allow`；如需限制工具范围，请显式配置 `agent_toolset_20260916`，将 `default_config.enabled` 设为 `false`，再逐项启用必要工具。详细行为请参见 [核对默认工具范围](https://ark.volcengine.com/region:cn-beijing/docs/tools#tool-defaults-and-boundaries)。
 
 ### 启用全部内置工具
 
-如果 Agent 需要使用全部基础执行能力，挂载 `agent_toolset_20260701`，并显式启用工具集和权限策略：
+如果 Agent 需要使用全部基础执行能力，挂载 `agent_toolset_20260916`，并显式启用工具集和权限策略：
 
-<Tabs>
-<Tab zoneid="brCgtZhld7" title="Curl">
-<TabTitle>Curl</TabTitle>
+**Curl**
 
 ```Bash
 curl https://ark.cn-beijing.volces.com/api/v3/agents \
@@ -2122,18 +2102,11 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
   }'
 ```
 
-</Tab>
-</Tabs>
-
-<span id=".5YWz6Zet6YOo5YiG5bel5YW3"></span>
-
 ### 关闭部分工具
 
 如果 Agent 不应访问网页，可以保持工具集启用，再通过 `configs` 关闭 `web_fetch` 和 `web_search`：
 
-<Tabs>
-<Tab zoneid="oPR3FX4W1P" title="Curl">
-<TabTitle>Curl</TabTitle>
+**Curl**
 
 ```Bash
 curl https://ark.cn-beijing.volces.com/api/v3/agents \
@@ -2146,7 +2119,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
     },
     "tools": [
       {
-        "type": "agent_toolset_20260701",
+        "type": "agent_toolset_20260916",
         "default_config": {
           "enabled": true,
           "permission_policy": {
@@ -2168,18 +2141,11 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
   }'
 ```
 
-</Tab>
-</Tabs>
-
-<span id=".5Y-q5ZCv55So5b-F6KaB5bel5YW3"></span>
-
 ### 只启用必要工具
 
 如果 Agent 只需要读取和检索沙箱文件，先将工具集整体关闭，再显式启用 `read`、`glob` 和 `grep`：
 
-<Tabs>
-<Tab zoneid="wBB3jb5R6U" title="Curl">
-<TabTitle>Curl</TabTitle>
+**Curl**
 
 ```Bash
 curl https://ark.cn-beijing.volces.com/api/v3/agents \
@@ -2192,7 +2158,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
     },
     "tools": [
       {
-        "type": "agent_toolset_20260701",
+        "type": "agent_toolset_20260916",
         "default_config": {
           "enabled": false,
           "permission_policy": {
@@ -2227,28 +2193,21 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
   }'
 ```
 
-</Tab>
-</Tabs>
-
 这种配置适合代码审查和资料检索等只读任务。
-
-<span id=".6K6-572u5p2D6ZmQ562W55Wl"></span>
 
 ### 设置权限策略
 
 `always_allow` 表示平台直接执行工具，`always_ask` 表示平台在执行前暂停 Session，等待业务应用确认。建议在请求中显式配置工具集的默认策略，并通过 `configs[].permission_policy` 覆盖风险更高的单个工具。
 
-权限策略的完整配置方式请参见 [工具权限策略](https://ark.volcengine.com/region:cn-beijing/docs/ark/tool-permission-policy)。
-
-<span id=".6aqM6K-B5ZKM5aSE55CG5bel5YW36LCD55So"></span>
+权限策略的完整配置方式请参见 [工具权限策略](https://ark.volcengine.com/region:cn-beijing/docs/tool-permission-policy)。
 
 ## 验证和处理工具调用
 
 创建或更新 Agent 后，按以下顺序验证配置是否生效：
 
-1. 调用[查询智能体详情](https://ark.volcengine.com/region:cn-beijing/docs/ark/get-agent-api)，检查响应中的 `tools` 是否符合预期；使用 MCP 工具时，同时检查 `mcp_servers`。
+1. 调用[查询智能体详情](https://ark.volcengine.com/region:cn-beijing/docs/get-agent-api)，检查响应中的 `tools` 是否符合预期；使用 MCP 工具时，同时检查 `mcp_servers`。
 
-2. 创建新 Session，或调用[升级会话](https://ark.volcengine.com/region:cn-beijing/docs/ark/upgrade-session-api)升级现有 Session。已创建的 Session 不会自动使用 Agent 的新版本。
+2. 创建新 Session，或调用[升级会话](https://ark.volcengine.com/region:cn-beijing/docs/upgrade-session-api)升级现有 Session。已创建的 Session 不会自动使用 Agent 的新版本。
 
 3. 发送一条能够触发目标工具的测试任务。
 
@@ -2256,15 +2215,11 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 
 以下以查询订单状态并整理结果为例说明主要事件流。具体事件取决于工具的执行方和权限策略。
 
-<span id=".5aSE55CG5LqR546v5aKD5bel5YW36LCD55So"></span>
-
 ### 处理云环境工具调用
 
 云环境中，方舟服务端负责执行内置工具和 MCP 工具。下图展示 Agent 发起调用、按需等待确认并返回结果的过程。`always_allow` 会直接执行工具；`always_ask` 会先暂停 Session，等待业务应用批准或拒绝。
 
-<img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3MjAiIGhlaWdodD0iNzkwIiB2aWV3Qm94PSIwIDAgNzIwIDc5MCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsbGVkYnk9InRpdGxlIGRlc2MiPjx0aXRsZSBpZD0idGl0bGUiPuaJmOeuoeeOr+Wig+aJp+ihjOWGhee9ruW3peWFt+aIliBNQ1Ag5bel5YW3PC90aXRsZT48ZGVzYyBpZD0iZGVzYyI+5Y+C5LiO5pa55LmL6Ze05oyJ5pe26Ze06aG65bqP5Lyg6YCS5Lya6K+d5LqL5Lu2PC9kZXNjPjxkZWZzPjxtYXJrZXIgaWQ9ImFycm93IiBtYXJrZXJXaWR0aD0iOCIgbWFya2VySGVpZ2h0PSI4IiByZWZYPSI3IiByZWZZPSI0IiBvcmllbnQ9ImF1dG8iIG1hcmtlclVuaXRzPSJzdHJva2VXaWR0aCI+PHBhdGggZD0iTTAsMCBMOCw0IEwwLDggWiIgZmlsbD0iIzMxNTM2ZiIvPjwvbWFya2VyPjwvZGVmcz48cmVjdCB3aWR0aD0iNzIwIiBoZWlnaHQ9Ijc5MCIgZmlsbD0iI2ZmZmZmZiIvPjxyZWN0IHg9IjI2IiB5PSIxMiIgd2lkdGg9IjE0OCIgaGVpZ2h0PSI0MCIgcng9IjQiIGZpbGw9IiNmNGY3ZjkiIHN0cm9rZT0iIzkxYTRiMyIvPjx0ZXh0IHg9IjEwMCIgeT0iMzciIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE1IiBmaWxsPSIjMTcyYjNhIj7kuJrliqHlupTnlKg8L3RleHQ+PGxpbmUgeDE9IjEwMCIgeTE9IjUyIiB4Mj0iMTAwIiB5Mj0iNzcyIiBzdHJva2U9IiNhYWI3YzIiIHN0cm9rZS13aWR0aD0iMSIgc3Ryb2tlLWRhc2hhcnJheT0iNCA1Ii8+PHJlY3QgeD0iNTQ2IiB5PSIxMiIgd2lkdGg9IjE0OCIgaGVpZ2h0PSI0MCIgcng9IjQiIGZpbGw9IiNmNGY3ZjkiIHN0cm9rZT0iIzkxYTRiMyIvPjx0ZXh0IHg9IjYyMCIgeT0iMzciIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE1IiBmaWxsPSIjMTcyYjNhIj7mlrnoiJ/mnI3liqHnq688L3RleHQ+PGxpbmUgeDE9IjYyMCIgeTE9IjUyIiB4Mj0iNjIwIiB5Mj0iNzcyIiBzdHJva2U9IiNhYWI3YzIiIHN0cm9rZS13aWR0aD0iMSIgc3Ryb2tlLWRhc2hhcnJheT0iNCA1Ii8+PHRleHQgeD0iMzYwIiB5PSI5NSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LFNlZ29lIFVJLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTMiIGZpbGw9IiMyNDQ2NWYiPjEuIOW7uueriyBTU0Ug6L+e5o6lIMK3IOetieW+heacjeWKoeerr+Wwsee7qjwvdGV4dD48bGluZSB4MT0iMTA4IiB5MT0iMTA2IiB4Mj0iNjEyIiB5Mj0iMTA2IiBzdHJva2U9IiMzMTUzNmYiIHN0cm9rZS13aWR0aD0iMS42IiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPjx0ZXh0IHg9IjM2MCIgeT0iMTYxIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iLWFwcGxlLXN5c3RlbSxCbGlua01hY1N5c3RlbUZvbnQsU2Vnb2UgVUksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMyIgZmlsbD0iIzI0NDY1ZiI+Mi4gdXNlci5tZXNzYWdlIMK3IOaPkOS6pOS7u+WKoTwvdGV4dD48bGluZSB4MT0iMTA4IiB5MT0iMTcyIiB4Mj0iNjEyIiB5Mj0iMTcyIiBzdHJva2U9IiMzMTUzNmYiIHN0cm9rZS13aWR0aD0iMS42IiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPjx0ZXh0IHg9IjM2MCIgeT0iMjI3IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iLWFwcGxlLXN5c3RlbSxCbGlua01hY1N5c3RlbUZvbnQsU2Vnb2UgVUksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMyIgZmlsbD0iIzI0NDY1ZiI+My4gc2Vzc2lvbi5zdGF0dXNfcnVubmluZyDCtyDlvIDlp4vlpITnkIY8L3RleHQ+PGxpbmUgeDE9IjYxMiIgeTE9IjIzOCIgeDI9IjEwOCIgeTI9IjIzOCIgc3Ryb2tlPSIjMzE1MzZmIiBzdHJva2Utd2lkdGg9IjEuNiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz48dGV4dCB4PSIzNjAiIHk9IjI5MyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LFNlZ29lIFVJLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTMiIGZpbGw9IiMyNDQ2NWYiPjQuIGFnZW50LnRvb2xfdXNlIC8gYWdlbnQubWNwX3Rvb2xfdXNlIMK3IOWPkei1t+W3peWFt+iwg+eUqDwvdGV4dD48bGluZSB4MT0iNjEyIiB5MT0iMzA0IiB4Mj0iMTA4IiB5Mj0iMzA0IiBzdHJva2U9IiMzMTUzNmYiIHN0cm9rZS13aWR0aD0iMS42IiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPjx0ZXh0IHg9IjM2MCIgeT0iMzU5IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iLWFwcGxlLXN5c3RlbSxCbGlua01hY1N5c3RlbUZvbnQsU2Vnb2UgVUksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMyIgZmlsbD0iIzI0NDY1ZiI+NS4gc2Vzc2lvbi5zdGF0dXNfaWRsZe+8iGFsd2F5c19hc2vvvIkgwrcg562J5b6F56Gu6K6kPC90ZXh0PjxsaW5lIHgxPSI2MTIiIHkxPSIzNzAiIHgyPSIxMDgiIHkyPSIzNzAiIHN0cm9rZT0iIzMxNTM2ZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIHN0cm9rZS1kYXNoYXJyYXk9IjcgNSIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz48dGV4dCB4PSIzNjAiIHk9IjQyNSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LFNlZ29lIFVJLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTMiIGZpbGw9IiMyNDQ2NWYiPjYuIHVzZXIudG9vbF9jb25maXJtYXRpb27vvIhhbHdheXNfYXNr77yJIMK3IOaJueWHhuaIluaLkue7nTwvdGV4dD48bGluZSB4MT0iMTA4IiB5MT0iNDM2IiB4Mj0iNjEyIiB5Mj0iNDM2IiBzdHJva2U9IiMzMTUzNmYiIHN0cm9rZS13aWR0aD0iMS42IiBzdHJva2UtZGFzaGFycmF5PSI3IDUiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PHRleHQgeD0iMzYwIiB5PSI0OTEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj43LiBzZXNzaW9uLnN0YXR1c19ydW5uaW5n77yI5om55YeG5ZCO77yJIMK3IOaBouWkjeaJp+ihjDwvdGV4dD48bGluZSB4MT0iNjEyIiB5MT0iNTAyIiB4Mj0iMTA4IiB5Mj0iNTAyIiBzdHJva2U9IiMzMTUzNmYiIHN0cm9rZS13aWR0aD0iMS42IiBzdHJva2UtZGFzaGFycmF5PSI3IDUiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PHRleHQgeD0iMzYwIiB5PSI1NTciIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj44LiBhZ2VudC50b29sX3Jlc3VsdCAvIGFnZW50Lm1jcF90b29sX3Jlc3VsdCDCtyDov5Tlm57lt6Xlhbfnu5Pmnpw8L3RleHQ+PGxpbmUgeDE9IjYxMiIgeTE9IjU2OCIgeDI9IjEwOCIgeTI9IjU2OCIgc3Ryb2tlPSIjMzE1MzZmIiBzdHJva2Utd2lkdGg9IjEuNiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz48dGV4dCB4PSIzNjAiIHk9IjYyMyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LFNlZ29lIFVJLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTMiIGZpbGw9IiMyNDQ2NWYiPjkuIGFnZW50Lm1lc3NhZ2Ugwrcg6L+U5Zue5pyA57uI5Zue5aSNPC90ZXh0PjxsaW5lIHgxPSI2MTIiIHkxPSI2MzQiIHgyPSIxMDgiIHkyPSI2MzQiIHN0cm9rZT0iIzMxNTM2ZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PHRleHQgeD0iMzYwIiB5PSI2ODkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj4xMC4gc2Vzc2lvbi5zdGF0dXNfaWRsZSDCtyDnu5PmnZ/lvZPliY3ova7mrKE8L3RleHQ+PGxpbmUgeDE9IjYxMiIgeTE9IjcwMCIgeDI9IjEwOCIgeTI9IjcwMCIgc3Ryb2tlPSIjMzE1MzZmIiBzdHJva2Utd2lkdGg9IjEuNiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz48L3N2Zz4=" width="720px" />
-
-<span id=".6Ieq5Yqo5omn6KGM"></span>
+![图片](https://arkdocs.tos-cn-beijing.volces.com/flowcharts/managed-agent/managed-tool-event-sequence.svg)
 
 #### 自动执行
 
@@ -2275,8 +2230,6 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 - MCP 工具：`agent.mcp_tool_use` → `agent.mcp_tool_result`
 
 同一轮可能调用多个工具。使用 `tool_use_id` 或 `mcp_tool_use_id` 将每个结果与对应调用配对，不要只依赖事件到达顺序。
-
-<span id="confirm-tool-use"></span>
 
 #### 确认后执行
 
@@ -2290,19 +2243,17 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 
 4. 所有待确认事件处理完成后，Session 返回 `session.status_running`。批准的工具继续执行，拒绝结果交给 Agent 调整后续处理。
 
-<div data-tips="true" data-tips-type="warning" data-tips-is-title="true">处理确认结果</div>
+> **处理确认结果**
 
-<div data-tips="true" data-tips-type="warning">拒绝调用时，可以通过 <code>deny_message</code> 把原因回传给 Agent。Agent 会根据拒绝原因选择其他工具、降级处理，或向最终用户说明无法继续执行。</div>
+> 拒绝调用时，可以通过 `deny_message` 把原因回传给 Agent。Agent 会根据拒绝原因选择其他工具、降级处理，或向最终用户说明无法继续执行。
 
-<div data-tips="true" data-tips-type="warning">在 <code>requires_action</code> 阶段，先处理 <code>stop_reason.event_ids</code> 中的全部确认事件，不要用新的 <code>user.message</code> 替代确认。<code>always_allow</code>、<code>always_ask</code> 及覆盖规则请参见 <a href="https://ark.volcengine.com/region:cn-beijing/docs/ark/tool-permission-policy">工具权限策略</a>。</div>
-
-<span id=".5aSE55CG6Ieq5omY566h5bel5YW36LCD55So"></span>
+> 在 `requires_action` 阶段，先处理 `stop_reason.event_ids` 中的全部确认事件，不要用新的 `user.message` 替代确认。`always_allow`、`always_ask` 及覆盖规则请参见 [工具权限策略](https://ark.volcengine.com/region:cn-beijing/docs/tool-permission-policy)。
 
 ### 处理自托管工具调用
 
 自托管 Environment 中的 Worker 完成内置工具后，通过 `user.tool_result` 回传结果：
 
-<img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NjAiIGhlaWdodD0iOTIyIiB2aWV3Qm94PSIwIDAgOTYwIDkyMiIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsbGVkYnk9InRpdGxlIGRlc2MiPjx0aXRsZSBpZD0idGl0bGUiPuiHquaJmOeuoSBFbnZpcm9ubWVudCDmiafooYzlhoXnva7lt6Xlhbc8L3RpdGxlPjxkZXNjIGlkPSJkZXNjIj7lj4LkuI7mlrnkuYvpl7TmjInml7bpl7Tpobrluo/kvKDpgJLkvJror53kuovku7Y8L2Rlc2M+PGRlZnM+PG1hcmtlciBpZD0iYXJyb3ciIG1hcmtlcldpZHRoPSI4IiBtYXJrZXJIZWlnaHQ9IjgiIHJlZlg9IjciIHJlZlk9IjQiIG9yaWVudD0iYXV0byIgbWFya2VyVW5pdHM9InN0cm9rZVdpZHRoIj48cGF0aCBkPSJNMCwwIEw4LDQgTDAsOCBaIiBmaWxsPSIjMzE1MzZmIi8+PC9tYXJrZXI+PC9kZWZzPjxyZWN0IHdpZHRoPSI5NjAiIGhlaWdodD0iOTIyIiBmaWxsPSIjZmZmZmZmIi8+PHJlY3QgeD0iMjYiIHk9IjEyIiB3aWR0aD0iMTQ4IiBoZWlnaHQ9IjQwIiByeD0iNCIgZmlsbD0iI2Y0ZjdmOSIgc3Ryb2tlPSIjOTFhNGIzIi8+PHRleHQgeD0iMTAwIiB5PSIzNyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LFNlZ29lIFVJLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTUiIGZpbGw9IiMxNzJiM2EiPuS4muWKoeW6lOeUqDwvdGV4dD48bGluZSB4MT0iMTAwIiB5MT0iNTIiIHgyPSIxMDAiIHkyPSI5MDQiIHN0cm9rZT0iI2FhYjdjMiIgc3Ryb2tlLXdpZHRoPSIxIiBzdHJva2UtZGFzaGFycmF5PSI0IDUiLz48cmVjdCB4PSIyNzkiIHk9IjEyIiB3aWR0aD0iMTQ4IiBoZWlnaHQ9IjQwIiByeD0iNCIgZmlsbD0iI2Y0ZjdmOSIgc3Ryb2tlPSIjOTFhNGIzIi8+PHRleHQgeD0iMzUzIiB5PSIzNyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LFNlZ29lIFVJLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTUiIGZpbGw9IiMxNzJiM2EiPuaWueiIn+acjeWKoeerrzwvdGV4dD48bGluZSB4MT0iMzUzIiB5MT0iNTIiIHgyPSIzNTMiIHkyPSI5MDQiIHN0cm9rZT0iI2FhYjdjMiIgc3Ryb2tlLXdpZHRoPSIxIiBzdHJva2UtZGFzaGFycmF5PSI0IDUiLz48cmVjdCB4PSI1MzMiIHk9IjEyIiB3aWR0aD0iMTQ4IiBoZWlnaHQ9IjQwIiByeD0iNCIgZmlsbD0iI2Y0ZjdmOSIgc3Ryb2tlPSIjOTFhNGIzIi8+PHRleHQgeD0iNjA3IiB5PSIzNyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LFNlZ29lIFVJLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTUiIGZpbGw9IiMxNzJiM2EiPuiHquaJmOeuoSBXb3JrZXI8L3RleHQ+PGxpbmUgeDE9IjYwNyIgeTE9IjUyIiB4Mj0iNjA3IiB5Mj0iOTA0IiBzdHJva2U9IiNhYWI3YzIiIHN0cm9rZS13aWR0aD0iMSIgc3Ryb2tlLWRhc2hhcnJheT0iNCA1Ii8+PHJlY3QgeD0iNzg2IiB5PSIxMiIgd2lkdGg9IjE0OCIgaGVpZ2h0PSI0MCIgcng9IjQiIGZpbGw9IiNmNGY3ZjkiIHN0cm9rZT0iIzkxYTRiMyIvPjx0ZXh0IHg9Ijg2MCIgeT0iMzciIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE1IiBmaWxsPSIjMTcyYjNhIj7kvIHkuJogU2FuZGJveDwvdGV4dD48bGluZSB4MT0iODYwIiB5MT0iNTIiIHgyPSI4NjAiIHkyPSI5MDQiIHN0cm9rZT0iI2FhYjdjMiIgc3Ryb2tlLXdpZHRoPSIxIiBzdHJva2UtZGFzaGFycmF5PSI0IDUiLz48dGV4dCB4PSIyMjYuNSIgeT0iOTUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj4xLiDlu7rnq4vkuJrliqEgU1NFIMK3IOetieW+heacjeWKoeerr+Wwsee7qjwvdGV4dD48bGluZSB4MT0iMTA4IiB5MT0iMTA2IiB4Mj0iMzQ1IiB5Mj0iMTA2IiBzdHJva2U9IiMzMTUzNmYiIHN0cm9rZS13aWR0aD0iMS42IiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPjx0ZXh0IHg9IjIyNi41IiB5PSIxNjEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj4yLiB1c2VyLm1lc3NhZ2Ugwrcg5o+Q5Lqk5Lu75YqhPC90ZXh0PjxsaW5lIHgxPSIxMDgiIHkxPSIxNzIiIHgyPSIzNDUiIHkyPSIxNzIiIHN0cm9rZT0iIzMxNTM2ZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PHRleHQgeD0iNDgwIiB5PSIyMjciIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj4zLiBQb2xsIC8gQWNrbm93bGVkZ2UgV29yayDCtyDorqTpooYgV29yazwvdGV4dD48bGluZSB4MT0iNTk5IiB5MT0iMjM4IiB4Mj0iMzYxIiB5Mj0iMjM4IiBzdHJva2U9IiMzMTUzNmYiIHN0cm9rZS13aWR0aD0iMS42IiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPjx0ZXh0IHg9IjIyNi41IiB5PSIyOTMiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj40LiBzZXNzaW9uLnN0YXR1c19ydW5uaW5nIMK3IOW8gOWni+WkhOeQhjwvdGV4dD48bGluZSB4MT0iMzQ1IiB5MT0iMzA0IiB4Mj0iMTA4IiB5Mj0iMzA0IiBzdHJva2U9IiMzMTUzNmYiIHN0cm9rZS13aWR0aD0iMS42IiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPjx0ZXh0IHg9IjQ4MCIgeT0iMzU5IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iLWFwcGxlLXN5c3RlbSxCbGlua01hY1N5c3RlbUZvbnQsU2Vnb2UgVUksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMyIgZmlsbD0iIzI0NDY1ZiI+NS4g5bu656uLIFdvcmtlciBTU0Ugwrcg6K6i6ZiF5bel5YW35LqL5Lu2PC90ZXh0PjxsaW5lIHgxPSI1OTkiIHkxPSIzNzAiIHgyPSIzNjEiIHkyPSIzNzAiIHN0cm9rZT0iIzMxNTM2ZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PHRleHQgeD0iNDgwIiB5PSI0MjUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj42LiBhZ2VudC50b29sX3VzZSDCtyDkuIvlj5Hlt6XlhbfosIPnlKg8L3RleHQ+PGxpbmUgeDE9IjM2MSIgeTE9IjQzNiIgeDI9IjU5OSIgeTI9IjQzNiIgc3Ryb2tlPSIjMzE1MzZmIiBzdHJva2Utd2lkdGg9IjEuNiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz48dGV4dCB4PSI3MzMuNSIgeT0iNDkxIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iLWFwcGxlLXN5c3RlbSxCbGlua01hY1N5c3RlbUZvbnQsU2Vnb2UgVUksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMyIgZmlsbD0iIzI0NDY1ZiI+Ny4g5omn6KGM5bel5YW3IMK3IOi/kOihjOacrOWcsOaTjeS9nDwvdGV4dD48bGluZSB4MT0iNjE1IiB5MT0iNTAyIiB4Mj0iODUyIiB5Mj0iNTAyIiBzdHJva2U9IiMzMTUzNmYiIHN0cm9rZS13aWR0aD0iMS42IiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPjx0ZXh0IHg9IjczMy41IiB5PSI1NTciIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj44LiDov5Tlm57miafooYznu5Pmnpwgwrcg5a6M5oiQ5pys5Zyw5pON5L2cPC90ZXh0PjxsaW5lIHgxPSI4NTIiIHkxPSI1NjgiIHgyPSI2MTUiIHkyPSI1NjgiIHN0cm9rZT0iIzMxNTM2ZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PHRleHQgeD0iNDgwIiB5PSI2MjMiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj45LiB1c2VyLnRvb2xfcmVzdWx0IMK3IOWbnuS8oOW3peWFt+e7k+aenDwvdGV4dD48bGluZSB4MT0iNTk5IiB5MT0iNjM0IiB4Mj0iMzYxIiB5Mj0iNjM0IiBzdHJva2U9IiMzMTUzNmYiIHN0cm9rZS13aWR0aD0iMS42IiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPjx0ZXh0IHg9IjIyNi41IiB5PSI2ODkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj4xMC4gYWdlbnQudG9vbF9yZXN1bHQgwrcg6L+U5Zue57uT5p6c5LqL5Lu2PC90ZXh0PjxsaW5lIHgxPSIzNDUiIHkxPSI3MDAiIHgyPSIxMDgiIHkyPSI3MDAiIHN0cm9rZT0iIzMxNTM2ZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PHRleHQgeD0iMjI2LjUiIHk9Ijc1NSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LFNlZ29lIFVJLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTMiIGZpbGw9IiMyNDQ2NWYiPjExLiBhZ2VudC5tZXNzYWdlIMK3IOi/lOWbnuacgOe7iOWbnuWkjTwvdGV4dD48bGluZSB4MT0iMzQ1IiB5MT0iNzY2IiB4Mj0iMTA4IiB5Mj0iNzY2IiBzdHJva2U9IiMzMTUzNmYiIHN0cm9rZS13aWR0aD0iMS42IiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPjx0ZXh0IHg9IjIyNi41IiB5PSI4MjEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj4xMi4gc2Vzc2lvbi5zdGF0dXNfaWRsZSDCtyDnu5PmnZ/lvZPliY3ova7mrKE8L3RleHQ+PGxpbmUgeDE9IjM0NSIgeTE9IjgzMiIgeDI9IjEwOCIgeTI9IjgzMiIgc3Ryb2tlPSIjMzE1MzZmIiBzdHJva2Utd2lkdGg9IjEuNiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz48L3N2Zz4=" width="960px" />
+![图片](https://arkdocs.tos-cn-beijing.volces.com/flowcharts/managed-agent/self-hosted-tool-event-sequence.svg)
 
 1. Session 返回 `agent.tool_use`，下发内置工具调用。
 
@@ -2314,15 +2265,13 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 
 5. 所有待处理结果回传后，Session 返回 `session.status_running`，Agent 根据工具结果继续处理任务。
 
-Worker 执行期间持续调用 Heartbeat 维持 Work 租约；完整的 Poll、Acknowledge、Heartbeat 和执行环境配置流程请参见 [配置并运行自托管环境](https://ark.volcengine.com/region:cn-beijing/docs/ark/configure-self-hosted-environment)。
-
-<span id=".5aSE55CG6Ieq5a6a5LmJ5bel5YW36LCD55So"></span>
+Worker 执行期间持续调用 Heartbeat 维持 Work 租约；完整的 Poll、Acknowledge、Heartbeat 和执行环境配置流程请参见 [配置并运行自托管环境](https://ark.volcengine.com/region:cn-beijing/docs/configure-self-hosted-environment)。
 
 ### 处理自定义工具调用
 
 自定义工具由业务应用执行，事件闭环如下：
 
-<img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3MjAiIGhlaWdodD0iNzI0IiB2aWV3Qm94PSIwIDAgNzIwIDcyNCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsbGVkYnk9InRpdGxlIGRlc2MiPjx0aXRsZSBpZD0idGl0bGUiPuS4muWKoeW6lOeUqOaJp+ihjCBDdXN0b20gVG9vbDwvdGl0bGU+PGRlc2MgaWQ9ImRlc2MiPuWPguS4juaWueS5i+mXtOaMieaXtumXtOmhuuW6j+S8oOmAkuS8muivneS6i+S7tjwvZGVzYz48ZGVmcz48bWFya2VyIGlkPSJhcnJvdyIgbWFya2VyV2lkdGg9IjgiIG1hcmtlckhlaWdodD0iOCIgcmVmWD0iNyIgcmVmWT0iNCIgb3JpZW50PSJhdXRvIiBtYXJrZXJVbml0cz0ic3Ryb2tlV2lkdGgiPjxwYXRoIGQ9Ik0wLDAgTDgsNCBMMCw4IFoiIGZpbGw9IiMzMTUzNmYiLz48L21hcmtlcj48L2RlZnM+PHJlY3Qgd2lkdGg9IjcyMCIgaGVpZ2h0PSI3MjQiIGZpbGw9IiNmZmZmZmYiLz48cmVjdCB4PSIyNiIgeT0iMTIiIHdpZHRoPSIxNDgiIGhlaWdodD0iNDAiIHJ4PSI0IiBmaWxsPSIjZjRmN2Y5IiBzdHJva2U9IiM5MWE0YjMiLz48dGV4dCB4PSIxMDAiIHk9IjM3IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iLWFwcGxlLXN5c3RlbSxCbGlua01hY1N5c3RlbUZvbnQsU2Vnb2UgVUksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNSIgZmlsbD0iIzE3MmIzYSI+5Lia5Yqh5bqU55SoPC90ZXh0PjxsaW5lIHgxPSIxMDAiIHkxPSI1MiIgeDI9IjEwMCIgeTI9IjcwNiIgc3Ryb2tlPSIjYWFiN2MyIiBzdHJva2Utd2lkdGg9IjEiIHN0cm9rZS1kYXNoYXJyYXk9IjQgNSIvPjxyZWN0IHg9IjU0NiIgeT0iMTIiIHdpZHRoPSIxNDgiIGhlaWdodD0iNDAiIHJ4PSI0IiBmaWxsPSIjZjRmN2Y5IiBzdHJva2U9IiM5MWE0YjMiLz48dGV4dCB4PSI2MjAiIHk9IjM3IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iLWFwcGxlLXN5c3RlbSxCbGlua01hY1N5c3RlbUZvbnQsU2Vnb2UgVUksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNSIgZmlsbD0iIzE3MmIzYSI+5pa56Iif5pyN5Yqh56uvPC90ZXh0PjxsaW5lIHgxPSI2MjAiIHkxPSI1MiIgeDI9IjYyMCIgeTI9IjcwNiIgc3Ryb2tlPSIjYWFiN2MyIiBzdHJva2Utd2lkdGg9IjEiIHN0cm9rZS1kYXNoYXJyYXk9IjQgNSIvPjx0ZXh0IHg9IjM2MCIgeT0iOTUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj4xLiDlu7rnq4sgU1NFIOi/nuaOpSDCtyDnrYnlvoXmnI3liqHnq6/lsLHnu6o8L3RleHQ+PGxpbmUgeDE9IjEwOCIgeTE9IjEwNiIgeDI9IjYxMiIgeTI9IjEwNiIgc3Ryb2tlPSIjMzE1MzZmIiBzdHJva2Utd2lkdGg9IjEuNiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz48dGV4dCB4PSIzNjAiIHk9IjE2MSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LFNlZ29lIFVJLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTMiIGZpbGw9IiMyNDQ2NWYiPjIuIHVzZXIubWVzc2FnZSDCtyDmj5DkuqTku7vliqE8L3RleHQ+PGxpbmUgeDE9IjEwOCIgeTE9IjE3MiIgeDI9IjYxMiIgeTI9IjE3MiIgc3Ryb2tlPSIjMzE1MzZmIiBzdHJva2Utd2lkdGg9IjEuNiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz48dGV4dCB4PSIzNjAiIHk9IjIyNyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LFNlZ29lIFVJLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTMiIGZpbGw9IiMyNDQ2NWYiPjMuIHNlc3Npb24uc3RhdHVzX3J1bm5pbmcgwrcg5byA5aeL5aSE55CGPC90ZXh0PjxsaW5lIHgxPSI2MTIiIHkxPSIyMzgiIHgyPSIxMDgiIHkyPSIyMzgiIHN0cm9rZT0iIzMxNTM2ZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PHRleHQgeD0iMzYwIiB5PSIyOTMiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj40LiBhZ2VudC5jdXN0b21fdG9vbF91c2Ugwrcg6K+35rGC5omn6KGM5bel5YW3PC90ZXh0PjxsaW5lIHgxPSI2MTIiIHkxPSIzMDQiIHgyPSIxMDgiIHkyPSIzMDQiIHN0cm9rZT0iIzMxNTM2ZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PHRleHQgeD0iMzYwIiB5PSIzNTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj41LiBzZXNzaW9uLnN0YXR1c19pZGxlIMK3IOetieW+heW3peWFt+e7k+aenDwvdGV4dD48bGluZSB4MT0iNjEyIiB5MT0iMzcwIiB4Mj0iMTA4IiB5Mj0iMzcwIiBzdHJva2U9IiMzMTUzNmYiIHN0cm9rZS13aWR0aD0iMS42IiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPjx0ZXh0IHg9IjM2MCIgeT0iNDI1IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iLWFwcGxlLXN5c3RlbSxCbGlua01hY1N5c3RlbUZvbnQsU2Vnb2UgVUksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMyIgZmlsbD0iIzI0NDY1ZiI+Ni4gdXNlci5jdXN0b21fdG9vbF9yZXN1bHQgwrcg5Zue5Lyg5omn6KGM57uT5p6cPC90ZXh0PjxsaW5lIHgxPSIxMDgiIHkxPSI0MzYiIHgyPSI2MTIiIHkyPSI0MzYiIHN0cm9rZT0iIzMxNTM2ZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PHRleHQgeD0iMzYwIiB5PSI0OTEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ0NjVmIj43LiBzZXNzaW9uLnN0YXR1c19ydW5uaW5nIMK3IOaBouWkjeaJp+ihjDwvdGV4dD48bGluZSB4MT0iNjEyIiB5MT0iNTAyIiB4Mj0iMTA4IiB5Mj0iNTAyIiBzdHJva2U9IiMzMTUzNmYiIHN0cm9rZS13aWR0aD0iMS42IiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPjx0ZXh0IHg9IjM2MCIgeT0iNTU3IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iLWFwcGxlLXN5c3RlbSxCbGlua01hY1N5c3RlbUZvbnQsU2Vnb2UgVUksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMyIgZmlsbD0iIzI0NDY1ZiI+OC4gYWdlbnQubWVzc2FnZSDCtyDov5Tlm57mnIDnu4jlm57lpI08L3RleHQ+PGxpbmUgeDE9IjYxMiIgeTE9IjU2OCIgeDI9IjEwOCIgeTI9IjU2OCIgc3Ryb2tlPSIjMzE1MzZmIiBzdHJva2Utd2lkdGg9IjEuNiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz48dGV4dCB4PSIzNjAiIHk9IjYyMyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LFNlZ29lIFVJLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTMiIGZpbGw9IiMyNDQ2NWYiPjkuIHNlc3Npb24uc3RhdHVzX2lkbGUgwrcg57uT5p2f5b2T5YmN6L2u5qyhPC90ZXh0PjxsaW5lIHgxPSI2MTIiIHkxPSI2MzQiIHgyPSIxMDgiIHkyPSI2MzQiIHN0cm9rZT0iIzMxNTM2ZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PC9zdmc+" width="720px" />
+![图片](https://arkdocs.tos-cn-beijing.volces.com/flowcharts/managed-agent/custom-tool-event-sequence.svg)
 
 1. Session 返回 `agent.custom_tool_use`，其中包含工具名称、输入参数和调用事件 ID。
 
@@ -2334,19 +2283,17 @@ Worker 执行期间持续调用 Heartbeat 维持 Work 租约；完整的 Poll、
 
 5. 所有待处理结果回传后，Session 返回 `session.status_running`，Agent 根据工具结果继续处理任务。
 
-完整接入示例请参见 [[基础] Custom Tool 使用教程](https://ark.volcengine.com/region:cn-beijing/docs/ark/managed-agent-custom-tool-tutorial)。所有工具事件的字段结构请参见 [会话事件结构参考](https://ark.volcengine.com/region:cn-beijing/docs/ark/sessions-events-reference-v2)。
-
-<span id=".5pu05paw5bel5YW36YWN572u"></span>
+完整接入示例请参见 [[基础] Custom Tool 使用教程](https://ark.volcengine.com/region:cn-beijing/docs/managed-agent-custom-tool-tutorial)。所有工具事件的字段结构请参见 [会话事件结构参考](https://ark.volcengine.com/region:cn-beijing/docs/sessions-events-reference-v2)。
 
 ## 更新工具配置
 
 更新 Agent 可以使用的工具时，`tools` 使用整体替换语义。为避免误取消其他可用工具，按照以下步骤读取、合并并写回完整 `tools` 数组：
 
-1. 调用[查询智能体详情](https://ark.volcengine.com/region:cn-beijing/docs/ark/get-agent-api)，获取最新 `version` 和完整 `tools` 数组。
+1. 调用[查询智能体详情](https://ark.volcengine.com/region:cn-beijing/docs/get-agent-api)，获取最新 `version` 和完整 `tools` 数组。
 
 2. 在本地副本中保留不需要修改的工具，只调整目标工具。
 
-3. 调用[更新智能体](https://ark.volcengine.com/region:cn-beijing/docs/ark/update-agent-api)，同时提交当前 `version` 和合并后的完整 `tools` 数组。
+3. 调用[更新智能体](https://ark.volcengine.com/region:cn-beijing/docs/update-agent-api)，同时提交当前 `version` 和合并后的完整 `tools` 数组。
 
 4. 再次查询 Agent，确认版本号和工具配置已经更新。
 
@@ -2354,15 +2301,11 @@ Worker 执行期间持续调用 Heartbeat 维持 Work 租约；完整的 Poll、
 
 更新请求中 `tools` 的取值语义如下：
 
-<span aceTableMode="list" aceTableWidth="1,2,3"></span>
-
 | 取值          | 配置结果                                                                                                                     | 使用建议                               |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
 | 省略或 `null` | 保留当前 `tools` 配置。                                                                                                      | 只修改其他 Agent 字段时使用。          |
 | 空数组 `[]`   | 只清空已保存的 `tools` 配置，不会关闭主 Agent 的内置工具。主 Agent 运行时仍会回退为启用全部内置工具，并使用 `always_allow`。 | 如需限制内置工具，改用显式工具集配置。 |
 | 非空数组      | 使用请求中的数组整体替换当前配置。                                                                                           | 先读取并合并所有需要保留的工具。       |
-
-<span id=".5o6S5p-l5bel5YW36Zeu6aKY"></span>
 
 ## 排查工具问题
 
@@ -2378,8 +2321,6 @@ Worker 执行期间持续调用 Heartbeat 维持 Work 租约；完整的 Poll、
 
 - 工具可以执行但权限范围过大：核对文件、网络和凭据隔离边界。
 
-<span id=".5qC45a-56YWN572u44CB54mI5pys5ZKM6Kem5Y-R5p2h5Lu2"></span>
-
 ### 核对配置、版本和触发条件
 
 如果事件流中没有出现 `agent.tool_use`、`agent.mcp_tool_use` 或 `agent.custom_tool_use`，按以下顺序检查：
@@ -2392,39 +2333,29 @@ Worker 执行期间持续调用 Heartbeat 维持 Work 租约；完整的 Poll、
 
 4. 使用相同的明确测试任务比较新旧 Session，避免把任务差异误判为版本问题。
 
-<span aceTableMode="list" aceTableWidth="1,3,3"></span>
-
 | 工具类型   | 配置检查                                                                                                                   | 任务触发条件                                                                                                     |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 内置工具   | `tools` 中包含 `type: "agent_toolset_20260701"`；根据 `default_config.enabled` 和 `configs` 的覆盖结果确认目标工具已启用。 | 测试任务明确要求读取实际文件、执行命令或访问网页，并提供文件路径、命令目标或检索主题。纯文本问答不要求调用工具。 |
+| 内置工具   | `tools` 中包含 `type: "agent_toolset_20260916"`；根据 `default_config.enabled` 和 `configs` 的覆盖结果确认目标工具已启用。 | 测试任务明确要求读取实际文件、执行命令或访问网页，并提供文件路径、命令目标或检索主题。纯文本问答不要求调用工具。 |
 | MCP 工具   | `mcp_servers[].name` 与 `tools[].mcp_server_name` 一致；根据 `default_config` 和 `configs` 确认目标 MCP 工具已启用。       | 测试任务明确要求访问对应外部系统，并提供项目、记录或其他业务标识。                                               |
 | 自定义工具 | `tools` 中包含 `type: "custom"`，并保存了正确的 `name`、`description` 和 `input_schema`。`description` 需要说明适用条件。  | 测试任务明确要求执行该业务操作，并提供 `input_schema` 中的必需信息。                                             |
 
 Agent 会根据任务内容和工具说明判断是否调用工具。单次未调用不能直接证明配置无效；应先使用明确要求目标能力的测试任务复现。
 
-<span id="tool-defaults-and-boundaries"></span>
-
 #### 核对默认工具范围
 
 主 Agent 与子 Agent 在未配置内置工具集时采用不同的运行时行为：
 
-<span aceTableMode="list" aceTableWidth="2,2,2,3"></span>
-
 | 配置                                                 | 主 Agent                                            | 子 Agent                                                   | 建议                                 |
 | ---------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------ |
 | 省略 `tools`、传 `[]`，或只配置其他工具类型          | 回退为启用全部内置工具，权限策略为 `always_allow`。 | 不提供内置工具；Session 启用的 Memory 工具不受此规则影响。 | 不依赖省略行为，显式配置内置工具集。 |
-| 配置 `agent_toolset_20260701`，省略 `default_config` | 服务端保存 `enabled=true` 和 `always_allow`。       | 按相同配置提供内置工具。                                   | 在请求中显式写出启用状态和权限策略。 |
+| 配置 `agent_toolset_20260916`，省略 `default_config` | 服务端保存 `enabled=true` 和 `always_allow`。       | 按相同配置提供内置工具。                                   | 在请求中显式写出启用状态和权限策略。 |
 | 配置 `default_config.enabled=false`，再逐项启用      | 只提供 `configs` 中显式启用的工具。                 | 只提供 `configs` 中显式启用的工具。                        | 需要最小工具集时使用。               |
 
 判断子 Agent 是否实际执行工具时，以子线程中的 `agent.tool_use` 和 `agent.tool_result` 为准。System Prompt 或最终回复中声称已执行工具，不代表运行环境实际提供或执行了该工具。
 
-<span id=".5qC45a-56buY6K6k5p2D6ZmQ562W55Wl"></span>
-
 #### 核对默认权限策略
 
 权限策略存在以下默认分支：
-
-<span aceTableMode="list" aceTableWidth="2,2,2"></span>
 
 | 配置                                                | 内置工具                                    | MCP 工具                                    |
 | --------------------------------------------------- | ------------------------------------------- | ------------------------------------------- |
@@ -2432,13 +2363,9 @@ Agent 会根据任务内容和工具说明判断是否调用工具。单次未�
 | 已提供 `default_config`，但省略 `permission_policy` | 运行时使用 `always_allow`。                 | 运行时使用 `always_ask`。                   |
 | 显式配置 `permission_policy`                        | 使用配置的 `always_allow` 或 `always_ask`。 | 使用配置的 `always_allow` 或 `always_ask`。 |
 
-<span id=".5aSE55CGLXJlcXVpcmVzLWFjdGlvbg=="></span>
-
 ### 处理 requires_action
 
 Session 返回 `stop_reason.type=requires_action` 时，先读取 `stop_reason.event_ids`，再根据每个阻塞事件的类型执行对应操作：
-
-<span aceTableMode="list" aceTableWidth="2,2,3"></span>
 
 | 阻塞事件                                 | 场景                                          | 处理方式                                                                                                                                                                               |
 | ---------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -2447,8 +2374,6 @@ Session 返回 `stop_reason.type=requires_action` 时，先读取 `stop_reason.e
 | `agent.custom_tool_use`                  | 业务应用执行自定义工具。                      | 发送 `user.custom_tool_result`，使用 `custom_tool_use_id` 关联调用；失败时设置 `is_error: true` 并返回错误说明。                                                                       |
 
 同一轮可能包含多个阻塞事件。处理 `stop_reason.event_ids` 中的全部事件后，Session 才会恢复运行。不要用新的 `user.message` 代替确认或工具结果。
-
-<span id=".5o6S5p-l5bel5YW357uT5p6c6ZSZ6K-v"></span>
 
 ### 排查工具结果错误
 
@@ -2462,13 +2387,9 @@ Session 返回 `stop_reason.type=requires_action` 时，先读取 `stop_reason.e
 
 工具结果尚未处理完成时，不要重复发送原始任务，否则同一工具可能重复执行。
 
-<span id=".5aSE55CGLXNlc3Npb24t6ZSZ6K-v"></span>
-
 ### 处理 Session 错误
 
 `session.error` 不一定由工具配置引起。先读取 `error.type`、`error.message` 和 `error.retry_status.type`，并结合错误前的最后一个事件定位问题。
-
-<span aceTableMode="list" aceTableWidth="1,3"></span>
 
 | 重试状态    | 处理方式                                                                           |
 | ----------- | ---------------------------------------------------------------------------------- |
@@ -2482,60 +2403,31 @@ Session 返回 `stop_reason.type=requires_action` 时，先读取 `stop_reason.e
 
 - `mcp_connection_failed_error`：检查 MCP Server URL、网络连通性和服务状态。
 
-修正 MCP 配置后，更新 Agent，并创建新 Session 或升级现有 Session。如果 `error.type` 不是 MCP 相关类型，且错误前没有工具调用事件，优先排查模型调用或 Session 运行问题，不要把所有 `session.error` 都归因于工具。事件字段和其他错误类型请参见 [会话事件结构参考](https://ark.volcengine.com/region:cn-beijing/docs/ark/sessions-events-reference-v2)。
-
-<span id=".5qC45a-55paH5Lu25ZKM572R57uc6ZqU56a7"></span>
+修正 MCP 配置后，更新 Agent，并创建新 Session 或升级现有 Session。如果 `error.type` 不是 MCP 相关类型，且错误前没有工具调用事件，优先排查模型调用或 Session 运行问题，不要把所有 `session.error` 都归因于工具。事件字段和其他错误类型请参见 [会话事件结构参考](https://ark.volcengine.com/region:cn-beijing/docs/sessions-events-reference-v2)。
 
 ### 核对文件和网络隔离
 
-<div data-tips="true" data-tips-type="warning" data-tips-is-title="true">注意</div>
+> **注意**
 
-<div data-tips="true" data-tips-type="warning">关闭 <code>write</code>、<code>edit</code>、<code>web_fetch</code> 或 <code>web_search</code> 不等于完成强隔离。<code>read</code>、<code>glob</code> 和 <code>grep</code> 仍可能访问敏感文件；如果 Agent 仍可使用 <code>bash</code>，或者 Environment 允许不受限联网，命令仍可能读取或修改文件并访问网络。需要强隔离时，同时收敛内置工具、Environment 文件和网络策略，以及外部凭据权限。</div>
-
-<span id=".55u45YWz5paH5qGj"></span>
+> 关闭 `write`、`edit`、`web_fetch` 或 `web_search` 不等于完成强隔离。`read`、`glob` 和 `grep` 仍可能访问敏感文件；如果 Agent 仍可使用 `bash`，或者 Environment 允许不受限联网，命令仍可能读取或修改文件并访问网络。需要强隔离时，同时收敛内置工具、Environment 文件和网络策略，以及外部凭据权限。
 
 ## 相关文档
 
-<columns>
-<columnsItem zoneid="AltenpXUxW">
-
-<card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/define-agent" >
-
-**Agent**
+[Agent](https://ark.volcengine.com/region:cn-beijing/docs/define-agent)
 
 Agent 是包含基本信息、System Prompt、扩展能力的配置模板。
 
-</card>
-
-<card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/skills" >
-
-**Skills**
+[Skills](https://ark.volcengine.com/region:cn-beijing/docs/skills)
 
 Skills 用于给 Agent 补充领域知识、操作流程和最佳实践。
 
-</card>
-
-</columnsItem>
-<columnsItem zoneid="W8YhAxdiht">
-
-<card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/mcp" >
-
-**MCP**
+[MCP](https://ark.volcengine.com/region:cn-beijing/docs/mcp)
 
 MCP（Model Context Protocol）用于把第三方系统的工具与数据源接入 Agent。
 
-</card>
-
-<card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/tool-permission-policy" >
-
-**工具权限策略**
+[工具权限策略](https://ark.volcengine.com/region:cn-beijing/docs/tool-permission-policy)
 
 工具权限策略用于控制 Agent 发起工具调用时，是自动执行，还是暂停等待确认。
-
-</card>
-
-</columnsItem>
-</columns>
 
 <a id="doc-2553720"></a>
 
@@ -2550,8 +2442,6 @@ MCP（Model Context Protocol）用于把第三方系统的工具与数据源接�
 当前权限策略只作用于服务端执行的工具：
 
 - 内置工具集 `agent_toolset_20260916`
-
-- 兼容版内置工具集 `agent_toolset_20260701`
 
 - 多模态工具集 `agent_toolset_multimodal_20260825`
 
@@ -2589,7 +2479,7 @@ MCP（Model Context Protocol）用于把第三方系统的工具与数据源接�
 下面的示例把内置工具集的默认策略改成 `always_ask`：
 
 <Tabs>
-<Tab zoneid="DGj8ShVfVk" title="Curl">
+<Tab zoneid="RAEENyJz1L" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -2603,7 +2493,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
     },
     "tools": [
       {
-        "type": "agent_toolset_20260701",
+        "type": "agent_toolset_20260916",
         "default_config": {
           "enabled": true,
           "permission_policy": {
@@ -2629,7 +2519,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 下面的示例保留内置工具集默认自动执行，但要求 `bash` 每次执行前都先确认：
 
 <Tabs>
-<Tab zoneid="j1l8n6wfD0" title="Curl">
+<Tab zoneid="qMG3cyI6BD" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -2643,7 +2533,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
     },
     "tools": [
       {
-        "type": "agent_toolset_20260701",
+        "type": "agent_toolset_20260916",
         "default_config": {
           "enabled": true,
           "permission_policy": {
@@ -2676,7 +2566,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 下面的示例将可信 MCP Server 的工具集显式设置为 `always_allow`，便于直接核对自动执行范围：
 
 <Tabs>
-<Tab zoneid="FF0e0Ffcou" title="Curl">
+<Tab zoneid="AA0wwm74aA" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -2697,7 +2587,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
     ],
     "tools": [
       {
-        "type": "agent_toolset_20260701",
+        "type": "agent_toolset_20260916",
         "default_config": {
           "enabled": true,
           "permission_policy": {
@@ -2743,7 +2633,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 ## 相关文档
 
 <columns>
-<columnsItem zoneid="pEn8oWUZhW">
+<columnsItem zoneid="YxStMHVbLA">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/define-agent" >
 
@@ -2762,7 +2652,7 @@ Skills 用于给 Agent 补充领域知识、操作流程和最佳实践。
 </card>
 
 </columnsItem>
-<columnsItem zoneid="trZb8A3Pe2">
+<columnsItem zoneid="VDaq8MeYNz">
 
 <card mode="container" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/mcp" >
 
@@ -2795,9 +2685,7 @@ Tools 决定 Agent 在 Session 中能主动调用哪些执行能力。
 
 **Environment** 描述 Agent 运行时使用的沙箱模板。一个 Environment 可以被多个 Session 复用，但每个 Session 会启动独立的沙箱实例，文件系统状态彼此隔离。
 
-Managed Agents 同时支持云环境和自托管环境。本页只介绍由方舟管理沙箱的云环境。如果你需要在企业基础设施中执行工具或访问内网资源，选择自托管环境，详情请参见 [自托管环境概述](https://ark.volcengine.com/region:cn-beijing/docs/ark/self-hosted-environment-overview)。
-
-<span id="create-environment"></span>
+Managed Agents 同时支持云环境和自托管环境。本页只介绍由方舟管理沙箱的云环境。如果你需要在企业基础设施中执行工具或访问内网资源，选择自托管环境，详情请参见 [自托管环境概述](https://ark.volcengine.com/region:cn-beijing/docs/self-hosted-environment-overview)。
 
 ## 创建环境
 
@@ -2815,9 +2703,9 @@ Managed Agents 同时支持云环境和自托管环境。本页只介绍由方�
 
 - 产物存储：可选。需要长期保留 Agent 产物时，选择自己的 TOS 目录；不选择时使用方舟公共 TOS。
 
-<div data-tips="true" data-tips-type="tip" data-tips-is-title="true">说明</div>
+> **说明**
 
-<div data-tips="true" data-tips-type="tip">创建 Environment 时使用清晰且唯一的名称，便于区分开发、测试和生产等不同用途。</div>
+> 创建 Environment 时使用清晰且唯一的名称，便于区分开发、测试和生产等不同用途。
 
 参考以下示例代码，使用 API 创建环境：
 
@@ -2879,13 +2767,9 @@ echo "Environment ID: $ENVIRONMENT_ID"
 
 - `config.tos`：Agent 最终产物的 TOS 存储位置。需要长期保留 Agent 生成的报告、文件或代码时配置；不配置时产物使用方舟公共 TOS。
 
-<span id="configure-output-storage"></span>
-
 ## 配置产物存储
 
 需要将产物长期保存在自己的 TOS Bucket 时，为 Environment 配置 `config.tos`；继续使用方舟公共 TOS 时，省略该字段。无论选择哪种存储方式，Agent 都将最终交付物写入沙箱内的 `/mnt/session/outputs/`。
-
-<span aceTableMode="list" aceTableWidth="1,2,2"></span>
 
 | 你的配置            | 产物位置                                                                       | 你需要做什么                                                                     |
 | ------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
@@ -2894,7 +2778,7 @@ echo "Environment ID: $ENVIRONMENT_ID"
 
 将产物写入自己的 TOS Bucket 时，需要满足以下条件：
 
-- 目标 Bucket 已在方舟项目中完成授权，详情请参见 [用户对象存储（TOS）授权](https://ark.volcengine.com/region:cn-beijing/docs/ark/project-configuration#4eb1b277)。
+- 目标 Bucket 已在方舟项目中完成授权，详情请参见 [用户对象存储（TOS）授权](https://ark.volcengine.com/region:cn-beijing/docs/project-configuration#4eb1b277)。
 
 - Bucket 与 Managed Agents 服务须部署在同一地域，跨地域 Bucket 会在预检查阶段被拒绝。
 
@@ -2975,11 +2859,9 @@ jq '{id, tos: (.config.tos // null)}' <<<"$cleared_environment"
 # }
 ```
 
-<div data-tips="true" data-tips-type="warning" data-tips-is-title="true">注意</div>
+> **注意**
 
-<div data-tips="true" data-tips-type="warning">先更新 Environment，再创建需要使用新存储配置的 Session。已有 Session 使用创建时冻结的配置快照，不会自动切换到新的 Bucket 或 <code>prefix</code>。</div>
-
-<span id="use-environment"></span>
+> 先更新 Environment，再创建需要使用新存储配置的 Session。已有 Session 使用创建时冻结的配置快照，不会自动切换到新的 Bucket 或 `prefix`。
 
 ## 在 Session 中使用环境
 
@@ -3004,9 +2886,7 @@ SESSION_ID=$(jq -er '.id' <<<"$session")
 echo "Session ID: $SESSION_ID"
 ```
 
-如果只有某次任务需要使用不同的产物存储位置，可以在创建 Session 时使用 Environment 覆写，不需要修改可复用的 Environment。详情请参见 [覆写产物存储（可选）](https://ark.volcengine.com/region:cn-beijing/docs/ark/start-session#override-output-storage)。
-
-<span id="environment-lifecycle"></span>
+如果只有某次任务需要使用不同的产物存储位置，可以在创建 Session 时使用 Environment 覆写，不需要修改可复用的 Environment。详情请参见 [覆写产物存储](https://ark.volcengine.com/region:cn-beijing/docs/start-session#override-output-storage)。
 
 ## 环境生命周期
 
@@ -3017,8 +2897,6 @@ echo "Session ID: $SESSION_ID"
 - 环境本身不做版本化管理。如果你频繁更新环境配置，建议在业务侧记录变更，以便追溯某个 Session 使用的是哪一版环境。
 
 - Environment 被 `idle` 或 `running` 状态的 Session 引用时不能删除。删除前，先终止或删除这些 Session；其他状态的 Session 不会阻止删除 Environment。
-
-<span id="manage-environment"></span>
 
 ## 管理环境
 
@@ -3055,11 +2933,9 @@ curl -sS --fail-with-body -X DELETE \
   -H "Authorization: Bearer $ARK_API_KEY"
 ```
 
-<span id="preinstalled-runtimes"></span>
-
 ## 预置运行时
 
-云沙箱默认包含常见语言运行时、数据库和工具。需要确认具体内置版本、目录用途或完整清单时，详情请参见 [云沙箱参考](https://ark.volcengine.com/region:cn-beijing/docs/ark/cloud-sandbox-reference)。
+云沙箱默认包含常见语言运行时、数据库和工具。需要确认具体内置版本、目录用途或完整清单时，详情请参见 [云沙箱参考](https://ark.volcengine.com/region:cn-beijing/docs/cloud-sandbox-reference)。
 
 <a id="doc-2553722"></a>
 
@@ -3285,7 +3161,7 @@ Session 是托管 Agent 在某个 Environment 中跑某个 Agent 的一次实例
 Agent 是带版本的资源，以字符串形式传入 `agent` ID 时，Session 会用该 Agent 的**最新版本**启动。
 
 <Tabs>
-<Tab zoneid="WSMbp6Doof" title="Curl">
+<Tab zoneid="u9kX9PdL28" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3330,7 +3206,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 当你需要把 Session 锁定到 Agent 的某个具体版本（用于回滚、灰度对比、产品定版）时，以对象形式传入 `agent`，显式指定 `version`：
 
 <Tabs>
-<Tab zoneid="cwogc5kDov" title="Curl">
+<Tab zoneid="Nwi3hBcKum" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3348,9 +3224,171 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 
 固定版本后，即使该 Agent 后续发布了新版本，本 Session 仍按 `version: 1` 的行为运行。这让你可以分阶段灰度推出新版本，而不影响存量 Session 的行为一致性。
 
+<span id="override-agent-config"></span>
+
+## 覆写 Agent 配置（可选）
+
+大多数 Session 直接传入 Agent ID 或版本引用，沿用该版本的完整配置。只有当前任务需要不同的系统提示词、模型、工具、MCP 服务、技能或多智能体协作配置时，才传入 `agent_with_overrides` 对象。
+
+以下示例在本次 Session 中替换系统提示词和模型，将工具列表替换为内置工具集，并清空基础 Agent 的技能与 MCP 服务：
+
+<Tabs>
+<Tab zoneid="Xl9mddSfQY" title="Curl">
+<TabTitle>Curl</TabTitle>
+
+```Bash
+session=$(
+  curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/sessions" \
+    -H "Authorization: Bearer $ARK_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d @- <<EOF
+{
+  "agent": {
+    "type": "agent_with_overrides",
+    "id": "$AGENT_ID",
+    "version": 1,
+    "system": "你是一个代码审查助手，只报告可复现的问题并给出修改建议。",
+    "model": {
+      "id": "doubao-seed-2-1-pro-260915"
+    },
+    "tools": [
+      {
+        "type": "agent_toolset_20260916",
+        "name": "agent_toolset_20260916",
+        "configs": [
+          {
+            "name": "bash",
+            "enabled": true,
+            "permission_policy": {
+              "type": "always_allow"
+            }
+          }
+        ],
+        "default_config": {
+          "enabled": false,
+          "permission_policy": {
+            "type": "always_allow"
+          }
+        }
+      }
+    ],
+    "skills": [],
+    "mcp_servers": []
+  },
+  "environment_id": "$ENVIRONMENT_ID",
+  "title": "Session with agent configuration overrides"
+}
+EOF
+)
+
+SESSION_ID=$(jq -er '.id' <<<"$session")
+echo "Session ID: $SESSION_ID"
+```
+
+</Tab>
+</Tabs>
+
+Agent 覆写遵循以下规则：
+
+- `agent.id` 指向基础 Agent；通过可选的 `agent.version` 指定基础版本，省略时使用最新版本。
+
+- 省略的字段沿用基础 Agent 的配置。`model` 中省略的子字段也沿用基础 Agent 的对应配置。
+
+- `system` 和 `model` 只修改当前 Session 的智能体快照，不创建 Agent 新版本，也不影响其他 Session。
+
+- `tools`、`mcp_servers` 和 `skills` 是完整列表覆写：传入非空数组时整体替换，传入 `[]` 时清空，省略时才沿用基础 Agent 的列表。
+
+- `multiagent` 是完整对象覆写：省略时沿用基础 Agent 的配置；提供时，`type` 固定为 `coordinator`，`agents` 最多包含 20 项，传入 `[]` 时清空子智能体列表。
+
+- `multiagent.agents[].type` 为 `agent` 时，填写当前账号和项目中的子 Agent ID，可通过 `version` 固定版本，省略版本时使用最新版本；设为 `self` 时复用当前主 Agent 的配置。
+
+- 创建成功后，检查响应中的 `agent` 对象，确认本次 Session 实际保存的配置快照。
+
+- 多智能体配置生效后，主 Agent 可把任务委派给子 Agent；平台为子 Agent 创建独立线程，并将子 Agent 的结果返回主线程。
+
+<div data-tips="true" data-tips-type="warning" data-tips-is-title="true">注意</div>
+
+<div data-tips="true" data-tips-type="warning">不要为了表示“不修改”而给 <code>tools</code>、<code>mcp_servers</code>、<code>skills</code> 或 <code>multiagent.agents</code> 传 <code>[]</code>。空数组会清空基础 Agent 的对应列表；不需要覆写时应省略该字段。</div>
+
+<span id="override-environment-config"></span>
+
+## 覆写 Environment 配置（可选）
+
+大多数 Session 直接传入 `environment_id`，沿用 Environment 的完整运行配置。只有当前任务需要不同的依赖包、环境变量、初始化脚本或产物存储位置时，改用 `environment` 对象。
+
+Environment 覆写遵循以下规则：
+
+- `environment.id` 指向作为基础配置的 Environment。
+
+- `environment.config.type` 必须与基础 Environment 的类型相同。
+
+- `environment_id` 与 `environment` 允许同时提供，但同时提供时，`environment.id` 必须与 `environment_id` 相同，否则请求会被拒绝。
+
+- 省略的 `config` 子字段沿用基础 Environment 的配置。提供的子字段只写入当前 Session 的环境快照，不修改原 Environment，也不影响之后创建的其他 Session。
+
+<span id=".6KaG5YaZ5L6d6LWW5YyF44CB546v5aKD5Y-Y6YeP5ZKM5Yid5aeL5YyW6ISa5pys"></span>
+
+### 覆写依赖包、环境变量和初始化脚本
+
+需要为单个 Session 增加依赖、注入任务专用变量或执行初始化命令时，覆写 `config.packages`、`config.env` 和 `config.setup_script`：
+
+<Tabs>
+<Tab zoneid="nQyhS71s8b" title="Curl">
+<TabTitle>Curl</TabTitle>
+
+```Bash
+session=$(
+  curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/sessions" \
+    -H "Authorization: Bearer $ARK_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d @- <<EOF
+{
+  "agent": "$AGENT_ID",
+  "environment": {
+    "type": "environment_with_overrides",
+    "id": "$ENVIRONMENT_ID",
+    "config": {
+      "type": "cloud",
+      "packages": {
+        "pip": ["pyfiglet==1.0.2"]
+      },
+      "env": {
+        "SESSION_PROFILE": "document-analysis"
+      },
+      "setup_script": "mkdir -p /workspace/bootstrap && echo ready > /workspace/bootstrap/status.txt"
+    }
+  },
+  "title": "Session with runtime configuration overrides"
+}
+EOF
+)
+
+SESSION_ID=$(jq -er '.id' <<<"$session")
+echo "Session ID: $SESSION_ID"
+```
+
+</Tab>
+</Tabs>
+
+- `config.packages`：配置当前 Session 启动时预装的 `pip`、`apt`、`npm`、`cargo`、`gem` 或 `go` 依赖。传入对象时整体替换基础 Environment 的依赖包配置；传入空对象 `{}` 时清空全部依赖。
+
+- `config.env`：以字符串键值对配置当前 Session 的环境变量。传入对象时整体替换基础 Environment 的环境变量；传入空对象 `{}` 时清空全部环境变量。
+
+- `config.setup_script`：配置当前 Session 启动时执行的 Bash 初始化脚本。传入非空字符串时替换基础 Environment 的脚本；传入空字符串 `""` 时清空。脚本在 `/workspace` 目录中运行，内容不能超过 256 KiB（262144 字节）。
+
+<div data-tips="true" data-tips-type="warning" data-tips-is-title="true">注意</div>
+
+<div data-tips="true" data-tips-type="warning"><code>setup_script</code> 超过大小限制时不会执行，脚本以非零状态码退出时也不会回滚退出前已完成的操作；这两种情况下，Session 仍可能创建成功并继续运行。让脚本写入可检查的标记文件，并在发送任务前确认依赖、目录或文件已经准备完成。</div>
+
+<div data-tips="true" data-tips-type="tip" data-tips-is-title="true">说明</div>
+
+<div data-tips="true" data-tips-type="tip">这些字段用于覆写 <code>cloud</code> Environment 的托管运行环境。<code>self_hosted</code> Environment 的依赖、环境变量和初始化过程由企业 Worker 管理。</div>
+
+创建成功后，响应中的 `environment.type` 为 `environment_with_overrides`，`environment.overridden_fields` 列出本次实际覆写的 `config` 子字段。未使用覆写对象时，`environment.type` 为 `environment`，响应不返回 `overridden_fields`。
+
 <span id="override-output-storage"></span>
 
-## 覆写产物存储（可选）
+### 覆写产物存储
 
 需要沿用 Environment 的产物存储配置时，在创建 Session 时传入 `environment_id`：
 
@@ -3361,7 +3399,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 只有当前任务需要使用不同的 Bucket 或 `prefix` 时，改用 `environment` 对象创建 Session，并通过 `environment_with_overrides` 临时覆写 `config.tos`：
 
 <Tabs>
-<Tab zoneid="LibIpSaA0U" title="Curl">
+<Tab zoneid="JYbaMMDRlE" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3395,17 +3433,11 @@ echo "Session ID: $SESSION_ID"
 </Tab>
 </Tabs>
 
-Environment 覆写遵循以下规则：
-
-- `environment_id` 与 `environment` 允许同时提供，但同时提供时，`environment.id` 必须与 `environment_id` 相同，否则请求会被拒绝。
-
-- `environment.id` 指向作为基础配置的 Environment。
+产物存储覆写遵循以下规则：
 
 - `config.tos` 是原子配置。传非空对象时，`bucket` 和 `prefix` 必须同时提供。
 
 - 省略 `config.tos` 时，产物使用 Environment 中配置的存储位置；传空对象 `{}` 时，本次 Session 的产物存入方舟公共 TOS。
-
-- 覆写只对当前 Session 生效，不会修改原 Environment，也不会影响之后创建的其他 Session。
 
 <div data-tips="true" data-tips-type="warning" data-tips-is-title="true">注意</div>
 
@@ -3415,12 +3447,12 @@ Environment 覆写遵循以下规则：
 
 ## 通过 Vaults 注入终端用户凭据（可选）
 
-如果 Agent 配置了需要鉴权的 MCP 工具（详情请参见 [使用 Vaults 认证](https://ark.volcengine.com/region:cn-beijing/docs/ark/use-vaults-authentication)），创建 Session 时通过 `vault_ids` 引用预存凭据。方舟会自动管理 token 刷新与注入。
+如果 Agent 需要在 MCP 工具、CLI、SDK 等第三方调用中使用鉴权信息（详情请参见 [使用 Vaults 认证](https://ark.volcengine.com/region:cn-beijing/docs/ark/use-vaults-authentication)），创建 Session 时通过 `vault_ids` 引用预存凭据。方舟会按凭据类型注入密钥。OAuth 凭据启用自动刷新后，方舟会在访问令牌临近过期时换取新令牌。
 
 最简示例，把 Vaults（凭据保管库）挂到 Session：
 
 <Tabs>
-<Tab zoneid="K0fezpzT0c" title="Curl">
+<Tab zoneid="M4rMULTyug" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -3464,7 +3496,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 以下示例需要本地已安装 `curl` 和 `jq`：
 
 <Tabs>
-<Tab zoneid="lLZlGoNYhI" title="Curl">
+<Tab zoneid="IeCpsIw5Gl" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -4102,13 +4134,15 @@ Session 资源记录、完整事件、沙箱状态和 Agent 产物使用独立�
 
 ## 发送事件
 
-客户端通过 `POST /sessions/{session_id}/events` 向 Session 发送 `user.message` 事件，`content` 是一个块数组，可混合文本（`text`）、图片（`image`）、文档（`document`）三类块。
+客户端通过 `POST /sessions/{session_id}/events` 向 Session 发送 `user.message` 事件，`content` 是一个块数组，可混合文本（`text`）、图片（`image`）、文档（`document`）、视频（`video`）四类块。
 
 - 图片 `image` 的 `source.type` 支持三种：`base64`（内联 base64，需带 `media_type`）、`url`（公网可访问 URL）、`file`（已上传文件 ID，字段为 `file_id`）。
 
 - 文档 `document` 的 `source.type` 支持四种：`file`（已上传文件 ID）、`url`（公网可访问 URL）、`base64`（内联 base64，需带 `media_type`）、`text`（直接内联纯文本，`media_type: text/plain` + `data` 字段）；可选 `title` 与 `context` 字段为文档附加标题与背景说明。
 
-- 同一请求的 `content` 数组可混合多个图片或文档块。
+- 视频 `video` 的 `source.type` 支持三种：`base64`（内联 Base64，需带 `media_type` 和 `data`）、`url`（公网可访问 URL）、`file`（已上传视频文件 ID，字段为 `file_id`）。三种来源均可通过 `fps` 设置抽帧频率，取值范围为 0.2～5。
+
+- 同一请求的 `content` 数组可混合多个图片、文档或视频块。
 
 - 如需为当前轮次动态追加系统提示词，可在 `events` 数组里 `user.message` 后紧跟一个 `system.message`，详情请参见 [动态系统提示词](https://ark.volcengine.com/region:cn-beijing/docs/ark/session-event-stream#dynamic-system-prompt)。
 
@@ -4117,7 +4151,7 @@ Session 资源记录、完整事件、沙箱状态和 Agent 产物使用独立�
 ### 常见内容组合示例
 
 <Tabs>
-<Tab zoneid="DjEtTO2DxJ" title="纯文本">
+<Tab zoneid="AOc7xg98rj" title="纯文本">
 <TabTitle>纯文本</TabTitle>
 
 ```Bash
@@ -4133,7 +4167,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="Pt5ENY8CSR" title="文本 + 图片（URL）">
+<Tab zoneid="SSVyzLeCif" title="文本 + 图片（URL）">
 <TabTitle>文本 + 图片（URL）</TabTitle>
 
 ```Bash
@@ -4152,7 +4186,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="OGWEtTXDDp" title="文本 + 图片（base64）">
+<Tab zoneid="p4klpbxId5" title="文本 + 图片（base64）">
 <TabTitle>文本 + 图片（base64）</TabTitle>
 
 ```Bash
@@ -4171,7 +4205,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="bpvTXiUdis" title="文本 + 图片（file_id）">
+<Tab zoneid="WIW15llL3q" title="文本 + 图片（file_id）">
 <TabTitle>文本 + 图片（file_id）</TabTitle>
 
 ```Bash
@@ -4190,7 +4224,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="FlIwKBZl60" title="文本 + 文档（file_id）">
+<Tab zoneid="QV06fV6tYS" title="文本 + 文档（file_id）">
 <TabTitle>文本 + 文档（file_id）</TabTitle>
 
 ```Bash
@@ -4209,7 +4243,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="Id48DPzyim" title="文本 + 文档（内联纯文本）">
+<Tab zoneid="KtzDBFxGgj" title="文本 + 文档（内联纯文本）">
 <TabTitle>文本 + 文档（内联纯文本）</TabTitle>
 
 ```Bash
@@ -4228,7 +4262,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="gJkBokkSdy" title="文本 + 文档（base64 PDF）">
+<Tab zoneid="lOreQMiFtV" title="文本 + 文档（base64 PDF）">
 <TabTitle>文本 + 文档（base64 PDF）</TabTitle>
 
 ```Bash
@@ -4247,7 +4281,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="wNq9wTjaVk" title="文本 + 文档（URL）">
+<Tab zoneid="Gbq5S8UjLi" title="文本 + 文档（URL）">
 <TabTitle>文本 + 文档（URL）</TabTitle>
 
 ```Bash
@@ -4266,7 +4300,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ```
 
 </Tab>
-<Tab zoneid="JnspumT6g7" title="文本 + 多附件混合">
+<Tab zoneid="rmxKAr3GYs" title="文本 + 多附件混合">
 <TabTitle>文本 + 多附件混合</TabTitle>
 
 ```Bash
@@ -4340,7 +4374,7 @@ Session 处于 `running` 状态时，你仍可以继续发送 `user.message`。�
 单独发送 `system.message`、未紧跟 `user.message` 或未放在 `events` 数组末尾，都会返回 HTTP 400 `InvalidPayload`。
 
 <Tabs>
-<Tab zoneid="jrbaWCcQP3" title="Curl">
+<Tab zoneid="md0TWRd755" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -4372,11 +4406,19 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 
 需要在完整消息生成前更新界面时，通过 `event_deltas` 指定要预览的事件类型。当前支持 `agent.message` 和 `agent.thinking`：
 
+多值可以重复传入，例如 `?event_deltas=agent.message&event_deltas=agent.thinking`；也可以使用逗号分隔，例如 `?event_deltas=agent.message,agent.thinking`。
+
+<div data-tips="true" data-tips-type="warning" data-tips-is-title="true">注意</div>
+
+<div data-tips="true" data-tips-type="warning">参数名必须写为 <code>event_deltas</code>，不要写成 <code>event_deltas[]</code>。服务端会忽略未知参数名和不支持的事件类型，并继续返回 HTTP 200；客户端应根据是否收到对应的 <code>event_start</code> 和 <code>event_delta</code> 判断预览订阅是否生效。</div>
+
 <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3MjAiIGhlaWdodD0iMzk0IiB2aWV3Qm94PSIwIDAgNzIwIDM5NCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsbGVkYnk9InRpdGxlIGRlc2MiPjx0aXRsZSBpZD0idGl0bGUiPumihOiniOW4p+WIsOWujOaVtOS6i+S7tjwvdGl0bGU+PGRlc2MgaWQ9ImRlc2MiPuacjeWKoeerr+WFiOWPkemAgSBldmVudF9zdGFydO+8jOWGjeWPkemAgeS4gOasoeaIluWkmuasoSBldmVudF9kZWx0Ye+8jOacgOWQjuWPkemAgeWujOaVtOeahCBhZ2VudC5tZXNzYWdlIOaIliBhZ2VudC50aGlua2luZyDkuovku7Y8L2Rlc2M+PGRlZnM+PG1hcmtlciBpZD0iYXJyb3ciIG1hcmtlcldpZHRoPSI4IiBtYXJrZXJIZWlnaHQ9IjgiIHJlZlg9IjciIHJlZlk9IjQiIG9yaWVudD0iYXV0byIgbWFya2VyVW5pdHM9InN0cm9rZVdpZHRoIj48cGF0aCBkPSJNMCwwIEw4LDQgTDAsOCBaIiBmaWxsPSIjMzE1MzZmIi8+PC9tYXJrZXI+PC9kZWZzPjxyZWN0IHdpZHRoPSI3MjAiIGhlaWdodD0iMzk0IiBmaWxsPSIjZmZmIi8+PHJlY3QgeD0iMjYiIHk9IjEyIiB3aWR0aD0iMTQ4IiBoZWlnaHQ9IjQwIiByeD0iNCIgZmlsbD0iI2Y0ZjdmOSIgc3Ryb2tlPSIjOTFhNGIzIi8+PHRleHQgeD0iMTAwIiB5PSIzNyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LFNlZ29lIFVJLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTUiIGZpbGw9IiMxNzJiM2EiPuS4muWKoeW6lOeUqDwvdGV4dD48bGluZSB4MT0iMTAwIiB5MT0iNTIiIHgyPSIxMDAiIHkyPSIzNzYiIHN0cm9rZT0iI2FhYjdjMiIgc3Ryb2tlLXdpZHRoPSIxIiBzdHJva2UtZGFzaGFycmF5PSI0IDUiLz48cmVjdCB4PSI1NDYiIHk9IjEyIiB3aWR0aD0iMTQ4IiBoZWlnaHQ9IjQwIiByeD0iNCIgZmlsbD0iI2Y0ZjdmOSIgc3Ryb2tlPSIjOTFhNGIzIi8+PHRleHQgeD0iNjIwIiB5PSIzNyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LFNlZ29lIFVJLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTUiIGZpbGw9IiMxNzJiM2EiPuaWueiIn+acjeWKoeerrzwvdGV4dD48bGluZSB4MT0iNjIwIiB5MT0iNTIiIHgyPSI2MjAiIHkyPSIzNzYiIHN0cm9rZT0iI2FhYjdjMiIgc3Ryb2tlLXdpZHRoPSIxIiBzdHJva2UtZGFzaGFycmF5PSI0IDUiLz48dGV4dCB4PSIzNjAiIHk9Ijk1IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iLWFwcGxlLXN5c3RlbSxCbGlua01hY1N5c3RlbUZvbnQsU2Vnb2UgVUksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMyIgZmlsbD0iIzI0NDY1ZiI+MS4g5bu656uLIFNTRSDlubborqLpmIXlm57lpI3pooTop4g8L3RleHQ+PGxpbmUgeDE9IjEwOCIgeTE9IjEwNiIgeDI9IjYxMiIgeTI9IjEwNiIgc3Ryb2tlPSIjMzE1MzZmIiBzdHJva2Utd2lkdGg9IjEuNiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz48dGV4dCB4PSIzNjAiIHk9IjE2MSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LFNlZ29lIFVJLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTMiIGZpbGw9IiMyNDQ2NWYiPjIuIGV2ZW50X3N0YXJ077yI57uZ5Ye65a6M5pW05LqL5Lu2IElE77yJPC90ZXh0PjxsaW5lIHgxPSI2MTIiIHkxPSIxNzIiIHgyPSIxMDgiIHkyPSIxNzIiIHN0cm9rZT0iIzMxNTM2ZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PHJlY3QgeD0iMTkyIiB5PSIxOTkiIHdpZHRoPSIzMzYiIGhlaWdodD0iNTciIHJ4PSI0IiBmaWxsPSIjZjZmOGZhIiBzdHJva2U9IiM5YWE5YjUiIHN0cm9rZS1kYXNoYXJyYXk9IjQgNCIvPjx0ZXh0IHg9IjM2MCIgeT0iMjIwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iLWFwcGxlLXN5c3RlbSxCbGlua01hY1N5c3RlbUZvbnQsU2Vnb2UgVUksc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMyIgZmlsbD0iIzI0NDY1ZiI+My4gZXZlbnRfZGVsdGEgw5cgTjwvdGV4dD48dGV4dCB4PSIzNjAiIHk9IjI0MiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LFNlZ29lIFVJLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM1MzZiN2QiPuaMiSBldmVudF9pZCDlkozlhoXlrrnlnZcgaW5kZXgg57Sv56evPC90ZXh0PjxsaW5lIHgxPSI2MTIiIHkxPSIyNjciIHgyPSIxMDgiIHkyPSIyNjciIHN0cm9rZT0iIzMxNTM2ZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PHRleHQgeD0iMzYwIiB5PSIzMjIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCxTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIiBmaWxsPSIjMjQ1YzM5Ij40LiDlrozmlbQgYWdlbnQubWVzc2FnZSAvIGFnZW50LnRoaW5raW5nPC90ZXh0PjxsaW5lIHgxPSI2MTIiIHkxPSIzMzMiIHgyPSIxMDgiIHkyPSIzMzMiIHN0cm9rZT0iIzRiOGI2NSIgc3Ryb2tlLXdpZHRoPSIxLjgiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PC9zdmc+Cg==" width="720px" />
 
 - `event_start`：标识一个预览事件开始，并给出完整事件将使用的 ID。
 
 - `event_delta`：按 `event_id` 和内容块 `index` 追加增量内容，同一事件可以返回多次。
+
+- 每个预览帧的顶层 `id` 和 `processed_at` 标识该帧自身；使用 `event_start.event.id` 或 `event_delta.event_id` 关联最终完整事件。
 
 - `agent.message` 或 `agent.thinking`：返回最终完整内容。
 
@@ -4796,7 +4838,7 @@ run_session_turn \
 如果你只是补充当前任务的信息，直接继续发送 `user.message` 即可，消息会按队列顺序处理；如果你要放弃当前执行并切换到新任务，先发送 `user.interrupt`，等 Session 回到 `idle` 后再发送新的 `user.message`：
 
 <Tabs>
-<Tab zoneid="Ezlv4tnUpH" title="Curl">
+<Tab zoneid="RnWCs4Pdfp" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -4945,7 +4987,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 Vault 是绑定到某个终端用户的凭据集合。给它一个 `display_name`，可选用 `metadata` 标记以便映射回你自己的用户记录：
 
 <Tabs>
-<Tab zoneid="wO67TfP9hj" title="Curl">
+<Tab zoneid="CfUTZQSu6Z" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -4980,13 +5022,13 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults \
 
 <span aceTableMode="list" aceTableWidth="1,2,2"></span>
 
-| 类型                   | 适用场景                                                           | 注入方式                                                           |
-| ---------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| `mcp_oauth`            | MCP 服务器用 OAuth 2.0                                             | 平台代刷 token，Session 连接 MCP URL 时自动注入                    |
-| `static_bearer`        | MCP 用固定 Bearer token（API Key、个人访问令牌）                   | 无刷新流程，直接注入                                               |
-| `mcp_static`           | MCP 使用固定密钥，需要以 Bearer、自定义 Header 或 URL 查询参数注入 | 通过 `injection_type` 选择注入位置                                 |
-| `environment_variable` | 通过环境变量鉴权的命令行、SDK、直接 API 调用                       | 沙箱内是不透明占位符，**出口处**替换为真实值，Agent 永远看不到密钥 |
-| `env_oauth`            | 使用 OAuth 访问令牌，并通过环境变量向运行环境注入                  | 按 `secret_name` 注入，作用范围由 `networking` 限制                |
+| 类型                   | 适用场景                                                           | 注入方式                                                                            |
+| ---------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `mcp_oauth`            | MCP 服务器用 OAuth 2.0                                             | Session 连接 MCP URL 时注入访问令牌；启用自动刷新后，平台在令牌临近过期时换取新令牌 |
+| `static_bearer`        | MCP 用固定 Bearer token（API Key、个人访问令牌）                   | 无刷新流程，直接注入                                                                |
+| `mcp_static`           | MCP 使用固定密钥，需要以 Bearer、自定义 Header 或 URL 查询参数注入 | 通过 `injection_type` 选择注入位置                                                  |
+| `environment_variable` | 通过环境变量鉴权的命令行、SDK、直接 API 调用                       | 沙箱内是不透明占位符，**出口处**替换为真实值，Agent 永远看不到密钥                  |
+| `env_oauth`            | CLI 或 SDK 使用短效 OAuth 访问令牌                                 | 按 `secret_name` 注入；启用自动刷新后，在 Session 使用凭据时换取新令牌              |
 
 你提供的实际密钥（`token`、`access_token`、`refresh_token`、`client_secret`、`secret_value`）是敏感的**只写**字段，API 响应不会返回这些字段。
 
@@ -4994,18 +5036,20 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults \
 
 ### MCP OAuth 凭据
 
-当 MCP 服务器使用 OAuth 2.0 时，用 `mcp_oauth`。提供 `refresh` 块后，平台会在 access token 过期时代你刷新。
+当 MCP 服务器使用 OAuth 2.0 时，使用 `mcp_oauth`。创建凭据时，配置 MCP 服务地址和当前访问令牌。
+
+如需启用自动刷新，创建或更新凭据时同时提供 `expires_at` 和完整的 `refresh` 对象。Session 连接 MCP 服务时，平台读取该凭据。访问令牌进入 `expires_at` 前 5 分钟刷新窗口时，平台自动换取并注入新令牌。该机制由读取操作触发，不在后台定时刷新。
 
 `refresh.token_endpoint_auth.type` 三选一：
 
-- `none`：公共客户端。
+- `none`：公共客户端，不提供 `client_secret`。
 
-- `client_secret_basic`：使用 `client_secret` 的 HTTP Basic 鉴权。
+- `client_secret_basic`：使用 `client_secret` 的 HTTP Basic 鉴权，同时提供 `client_secret`。
 
-- `client_secret_post`：把 `client_secret` 放在 POST 请求体里。
+- `client_secret_post`：把 `client_secret` 放在 POST 请求体里，同时提供 `client_secret`。
 
 <Tabs>
-<Tab zoneid="WqIRi5Vmmk" title="Curl">
+<Tab zoneid="OxOX6wxJNJ" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -5043,7 +5087,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 当 MCP 服务器接受固定 Bearer token（API Key、个人访问令牌） 时，用 `static_bearer`。无需刷新流程：
 
 <Tabs>
-<Tab zoneid="OOJMlaAXxF" title="Curl">
+<Tab zoneid="YdqF5P7Ls1" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -5106,7 +5150,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 - `"type": "unrestricted"`（仅当调用方访问的域名无法提前枚举时使用）。
 
 <Tabs>
-<Tab zoneid="YTooOsWFsc" title="Curl">
+<Tab zoneid="dxN2ZaRNXc" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -5138,20 +5182,69 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 
 ### 环境 OAuth 凭据
 
-当命令行或 SDK 需要从环境变量读取 OAuth 访问令牌时，使用 `env_oauth`。创建时提供 `access_token`、`secret_name` 和 `networking`；访问令牌仍在沙箱出口处注入，不会直接暴露给 Agent。
+当 CLI 或 SDK 需要从环境变量读取 OAuth 访问令牌时，使用 `env_oauth`。创建凭据时，先配置当前访问令牌（`access_token`）、注入令牌的环境变量名（`secret_name`），以及允许携带该令牌的目标主机（`networking`）。
 
-访问令牌过期后，调用更新凭据接口写入新的 `access_token`。
+对于会过期的访问令牌，可以启用自动刷新。创建或更新凭据时，提供以下信息：
+
+- 刷新时机：通过 `expires_at` 提供当前访问令牌的过期时间。
+
+- 令牌端点：通过 `refresh.token_endpoint` 提供第三方 OAuth 服务的令牌端点。
+
+- 刷新令牌：通过 `refresh.refresh_token` 提供换取新访问令牌的凭据。
+
+- 客户端身份：通过 `refresh.client_id` 和 `refresh.token_endpoint_auth` 提供 OAuth 客户端身份及鉴权方式。鉴权方式需要客户端密钥时，还需提供 `refresh.token_endpoint_auth.client_secret`。
+
+Session 访问 `networking` 允许的目标主机时，平台读取该凭据。访问令牌进入 `expires_at` 前 5 分钟刷新窗口时，平台调用 `refresh.token_endpoint` 获取新令牌、更新凭据，再把新令牌注入出站请求。该机制由读取操作触发，不在后台定时刷新。
+
+<Tabs>
+<Tab zoneid="tyrk4Pp73w" title="Curl">
+<TabTitle>Curl</TabTitle>
+
+```Bash
+curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/credentials \
+  -H "Authorization: Bearer $ARK_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "display_name": "GitHub CLI OAuth",
+    "auth": {
+      "type": "env_oauth",
+      "access_token": "<OAUTH_ACCESS_TOKEN>",
+      "expires_at": "<ACCESS_TOKEN_EXPIRES_AT>",
+      "refresh": {
+        "token_endpoint": "https://github.com/login/oauth/access_token",
+        "client_id": "<OAUTH_CLIENT_ID>",
+        "refresh_token": "<OAUTH_REFRESH_TOKEN>",
+        "token_endpoint_auth": {
+          "type": "client_secret_post",
+          "client_secret": "<OAUTH_CLIENT_SECRET>"
+        }
+      },
+      "secret_name": "GITHUB_TOKEN",
+      "networking": {
+        "type": "limited",
+        "allowed_hosts": ["api.github.com"]
+      }
+    }
+  }'
+```
+
+</Tab>
+</Tabs>
 
 <div data-tips="true" data-tips-type="warning" data-tips-is-title="true">注意</div>
+
+- <div data-tips="true" data-tips-type="warning"><strong>启用自动刷新时，同时提供 </strong><strong><code>expires_at</code></strong><strong> 和完整的 </strong><strong><code>refresh</code></strong><strong> 对象。</strong> 缺少 <code>expires_at</code> 时，平台无法判断刷新时机；缺少 <code>refresh</code> 时，平台不会调用 OAuth 令牌端点。</div>
+
+- <div data-tips="true" data-tips-type="warning"><strong>OAuth 令牌端点必须返回 JSON。</strong> <code>access_token</code> 必须是字符串；如果返回 <code>expires_in</code>，该字段必须是整数秒数。<code>expires_in</code> 返回 <code>"3600"</code> 等字符串值时，刷新失败。平台会保留当前访问令牌，本次出站请求可能因令牌过期返回 401。检查 <code>refresh.token_endpoint</code> 返回字段的类型和 <code>refresh.token_endpoint_auth</code> 配置；刷新令牌失效时，重新授权并更新凭据。</div>
 
 - <div data-tips="true" data-tips-type="warning"><strong>替换发生在沙箱出口处，不在沙箱内。</strong> 沙箱里的进程看到的是不透明占位符，而不是真实值。具体影响如下：</div>
   - <div data-tips="true" data-tips-type="warning">启动时校验凭据格式的客户端可能拒绝占位符。</div>
 
-  - <div data-tips="true" data-tips-type="warning">用密钥做请求签名的客户端（例如 AWS SigV4） 会生成无效签名。</div>
+  - <div data-tips="true" data-tips-type="warning">用密钥做请求签名的客户端（例如 AWS SigV4）会生成无效签名。</div>
 
-  - <div data-tips="true" data-tips-type="warning">环境变量凭据<strong>只适合「把密钥值原样塞进出站请求头」的客户端</strong>。</div>
+  - <div data-tips="true" data-tips-type="warning">环境变量注入只适合把密钥值原样写入出站请求头的客户端。</div>
 
-- <div data-tips="true" data-tips-type="warning"><strong>通过 Credential 限制凭据注入目标。</strong> 在 Credential 的 <code>networking</code> 中设置 <code>type: limited</code>，并通过 <code>allowed_hosts</code> 显式列出允许注入的出站主机。</div>
+- <div data-tips="true" data-tips-type="warning"><strong>通过凭据限制注入目标。</strong> 在凭据的 <code>networking</code> 中设置 <code>type: limited</code>，并通过 <code>allowed_hosts</code> 显式列出允许注入的出站主机。</div>
 
 <span id=".5Yet5o2u57qm5p2f"></span>
 
@@ -5172,7 +5265,7 @@ MCP 类型凭据（`mcp_oauth`、`static_bearer`、`mcp_static`）在创建时�
 创建 Session 时传 `vault_ids` 数组，把一个或多个 Vaults 挂到 Session：
 
 <Tabs>
-<Tab zoneid="V1SvEBgzUU" title="Curl">
+<Tab zoneid="VsIfSUtOFN" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -5205,7 +5298,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 密钥值和 `display_name` 可以更新。结构性字段（`mcp_server_url`、`secret_name`、`token_endpoint`、`client_id`） 在创建后即被锁定。要修改结构性字段，删除旧凭据再创建新的：
 
 <Tabs>
-<Tab zoneid="SHOsqspAoa" title="Curl">
+<Tab zoneid="Sz4fbmlGuX" title="Curl">
 <TabTitle>Curl</TabTitle>
 
 ```Bash
@@ -5226,21 +5319,19 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 </Tab>
 </Tabs>
 
+OAuth 凭据的自动刷新信息可按以下方式更新：
+
+- 启用自动刷新：在 `auth` 中同时提供 `expires_at` 和完整的 `refresh` 对象。`token_endpoint_auth.type` 为 `client_secret_basic` 或 `client_secret_post` 时，同时提供 `client_secret`；为 `none` 时，省略 `client_secret`。
+
+- 更新自动刷新信息：只提供需要变更的字段，未提供的字段保留原值。可以更新 `refresh_token`、`token_endpoint_auth`、`resource` 和 `scope`，不能修改 `token_endpoint` 和 `client_id`。
+
 <span id=".5Yet5o2u55Sf5ZG95ZGo5pyf"></span>
 
 ## 凭据生命周期
 
-凭据会在 Session 期间与 Vaults 生命周期内**周期性重新解析**。这确保凭据的轮换、删除、刷新失败都能传播到正在运行的 Session，无需重启。
+Session 运行期间，平台在使用凭据时重新解析当前值。更新或删除凭据后，后续请求会读取新的凭据状态，无需重启 Session。
 
-对于 `mcp_oauth` 凭据，重新解析还会在 access token 过期时刷新它。如果刷新失败，系统会记录失败事件。未来版本将支持通过 Webhook 订阅 `vault.* / vault_credential.*` 事件，届时可在本节订阅这些生命周期事件。
-
-<span aceTableMode="list" aceTableWidth="1,2"></span>
-
-| 事件                              | 触发                                                                            |
-| --------------------------------- | ------------------------------------------------------------------------------- |
-| `vault.deleted`                   | Vaults 被删除（级联触发底层凭据 `vault_credential.deleted`）                    |
-| `vault_credential.deleted`        | 凭据被删除（直接删除或因 Vaults 删除）                                          |
-| `vault_credential.refresh_failed` | `mcp_oauth` 凭据刷新失败（refresh token 无效，或 OAuth 服务器返回不可恢复错误） |
+对于已启用自动刷新的 `mcp_oauth`、`env_oauth` 凭据，读取操作会在访问令牌进入 5 分钟刷新窗口时触发自动刷新。刷新成功后，平台持久化新的访问令牌和过期时间；OAuth 服务同时轮换 `refresh_token` 时，平台也会保存新的 `refresh_token`。
 
 <span id=".5YW25LuW5pON5L2c"></span>
 
@@ -5260,13 +5351,11 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 
 本文介绍如何在方舟 Managed Agents 中上传和挂载输入文件、在 Session 运行时管理文件资源，以及查询 Agent 生成的产物。
 
-Managed Agents 支持挂载通过 [文件输入(Files API)](https://ark.volcengine.com/region:cn-beijing/docs/ark/file-api) 或 [TOS 对象存储](https://www.volcengine.com/docs/6349/74820?lang=zh) 上传的文件，再将文件作为 Session 资源挂载到沙箱环境目录中。Agent 可以读取这些输入文件，并将最终产物写入 `/mnt/session/outputs/`。
+Managed Agents 支持挂载通过 [文件输入(Files API)](https://ark.volcengine.com/region:cn-beijing/docs/file-api) 或 [TOS 对象存储](https://www.volcengine.com/docs/6349/74820?lang=zh) 上传的文件，再将文件作为 Session 资源挂载到沙箱环境目录中。Agent 可以读取这些输入文件，并将最终产物写入 `/mnt/session/outputs/`。
 
-<div data-tips="true" data-tips-type="warning" data-tips-is-title="true">注意</div>
+> **注意**
 
-<div data-tips="true" data-tips-type="warning">挂载 TOS 文件前，需要确保 TOS 和 Managed Agents 在同一火山账号中。</div>
-
-<span id=".5LiK5Lyg5paH5Lu2"></span>
+> 挂载 TOS 文件前，需要确保 TOS 和 Managed Agents 在同一火山账号中。
 
 ## 上传文件
 
@@ -5276,9 +5365,9 @@ Managed Agents 支持挂载通过 [文件输入(Files API)](https://ark.volcengi
 
   先将本地文件上传到 Files API。上传成功后，平台会返回 `file_id`，后续创建 Session 或向运行中的 Session 追加文件资源时都需要使用该 ID。
 
-   <div data-tips="true" data-tips-type="tip" data-tips-is-title="true" data-wrapper-indent="1">说明   </div>
+  > **说明**
 
-   <div data-tips="true" data-tips-type="tip" data-wrapper-indent="1">设置 <code>purpose=agent</code>，指定该文件供 Agent 使用。   </div>
+  > 设置 `purpose=agent`，指定该文件供 Agent 使用。
 
   ```Bash
   file=$(
@@ -5339,15 +5428,13 @@ Managed Agents 支持挂载通过 [文件输入(Files API)](https://ark.volcengi
       print("unknown error:", str(e))
   ```
 
-<span id=".5Zyo5Yib5bu6LXNlc3Npb24t5pe25oyC6L295paH5Lu2"></span>
-
 ## 在创建 Session 时挂载文件
 
 创建 Session 时，在 `resources` 数组中声明需要挂载的文件。
 
-<div data-tips="true" data-tips-type="tip" data-tips-is-title="true">说明</div>
+> **说明**
 
-<div data-tips="true" data-tips-type="tip">你也可以在 <a href="https://ark.volcengine.com/region:cn-beijing/managed-agents/sessions?projectName=default">Sessions 页面</a> 创建 Session。</div>
+> 你也可以在 [Sessions 页面](https://ark.volcengine.com/region:cn-beijing/managed-agents/sessions?projectName=default) 创建 Session。
 
 - 通过 Files ID 挂载：
 
@@ -5380,11 +5467,11 @@ SESSION_ID=$(jq -er '.id' <<<"$session")
 echo "Session ID: $SESSION_ID"
 ```
 
-<div data-tips="true" data-tips-type="tip" data-tips-is-title="true">说明</div>
+> **说明**
 
-<div data-tips="true" data-tips-type="tip"><code>mount_path</code> 为云端沙箱中的目标挂载路径，通过 <code>file_id</code> 传入的文件将按照指定路径挂载到 <code>/mnt/session/uploads/</code> 目录中。</div>
+> `mount_path` 为云端沙箱中的目标挂载路径，通过 `file_id` 传入的文件将按照指定路径挂载到 `/mnt/session/uploads/` 目录中。
 
-<div data-tips="true" data-tips-type="tip">挂载时如指定 <code>my-skills/skill-1.md</code> 路径，挂载文件路径为 <code>/mnt/session/uploads/my-skills/skill-1.md</code>。</div>
+> 挂载时如指定 `my-skills/skill-1.md` 路径，挂载文件路径为 `/mnt/session/uploads/my-skills/skill-1.md`。
 
 挂载后，平台会为该 Session 内的文件实例生成新的 `file_id`。这些 Session 内副本不计入用户的文件存储额度。
 
@@ -5415,13 +5502,11 @@ SESSION_ID=$(jq -er '.id' <<<"$session")
 echo "Session ID: $SESSION_ID"
 ```
 
-<div data-tips="true" data-tips-type="tip" data-tips-is-title="true">说明</div>
+> **说明**
 
-- <div data-tips="true" data-tips-type="tip"><code>tos_key</code> 需为 TOS 桶中的一个目录，且必须以 <code>/</code> 结尾。例如 <code>project-resources/</code>。</div>
+- > `tos_key` 需为 TOS 桶中的一个目录，且必须以 `/` 结尾。例如 `project-resources/`。
 
-- <div data-tips="true" data-tips-type="tip">文件将被挂载至云端沙箱的 <code>/mnt/session/storage/</code> 目录中。</div>
-
-<span id=".5oyC6L295aSa5Liq5paH5Lu2"></span>
+- > 文件将被挂载至云端沙箱的 `/mnt/session/storage/` 目录中。
 
 ## 挂载多个文件
 
@@ -5437,15 +5522,11 @@ echo "Session ID: $SESSION_ID"
 ]
 ```
 
-<span id=".5ZyoLXNlc3Npb24t6L-Q6KGM5pe2566h55CG5paH5Lu2"></span>
-
 ## 在 Session 运行时管理文件
 
 Session 创建后，可以通过 Session Resources API 继续添加文件，并查询当前已挂载的资源。
 
 以下示例沿用前面创建 Session 后写入的 `$SESSION_ID`；添加 Files API 文件时也沿用上传步骤写入的 `$FILE_ID`。
-
-<span id=".5re75Yqg5paH5Lu26LWE5rqQ"></span>
 
 ### 添加文件资源
 
@@ -5467,8 +5548,6 @@ RESOURCE_ID=$(jq -er '.id' <<<"$resource")
 echo "Resource ID: $RESOURCE_ID"
 ```
 
-<span id=".5p-l6K-i5paH5Lu26LWE5rqQ"></span>
-
 ### 查询文件资源
 
 ```Bash
@@ -5476,8 +5555,6 @@ echo "Resource ID: $RESOURCE_ID"
 curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/sessions/$SESSION_ID/resources" \
   -H "Authorization: Bearer $ARK_API_KEY"
 ```
-
-<span id="query-session-output-files"></span>
 
 ## 获取 Session 运行时产物
 
@@ -5498,28 +5575,24 @@ curl -sS --fail-with-body \
   -H "Authorization: Bearer $ARK_API_KEY"
 ```
 
-<div data-tips="true" data-tips-type="tip" data-tips-is-title="true">说明</div>
+> **说明**
 
-<div data-tips="true" data-tips-type="tip">省略 <code>purpose=agent</code> 时，查询结果还可能包含用户挂载到该 Session 的文件副本。</div>
+> `scope_id` 只筛选当前 Session 在 `/mnt/session/outputs/` 中注册的产物，不包含通过 `resources` 挂载到 `/mnt/session/uploads/` 的输入文件副本。查询挂载输入文件，调用 [查询会话资源列表](https://ark.volcengine.com/region:cn-beijing/docs/list-resources-api)。
 
 列表响应中的 `download_url` 是服务端签发的预签名下载地址，具有时效性。
 
 创建 Session 前，按产物的保留要求选择存储方式：
-
-<span aceTableMode="list" aceTableWidth="1,2,2"></span>
 
 | 你的配置                                          | 产物位置                                                                       | 你需要做什么                                                                     |
 | ------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
 | 不配置 `config.tos`                               | 方舟公共 TOS                                                                   | 在平台 TTL 到期前下载所需文件。删除 Session 时，平台会清理默认存储中的关联产物。 |
 | 在 Environment 或 Session 覆写中配置 `config.tos` | 你的 TOS Bucket，完整对象路径为 `{prefix}outputs/{env-id}/{session-id}/{file}` | 在 TOS 中管理对象生命周期。删除 Session 不会删除 Bucket 中的对象。               |
 
-配置 Environment 产物存储及按 Session 临时覆写的方法，详情请参见 [配置产物存储](https://ark.volcengine.com/region:cn-beijing/docs/ark/configure-cloud-environment#configure-output-storage) 和 [覆写产物存储（可选）](https://ark.volcengine.com/region:cn-beijing/docs/ark/start-session#override-output-storage)。
+配置 Environment 产物存储及按 Session 临时覆写的方法，详情请参见 [配置产物存储](https://ark.volcengine.com/region:cn-beijing/docs/configure-cloud-environment#configure-output-storage) 和 [覆写产物存储](https://ark.volcengine.com/region:cn-beijing/docs/start-session#override-output-storage)。
 
-<div data-tips="true" data-tips-type="tip" data-tips-is-title="true">说明</div>
+> **说明**
 
-<div data-tips="true" data-tips-type="tip">需要保存 Agent 产物时配置 <code>config.tos</code>，对应 <code>/mnt/session/outputs/</code>。需要挂载输入或共享数据时配置 <code>resources</code> 中的 <code>type: tos</code>，对应 <code>/mnt/session/storage/</code>。</div>
-
-<span id=".5pSv5oyB55qE5paH5Lu257G75Z6L"></span>
+> 需要保存 Agent 产物时配置 `config.tos`，对应 `/mnt/session/outputs/`。需要挂载输入或共享数据时配置 `resources` 中的 `type: tos`，对应 `/mnt/session/storage/`。
 
 ## 支持的文件类型
 
@@ -5534,8 +5607,6 @@ Agent 可以处理多种文件类型。常见类型包括：
 - 归档文件，例如 `.zip`、`.tar.gz`；Agent 可以在沙箱中使用 bash 解压后处理。
 
 - 二进制文件；是否能正确处理取决于沙箱内是否具备相应工具。
-
-<span id=".5L2_55So5bu66K6u"></span>
 
 ## 使用建议
 
@@ -5559,8 +5630,6 @@ Agent 可以处理多种文件类型。常见类型包括：
 
 默认情况下，每个 Session 都从新的上下文开始。Session 结束后，Agent 在本次运行中积累的偏好、约定、排障经验或业务背景不会自动带到下一次任务中。Memory Store 用于保存这些可复用信息，并在后续 Session 中重新挂载给 Agent 使用。
 
-<span id=".5Z-65pys5qaC5b-1"></span>
-
 ## 基本概念
 
 将 Memory Store 挂载到 Session 后，Agent 可以根据挂载时配置的访问权限读取或修改记忆内容。
@@ -5568,8 +5637,6 @@ Agent 可以处理多种文件类型。常见类型包括：
 每条 Memory 都有独立路径，您可以通过 API 或控制台直接读取、创建、更新和删除。
 
 使用 Memory Store 时，需要在创建 Agent 时启用 Agent Toolset。可执行的操作由挂载时的 `access` 决定。
-
-<span id=".5Yib5bu6LW1lbW9yeS1zdG9yZQ=="></span>
 
 ## 创建 Memory Store
 
@@ -5593,17 +5660,15 @@ echo "Memory Store ID: $STORE_ID"
 
 返回的 Memory Store ID 通常形如 `memstore-...`。创建 Session 并挂载记忆时，需要传入该 ID。
 
-<span id=".6aKE572uLW1lbW9yeS3lhoXlrrk="></span>
-
 ## 预置 Memory 内容
 
 在 Agent 开始运行前，可以先向 Store 中写入参考资料，例如项目规范、用户偏好、输出格式、术语表等。
 
 根据写入数量选择接口：
 
-- 调用 [创建记忆](https://ark.volcengine.com/region:cn-beijing/docs/ark/create-memory-api) 写入单条 Memory，适合补充零散内容。
+- 调用 [创建记忆](https://ark.volcengine.com/region:cn-beijing/docs/create-memory-api) 写入单条 Memory，适合补充零散内容。
 
-- 调用 [批量创建记忆](https://ark.volcengine.com/region:cn-beijing/docs/ark/batch-create-memories-api) 批量写入多条 Memory，适合初始化术语表、用户偏好或输出模板。
+- 调用 [批量创建记忆](https://ark.volcengine.com/region:cn-beijing/docs/batch-create-memories-api) 批量写入多条 Memory，适合初始化术语表、用户偏好或输出模板。
 
 ```Bash
 curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/memory_stores/$STORE_ID/memories" \
@@ -5616,8 +5681,6 @@ curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/memory_store
 ```
 
 单条 Memory 的内容上限为 100 KiB（102400 字节），约 25k tokens。单个 Store 最多保存 2,000 条 Memory。建议将记忆拆成多个小而聚焦的文件，避免使用长文档。
-
-<span id=".5oyC6L29LW1lbW9yeS1zdG9yZS3liLAtc2Vzc2lvbg=="></span>
 
 ## 挂载 Memory Store 到 Session
 
@@ -5652,8 +5715,6 @@ SESSION_ID=$(jq -er '.id' <<<"$session")
 
 单个 Session 最多挂载 10 个 Memory Store。可以按不同使用场景拆分 Store，例如用户偏好、项目上下文、团队共享规范分别管理，并为每个 Store 设置独立访问权限和生命周期。
 
-<span id=".YWdlbnQt5aaC5L2V6K6_6ZeuLW1lbW9yeQ=="></span>
-
 ## Agent 如何访问 Memory
 
 - `read_only`：Agent 可以浏览、读取和搜索 Memory，但不能修改内容。
@@ -5662,13 +5723,9 @@ SESSION_ID=$(jq -er '.id' <<<"$session")
 
 - Agent 对 Memory 的读取会作为普通工具调用出现在 Session 事件流中，例如 `agent.tool_use` 和 `agent.tool_result`。
 
-<span id=".5p-l55yL5ZKM57yW6L6RLW1lbW9yeQ=="></span>
-
 ## 查看和编辑 Memory
 
-你可以通过 [查询记忆列表](https://ark.volcengine.com/region:cn-beijing/docs/ark/list-memories-api)、[查询记忆详情](https://ark.volcengine.com/region:cn-beijing/docs/ark/get-memory-api)、[更新记忆](https://ark.volcengine.com/region:cn-beijing/docs/ark/update-memory-api) 和 [删除记忆](https://ark.volcengine.com/region:cn-beijing/docs/ark/delete-memory-api) 查询和维护 Memory，用于审核内容、修正错误或清理过期信息。
-
-<span id=".5p-l6K-iLW1lbW9yeS3liJfooag="></span>
+你可以通过 [查询记忆列表](https://ark.volcengine.com/region:cn-beijing/docs/list-memories-api)、[查询记忆详情](https://ark.volcengine.com/region:cn-beijing/docs/get-memory-api)、[更新记忆](https://ark.volcengine.com/region:cn-beijing/docs/update-memory-api) 和 [删除记忆](https://ark.volcengine.com/region:cn-beijing/docs/delete-memory-api) 查询和维护 Memory，用于审核内容、修正错误或清理过期信息。
 
 ### 查询 Memory 列表
 
@@ -5680,8 +5737,6 @@ curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/memory_store
   | jq -r '.data[] | "\(.type)  \(.path)"'
 ```
 
-<span id=".6K-75Y-WLW1lbW9yeQ=="></span>
-
 ### 读取 Memory
 
 读取单条 Memory 会返回完整内容。
@@ -5691,8 +5746,6 @@ curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/memory_store
   -H "Authorization: Bearer $ARK_API_KEY" \
   | jq -r '.content'
 ```
-
-<span id=".5Yib5bu6LW1lbW9yeQ=="></span>
 
 ### 创建 Memory
 
@@ -5713,8 +5766,6 @@ MEMORY_ID=$(jq -r '.id' <<<"$memory")
 MEMORY_SHA=$(jq -r '.content_sha256' <<<"$memory")
 ```
 
-<span id=".5pu05pawLW1lbW9yeQ=="></span>
-
 ### 更新 Memory
 
 更新接口可修改内容、路径，或同时修改二者。修改路径可用于重命名或归档。
@@ -5728,8 +5779,6 @@ curl -sS --fail-with-body -X POST "https://ark.cn-beijing.volces.com/api/v3/memo
   }'
 ```
 
-<span id=".5Yig6ZmkLW1lbW9yeQ=="></span>
-
 ### 删除 Memory
 
 ```Bash
@@ -5737,13 +5786,9 @@ curl -sS --fail-with-body -X DELETE "https://ark.cn-beijing.volces.com/api/v3/me
   -H "Authorization: Bearer $ARK_API_KEY"
 ```
 
-<span id=".566h55CGLW1lbW9yeS1zdG9yZQ=="></span>
-
 ## 管理 Memory Store
 
 除创建外，Memory Store 还支持查询、删除等操作。
-
-<span id=".5p-l6K-iLXN0b3JlLeWIl-ihqA=="></span>
 
 ### 查询 Store 列表
 
@@ -5752,16 +5797,12 @@ curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/memory_store
   -H "Authorization: Bearer $ARK_API_KEY"
 ```
 
-<span id=".5Yig6ZmkLXN0b3Jl"></span>
-
 ### 删除 Store
 
 ```Bash
 curl -sS --fail-with-body -X DELETE "https://ark.cn-beijing.volces.com/api/v3/memory_stores/$STORE_ID" \
   -H "Authorization: Bearer $ARK_API_KEY"
 ```
-
-<span id=".5pyA5L2z5a6e6Le1"></span>
 
 ## 最佳实践
 
@@ -5886,7 +5927,7 @@ configs.**enabled** `boolean` `选填`
 ### 创建时开启
 
 <Tabs>
-<Tab zoneid="OgYYDCYNLm" title="cURL">
+<Tab zoneid="KSYSRhNEfU" title="cURL">
 <TabTitle>cURL</TabTitle>
 
 ```Bash
@@ -5901,7 +5942,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
     "system": "你是一个资深的代码工程师，负责处理复杂的编码和故障排查任务。",
     "tools": [
       {
-        "type": "agent_toolset_20260701"
+        "type": "agent_toolset_20260916"
       },
       {
         "type": "evolution",
@@ -5933,7 +5974,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
   },
   "tools": [
     {
-      "type": "agent_toolset_20260701",
+      "type": "agent_toolset_20260916",
       "default_config": {
         "enabled": true
       }
@@ -5959,10 +6000,10 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 
 <div data-tips="true" data-tips-type="tip" data-tips-is-title="true">说明</div>
 
-<div data-tips="true" data-tips-type="tip">更新时需要传入当前 <code>version</code>，版本号不匹配会更新失败。更新成功后会生成新版本。</div>
+<div data-tips="true" data-tips-type="tip">更新时需要传入当前 <code>version</code>，版本号不匹配会更新失败。仅更新 <code>display_name</code> 时不生成新版本；更新 <code>advisors</code>、<code>system</code> 等版本化字段时，即使提交值与当前版本相同，也会生成新版本。</div>
 
 <Tabs>
-<Tab zoneid="O2DpGUXSb9" title="cURL">
+<Tab zoneid="LeFi2n2Cqk" title="cURL">
 <TabTitle>cURL</TabTitle>
 
 ```Bash
@@ -5974,7 +6015,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents/{agent_id} \
     "version": 1,
     "tools": [
       {
-        "type": "agent_toolset_20260701"
+        "type": "agent_toolset_20260916"
       },
       {
         "type": "evolution",
@@ -6059,7 +6100,7 @@ Advisor 调用产生的 Token 费用按顾问模型的价格单独计费，不�
 # 相关文档
 
 <columns>
-<columnsItem zoneid="q5UNKU9wAS">
+<columnsItem zoneid="caiQZIn66p">
 
 <card mode="section" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/tools" >
 
@@ -6082,7 +6123,7 @@ Multi Agent 支持一个协调器 Agent 将任务委派给多个子智能体并�
 </card>
 
 </columnsItem>
-<columnsItem zoneid="jS87a6P4FQ">
+<columnsItem zoneid="zKWFcsdFg2">
 
 <card mode="section" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/define-outcome" >
 
@@ -7034,7 +7075,7 @@ Agent 收到 `user.define_outcome` 事件后会立即开始工作，无需额外
 向 Session 的事件入口提交 `user.define_outcome` 事件：
 
 <Tabs>
-<Tab zoneid="dVyu5SbTcD" title="cURL">
+<Tab zoneid="fqggUC8zTZ" title="cURL">
 <TabTitle>cURL</TabTitle>
 
 ```Bash
@@ -7135,7 +7176,7 @@ curl "https://ark.cn-beijing.volces.com/api/v3/sessions/$SESSION_ID/events" \
 如果需要在 Outcome 运行过程中停止，可以发送 `user.interrupt` 事件：
 
 <Tabs>
-<Tab zoneid="uvAE3H57in" title="cURL">
+<Tab zoneid="HHg1TRS7f6" title="cURL">
 <TabTitle>cURL</TabTitle>
 
 ```Bash
@@ -7245,22 +7286,20 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260702070355-xxxxx
 
 ## 获取并验证交付物
 
-Agent 将输出文件写入沙箱内的 `/mnt/session/outputs/` 目录。Session 进入 `idle` 后，文件可能仍在注册。下面的示例从已完成的 `$SESSION_ID` 出发，完成以下操作：
+Agent 将输出文件写入沙箱内的 `/mnt/session/outputs/` 目录。Session 进入 `idle` 后，产物可能暂时无法通过 Files API 查询。下面的示例从已完成的 `$SESSION_ID` 出发，完成以下操作：
 
 1. 分页查询 `purpose=agent` 的文件。
 
-2. 按文件名选择 `costco_dcf.xlsx`；文件尚未注册时，每 2 秒重试一次，最多重试 10 次。
+2. 按文件名选择 `costco_dcf.xlsx`；尚未查询到目标文件时，每 2 秒重试一次，最多重试 10 次。
 
 3. 从文件对象中提取 `download_url` 并下载。
 
 4. 校验服务端返回的文件名与目标名称一致，并确认下载文件非空；任一条件不满足时返回非零状态。
 
-省略 `purpose=agent` 时，Files API 查询结果还可能包含用户挂载到该 Session 的文件副本。
-
 需要将交付物长期保存在自己的 TOS Bucket 时，在创建 Environment 时配置 `config.tos`。未配置时，平台将产物存入方舟公共 TOS，请在平台 TTL 到期前下载所需文件。
 
 <Tabs>
-<Tab zoneid="FdKw5q5Uss" title="cURL">
+<Tab zoneid="gJC2VeDcsq" title="cURL">
 <TabTitle>cURL</TabTitle>
 
 ```Bash
@@ -7372,7 +7411,7 @@ Outcome 的费用包含以下部分：
 ## 相关文档
 
 <columns>
-<columnsItem zoneid="cl1D2jED2f">
+<columnsItem zoneid="mBrFlAVbBE">
 
 <card mode="section" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/advisor" >
 
@@ -7391,7 +7430,7 @@ Multi Agent 支持一个协调器 Agent 将任务委派给多个子智能体并�
 </card>
 
 </columnsItem>
-<columnsItem zoneid="SyHl705rvN">
+<columnsItem zoneid="llwBWYke6E">
 
 <card mode="section" href="https://ark.volcengine.com/region:cn-beijing/docs/ark/session-event-stream" >
 
