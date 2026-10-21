@@ -343,8 +343,10 @@ flowchart LR
       S3["topic6-event-registry"]:::skill
       S4["topic6-insight"]:::skill
       S5["topic6-web-report"]:::skill
+      ENV["Environment<br/>topic6-prod-env"]:::platform
       MEM["Memory Store<br/>memory/topic6/*.md"]:::platform
       MCP["hot-topics MCP<br/>HOT_TOPICS_MCP_URL"]:::platform
+      VAULT["Per-user Vault<br/>Ark Vault 凭据"]:::platform
       WS["沙箱工作区<br/>/workspace + /mnt/session/outputs"]:::platform
     end
 
@@ -358,6 +360,8 @@ flowchart LR
     RUNNER -.读.-> CFG
 
     RUNNER == "chat.completions.create · stream=true" ==> COORD
+    RUNNER -. "create_session · 沙箱配方" .-> ENV
+    RUNNER -. "create_session · vault_ids" .-> VAULT
     COORD -- "multiagent 委派" --> ANNO
     COORD -. "历史存档·不委派" .-> INSI
 
@@ -371,8 +375,10 @@ flowchart LR
 
     COORD -- "MCP call" --> MCP
     COORD -- "只读" --> MEM
+    COORD -- "出站替换 secret" --> VAULT
     COORD -->|"bash R/W"| WS
     ANNO -->|"bash R/W"| WS
+    VAULT -. "vault_id / refresh_token" .- STORE
 
     COORD == "SSE agent.message.delta" ==> RUNNER
     COORD == "HC1/HC2/HC3 JSON + end_turn" ==> RUNNER
@@ -839,6 +845,42 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
         </ul>
       `
     },
+    ENV: {
+      title: "Environment · topic6-prod-env",
+      tags: ['<span class="tag platform">MA 平台资源</span>'],
+      desc: "沙箱的「构建配方」:Session 启动时决定沙箱装什么包、跑什么 setup、网络策略和基础环境变量。create_all.sh 的第 1 步建的一等资源。",
+      content: `
+        <h3>定义文件</h3>
+        <p>${maLink('environment.json')} · 由 ${maLink('create_all.sh', 'create_all.sh §1')} 创建(幂等:优先按 <code>TOPIC6_ENVIRONMENT_ID</code> 复用,其次按 name)</p>
+        <h3>config 四块</h3>
+        <ul>
+          <li><b>type</b>:<code>cloud</code> 云沙箱(隔离 Linux container)</li>
+          <li><b>networking</b>:<code>unrestricted</code>(需出站访问 DataHub / Ark / 飞书)</li>
+          <li><b>packages.pip</b>:pandas / openpyxl / httpx / numpy / openai / lunardate 等主线依赖</li>
+          <li><b>setup_script</b>:按架构下载校验 <code>lark-cli</code> v1.0.95 装到 <code>/usr/local/bin</code></li>
+        </ul>
+        <h3>env(基础环境变量,<code>${'$'}{VAR}</code> 占位)</h3>
+        <div class="kv">
+          <span class="k">TZ / PYTHONUNBUFFERED</span><span class="v">Asia/Shanghai · 1</span>
+          <span class="k">DATAHUB_ENDPOINT / API_KEY</span><span class="v">标注数据源</span>
+          <span class="k">LARK_APP_ID / SECRET</span><span class="v">沙箱内 lark-cli 用</span>
+          <span class="k">ARK_API_KEY / BASE_URL</span><span class="v">C2 / 洞察直连 Ark</span>
+          <span class="k">DATAHUB_MODEL_ID</span><span class="v">Doubao-Seed-1.6-lite</span>
+          <span class="k">C2_CHAT_MODEL_ID</span><span class="v">doubao-seed-evolving</span>
+          <span class="k">EMBEDDING_MODEL_ID</span><span class="v">doubao-embedding-vision-251215</span>
+        </div>
+        <div class="note ma"><code>${'$'}{VAR}</code> 占位在 create_all.sh 里用 jq 预展开一次再 POST(方舟不做二次插值)。<code>--update-env</code> 时 <code>POST /environments/{id}</code> 原地刷新 config,<b>只对后续 Session 生效</b>,ID 不变。</div>
+        <h3>Session 级覆盖(env_overrides)</h3>
+        <ul>
+          <li>${gwLink('gateway/topic6_runner.py', 'topic6_runner.py')} 建 Session 时注入 <code>FEISHU_USER_OPEN_ID</code> 和 <code>TOPIC6_MEMORY_STORE_ID</code></li>
+          <li>只做当前 Session 快照覆盖,不改基础 Environment,也不影响后续 Session</li>
+        </ul>
+        <h3>挂载在谁上</h3>
+        <ul>
+          <li>Session 全局——Coordinator / Annotator 的沙箱都由它构建(非某个 Agent 单独 mount)</li>
+        </ul>
+      `
+    },
     MEM: {
       title: "Memory Store · /mnt/memory/topic6/",
       tags: ['<span class="tag platform">MA 平台资源</span>'],
@@ -877,6 +919,34 @@ data: {<span class="k">"content"</span>:<span class="s">"{\\"hc\\":\\"HC1\\", ..
           <li>只挂 <b>Coordinator</b>,Annotator 不需要(Insighter 为历史存档 Agent,也不挂)</li>
           <li>调用点:Phase A 取数(fetch_hot_topics.py 内部走 MCP)</li>
         </ul>
+      `
+    },
+    VAULT: {
+      title: "Per-user Vault · Ark Vault 凭据",
+      tags: ['<span class="tag platform">MA 平台资源</span>'],
+      desc: "每个发起人专属的方舟 Vault,承载妙搭发布(Phase H)所需的用户短期飞书 token;secret 仅在沙箱出站访问时替换,Agent 看不到明文。",
+      content: `
+        <h3>授权来源</h3>
+        <ul>
+          <li>操作人预先运行 ${maLink('authorize_miaoda_user.py')} 扫码走 OAuth Device Flow</li>
+          <li>脚本校验扫码账号 <code>user_open_id</code> 与任务发起人<b>一致</b>才写入,防止借权</li>
+          <li>短 token 写进<b>每用户 Ark Vault</b>(凭据 <code>LARKSUITE_CLI_USER_ACCESS_TOKEN</code>),refresh token 仅存 Gateway 本地 ${gwLink('gateway/pipeline_store.py', 'user_oauth')} 表</li>
+        </ul>
+        <h3>挂载方式</h3>
+        <ul>
+          <li>${gwLink('gateway/topic6_runner.py', 'topic6_runner.py')} 建 Session 时把 <code>vault_ids</code>(配置级 + 本次 <code>user_vault_id</code> 去重)传给 <code>create_session</code></li>
+          <li>运行时沙箱内呈现为不透明占位符,出站访问才替换成真实 secret</li>
+        </ul>
+        <h3>OAuth 刷新</h3>
+        <ul>
+          <li>配了 <code>expires_at</code> + <code>refresh</code> 的 <code>env_oauth</code> 凭据,被 Session 读取且进入过期前 5 分钟窗口时触发刷新</li>
+          <li><b>不是</b>后台定时刷新;<code>static_bearer</code> 等固定凭据没有此流程</li>
+        </ul>
+        <h3>与 pipeline_store 的关系</h3>
+        <ul>
+          <li><code>user_oauth</code> 表以 <code>open_id</code> 为 PK,存 <code>vault_id / credential_id / refresh_token / expires_at / scopes</code></li>
+        </ul>
+        <div class="note ma">记忆和文档<b>不得保留真实 token 值</b>;授权绑定触发任务的飞书用户,扫码账号不一致直接拒绝。</div>
       `
     },
     WS: {
