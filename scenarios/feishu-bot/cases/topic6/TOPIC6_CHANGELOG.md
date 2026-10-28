@@ -11,6 +11,19 @@
 
 ---
 
+## 2026-10-28
+
+### 清理临时恢复与旧客户端兼容
+
+- 删除根据 Agent 自由文本推断 HC 类型并伪造审核载荷的 Gateway 兜底；Coordinator 未输出
+  合法 HC JSON 时按契约 fail-closed，不再以正则推断业务状态。
+- 删除整库清空本地任务/HC 的 `reset_pipeline_state.py`。正常中断统一由 Gateway 启动
+  恢复、SSE 重连、`/continue` 和 `/new` 处理，不再留下远端 Session 与本地状态脱节的入口。
+- 删除 `TOPIC6_SKIP_MIAODA_OAUTH` 临时旁路；所有模式均按任务发起人完成 OAuth 与 Vault
+  注入，避免流程启动后在 Phase H 预期失败。
+- 删除废弃的 `test/小样本/试跑` 显式模式别名和历史备注卡片回调，仅保留当前
+  `demo/full/skip_sampling` 与 `pass/reject` 契约。
+
 ## 2026-10-12
 
 ### Environment 更新优先复用已记录 ID

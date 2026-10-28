@@ -130,8 +130,6 @@ class Topic6Gateway:
                 continue
             if self._artifact_sync is not None:
                 self._artifact_sync.start(current, self._loop)
-            if getattr(self._config, "skip_miaoda_oauth", False):
-                continue
             try:
                 vault_id = await self._user_authorization.vault_id(current.user_open_id)
                 self._start_token_keepalive(current, vault_id)
@@ -188,10 +186,9 @@ class Topic6Gateway:
             if continue_match:
                 continuation_message = (continue_match.group(1) or "").strip() or "继续"
                 user_vault_id = ""
-                if not getattr(self._config, "skip_miaoda_oauth", False):
-                    user_vault_id = await self._ensure_user_authorized(
-                        message.chat_id, message.user_open_id
-                    )
+                user_vault_id = await self._ensure_user_authorized(
+                    message.chat_id, message.user_open_id
+                )
                 resumed = await self._runner.continue_job(
                     chat_id=message.chat_id,
                     thread_id=message.thread_id,
@@ -220,15 +217,6 @@ class Topic6Gateway:
                 self._store.complete_event(message.event_id, "completed")
                 return
 
-            if await self._hitl.handle_remark_message(
-                chat_id=message.chat_id,
-                thread_id=message.thread_id,
-                user_open_id=message.user_open_id,
-                text=text,
-            ):
-                self._store.complete_event(message.event_id, "completed")
-                return
-
             mode = parse_trigger(text)
             if mode is None:
                 await self._reply(
@@ -239,17 +227,9 @@ class Topic6Gateway:
                 return
 
             try:
-                if getattr(self._config, "skip_miaoda_oauth", False):
-                    user_vault_id = ""
-                    log.warning(
-                        "topic6 user OAuth bypassed for temporary run user=%s; "
-                        "Miaoda publishing is expected to fail without another credential",
-                        message.user_open_id,
-                    )
-                else:
-                    user_vault_id = await self._ensure_user_authorized(
-                        message.chat_id, message.user_open_id
-                    )
+                user_vault_id = await self._ensure_user_authorized(
+                    message.chat_id, message.user_open_id
+                )
                 job = await self._runner.start_job(
                     chat_id=message.chat_id,
                     thread_id=message.thread_id,

@@ -36,8 +36,6 @@ log = logging.getLogger("arkagent.topic6.hitl")
 # 决策枚举:与卡片按钮 value.decision 完全一致。
 DECISION_PASS = "pass"
 DECISION_REJECT = "reject"
-DECISION_REMARK = "remark"
-PENDING_REMARK_NOTE = "等待补充说明"
 
 # 每个 HC 的头部信息(颜色 + 图标 + 标题)。
 _HC_META = {
@@ -118,21 +116,6 @@ def build_hc_card(job: PipelineJob, hc_kind: str, event_id: int, payload: dict) 
             ),
         },
     ]
-    if payload.get("__fallback__"):
-        # 兜底 payload:Agent 违约没输出真正的 HC JSON,gateway 用文本意图检测把
-        # 卡片补出来了。**不**把 agent 最后几百字尾巴附上——那段大概率是乱码 JSON 残片
-        # 或 next_step_if_passed 之类的元描述,直接暴露给审核人会误导判断
-        # (曾经出现"HC2 卡片正文却写 HC1"的诡异态,就是尾部截取里混入了 HC1 后续 step)。
-        # 只留一行中性提示,让审核人回头翻上方 Coordinator 历史消息核实。
-        elements.append(
-            {
-                "tag": "markdown",
-                "content": (
-                    "⚠️ AI 未按契约输出结构化载荷,以下摘要可能不完整;"
-                    "请回滚历史消息核对实际指标后再决策。"
-                ),
-            }
-        )
     elements.extend(_payload_summary_elements(payload))
     elements.append({"tag": "hr"})
     elements.append(
@@ -265,12 +248,10 @@ def build_hc_resolved_card(
     decision_emoji = {
         DECISION_PASS: "✅",
         DECISION_REJECT: "❌",
-        DECISION_REMARK: "📝",
     }.get(decision, "•")
     decision_label = {
         DECISION_PASS: "通过",
         DECISION_REJECT: "打回",
-        DECISION_REMARK: "备注",
     }.get(decision, decision)
     resolved_at = time.strftime("%Y-%m-%d %H:%M:%S")
     elements: list[dict] = [
@@ -282,17 +263,6 @@ def build_hc_resolved_card(
             ),
         },
     ]
-    if payload.get("__fallback__"):
-        # 兜底 payload 的终态版:同 build_hc_card 里的处理,只留中性提示,不暴露尾部原文。
-        elements.append(
-            {
-                "tag": "markdown",
-                "content": (
-                    "⚠️ AI 未按契约输出结构化载荷,摘要可能不完整;"
-                    "决策已依据审核人回滚历史消息后的判断落库。"
-                ),
-            }
-        )
     elements.extend(_payload_summary_elements(payload))
     elements.append({"tag": "hr"})
     resolved_line = f"{decision_emoji} **{decision_label}** · {operator_label} · {resolved_at}"
@@ -413,7 +383,7 @@ class Topic6Hitl(Topic6CardSenderProtocol):
         点按钮后必须做三件事,缺一不可:
           1. store.resolve_hc_event 落库(审计)
           2. patch 卡片到"已处理"终态(视觉反馈,否则用户以为点了没生效)
-          3. 若通过 / 备注 → runner.resume_job 把决策塞回 MA Session 继续跑
+          3. runner.resume_job 把通过或打回决策塞回 MA Session 继续跑
         """
         payload = _extract_action_value(action)
         if not payload:
@@ -421,6 +391,12 @@ class Topic6Hitl(Topic6CardSenderProtocol):
             return
 
         decision = str(payload.get("decision") or "").strip().lower()
+        if decision not in {DECISION_PASS, DECISION_REJECT}:
+            log.warning(
+                "topic6 handle_card_action: 非法 decision=%s，忽略",
+                decision,
+            )
+            return
         event_id = payload.get("event_id")
         job_id = payload.get("job_id") or ""
         hc_kind = payload.get("hc") or ""
@@ -467,14 +443,6 @@ class Topic6Hitl(Topic6CardSenderProtocol):
             return
 
         note = _extract_action_note(action) or ""
-        # 备注按钮:仅记录一条 remark 事件,不 resume——等用户 @bot 补一句正文再唤醒。
-        if decision == DECISION_REMARK and not note:
-            self._store.append_remark(hc_event.id, PENDING_REMARK_NOTE)
-            self._reply_sync(
-                job.chat_id, f"📝 已记 {hc_kind} 备注意向,请再 @bot 一条说明。"
-            )
-            return
-
         operator_label = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: _resolve_operator_label(
@@ -516,80 +484,13 @@ class Topic6Hitl(Topic6CardSenderProtocol):
                 operator_label=operator_label,
             )
 
-        # pass / reject / remark(兼容历史卡片) 都把决策注入 MA Session 继续跑。
-        # reject 由 Coordinator 依据原因选择回退或调整，而不是 Gateway 直接终止任务。
+        # pass / reject 都注入 MA Session；reject 由 Coordinator 选择回退或调整。
         decision_message = _build_decision_message(hc_kind, decision, note)
         try:
             await self._runner.resume_job(job, decision_message)
         except Exception as error:  # noqa: BLE001 - resume 失败也要通知飞书
             log.exception("topic6 resume_job failed job=%s: %s", job.job_id, error)
             self._reply_sync(job.chat_id, f"⚠️ {hc_kind} 续跑失败:{error!s}"[:200])
-
-    async def handle_remark_message(
-        self,
-        *,
-        chat_id: str,
-        thread_id: str,
-        user_open_id: str,
-        text: str,
-    ) -> bool:
-        """把“备注按钮后补发的文本”接回待审核 Job；未命中返回 False。"""
-        job = self._store.get_active_job_by_session_key(
-            chat_id, thread_id, user_open_id
-        )
-        if job is None:
-            return False
-        hc_event = self._store.latest_hc_for_job(job.job_id, job.current_phase)
-        if (
-            hc_event is None
-            or hc_event.resolved_at is not None
-            or hc_event.user_note != PENDING_REMARK_NOTE
-        ):
-            return False
-
-        note = text.strip()
-        if not note:
-            return False
-        action = {
-            "chat_id": chat_id,
-            "operator": {"open_id": user_open_id},
-        }
-        operator_label = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: _resolve_operator_label(
-                action, self._runner._feishu  # noqa: SLF001
-            ),
-        )
-        self._store.resolve_hc_event(
-            hc_event.id,
-            DECISION_REMARK,
-            note,
-            operator_label=operator_label,
-        )
-        if hc_event.card_message_id:
-            resolved = HcEvent(
-                id=hc_event.id,
-                job_id=hc_event.job_id,
-                hc_kind=hc_event.hc_kind,
-                payload=hc_event.payload,
-                card_message_id=hc_event.card_message_id,
-                user_decision=DECISION_REMARK,
-                user_note=note,
-                operator_label=operator_label,
-                created_at=hc_event.created_at,
-                resolved_at=int(time.time()),
-            )
-            await self._patch_resolved_card(
-                hc_event.card_message_id,
-                resolved,
-                action,
-                operator_label=operator_label,
-            )
-        await self._runner.resume_job(
-            job,
-            _build_decision_message(hc_event.hc_kind, DECISION_REMARK, note),
-        )
-        return True
 
     # ---- helper --------------------------------------------------------------
 
@@ -662,8 +563,6 @@ def _extract_action_value(action: Any) -> Optional[dict]:
         name = inner.get("name")
     if name == "reject_submit":
         return {"decision": DECISION_REJECT}
-    if name == "remark_submit":
-        return {"decision": DECISION_REMARK}
     return None
 
 
@@ -686,7 +585,6 @@ def _extract_action_note(action: Any) -> Optional[str]:
     if isinstance(form_value, dict):
         note = (
             form_value.get("reject_reason")
-            or form_value.get("remark_note")  # 兼容已发出的旧卡片
             or form_value.get("note")
         )
         if isinstance(note, str) and note.strip():
@@ -744,12 +642,10 @@ def _build_decision_message(hc_kind: str, decision: str, note: str) -> str:
     """把决策拼成一句注入 MA Session 的 user.message。
 
     coordinator.system.md 的对应节点会解析这句 user.message:``HC1 pass`` 直接放行;
-    ``HC1 reject: <原因>`` 触发回退;``HC1 remark: <补充>`` 视为带备注通过。
+    ``HC1 reject: <原因>`` 触发回退。
     """
     if decision == DECISION_PASS:
         return f"{hc_kind} pass"
     if decision == DECISION_REJECT:
         return f"{hc_kind} reject: {note or '无说明'}"
-    if decision == DECISION_REMARK:
-        return f"{hc_kind} remark: {note or '无补充'}"
     return f"{hc_kind} {decision}"

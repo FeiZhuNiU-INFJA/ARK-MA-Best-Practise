@@ -203,52 +203,6 @@ def test_hc_reuses_progress_card_instead_of_sending_new_message(tmp_path):
     store.close()
 
 
-def test_followup_message_resolves_pending_remark_and_resumes_job(tmp_path):
-    store = pipeline_store_mod.PipelineStore(str(tmp_path / "topic6.db"))
-    job = store.create_job(
-        chat_id="chat-1",
-        thread_id="",
-        user_open_id="user-1",
-        ma_session_id="session-1",
-        mode="demo",
-        project_dir="/workspace/demo",
-    )
-    event_id = store.append_hc_event(job.job_id, "HC3", {"hc": "HC3"})
-    store.mark_wait_hc(job.job_id, "HC3")
-    store.append_remark(event_id, hitl_mod.PENDING_REMARK_NOTE)
-
-    class _Runner:
-        _feishu = None
-
-        def __init__(self):
-            self.resumed = []
-
-        async def resume_job(self, current_job, message):
-            self.resumed.append((current_job, message))
-
-    runner = _Runner()
-    hitl = hitl_mod.Topic6Hitl(hitl_mod.Topic6HitlDeps(store=store, runner=runner))
-    handled = asyncio.run(
-        hitl.handle_remark_message(
-            chat_id="chat-1",
-            thread_id="",
-            user_open_id="user-1",
-            text="权限已发布，请重新执行 Phase F 飞书发布",
-        )
-    )
-
-    assert handled is True
-    assert runner.resumed[0][1] == (
-        "HC3 remark: 权限已发布，请重新执行 Phase F 飞书发布"
-    )
-    resolved = store.get_hc_event(event_id)
-    assert resolved.user_decision == "remark"
-    assert resolved.user_note == "权限已发布，请重新执行 Phase F 飞书发布"
-    assert resolved.operator_label == "操作人 ...user-1"
-    assert resolved.resolved_at is not None
-    store.close()
-
-
 def test_reject_reason_resumes_session_for_agent_rollback(tmp_path):
     store = pipeline_store_mod.PipelineStore(str(tmp_path / "topic6.db"))
     job = store.create_job(

@@ -725,14 +725,6 @@ class PipelineStore:
             ).fetchone()
         return self._row_to_hc(row) if row else None
 
-    def append_remark(self, event_id: int, note: str) -> None:
-        """备注按钮先落一次说明,不 resolve;等用户补一句正文再唤醒 pipeline。"""
-        with self._lock:
-            self._conn.execute(
-                "UPDATE pipeline_hc_events SET user_note = ? WHERE id = ?",
-                (note, event_id),
-            )
-
     def get_pending_hc_by_card(self, card_message_id: str) -> Optional[HcEvent]:
         """飞书卡片回调回来时,凭 card_message_id 反查未 resolve 的 HC 事件。"""
         with self._lock:
