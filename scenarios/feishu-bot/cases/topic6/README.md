@@ -54,13 +54,15 @@ python cases/topic6/authorize_miaoda_user.py
 
 ## 系统组成
 
-Topic 6 使用 `1 Coordinator + 2 类子 Agent`：
+Topic 6 使用 `1 Coordinator + 1 类子 Agent`：
 
 | 组件        | 职责                               |
 | ----------- | ---------------------------------- |
 | Coordinator | 编排阶段、并发委派、人工审核和发布 |
 | Annotator   | 执行 C0、C3、R1-R5 DataHub 标注    |
-| Insighter   | 并发生成 E1-E4 四个洞察版块        |
+
+E1-E4 不再拆分洞察子 Agent，由 Coordinator 单次调用 `pipeline_e.py`，在脚本内部做
+有界并发、断连重试和版块级 checkpoint。
 
 主要 Skill：
 

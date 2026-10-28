@@ -1,0 +1,43 @@
+{
+  "name": "topic5-prod-env",
+  "description": "topic5 营销活动复盘报告生产环境。承载 28 节点 durable pipeline:SSJH 取数 → 清洗/标注 → 聚合 → 词云 → ECharts 本地渲染图表 → 报告撰写 → Validator 质检 → 飞书原生插图导出(medias/upload_all)。",
+  "config": {
+    "type": "cloud",
+    "networking": {
+      "type": "unrestricted"
+    },
+    "packages": {
+      "pip": [
+        "pandas>=2.0",
+        "openpyxl>=3.1",
+        "httpx>=0.27",
+        "requests>=2.31",
+        "pyyaml>=6.0",
+        "numpy>=1.24",
+        "openai>=1.0",
+        "python-dateutil>=2.8",
+        "wordcloud>=1.9"
+      ]
+    },
+    "setup_script": "set -e\n# ECharts 图表真渲染依赖:在沙箱内为仓内 echarts skill 安装 node_modules。\n# node_modules 不入库(.gitignore),resvg 二进制仅 Linux,真渲染只在 MA 沙箱发生。\n# 安装失败会保留环境启动日志;运行到 n14 时严格阻断,禁止无图交付。\nECHARTS_SCRIPTS=/mnt/skills/blueai-yuqing-echarts-skill-new/scripts\nif command -v npm >/dev/null 2>&1 && [ -f \"$ECHARTS_SCRIPTS/package.json\" ]; then\n  (cd \"$ECHARTS_SCRIPTS\" && npm install --no-audit --no-fund --silent) || echo \"WARN: echarts npm install 失败,n14 将阻断\" >&2\nelse\n  echo \"WARN: npm 或 echarts package.json 缺失,n14 将阻断\" >&2\nfi",
+    "env": {
+      "TZ": "Asia/Shanghai",
+      "PYTHONUNBUFFERED": "1",
+      "TOPIC5_MODEL_ID": "doubao-seed-2-1-lite-260915",
+      "TOPIC5_SEMANTIC_MODEL": "doubao-seed-2-1-lite-ultra-vision-260920",
+      "TOPIC5_SEMANTIC_THINKING": "disabled",
+      "ARK_API_KEY": "${ARK_API_KEY}",
+      "ARK_BASE_URL": "${ARK_BASE_URL}",
+      "DATAHUB_API_KEY": "${DATAHUB_API_KEY}",
+      "DATAHUB_BASE_URL": "${DATAHUB_BASE_URL}",
+      "DATAHUB_ANNOTATE_MODEL": "gpt-4o-mini",
+      "SSJH_API_TOKEN": "${SSJH_API_TOKEN}",
+      "REPORT_COVER_API_KEY": "${REPORT_COVER_API_KEY}",
+      "REPORT_COVER_API_BASE_URL": "${REPORT_COVER_API_BASE_URL}",
+      "FEISHU_APP_ID": "${FEISHU_APP_ID}",
+      "FEISHU_APP_SECRET": "${FEISHU_APP_SECRET}",
+      "FEISHU_OPENAPI_BASE": "${FEISHU_OPENAPI_BASE}",
+      "FEISHU_DELIVERY_OWNER_OPEN_ID": "${FEISHU_DELIVERY_OWNER_OPEN_ID}"
+    }
+  }
+}

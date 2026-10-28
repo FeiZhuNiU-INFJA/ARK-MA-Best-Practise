@@ -1,0 +1,16 @@
+{
+  "name": "topic5-validator",
+  "description": "topic5 报告质检子 Agent(独立身份)。J 阶段(n17_validate / G3)按客户完整规则适配表执行两段式审计:scan_report.py 全量扫描机器规则 + Agent 全文检查语义规则,产出分级 qc_report,p0_count==0 自动放行。只读报告与证据,不改正文、不写飞书。",
+  "model": {
+    "id": "doubao-seed-2-1-lite-260915",
+    "thinking": "enabled",
+    "reasoning_effort": "minimal"
+  },
+  "system_file": "validator.system.md",
+  "skills": [
+    {"type": "custom", "skill_id": "${skill_id.topic5-validator}", "version": "${version.topic5-validator}"}
+  ],
+  "tools": [
+    {"type": "agent_toolset_20260701"}
+  ]
+}

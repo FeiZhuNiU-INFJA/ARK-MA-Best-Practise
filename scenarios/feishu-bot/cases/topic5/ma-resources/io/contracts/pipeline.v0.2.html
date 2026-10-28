@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Topic5 营销活动复盘报告 · 流程规格 v0.2</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+:root{--bd:#e3e6ea;--mut:#5b6672;--bg:#f6f8fa}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.65 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#1a252f;background:var(--bg)}
+.wrap{max-width:1120px;margin:0 auto;padding:32px 20px 80px}
+h1{font-size:26px;margin:0 0 4px}
+.sub{color:var(--mut);margin:0 0 20px}
+.panel{background:#fff;border:1px solid var(--bd);border-radius:12px;padding:20px 22px;margin:16px 0}
+.panel h2{font-size:18px;margin:0 0 12px}
+.ov p{margin:6px 0} .ov b{color:#1f5fb0}
+.legend{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 0}
+.badge{font-size:12px;padding:2px 9px;border-radius:20px;font-weight:600;white-space:nowrap}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;color:var(--mut);font-weight:600;border-bottom:2px solid var(--bd);padding:6px 8px}
+td{border-top:1px solid var(--bd);padding:6px 8px;vertical-align:top}
+.stage{margin:28px 0 6px;font-size:16px;color:#2c3e50;border-left:4px solid #1f5fb0;padding-left:10px}
+.gov .gh{font-size:15px;color:#2c3e50;margin:18px 0 6px}
+.gov p{margin:5px 0}
+.card{background:#fff;border:1px solid var(--bd);border-radius:12px;padding:16px 18px;margin:12px 0;scroll-margin-top:16px}
+.card-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.nid{font:600 13px/1 ui-monospace,monospace;background:#eef2f6;color:#334;padding:4px 8px;border-radius:6px}
+.nname{font-weight:700;font-size:16px}
+.meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.chip{font-size:12px;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:2px 8px;color:var(--mut)}
+.chip.ck{color:#1a7f4b;border-color:#bfe6cd;background:#eefaf1}
+.chip.gate{color:#b02a2a;border-color:#f0c4c4;background:#fdeaea;font-weight:600}
+.chip.mod{color:#1f5fb0;border-color:#c4d6f0;background:#e7f0fb}
+.chip.cp{color:#0f766e;border-color:#b6ddd7;background:#e6f5f3}
+.card>div{margin:7px 0}
+.card b{display:inline-block;min-width:92px;color:#2c3e50;margin-right:6px}
+.biz{background:#fafbfc;border:1px dashed var(--bd);border-radius:8px;padding:8px 12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;padding:1px 6px;border-radius:5px;word-break:break-all}
+.src ul{margin:4px 0 0;padding-left:20px} .src li{margin:3px 0}
+.mermaid{background:#fff;border:1px solid var(--bd);border-radius:12px;padding:16px;overflow:auto}
+.note{color:var(--mut);font-size:13px}
+</style></head>
+<body><div class="wrap">
+<h1>Topic5 营销活动复盘报告 · 流程规格 v0.2</h1>
+<p class="sub">机器可读 DAG 的发布视图 · 结构实时取自 pipeline.v0.2.yaml（v0.2，28 节点）· 治理层取自 governance 段 · 业务背景与源文件为人工标注</p>
+
+<div class="panel ov">
+  <h2>业务背景</h2>
+  <p><b>它解决什么</b>评估品牌在社媒平台的营销活动传播效果，帮助客户了解活动期间的声量表现、口碑反馈与内容传播质量，为后续营销策略提供数据支撑。</p>
+  <p><b>典型场景</b>品牌在公关传播 / 话题活动 / KOL 种草等活动结束后进行效果复盘，对比活动期与基准期声量差异，分析受众反应与情感口碑。</p>
+  <p><b>客户</b>品牌主（消费品 / 快消 / 时尚 / 科技），通常为品牌部或公关部。</p>
+  <p><b>交付价值</b>量化活动声量与互动效果 · 识别高质量内容特征 · 提炼用户真实口碑 · 给出下次活动优化建议。</p>
+  <p class="note">v0.2 合成来源：pipeline.v0.1.yaml（治理契约）+ pipeline_dag.yaml（可执行 DAG，已本地跑通）。双层：可执行 nodes 层 + 声明式 governance 层。</p>
+  <div class="legend"><span class="badge" style="color:#1a7f4b;background:#e6f6ec">可接真·本地脚本就绪</span><span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span><span class="badge" style="color:#b02a2a;background:#fdeaea">源包依赖缺失·只能 stub</span><span class="badge" style="color:#0f766e;background:#e6f5f3">控制面未上线·stub 执行留接缝</span><span class="badge" style="color:#1f5fb0;background:#e7f0fb">编排逻辑已真实</span><span class="badge" style="color:#6b3fa0;background:#f0e9fa">人工关卡</span></div>
+</div>
+
+<div class="panel"><h2>流程全景</h2><div class="mermaid">flowchart TD
+  n00_intake["n00_intake<br/>需求受理"]
+  n01_hc_requirement(["n01_hc_requirement<br/>需求确认（G1）"])
+  n02_plan["n02_plan<br/>方案编制（分析方案/执行方案/模块选择）"]
+  n03_hc_plan(["n03_hc_plan<br/>方案确认（G2）→ 冻结 ConfirmedPlan"])
+  n04_run_init["n04_run_init<br/>Run 初始化（资源锁/上下文快照）"]
+  n05_brand_pull["n05_brand_pull<br/>品牌活动期声量拉取"]
+  n06_brand_baseline["n06_brand_baseline<br/>基准期声量拉取"]
+  n07_clean["n07_clean<br/>活动数据清洗"]
+  n08_ugc_discovery["n08_ugc_discovery<br/>UGC 参与方式发现"]
+  n09_annotate_r1["n09_annotate_r1<br/>轮次一标注（情感+活动相关）"]
+  n09b_opinion_candidates["n09b_opinion_candidates<br/>观点候选生成（供 HC 确认）"]
+  n10_hc_opinion["n10_hc_opinion<br/>观点标签策略校验（无歧义自动，有歧义转人工）"]
+  n11_annotate_r2["n11_annotate_r2<br/>轮次二标注（观点/UGC方式/讨论维度）"]
+  n12_aggregate["n12_aggregate<br/>分对象统计聚合"]
+  n13_wordcloud_pull["n13_wordcloud_pull<br/>词云拉取"]
+  n14_charts["n14_charts<br/>图表+封面生成（本地 PNG，交付时上传飞书 media）"]
+  n15_wordcloud_insight["n15_wordcloud_insight<br/>词云三步解读"]
+  n16_report["n16_report<br/>报告内容层撰写"]
+  n17_validate["n17_validate<br/>质检关卡（G3·独立 Validator 两段式审计）"]
+  n18_qc_gate{"n18_qc_gate<br/>质检路由"}
+  n19_fix["n19_fix<br/>P0 修复（patch 递增）"]
+  n_hc7_escalate(["n_hc7_escalate<br/>质检超限人工介入（操作级 HC）"])
+  n20_delivery_draft["n20_delivery_draft<br/>交付草稿（飞书文档 draft）"]
+  n21_hc_user(["n21_hc_user<br/>用户终验（G4）"])
+  n22_user_gate{"n22_user_gate<br/>终验路由（确认/返修/超时升级）"}
+  n_user_escalate(["n_user_escalate<br/>终验超时升级（操作级 HC）"])
+  n23_delivery_commit["n23_delivery_commit<br/>交付提交（发布后检查）"]
+  n24_handoff["n24_handoff<br/>交回 Supervisor 闭环"]
+  n00_intake --> n01_hc_requirement
+  n01_hc_requirement --> n02_plan
+  n02_plan --> n03_hc_plan
+  n03_hc_plan --> n04_run_init
+  n04_run_init --> n05_brand_pull
+  n04_run_init --> n06_brand_baseline
+  n04_run_init --> n13_wordcloud_pull
+  n05_brand_pull --> n07_clean
+  n06_brand_baseline --> n12_aggregate
+  n07_clean --> n08_ugc_discovery
+  n07_clean --> n09_annotate_r1
+  n08_ugc_discovery --> n11_annotate_r2
+  n09_annotate_r1 --> n09b_opinion_candidates
+  n09b_opinion_candidates --> n10_hc_opinion
+  n10_hc_opinion --> n11_annotate_r2
+  n11_annotate_r2 --> n12_aggregate
+  n12_aggregate --> n14_charts
+  n13_wordcloud_pull --> n14_charts
+  n13_wordcloud_pull --> n15_wordcloud_insight
+  n14_charts --> n16_report
+  n15_wordcloud_insight --> n16_report
+  n16_report --> n17_validate
+  n17_validate --> n18_qc_gate
+  n18_qc_gate -->|no_p0| n20_delivery_draft
+  n18_qc_gate -->|has_p0_retry| n19_fix
+  n18_qc_gate -->|has_p0_maxed| n_hc7_escalate
+  n19_fix --> n17_validate
+  n_hc7_escalate --> n20_delivery_draft
+  n20_delivery_draft --> n21_hc_user
+  n21_hc_user --> n22_user_gate
+  n22_user_gate -->|confirmed| n23_delivery_commit
+  n22_user_gate -->|issues| n20_delivery_draft
+  n22_user_gate -->|escalate| n_user_escalate
+  n_user_escalate --> n23_delivery_commit
+  n23_delivery_commit --> n24_handoff
+  style n00_intake fill:#fff4d6,stroke:#9a6b00,color:#1a252f
+  style n01_hc_requirement fill:#f0e9fa,stroke:#6b3fa0,color:#1a252f
+  style n02_plan fill:#fff4d6,stroke:#9a6b00,color:#1a252f
+  style n03_hc_plan fill:#f0e9fa,stroke:#6b3fa0,color:#1a252f
+  style n04_run_init fill:#e6f5f3,stroke:#0f766e,color:#1a252f
+  style n05_brand_pull fill:#fff4d6,stroke:#9a6b00,color:#1a252f
+  style n06_brand_baseline fill:#fff4d6,stroke:#9a6b00,color:#1a252f
+  style n07_clean fill:#e6f6ec,stroke:#1a7f4b,color:#1a252f
+  style n08_ugc_discovery fill:#fff4d6,stroke:#9a6b00,color:#1a252f
+  style n09_annotate_r1 fill:#fff4d6,stroke:#9a6b00,color:#1a252f
+  style n09b_opinion_candidates fill:#fff4d6,stroke:#9a6b00,color:#1a252f
+  style n10_hc_opinion fill:#f0e9fa,stroke:#6b3fa0,color:#1a252f
+  style n11_annotate_r2 fill:#fff4d6,stroke:#9a6b00,color:#1a252f
+  style n12_aggregate fill:#e6f6ec,stroke:#1a7f4b,color:#1a252f
+  style n13_wordcloud_pull fill:#fff4d6,stroke:#9a6b00,color:#1a252f
+  style n14_charts fill:#fff4d6,stroke:#9a6b00,color:#1a252f
+  style n15_wordcloud_insight fill:#fff4d6,stroke:#9a6b00,color:#1a252f
+  style n16_report fill:#fff4d6,stroke:#9a6b00,color:#1a252f
+  style n17_validate fill:#f0e9fa,stroke:#6b3fa0,color:#1a252f
+  style n18_qc_gate fill:#e7f0fb,stroke:#1f5fb0,color:#1a252f
+  style n19_fix fill:#e7f0fb,stroke:#1f5fb0,color:#1a252f
+  style n_hc7_escalate fill:#f0e9fa,stroke:#6b3fa0,color:#1a252f
+  style n20_delivery_draft fill:#fff4d6,stroke:#9a6b00,color:#1a252f
+  style n21_hc_user fill:#f0e9fa,stroke:#6b3fa0,color:#1a252f
+  style n22_user_gate fill:#e7f0fb,stroke:#1f5fb0,color:#1a252f
+  style n_user_escalate fill:#f0e9fa,stroke:#6b3fa0,color:#1a252f
+  style n23_delivery_commit fill:#e6f5f3,stroke:#0f766e,color:#1a252f
+  style n24_handoff fill:#fdeaea,stroke:#b02a2a,color:#1a252f</div></div>
+
+<div class="panel"><h2>治理层 Governance（声明式约束）</h2>
+    <div class="gov">
+      <h3 class="gh">发布门 Release Gates（authority 决定放行主体）</h3>
+      <table><tr><th>门</th><th>after</th><th>subject</th><th>authority</th><th>pass_policy</th></tr><tr><td><code>G1</code></td><td>n01_hc_requirement</td><td>RequirementSnapshot</td><td>user</td><td>—</td></tr><tr><td><code>G2</code></td><td>n03_hc_plan</td><td>ConfirmedPlan</td><td>user</td><td>—</td></tr><tr><td><code>G3</code></td><td>n17_validate</td><td>ReportArtifact</td><td>validator</td><td>p0_count==0</td></tr><tr><td><code>G4</code></td><td>n21_hc_user</td><td>DeliveryDraft</td><td>user</td><td>—</td></tr></table>
+      <p class="note">操作级 HC（关卡但非发布门）：<code>n10_hc_opinion, n_hc7_escalate, n_user_escalate</code></p>
+
+      <h3 class="gh">参数化模块 Modules（口径 churn 推进模块启用，不改骨架）</h3>
+      <p><b>core</b><code>brand_context, activity_performance, evidence_summary</code></p>
+      <p><b>conditional</b><code>baseline_lift, product_funnel, sentiment_opinion, kol_effectiveness, ugc_participation, wordcloud_topics, top_content, multi_activity_compare</code></p>
+      <p class="note">未登记需求策略：<code>needs-capability-extension-before-G2</code></p>
+
+      <h3 class="gh">数据授权 Data Policy</h3>
+      <table><tr><th>数据</th><th>source</th><th>authority</th><th>module</th></tr><tr><td><code>activity_detail</code></td><td>user-uploaded-excel</td><td>campaign-detail-analysis</td><td>—</td></tr><tr><td><code>brand_period</code></td><td>controlled-stat-tool</td><td>brand-period-analysis</td><td>—</td></tr><tr><td><code>brand_baseline</code></td><td>controlled-stat-tool</td><td>baseline-comparison</td><td>baseline_lift</td></tr><tr><td><code>wordcloud</code></td><td>controlled-stat-tool</td><td>topic-discovery-input</td><td>wordcloud_topics</td></tr></table>
+      <p class="note">冲突策略：<code>stop-affected-metric-and-create-DataIssue</code></p>
+
+      <h3 class="gh">失败与发布策略</h3>
+      <p><b>失败</b>外部 UNKNOWN=<code>reconcile-before-retry</code> ·
+         幂等必需=<code>True</code> ·
+         局部重跑=<code>dependency-scoped</code> ·
+         产物不覆盖=<code>False</code></p>
+      <p><b>发布</b>p0 禁发=<code>False</code> ·
+         p1 可披露=<code>True</code> ·
+         渠道=<code>feishu-document</code></p>
+      <div class="src"><b>发布后检查</b><ul><li><code>image-accessibility</code></li><li><code>document-layout</code></li><li><code>document-ownership</code></li><li><code>link-accessibility</code></li><li><code>source-artifact-revision-match</code></li></ul></div>
+    </div></div>
+
+<div class="panel"><h2>业务口径参数（外置，不写进节点逻辑）</h2><table><tr><td><code>annotation_routing_threshold</code></td><td>1000</td></tr><tr><td><code>ugc_category_mode</code></td><td>fixed_four</td></tr><tr><td><code>nsr_denominator_includes_neutral</code></td><td>True</td></tr><tr><td><code>report_chapters</code></td><td>five</td></tr><tr><td><code>qc_max_rounds</code></td><td>3</td></tr><tr><td><code>user_confirm_timeout_days</code></td><td>2</td></tr><tr><td><code>validator_rules_version</code></td><td>topic5-validator-qc-v1.6</td></tr></table></div>
+
+<div class="panel"><h2>差异与依赖说明</h2>
+    <ul>
+      <li><b>并行化（本轮）</b>：调度由单指针改为<b>就绪队列(frontier)</b>——<code>next</code> 支持列表(分叉)，
+          节点 <code>inputs</code> 全部就绪才可跑(汇合)。三处天然并行如实表达：
+          <code>n04→[n05,n06,n13]</code> 三路数说、<code>n07→[n08,n09]</code>、<code>n13→[n14,n15]</code>；
+          join 节点 <code>n11/n12/n16</code> 在各自上游齐备后才运行。执行仍串行确定性，仅留一处真并发接缝；
+          QC 环靠 control 边驱动不受影响。n08/n09b/n15/n16 的 owner 改为对应语义子 Agent
+          （Discovery/Opinion/Insight/Narrative，身份文件见 <code>identity/subagents/</code>）。</li>
+      <li><b>相对 v0.1 的改进</b>：补回方案确认门 G2（<code>n02_plan→n03_hc_plan</code>）、
+          保留操作级 HC 与 QC 循环（<code>n17→n18→n19</code> 回环）、补终验超时升级边
+          （<code>n22_user_gate→n_user_escalate</code>）、交付 draft→commit 分离
+          （<code>n20_delivery_draft</code> / <code>n23_delivery_commit</code>）、具体幂等键、本地可跑。</li>
+      <li><b>已迁入</b>：<code>skills/SSJH-Social-Stat/</code>（n05/n06/n13）、<code>skills/blueai-yuqing-echarts-skill-new/</code>（n14 图表）、
+          <code>skills/report-cover-skill/</code>（n14 封面）。SSJH / 图像 API 为<b>付费或外部调用</b>，接真须走成本确认门；
+          图表为本地 PNG，由 n20 上传飞书 media。</li>
+      <li><b>仍缺依赖</b>：<code>validate_handoff.py / handoff.json</code> — 补齐前 <code>n24</code> 仍只能 stub。</li>
+      <li><b>控制面未上线</b>：Blueflare-Ada 未上线，<code>n04_run_init</code> / <code>n23_delivery_commit</code>
+          以本地 stub 执行，保留接入缝。</li>
+      <li><b>可立即接真</b>：<code>n07_clean</code>、<code>n12_aggregate</code>（本地已有脚本，不依赖外部服务）。</li>
+    </ul></div>
+
+<h2 style="margin:28px 0 0">节点明细（实现 + 业务背景）</h2>
+<h3 class="stage">① 准备 + 需求门 G1</h3>
+    <div class="card" id="n00_intake">
+      <div class="card-h">
+        <span class="nid">n00_intake</span>
+        <span class="nname">需求受理</span>
+        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: ProjectAgent</span>
+        <span class="chip">mode: code</span>
+        <span class="chip">retry: 0/pause</span>
+        <span class="chip ck">checkpoint</span>
+        
+      </div>
+      <div class="biz"><b>业务背景</b>复盘报告必须基于完整需求（品牌/活动/周期/关键词/平台/内容范围/业务问题/交付期望）。字段不全直接停，避免下游返工。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>—</code></div>
+        <div><b>产出</b><code>requirement_snapshot</code></div>
+      </div>
+      <div><b>通过条件</b>生成 G1 需求问卷模板；必填字段与活动明细 Excel 在 G1 提交时校验</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ n01_hc_requirement</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>Agent.Supervisor/ 需求梳理提示词</code></li><li><code>需求确认单模板</code></li></ul></div>
+    </div>
+    <div class="card" id="n01_hc_requirement">
+      <div class="card-h">
+        <span class="nid">n01_hc_requirement</span>
+        <span class="nname">需求确认（G1）</span>
+        <span class="badge" style="color:#6b3fa0;background:#f0e9fa">人工关卡</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: user</span>
+        <span class="chip">mode: human</span>
+        <span class="chip">retry: 0/-</span>
+        
+        <span class="chip gate">gate: G1</span>
+      </div>
+      <div class="biz"><b>业务背景</b>需求快照必须由用户确认（发布门 G1），确认后方可进入方案阶段。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>—</code></div>
+        <div><b>产出</b><code>requirement_confirmed</code></div>
+      </div>
+      <div><b>通过条件</b>用户提交结构化需求问卷，且活动明细 Excel 已挂载到当前 Session</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ n02_plan</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>流程图 G1 / 需求确认单</code></li></ul></div>
+    </div><h3 class="stage">② 方案 + 方案门 G2</h3>
+    <div class="card" id="n02_plan">
+      <div class="card-h">
+        <span class="nid">n02_plan</span>
+        <span class="nname">方案编制（分析方案/执行方案/模块选择）</span>
+        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: Topic5Agent</span>
+        <span class="chip">mode: agent</span>
+        <span class="chip">retry: 1/pause</span>
+        <span class="chip ck">checkpoint</span>
+        
+      </div>
+      <div class="biz"><b>业务背景</b>Topic5Agent 产出分析方案/执行方案/模块选择；未登记需求按 unregistered_request_policy 先扩能力再过 G2。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>requirement_confirmed</code></div>
+        <div><b>产出</b><code>analysis_plan, execution_plan, selected_modules</code></div>
+      </div>
+      <div><b>通过条件</b>产出含 selected_modules；未登记需求按 unregistered_request_policy 先扩能力</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ n03_hc_plan</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>Agent.Producer 系统提示词 v0.32</code></li><li><code>modules 登记表（governance.modules）</code></li></ul></div>
+    </div>
+    <div class="card" id="n03_hc_plan">
+      <div class="card-h">
+        <span class="nid">n03_hc_plan</span>
+        <span class="nname">方案确认（G2）→ 冻结 ConfirmedPlan</span>
+        <span class="badge" style="color:#6b3fa0;background:#f0e9fa">人工关卡</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: user</span>
+        <span class="chip">mode: human</span>
+        <span class="chip">retry: 0/-</span>
+        
+        <span class="chip gate">gate: G2</span>
+      </div>
+      <div class="biz"><b>业务背景</b>方案必须由用户确认（发布门 G2）并冻结 ConfirmedPlan（artifact_id + version），作为后续所有生产节点的依据。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>—</code></div>
+        <div><b>产出</b><code>confirmed_plan</code></div>
+      </div>
+      <div><b>通过条件</b>用户确认方案；冻结 confirmed_plan_artifact_id + version</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ n04_run_init</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>流程图 G2 / required_before_production</code></li></ul></div>
+    </div>
+    <div class="card" id="n04_run_init">
+      <div class="card-h">
+        <span class="nid">n04_run_init</span>
+        <span class="nname">Run 初始化（资源锁/上下文快照）</span>
+        <span class="badge" style="color:#0f766e;background:#e6f5f3">控制面未上线·stub 执行留接缝</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: blueflare-ada</span>
+        <span class="chip">mode: code</span>
+        <span class="chip">retry: 1/pause</span>
+        <span class="chip ck">checkpoint</span>
+        <span class="chip cp">control-plane: blueflare-ada</span>
+      </div>
+      <div class="biz"><b>业务背景</b>冻结资源版本 + 上下文快照 + 输入校验。由控制面 Blueflare-Ada 负责；未上线时本地 stub 执行，保留接入缝。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>confirmed_plan</code></div>
+        <div><b>产出</b><code>run_record, resource_lock, context_snapshot</code></div>
+      </div>
+      <div><b>通过条件</b>冻结资源版本与输入校验（required_before_production 全就绪）</div>
+      <div class="grid2">
+        <div><b>副作用</b>resource-lock</div>
+        <div><b>幂等键</b><code>runinit:{task_id}:{confirmed_plan_version}</code></div>
+      </div>
+      <div><b>流转</b><code>→ [n05_brand_pull, n06_brand_baseline, n13_wordcloud_pull]</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>Blueflare-Ada 控制面（未上线）</code></li><li><code>failure_policy.checkpoint_source</code></li></ul></div>
+    </div><h3 class="stage">③ 数据获取</h3>
+    <div class="card" id="n05_brand_pull">
+      <div class="card-h">
+        <span class="nid">n05_brand_pull</span>
+        <span class="nname">品牌活动期声量拉取</span>
+        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: tool-gateway</span>
+        <span class="chip">mode: tool</span>
+        <span class="chip">retry: 2/pause</span>
+        <span class="chip ck">checkpoint</span>
+        <span class="chip mod">module: brand_context</span>
+      </div>
+      <div class="biz"><b>业务背景</b>品牌活动期整体社媒表现（声量/互动/情感/词云/热门内容），分母=品牌全量声量。体量大，由 SSJH 自动拉聚合值。skill 已迁入，含 cloud_word 等 11 维；SSJH 为付费外部取数，接真需走成本确认门。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>confirmed_plan</code></div>
+        <div><b>产出</b><code>brand_stats</code></div>
+      </div>
+      <div><b>通过条件</b>返回品牌活动期聚合（声量/互动/情感/词云/热门内容）</div>
+      <div class="grid2">
+        <div><b>副作用</b>external-stat-pull</div>
+        <div><b>幂等键</b><code>ssjh:brand:{task_id}:{resource_lock}</code></div>
+      </div>
+      <div><b>流转</b><code>→ n07_clean</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>skills/SSJH-Social-Stat/ · scripts/run.py（付费外部·成本门后接真）</code></li></ul></div>
+    </div>
+    <div class="card" id="n06_brand_baseline">
+      <div class="card-h">
+        <span class="nid">n06_brand_baseline</span>
+        <span class="nname">基准期声量拉取</span>
+        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: tool-gateway</span>
+        <span class="chip">mode: tool</span>
+        <span class="chip">retry: 2/exception_bypass</span>
+        
+        <span class="chip mod">module: baseline_lift</span>
+      </div>
+      <div class="biz"><b>业务背景</b>基准期=活动前 30 天且不重叠，用于「活动拉升效果」对比。缺失按 conflict_policy 降级该指标并建 DataIssue。同用 SSJH skill，付费外部取数。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>confirmed_plan</code></div>
+        <div><b>产出</b><code>brand_stats_baseline</code></div>
+      </div>
+      <div><b>通过条件</b>基准期=活动前30天不重叠；缺失按 conflict_policy 降级该指标并建 DataIssue</div>
+      <div class="grid2">
+        <div><b>副作用</b>external-stat-pull</div>
+        <div><b>幂等键</b><code>ssjh:baseline:{task_id}:{resource_lock}</code></div>
+      </div>
+      <div><b>流转</b><code>→ n12_aggregate</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>skills/SSJH-Social-Stat/（付费外部·成本门后接真）</code></li><li><code>module: baseline_lift</code></li></ul></div>
+    </div>
+    <div class="card" id="n07_clean">
+      <div class="card-h">
+        <span class="nid">n07_clean</span>
+        <span class="nname">活动数据清洗</span>
+        <span class="badge" style="color:#1a7f4b;background:#e6f6ec">可接真·本地脚本就绪</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: Topic5Agent</span>
+        <span class="chip">mode: code</span>
+        <span class="chip">retry: 1/pause</span>
+        <span class="chip ck">checkpoint</span>
+        
+      </div>
+      <div class="biz"><b>业务背景</b>活动 Excel 清洗：按周期过滤、id 去重、派生平台标签、派生 kol_level（头/腰/尾），为分层效能分析打基础。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>brand_stats</code></div>
+        <div><b>产出</b><code>cleaned_data</code></div>
+      </div>
+      <div><b>通过条件</b>优先清洗用户上传 activity_detail Excel；旧任务无上传文件时回退 SSJH articles</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ [n08_ugc_discovery, n09_annotate_r1]</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>test_run/step1_clean.py</code></li><li><code>KS_Classification_Rules.md</code></li></ul></div>
+    </div><h3 class="stage">④ AI 标注（含观点 HC）</h3>
+    <div class="card" id="n08_ugc_discovery">
+      <div class="card-h">
+        <span class="nid">n08_ugc_discovery</span>
+        <span class="nname">UGC 参与方式发现</span>
+        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: DiscoverySubagent</span>
+        <span class="chip">mode: agent</span>
+        <span class="chip">retry: 1/pause</span>
+        
+        <span class="chip mod">module: ugc_participation</span>
+      </div>
+      <div class="biz"><b>业务背景</b>活动参与方式不预设：LLM 读样本自主发现 UGC 参与方式类别，避免固定四类遗漏新玩法。(dynamic vs fixed_four 为待裁决口径)</div>
+      <div class="grid2">
+        <div><b>输入</b><code>cleaned_data</code></div>
+        <div><b>产出</b><code>ugc_category_list</code></div>
+      </div>
+      <div><b>通过条件</b>动态发现类别（ugc_category_mode 参数控制）</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ n11_annotate_r2</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>skills/blueai-phase-ugc-discovery-skill/</code></li><li><code>test_run/phase_discovery.py</code></li></ul></div>
+    </div>
+    <div class="card" id="n09_annotate_r1">
+      <div class="card-h">
+        <span class="nid">n09_annotate_r1</span>
+        <span class="nname">轮次一标注（情感+活动相关）</span>
+        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: tool-gateway</span>
+        <span class="chip">mode: tool</span>
+        <span class="chip">retry: 2/pause</span>
+        <span class="chip ck">checkpoint</span>
+        
+      </div>
+      <div class="biz"><b>业务背景</b>全量内容打两个基础标签：情感 + 是否活动相关。&lt;1000 条走小引擎(claude-haiku)，≥ 走 DataHub 批量。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>cleaned_data</code></div>
+        <div><b>产出</b><code>annotated_round1</code></div>
+      </div>
+      <div><b>通过条件</b>全量两基础标签；按 annotation_routing_threshold 路由小引擎/DataHub</div>
+      <div class="grid2">
+        <div><b>副作用</b>annotation-batch</div>
+        <div><b>幂等键</b><code>annot:r1:{task_id}:{resource_lock}</code></div>
+      </div>
+      <div><b>流转</b><code>→ n09b_opinion_candidates</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>test_run/step2_round1_annotate.py</code></li><li><code>/mnt/skills/blueai-datahub-skill/</code></li></ul></div>
+    </div>
+    <div class="card" id="n09b_opinion_candidates">
+      <div class="card-h">
+        <span class="nid">n09b_opinion_candidates</span>
+        <span class="nname">观点候选生成（供 HC 确认）</span>
+        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: OpinionSubagent</span>
+        <span class="chip">mode: agent</span>
+        <span class="chip">retry: 1/pause</span>
+        
+        
+      </div>
+      <div class="biz"><b>业务背景</b>基于轮次一抽样聚类生成观点候选，供 n10 人工确认后注入轮次二；观点标签不由 AI 单方面定稿。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>annotated_round1</code></div>
+        <div><b>产出</b><code>opinion_candidates</code></div>
+      </div>
+      <div><b>通过条件</b>基于轮次一抽样聚类出观点候选，供用户确认后注入轮次二</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ n10_hc_opinion</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>skills/blueai-opinion-discovery-skill/（生成观点候选·待迁入）</code></li></ul></div>
+    </div>
+    <div class="card" id="n10_hc_opinion">
+      <div class="card-h">
+        <span class="nid">n10_hc_opinion</span>
+        <span class="nname">观点标签策略校验（无歧义自动，有歧义转人工）</span>
+        <span class="badge" style="color:#6b3fa0;background:#f0e9fa">人工关卡</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: Validator</span>
+        <span class="chip">mode: agent</span>
+        <span class="chip">retry: 0/-</span>
+        
+        
+      </div>
+      <div class="biz"><b>业务背景</b>观点候选必须由用户确认后才注入轮次二（操作级 HC，非发布门）；候选由 n09b 生成。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>opinion_candidates</code></div>
+        <div><b>产出</b><code>confirmed_opinion_labels</code></div>
+      </div>
+      <div><b>通过条件</b>来源、样本、数量、唯一性与可标注性均通过则自动确认；动态或歧义标签暂停人工确认</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ n11_annotate_r2</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>流程图 观点确认 HC</code></li></ul></div>
+    </div>
+    <div class="card" id="n11_annotate_r2">
+      <div class="card-h">
+        <span class="nid">n11_annotate_r2</span>
+        <span class="nname">轮次二标注（观点/UGC方式/讨论维度）</span>
+        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: tool-gateway</span>
+        <span class="chip">mode: tool</span>
+        <span class="chip">retry: 2/pause</span>
+        <span class="chip ck">checkpoint</span>
+        
+      </div>
+      <div class="biz"><b>业务背景</b>在已确认标签上标注观点类别 + UGC 参与方式 + 讨论维度（品牌/产品/活动），支撑分维度 NSR 与 UGC 分析。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>confirmed_opinion_labels, ugc_category_list</code></div>
+        <div><b>产出</b><code>annotated_data</code></div>
+      </div>
+      <div><b>通过条件</b>三任务(观点/UGC方式/分维度)标注完成并经覆盖检查,缺口显式报错</div>
+      <div class="grid2">
+        <div><b>副作用</b>annotation-batch</div>
+        <div><b>幂等键</b><code>annot:r2:{task_id}:{resource_lock}</code></div>
+      </div>
+      <div><b>流转</b><code>→ n12_aggregate</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>test_run/step2_round2_annotate.py</code></li><li><code>KS_Data_Processing.md</code></li></ul></div>
+    </div><h3 class="stage">⑤ 统计聚合</h3>
+    <div class="card" id="n12_aggregate">
+      <div class="card-h">
+        <span class="nid">n12_aggregate</span>
+        <span class="nname">分对象统计聚合</span>
+        <span class="badge" style="color:#1a7f4b;background:#e6f6ec">可接真·本地脚本就绪</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: Topic5Agent</span>
+        <span class="chip">mode: code</span>
+        <span class="chip">retry: 1/pause</span>
+        <span class="chip ck">checkpoint</span>
+        <span class="chip mod">module: activity_performance</span>
+      </div>
+      <div class="biz"><b>业务背景</b>按「分析对象」分组输出各活动独立统计：声量趋势/互动/情感/TopN/KOL层级效能(人均互动量)/UGC分布/分维度NSR。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>annotated_data, brand_stats, brand_stats_baseline</code></div>
+        <div><b>产出</b><code>stats_bundle</code></div>
+      </div>
+      <div><b>通过条件</b>各活动独立统计（趋势/互动/情感/TopN/KOL效能/UGC分布/分维NSR）</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ n14_charts</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>skills/blueai-stats-aggregation-skill/</code></li><li><code>KS_Metrics_Calculation.md</code></li></ul></div>
+    </div>
+    <div class="card" id="n13_wordcloud_pull">
+      <div class="card-h">
+        <span class="nid">n13_wordcloud_pull</span>
+        <span class="nname">词云拉取</span>
+        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: tool-gateway</span>
+        <span class="chip">mode: tool</span>
+        <span class="chip">retry: 2/exception_bypass</span>
+        
+        <span class="chip mod">module: wordcloud_topics</span>
+      </div>
+      <div class="biz"><b>业务背景</b>逐活动拉整体/品牌/产品维度词云；competitor_sov 启用时额外拉竞品声量用于市场声量份额(SOV)。同用 SSJH skill，付费外部取数。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>confirmed_plan</code></div>
+        <div><b>产出</b><code>wordcloud_data</code></div>
+      </div>
+      <div><b>通过条件</b>逐活动拉整体/品牌/产品词云</div>
+      <div class="grid2">
+        <div><b>副作用</b>external-stat-pull</div>
+        <div><b>幂等键</b><code>ssjh:wc:{task_id}:{resource_lock}</code></div>
+      </div>
+      <div><b>流转</b><code>→ [n14_charts, n15_wordcloud_insight]</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>skills/SSJH-Social-Stat/（付费外部·成本门后接真）</code></li><li><code>module: wordcloud_topics / competitor_sov</code></li></ul></div>
+    </div><h3 class="stage">⑥ 图表封面</h3>
+    <div class="card" id="n14_charts">
+      <div class="card-h">
+        <span class="nid">n14_charts</span>
+        <span class="nname">图表+封面生成（本地 PNG，交付时上传飞书 media）</span>
+        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: tool-gateway</span>
+        <span class="chip">mode: tool</span>
+        <span class="chip">retry: 2/pause</span>
+        <span class="chip ck">checkpoint</span>
+        
+      </div>
+      <div class="biz"><b>业务背景</b>按图表规范生成全部图表 + 封面为本地 PNG，供报告内容层引用，并在飞书交付节点上传 media。图表(echarts)与封面能力已迁入；封面图像 API 为付费/外部服务，接真走成本确认门。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>stats_bundle, wordcloud_data</code></div>
+        <div><b>产出</b><code>chart_urls</code></div>
+      </div>
+      <div><b>通过条件</b>按图表规范产全部图表+封面本地 PNG，交付节点上传飞书 media</div>
+      <div class="grid2">
+        <div><b>副作用</b>chart-render</div>
+        <div><b>幂等键</b><code>chart-render:{task_id}:{resource_lock}</code></div>
+      </div>
+      <div><b>流转</b><code>→ n16_report</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>KS_Chart_Spec.md</code></li><li><code>skills/blueai-yuqing-echarts-skill-new/ · scripts/render_chart.js</code></li><li><code>skills/report-cover-skill/（封面·GPT 图像 API）</code></li><li><code>feishu.py · medias/upload_all</code></li></ul></div>
+    </div><h3 class="stage">⑦ 报告撰写</h3>
+    <div class="card" id="n15_wordcloud_insight">
+      <div class="card-h">
+        <span class="nid">n15_wordcloud_insight</span>
+        <span class="nname">词云三步解读</span>
+        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: InsightSubagent</span>
+        <span class="chip">mode: agent</span>
+        <span class="chip">retry: 1/pause</span>
+        
+        
+      </div>
+      <div class="biz"><b>业务背景</b>词云不只展示词：三步解读(逐词查帖→剔噪音→聚 3-5 议题)，产出各平台各维度议题文字。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>wordcloud_data</code></div>
+        <div><b>产出</b><code>wordcloud_insight</code></div>
+      </div>
+      <div><b>通过条件</b>逐词查帖→剔噪音→聚 3-5 议题，产出各平台各维议题</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ n16_report</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>skills/blueai-wordcloud-insight-skill/</code></li></ul></div>
+    </div>
+    <div class="card" id="n16_report">
+      <div class="card-h">
+        <span class="nid">n16_report</span>
+        <span class="nname">报告内容层撰写</span>
+        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: NarrativeSubagent</span>
+        <span class="chip">mode: agent</span>
+        <span class="chip">retry: 1/pause</span>
+        <span class="chip ck">checkpoint</span>
+        <span class="chip mod">module: evidence_summary</span>
+      </div>
+      <div class="biz"><b>业务背景</b>内容层 MD（不含飞书布局），结构：数据说明→整体洞察→品牌/活动/综合/经验/建议。(report_chapters 参数控制 three vs five)</div>
+      <div class="grid2">
+        <div><b>输入</b><code>stats_bundle, chart_urls, wordcloud_insight</code></div>
+        <div><b>产出</b><code>report_md</code></div>
+      </div>
+      <div><b>通过条件</b>内容层 MD（report_chapters 参数控制结构），不含飞书布局</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ n17_validate</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>KS_Report_Template.md</code></li><li><code>KS_Writing_Standards.md</code></li></ul></div>
+    </div><h3 class="stage">⑧ 质检循环 + 验证门 G3</h3>
+    <div class="card" id="n17_validate">
+      <div class="card-h">
+        <span class="nid">n17_validate</span>
+        <span class="nname">质检关卡（G3·独立 Validator 两段式审计）</span>
+        <span class="badge" style="color:#6b3fa0;background:#f0e9fa">人工关卡</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: Validator</span>
+        <span class="chip">mode: agent</span>
+        <span class="chip">retry: 0/-</span>
+        <span class="chip ck">checkpoint</span>
+        <span class="chip gate">gate: G3</span>
+      </div>
+      <div class="biz"><b>业务背景</b>质检发布门 G3（pass_policy=p0_count==0）。独立 topic5-validator Agent 已落地，按客户完整规则适配表执行机器全检与全文语义检查；通过后自动续跑，有 P0 自动返修，超限才升级人工。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>report_md, chart_urls, stats_bundle</code></div>
+        <div><b>产出</b><code>qc_report</code></div>
+      </div>
+      <div><b>通过条件</b>独立 Validator 自动产出并绑定 qc_report；p0_count==0 自动放行，不向用户发审核卡</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ n18_qc_gate</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>ma-resources-Validator/（平级资源包·契约基线，未落地）</code></li></ul></div>
+    </div>
+    <div class="card" id="n18_qc_gate">
+      <div class="card-h">
+        <span class="nid">n18_qc_gate</span>
+        <span class="nname">质检路由</span>
+        <span class="badge" style="color:#1f5fb0;background:#e7f0fb">编排逻辑已真实</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: engine</span>
+        <span class="chip">mode: decision</span>
+        <span class="chip">retry: 0/-</span>
+        
+        
+      </div>
+      <div class="biz"><b>业务背景</b>质检判定路由：无 P0→交付草稿；有 P0 且未达上限→修复复检；达上限→人工上报。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>—</code></div>
+        <div><b>产出</b><code>—</code></div>
+      </div>
+      <div><b>通过条件</b>—</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>no_p0→n20_delivery_draft · has_p0_retry→n19_fix · has_p0_maxed→n_hc7_escalate</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>KS_Exception_Handling.md</code></li></ul></div>
+    </div>
+    <div class="card" id="n19_fix">
+      <div class="card-h">
+        <span class="nid">n19_fix</span>
+        <span class="nname">P0 修复（patch 递增）</span>
+        <span class="badge" style="color:#1f5fb0;background:#e7f0fb">编排逻辑已真实</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: Topic5Agent</span>
+        <span class="chip">mode: agent</span>
+        <span class="chip">retry: 0/pause</span>
+        
+        
+      </div>
+      <div class="biz"><b>业务背景</b>P0 必须修复并 patch 版本递增后复检（回到 n17），避免带病交付。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>qc_report, report_md</code></div>
+        <div><b>产出</b><code>report_md</code></div>
+      </div>
+      <div><b>通过条件</b>修复 P0 并版本递增后复检</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ n17_validate</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>KS_Exception_Handling.md</code></li></ul></div>
+    </div>
+    <div class="card" id="n_hc7_escalate">
+      <div class="card-h">
+        <span class="nid">n_hc7_escalate</span>
+        <span class="nname">质检超限人工介入（操作级 HC）</span>
+        <span class="badge" style="color:#6b3fa0;background:#f0e9fa">人工关卡</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: ProjectAgent</span>
+        <span class="chip">mode: human</span>
+        <span class="chip">retry: 0/-</span>
+        
+        
+      </div>
+      <div class="biz"><b>业务背景</b>质检修复超 qc_max_rounds 轮触发人工介入（操作级 HC），防止无限循环。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>qc_report</code></div>
+        <div><b>产出</b><code>escalation_decision</code></div>
+      </div>
+      <div><b>通过条件</b>超 qc_max_rounds 轮触发，防无限循环</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ n20_delivery_draft</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>流程图 HC-7</code></li></ul></div>
+    </div><h3 class="stage">⑨ 交付草稿 + 终验门 G4</h3>
+    <div class="card" id="n20_delivery_draft">
+      <div class="card-h">
+        <span class="nid">n20_delivery_draft</span>
+        <span class="nname">交付草稿（飞书文档 draft）</span>
+        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: tool-gateway</span>
+        <span class="chip">mode: tool</span>
+        <span class="chip">retry: 2/pause</span>
+        <span class="chip ck">checkpoint</span>
+        <span class="chip gate">gate: G4</span>
+      </div>
+      <div class="biz"><b>业务背景</b>内容层 MD → 飞书布局层 XML(grid/callout)，创建 draft 文档并转移所有权（发布门 G4）。p0 禁发/p1 可披露放行。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>report_md, chart_urls</code></div>
+        <div><b>产出</b><code>delivery_draft, external_receipts, feishu_doc</code></div>
+      </div>
+      <div><b>通过条件</b>内容层→飞书布局层，创建文档并转移所有权；p0 禁发/p1 可披露放行</div>
+      <div class="grid2">
+        <div><b>副作用</b>feishu-doc-create</div>
+        <div><b>幂等键</b><code>feishu:{task_id}:{resource_lock}:{report_version}</code></div>
+      </div>
+      <div><b>流转</b><code>→ n21_hc_user</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>KS_Feishu_Format.md</code></li><li><code>build_table_with_hc.py</code></li><li><code>feishu-doc-writer</code></li></ul></div>
+    </div>
+    <div class="card" id="n21_hc_user">
+      <div class="card-h">
+        <span class="nid">n21_hc_user</span>
+        <span class="nname">用户终验（G4）</span>
+        <span class="badge" style="color:#6b3fa0;background:#f0e9fa">人工关卡</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: user</span>
+        <span class="chip">mode: human</span>
+        <span class="chip">retry: 0/-</span>
+        
+        <span class="chip gate">gate: G4</span>
+      </div>
+      <div class="biz"><b>业务背景</b>用户对飞书文档终验（发布门 G4）；超 user_confirm_timeout_days 催办，再超则升级。自动流程不得替代用户确认。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>delivery_draft</code></div>
+        <div><b>产出</b><code>user_confirmation</code></div>
+      </div>
+      <div><b>通过条件</b>用户对飞书文档终验；超时走催办/升级</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ n22_user_gate</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>流程图 HC-T5-2 超时/催办/上报</code></li></ul></div>
+    </div>
+    <div class="card" id="n22_user_gate">
+      <div class="card-h">
+        <span class="nid">n22_user_gate</span>
+        <span class="nname">终验路由（确认/返修/超时升级）</span>
+        <span class="badge" style="color:#1f5fb0;background:#e7f0fb">编排逻辑已真实</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: engine</span>
+        <span class="chip">mode: decision</span>
+        <span class="chip">retry: 0/-</span>
+        
+        
+      </div>
+      <div class="biz"><b>业务背景</b>终验判定路由：确认→提交；有问题→返修草稿；超时无响应→升级。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>—</code></div>
+        <div><b>产出</b><code>—</code></div>
+      </div>
+      <div><b>通过条件</b>—</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>confirmed→n23_delivery_commit · issues→n20_delivery_draft · escalate→n_user_escalate</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>流程图 HC-T5-2</code></li></ul></div>
+    </div>
+    <div class="card" id="n_user_escalate">
+      <div class="card-h">
+        <span class="nid">n_user_escalate</span>
+        <span class="nname">终验超时升级（操作级 HC）</span>
+        <span class="badge" style="color:#6b3fa0;background:#f0e9fa">人工关卡</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: ProjectAgent</span>
+        <span class="chip">mode: human</span>
+        <span class="chip">retry: 0/-</span>
+        
+        
+      </div>
+      <div class="biz"><b>业务背景</b>终验超时催办仍无响应则上报 Supervisor（操作级 HC）。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>delivery_draft</code></div>
+        <div><b>产出</b><code>escalation_decision</code></div>
+      </div>
+      <div><b>通过条件</b>超 user_confirm_timeout_days 催办仍无响应则上报 Supervisor</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ n23_delivery_commit</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>流程图 HC-T5-2 上报</code></li></ul></div>
+    </div><h3 class="stage">⑩ 提交闭环</h3>
+    <div class="card" id="n23_delivery_commit">
+      <div class="card-h">
+        <span class="nid">n23_delivery_commit</span>
+        <span class="nname">交付提交（发布后检查）</span>
+        <span class="badge" style="color:#0f766e;background:#e6f5f3">控制面未上线·stub 执行留接缝</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: blueflare-ada</span>
+        <span class="chip">mode: code</span>
+        <span class="chip">retry: 1/pause</span>
+        <span class="chip ck">checkpoint</span>
+        <span class="chip cp">control-plane: blueflare-ada</span>
+      </div>
+      <div class="biz"><b>业务背景</b>提交交付记录 + 发布后检查（图片/布局/所有权/链接/版本一致）。由控制面 Blueflare-Ada 负责；未上线时本地 stub 执行。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>feishu_doc, user_confirmation</code></div>
+        <div><b>产出</b><code>delivery_record, task_result</code></div>
+      </div>
+      <div><b>通过条件</b>发布后检查全过（图片/布局/所有权/链接/版本一致）</div>
+      <div class="grid2">
+        <div><b>副作用</b>delivery-commit</div>
+        <div><b>幂等键</b><code>commit:{task_id}:{resource_lock}</code></div>
+      </div>
+      <div><b>流转</b><code>→ n24_handoff</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>Blueflare-Ada 控制面（未上线）</code></li><li><code>release_policy.post_publish_checks</code></li></ul></div>
+    </div>
+    <div class="card" id="n24_handoff">
+      <div class="card-h">
+        <span class="nid">n24_handoff</span>
+        <span class="nname">交回 Supervisor 闭环</span>
+        <span class="badge" style="color:#b02a2a;background:#fdeaea">源包依赖缺失·只能 stub</span>
+      </div>
+      <div class="meta">
+        <span class="chip">owner: ProjectAgent</span>
+        <span class="chip">mode: code</span>
+        <span class="chip">retry: 0/-</span>
+        
+        
+      </div>
+      <div class="biz"><b>业务背景</b>写 handoff 交回 Supervisor 并校验，闭环交付。</div>
+      <div class="grid2">
+        <div><b>输入</b><code>delivery_record, task_result</code></div>
+        <div><b>产出</b><code>handoff</code></div>
+      </div>
+      <div><b>通过条件</b>写 handoff 并校验</div>
+      <div class="grid2">
+        <div><b>副作用</b>none</div>
+        <div><b>幂等键</b><code>none</code></div>
+      </div>
+      <div><b>流转</b><code>→ 终点</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>validate_handoff.py / handoff.json（均缺失）</code></li></ul></div>
+    </div>
+
+</div>
+<script>mermaid.initialize({startOnLoad:true,theme:'neutral',flowchart:{useMaxWidth:true}});</script>
+</body></html>

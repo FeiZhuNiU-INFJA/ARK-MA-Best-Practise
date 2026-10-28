@@ -676,6 +676,41 @@ class FeishuSender:
             chat_id, "interactive", json.dumps(card, ensure_ascii=False)
         )
 
+    def send_interactive_card_in_thread(
+        self, message_id: str, card: dict
+    ) -> "tuple[Optional[str], Optional[str]]":
+        """在某条消息所在/开启的话题内发一张交互卡片，返回 (新消息 message_id, thread_id)。
+
+        与 `send_interactive_card`（按 chat_id 发到主时间线）相对：这里按 **触发消息
+        message_id** 走 im.v1.message.reply + reply_in_thread(True)。若目标消息在主时间线，
+        本次 reply 会**创建**一个话题并把卡片发进去；返回的 thread_id（omt_ 开头）即话题键，
+        之后所有进度卡 / HC 卡 / 文本回执都回复到同一条触发消息、落进同一话题，避免长任务
+        刷主会话。单聊(p2p)与群(group)均适用（实测 p2p 也能用 reply 建话题）。
+
+        同时返回新卡片自身的 message_id：进度卡要靠它 patch 覆写，HC 卡要靠它回写
+        pipeline_hc_events 供按钮回调反查。任一字段拿不到则为 None，上层据此回退直发。
+        """
+        from lark_channel.api.im.v1.model.reply_message_request import (
+            ReplyMessageRequest,
+            ReplyMessageRequestBody,
+        )
+
+        body = (
+            ReplyMessageRequestBody.builder()
+            .content(json.dumps(card, ensure_ascii=False))
+            .msg_type("interactive")
+            .reply_in_thread(True)
+            .build()
+        )
+        request = ReplyMessageRequest.builder().message_id(message_id).request_body(body).build()
+        response = self._client.im.v1.message.reply(request)
+        if not response.success():
+            raise RuntimeError(f"飞书话题卡片发送失败 {response.code}: {response.msg}")
+        data = getattr(response, "data", None)
+        new_message_id = getattr(data, "message_id", None) if data is not None else None
+        thread_id = str(getattr(data, "thread_id", "") or "") or None if data is not None else None
+        return new_message_id, thread_id
+
     def patch_interactive_card(self, message_id: str, card: dict) -> None:
         """就地覆写一条已发出的 interactive 卡片(topic6 进度卡片用)。
 

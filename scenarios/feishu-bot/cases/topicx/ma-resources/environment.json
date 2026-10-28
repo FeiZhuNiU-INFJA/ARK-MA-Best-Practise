@@ -1,0 +1,9 @@
+{
+  "name": "topicx-router-env",
+  "config": {
+    "type": "cloud",
+    "networking": {
+      "type": "unrestricted"
+    }
+  }
+}

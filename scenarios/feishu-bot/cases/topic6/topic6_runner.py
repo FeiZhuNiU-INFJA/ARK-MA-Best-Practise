@@ -28,22 +28,42 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import Optional
+from typing import Callable, Optional
 from urllib.parse import urlsplit
 
 from arkagent.ark import ArkClient, event_error, event_progress, event_requires_action, event_text
 from arkagent.feishu import FeishuSender
-from pipeline_store import (
-    HC_KINDS,
-    STATUS_DONE,
-    STATUS_FAILED,
-    STATUS_RUNNING,
-    STATUS_STOPPED,
-    STATUS_WAIT_HC,
-    PipelineJob,
-    PipelineStore,
-)
-from topic6_progress_card import MAX_TOOL_LINES, build_progress_card
+from arkagent.session_state import is_session_resumable, session_status_from_payload
+try:
+    from .pipeline_store import (
+        FAILURE_SCOPE_SESSION,
+        FAILURE_SCOPE_TASK,
+        HC_KINDS,
+        STATUS_DONE,
+        STATUS_FAILED,
+        STATUS_RUNNING,
+        STATUS_STOPPING,
+        STATUS_STOPPED,
+        STATUS_WAIT_HC,
+        PipelineJob,
+        PipelineStore,
+    )
+    from .topic6_progress_card import MAX_TOOL_LINES, build_progress_card
+except ImportError:  # pragma: no cover - standalone compatibility
+    from pipeline_store import (
+        FAILURE_SCOPE_SESSION,
+        FAILURE_SCOPE_TASK,
+        HC_KINDS,
+        STATUS_DONE,
+        STATUS_FAILED,
+        STATUS_RUNNING,
+        STATUS_STOPPING,
+        STATUS_STOPPED,
+        STATUS_WAIT_HC,
+        PipelineJob,
+        PipelineStore,
+    )
+    from topic6_progress_card import MAX_TOOL_LINES, build_progress_card
 
 log = logging.getLogger("arkagent.topic6.runner")
 
@@ -312,6 +332,8 @@ class Topic6Runner:
         config: Topic6Config,
         loop: Optional[asyncio.AbstractEventLoop] = None,
         card_sender: Optional["Topic6CardSenderProtocol"] = None,
+        lease_validator: Optional[Callable[[str, str], bool]] = None,
+        lease_activator: Optional[Callable[[str, str, str, str], bool]] = None,
     ):
         self._ark = ark
         self._feishu = feishu
@@ -319,6 +341,8 @@ class Topic6Runner:
         self._config = config
         self._loop = loop
         self._card_sender = card_sender  # 由 topic6_hitl 注入
+        self._lease_validator = lease_validator
+        self._lease_activator = lease_activator
         # 串行化“检查活跃任务 → 创建 Session → 落 Job”，避免两个同时到达的触发
         # 都在落库前通过检查并各自创建一条长任务。
         self._start_lock = asyncio.Lock()
@@ -355,6 +379,45 @@ class Topic6Runner:
                 user_vault_id=user_vault_id,
             )
 
+    async def start_routed_job(
+        self,
+        *,
+        task_id: str,
+        lease_token: str,
+        chat_id: str,
+        thread_id: str,
+        user_open_id: str,
+        mode: str,
+        user_message: str,
+        root_message_id: str,
+        user_vault_id: str = "",
+        existing_session_id: str = "",
+        on_session_created: Optional[Callable[[str], None]] = None,
+        on_job_created: Optional[Callable[[PipelineJob], None]] = None,
+    ) -> PipelineJob:
+        if mode not in ("demo", "full", "skip_sampling"):
+            raise Topic6RunnerError(f"不支持的 Topic6 mode: {mode}")
+        if self._lease_validator is None or not self._lease_validator(
+            task_id, lease_token
+        ):
+            raise Topic6RunnerError("Topic6 lease token 无效或 task 不是当前 owner")
+        async with self._start_lock:
+            return await self._start_job_locked(
+                chat_id=chat_id,
+                thread_id=thread_id,
+                user_open_id=user_open_id,
+                mode=mode,
+                user_message=user_message,
+                user_vault_id=user_vault_id,
+                task_id=task_id,
+                root_message_id=root_message_id,
+                existing_session_id=existing_session_id,
+                skip_global_guard=True,
+                lease_token=lease_token,
+                on_session_created=on_session_created,
+                on_job_created=on_job_created,
+            )
+
     async def _start_job_locked(
         self,
         *,
@@ -364,6 +427,13 @@ class Topic6Runner:
         mode: str,
         user_message: str,
         user_vault_id: str = "",
+        task_id: str = "",
+        root_message_id: str = "",
+        existing_session_id: str = "",
+        skip_global_guard: bool = False,
+        lease_token: str = "",
+        on_session_created: Optional[Callable[[str], None]] = None,
+        on_job_created: Optional[Callable[[PipelineJob], None]] = None,
     ) -> PipelineJob:
         """创建 MA Session、落库并启动 SSE 消费任务。
 
@@ -372,8 +442,12 @@ class Topic6Runner:
         - 首个 user.message 拼「触发词 + 模式 + 用户原始消息」,由 coordinator 解析并按
           system prompt 的 14 步执行。
         """
+        if task_id:
+            task_job = self._store.get_job_by_task(task_id)
+            if task_job:
+                return task_job
         existing = self._store.get_active_job()
-        if existing:
+        if existing and not skip_global_guard:
             state = "等待审核" if existing.status == STATUS_WAIT_HC else "运行中"
             raise Topic6RunnerError(
                 f"当前已有热点周报任务{state}"
@@ -391,6 +465,8 @@ class Topic6Runner:
                 }
             )
         env_overrides = {"FEISHU_USER_OPEN_ID": user_open_id}
+        if task_id:
+            env_overrides["TOPICX_TASK_ID"] = task_id
         if self._config.memory_store_id:
             # 方舟把每个 memstore 挂在 /mnt/memory/{memstore_id}/ 下(多 store 隔离),
             # 注入 ID 供 Agent bash 展开路径,例如 cat /mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md
@@ -402,13 +478,20 @@ class Topic6Runner:
                 if vault_id
             )
         )
-        session_id = await self._ark.create_session(
+        create_kwargs = {
+            "vault_ids": vault_ids,
+            "env_overrides": env_overrides,
+            "resources": resources,
+        }
+        if task_id:
+            create_kwargs["title"] = f"topicx/{task_id}/topic6"
+        session_id = existing_session_id or await self._ark.create_session(
             self._config.coordinator_agent_id,
             self._config.environment_id,
-            vault_ids=vault_ids,
-            env_overrides=env_overrides,
-            resources=resources,
+            **create_kwargs,
         )
+        if on_session_created is not None:
+            on_session_created(session_id)
         # 业务目录名依赖 Coordinator 解析出的周期。创建 Job 时保持未知，Coordinator
         # 创建目录后必须输出 [project_dir] 标记，SSE 消费器会立即回写真值。
         project_dir = ""
@@ -419,7 +502,18 @@ class Topic6Runner:
             ma_session_id=session_id,
             mode=mode,
             project_dir=project_dir,
+            root_message_id=root_message_id,
+            task_id=task_id,
         )
+        if on_job_created is not None:
+            on_job_created(job)
+        if task_id and (
+            self._lease_activator is None
+            or not self._lease_activator(
+                task_id, lease_token, session_id, job.job_id
+            )
+        ):
+            raise Topic6RunnerError("Topic6 lease 激活失败")
         log.info(
             "topic6 start_job job=%s session=%s mode=%s chat=%s user=%s",
             job.job_id, session_id, mode, chat_id, user_open_id,
@@ -442,9 +536,19 @@ class Topic6Runner:
             overflow=0,
         )
         try:
-            message_id = await self._loop_run(
-                lambda: self._feishu.send_interactive_card(chat_id, card)
-            )
+            if root_message_id:
+                message_id, topic_thread_id = await self._loop_run(
+                    lambda: self._feishu.send_interactive_card_in_thread(
+                        root_message_id, card
+                    )
+                )
+                if topic_thread_id:
+                    self._store.set_topic_thread_id(job.job_id, topic_thread_id)
+                    job.topic_thread_id = topic_thread_id
+            else:
+                message_id = await self._loop_run(
+                    lambda: self._feishu.send_interactive_card(chat_id, card)
+                )
         except Exception as error:  # noqa: BLE001
             log.warning("topic6 progress card init failed job=%s: %s", job.job_id, error)
             message_id = None
@@ -484,18 +588,36 @@ class Topic6Runner:
         - 命中(running/wait_hc/failed/stopped)→ 复用 resume_job 注入 message 并重新
           订阅 SSE,返回该 job。
 
-        主场景:卡片已显示“失败”,但 MA Session 其实还 idle(SSE 断线/HC 契约错/
-        reject/cancel 等本地收口),用它把误判为死的任务捞回来继续跑。若 Session 已真
-        terminated,send_message 会在 _drive_session 里报错并兜底回落为失败卡片。
+        主场景:卡片已显示“执行失败，可重试”,但 MA Session 仍是 idle/running。
+        真正 failed/terminated 的 Session 不允许继续。
         """
         job = self._store.get_resumable_job_by_session_key(
             chat_id, thread_id, user_open_id
         )
         if job is None:
             return None
+        if job.failure_scope not in ("", "recoverable"):
+            raise Topic6RunnerError("当前任务已终止，不能继续")
+        session = await self._ark.get_session(job.ma_session_id)
+        session_status = session_status_from_payload(session)
+        if not is_session_resumable(session_status):
+            self._store.mark_failed(
+                job.job_id,
+                f"session_not_resumable:{session_status or 'unknown'}",
+                failure_scope=FAILURE_SCOPE_SESSION,
+                retry_strategy="",
+            )
+            raise Topic6RunnerError(
+                f"业务 Session 状态为 {session_status or 'unknown'}，不能继续当前任务"
+            )
         log.info(
-            "topic6 /continue resume job=%s session=%s prev_status=%s phase=%s",
-            job.job_id, job.ma_session_id, job.status, job.current_phase,
+            "topic6 /continue resume job=%s session=%s session_status=%s "
+            "prev_status=%s phase=%s",
+            job.job_id,
+            job.ma_session_id,
+            session_status,
+            job.status,
+            job.current_phase,
         )
         await self.resume_job(job, message)
         return job
@@ -518,7 +640,9 @@ class Topic6Runner:
             task.cancel()
 
         reason = "cancelled_by_user"
-        self._store.mark_failed(job.job_id, reason)
+        self._store.mark_failed(
+            job.job_id, reason, failure_scope=FAILURE_SCOPE_TASK
+        )
         await self._render_and_patch(
             job.job_id, status=STATUS_FAILED, error=reason, force=True
         )
@@ -547,6 +671,8 @@ class Topic6Runner:
     async def recover_job(self, job: PipelineJob) -> str:
         """根据历史事件恢复一个本地活跃任务，返回已采取的恢复动作。"""
         events = await self._ark.list_session_events(job.ma_session_id)
+        if job.status == STATUS_STOPPING:
+            return "stopping"
         messages = [
             body
             for event in events
@@ -598,7 +724,11 @@ class Topic6Runner:
                 if terminal_type == "session.status_terminated"
                 else "session_failed"
             )
-            self._store.mark_failed(job.job_id, error[:400])
+            self._store.mark_failed(
+                job.job_id,
+                error[:400],
+                failure_scope=FAILURE_SCOPE_SESSION,
+            )
             await self._render_and_patch(
                 job.job_id, status=STATUS_FAILED, error=error[:400], force=True
             )
@@ -730,6 +860,9 @@ class Topic6Runner:
                 await self._render_and_patch(job_id, status=STATUS_RUNNING, force=phase_changed)
 
             if etype == "user.interrupt":
+                current = self._store.get_job(job_id)
+                if current and current.status == STATUS_STOPPING:
+                    continue
                 reason = "用户在方舟后台手动停止了 Session"
                 self._store.mark_stopped(job_id, reason)
                 await self._render_and_patch(
@@ -755,7 +888,11 @@ class Topic6Runner:
                     "topic6 session terminal job=%s etype=%s error=%s",
                     job_id, etype, error[:400],
                 )
-                self._store.mark_failed(job_id, error[:400])
+                self._store.mark_failed(
+                    job_id,
+                    error[:400],
+                    failure_scope=FAILURE_SCOPE_SESSION,
+                )
                 await self._render_and_patch(
                     job_id, status=STATUS_FAILED, error=error[:400], force=True
                 )
@@ -763,6 +900,9 @@ class Topic6Runner:
 
             # 空闲终态:HC 或最终完成。
             if etype == "session.status_idle" and not event_requires_action(event):
+                current = self._store.get_job(job_id)
+                if current and current.status == STATUS_STOPPING:
+                    return True
                 await self._handle_idle(job_id, collected_messages)
                 return True
         return False
@@ -872,9 +1012,9 @@ class Topic6Runner:
         online_url = extract_final_online_url(last)
         if not online_url:
             reason = "Session 已结束，但 Phase H 未返回有效的妙搭 online_url"
-            self._store.mark_stopped(job_id, reason)
+            self._store.mark_failed(job_id, reason)
             await self._render_and_patch(
-                job_id, status=STATUS_STOPPED, error=reason, force=True
+                job_id, status=STATUS_FAILED, error=reason, force=True
             )
             return
         self._store.mark_done(job_id, online_url=online_url)
@@ -964,6 +1104,9 @@ class Topic6Runner:
         job = self._store.get_job(job_id)
         if state is None or job is None or not job.progress_card_message_id:
             return
+        if job.status in (STATUS_STOPPING, STATUS_STOPPED):
+            status = job.status
+            error = job.last_error or error
         now = time.monotonic()
         if not force and now - state.last_patch_at < PROGRESS_MIN_INTERVAL_SEC:
             return
@@ -1022,14 +1165,24 @@ class Topic6Runner:
     async def _reply_async_by_job(self, job_id: str, text: str) -> None:
         job = self._store.get_job(job_id)
         if job:
-            await self._reply_async(job.chat_id, text)
+            await self._reply_async(
+                job.chat_id, text, root_message_id=job.root_message_id
+            )
 
-    async def _reply_async(self, chat_id: str, text: str) -> None:
+    async def _reply_async(
+        self, chat_id: str, text: str, root_message_id: str = ""
+    ) -> None:
         loop = self._loop or asyncio.get_event_loop()
         try:
-            await loop.run_in_executor(
-                None, lambda: self._feishu.send_to_chat(chat_id, text)
-            )
+            if root_message_id:
+                await loop.run_in_executor(
+                    None,
+                    lambda: self._feishu.reply_in_thread(root_message_id, text),
+                )
+            else:
+                await loop.run_in_executor(
+                    None, lambda: self._feishu.send_to_chat(chat_id, text)
+                )
         except Exception as error:  # noqa: BLE001 - 回帖失败不该拖垮 SSE 消费
             log.warning("topic6 reply failed chat=%s: %s", chat_id, error)
 

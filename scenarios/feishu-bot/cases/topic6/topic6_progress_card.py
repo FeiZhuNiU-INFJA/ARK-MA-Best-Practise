@@ -13,14 +13,28 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
-from pipeline_store import (
-    STATUS_DONE,
-    STATUS_FAILED,
-    STATUS_RUNNING,
-    STATUS_STOPPED,
-    STATUS_WAIT_HC,
-    PipelineJob,
-)
+try:
+    from .pipeline_store import (
+        FAILURE_SCOPE_RECOVERABLE,
+        STATUS_DONE,
+        STATUS_FAILED,
+        STATUS_RUNNING,
+        STATUS_STOPPING,
+        STATUS_STOPPED,
+        STATUS_WAIT_HC,
+        PipelineJob,
+    )
+except ImportError:  # pragma: no cover - standalone compatibility
+    from pipeline_store import (
+        FAILURE_SCOPE_RECOVERABLE,
+        STATUS_DONE,
+        STATUS_FAILED,
+        STATUS_RUNNING,
+        STATUS_STOPPING,
+        STATUS_STOPPED,
+        STATUS_WAIT_HC,
+        PipelineJob,
+    )
 
 # 卡片最多渲染的近期 tool 行数;超出用 "+N 条更早" 提示,防止 element 超过飞书上限。
 MAX_TOOL_LINES = 10
@@ -35,16 +49,21 @@ def _format_elapsed(seconds: int) -> str:
     return f"{m:02d}:{s:02d}"
 
 
-def _header(status: str, phase: str) -> dict:
+def _header(status: str, phase: str, failure_scope: str = "") -> dict:
     """标题按状态选 emoji + 颜色。飞书 header template: blue/green/red/grey/turquoise。"""
     if status == STATUS_DONE:
         title, template = f"✅ Topic6 Pipeline · 已完成", "green"
     elif status == STATUS_STOPPED:
         title, template = f"⏹️ Topic6 Pipeline · 已停止", "grey"
     elif status == STATUS_FAILED:
-        title, template = f"❌ Topic6 Pipeline · 已失败", "red"
+        if failure_scope in ("", FAILURE_SCOPE_RECOVERABLE):
+            title, template = "⚠️ Topic6 Pipeline · 执行失败，可重试", "orange"
+        else:
+            title, template = "❌ Topic6 Pipeline · 已终止", "red"
     elif status == STATUS_WAIT_HC:
         title, template = f"⏸️ Topic6 Pipeline · 等待审核 {phase}", "turquoise"
+    elif status == STATUS_STOPPING:
+        title, template = "Topic6 Pipeline · 正在停止", "grey"
     else:
         title, template = "🚀 Topic6 Pipeline · 运行中", "blue"
     return {"title": {"tag": "plain_text", "content": title}, "template": template}
@@ -124,6 +143,8 @@ def build_progress_card(
                 ),
             }
         )
+    elif status == STATUS_STOPPING:
+        elements.append({"tag": "markdown", "content": "正在中断业务 Session，请稍候。"})
     elif status in (STATUS_FAILED, STATUS_STOPPED) and error:
         elements.append(
             {
@@ -135,6 +156,49 @@ def build_progress_card(
                 ),
             }
         )
+    if (
+        status == STATUS_FAILED
+        and job.failure_scope in ("", FAILURE_SCOPE_RECOVERABLE)
+    ):
+        retry_elements = [
+            {
+                "tag": "markdown",
+                "content": (
+                    "业务 Session 仍可用时，可从当前阶段继续；"
+                    "既有产物和审核记录保持不变。"
+                ),
+            }
+        ]
+        if job.task_id:
+            retry_elements.append(
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "继续当前任务"},
+                    "type": "primary_filled",
+                    "width": "fill",
+                    "behaviors": [
+                        {
+                            "type": "callback",
+                            "value": {
+                                "action": "retry_task",
+                                "scenario": "topic6",
+                                "job_id": job.job_id,
+                                "card_version": 1,
+                            },
+                        }
+                    ],
+                }
+            )
+        else:
+            retry_elements.append(
+                {
+                    "tag": "markdown",
+                    "content": "发送 `/continue` 继续当前任务。",
+                }
+            )
+        elements.extend(
+            retry_elements
+        )
     elif status == STATUS_DONE and online_url:
         elements.append(
             {
@@ -145,11 +209,41 @@ def build_progress_card(
                 "behaviors": [{"type": "open_url", "default_url": online_url}],
             }
         )
+    if status in (STATUS_RUNNING, STATUS_WAIT_HC) and job.task_id:
+        elements.extend(
+            [
+                {"tag": "hr"},
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "停止任务"},
+                    "type": "danger",
+                    "width": "fill",
+                    "confirm": {
+                        "title": {"tag": "plain_text", "content": "确认停止任务"},
+                        "text": {
+                            "tag": "plain_text",
+                            "content": "只中断当前业务任务，已产生的轨迹仍会保留。",
+                        },
+                    },
+                    "behaviors": [
+                        {
+                            "type": "callback",
+                            "value": {
+                                "action": "stop_task",
+                                "scenario": "topic6",
+                                "job_id": job.job_id,
+                                "card_version": 1,
+                            },
+                        }
+                    ],
+                },
+            ]
+        )
 
     return {
         "schema": "2.0",
         "config": {"width_mode": "default"},
-        "header": _header(status, job.current_phase),
+        "header": _header(status, job.current_phase, job.failure_scope),
         "body": {"elements": elements},
     }
 

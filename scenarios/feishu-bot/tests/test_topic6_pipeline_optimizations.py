@@ -1561,7 +1561,7 @@ def test_coordinator_uses_demo_fast_paths_and_single_insight_entry():
     assert "run_demo_routes.py" in coordinator
     assert "--mode demo --run-id {N} --demo-fast" in coordinator
     assert "C2_事件归档/c2_run/c2_status.json" in coordinator
-    assert "不再委派 4 个 `topic6-insighter`" in coordinator
+    assert "Phase E 不委派子 Agent" in coordinator
     assert "--publish-date \"{publish_date}\" --version {N}" in coordinator
     assert "最多重跑一次同一正式入口" in coordinator
     assert "禁止用 inline Python" in coordinator
@@ -1581,7 +1581,7 @@ def test_pipeline_overview_documents_demo_execution_differences():
     assert "run_demo_routes.py" in overview
     assert "run_topic6_c2.py --mode demo --demo-fast" in overview
     assert "Phase E · 单入口调度" in overview
-    assert "中间版曾委派 4 个 Insighter,已废弃" in overview
+    assert "保持脚本单入口" in overview
 
 
 def test_phase_f_uses_runtime_identity_and_response_url_without_secret_output():

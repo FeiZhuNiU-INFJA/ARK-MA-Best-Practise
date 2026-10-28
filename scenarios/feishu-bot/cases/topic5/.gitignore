@@ -1,0 +1,22 @@
+# Topic5 case-local ignores (repo-root .gitignore already blocks assets_from_customer/ and *.db)
+
+# 运行期事实（引擎落盘：tasks/{task}/runs/{run}/ 下的 run.json/artifacts/attempts）
+ma-workspaces/
+**/ma-workspaces/
+
+# 技能私密凭据与本地配置（后续波次移植 datahub/ssjh/cos/cover 时带入）
+skills/**/.env
+skills/**/config.json
+!skills/**/config.example.json
+
+# 技能本地产出与缓存
+skills/**/Outputs/
+tools/out/*.zip
+tools/out/*.sha256
+
+# ECharts 中文字体体积约 16 MiB/个，不进入 Git；部署前按 fonts/README.md 本地放置。
+ma-resources/skills/blueai-yuqing-echarts-skill-new/assets/fonts/*.otf
+
+# Python 缓存
+**/__pycache__/
+*.pyc

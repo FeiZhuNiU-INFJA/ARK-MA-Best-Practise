@@ -32,7 +32,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--config",
-        help="Topic6 config.env 路径；默认 ~/.arkagent/cases/topic6/config.env",
+        help="Topic6 config.env 路径；默认 ~/.arkagent/cases/topicX/config.env",
     )
     parser.add_argument(
         "--expected-open-id",

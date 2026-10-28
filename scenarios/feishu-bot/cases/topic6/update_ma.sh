@@ -3,7 +3,8 @@
 #
 # ID 变化规则:
 #   - 6 个 Skills:强制重新上传，ID 会变化
-#   - Annotator / Insighter / Coordinator:删除同名旧 Agent 后重建，ID 会变化
+#   - Annotator / Coordinator:删除同名旧 Agent 后重建，ID 会变化
+#   - 已下线 Insighter:按旧 created_ids.json 中的精确 ID 删除，404 按幂等成功处理
 #   - Environment / Memory Store:按名称原地更新，ID 不变
 #   - 飞书 App / Vault:本脚本不创建或更新，ID 不变
 # Coordinator 新 ID 会自动回写 config.env，因此脚本结束后必须手动重启 Gateway。
@@ -11,8 +12,9 @@ set -Eeuo pipefail
 
 TOPIC6_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FEISHU_BOT_DIR="$(cd "$TOPIC6_DIR/../.." && pwd)"
-CONFIG_FILE="${TOPIC6_CONFIG_FILE:-${ARKAGENT_HOME:-$HOME/.arkagent}/cases/topic6/config.env}"
-CONDA_ENV="${TOPIC6_CONDA_ENV:-topic6}"
+CONFIG_FILE="${TOPIC6_CONFIG_FILE:-${ARKAGENT_HOME:-$HOME/.arkagent}/cases/topicX/config.env}"
+# Topic5 / Topic6 共用同一套 Gateway 与 MA 装配依赖，统一使用 topicX 环境。
+CONDA_ENV="${TOPIC6_CONDA_ENV:-topicX}"
 CURRENT_STEP="初始化"
 
 on_error() {
@@ -55,7 +57,8 @@ for name in \
   DATAHUB_ENDPOINT \
   DATAHUB_API_KEY
 do
-  if [[ -z "${!name:-}" ]]; then
+  eval "value=\${$name:-}"
+  if [[ -z "$value" ]]; then
     echo "缺少环境变量: $name（来源: $CONFIG_FILE）" >&2
     exit 1
   fi
@@ -77,7 +80,7 @@ fi
 step "1/5 运行 feishu-bot 全量测试"
 (
   cd "$FEISHU_BOT_DIR"
-  "${PYTHON[@]}" -m pytest -q
+  "${PYTHON[@]}" -m pytest -q tests
 )
 
 step "2/5 打包全部 Topic 6 Skills"
@@ -123,13 +126,13 @@ grep -E '^TOPIC6_(COORDINATOR_AGENT_ID|ENVIRONMENT_ID|MEMORY_STORE_ID)=' "$CONFI
 cat <<EOF
 
 Topic 6 MA 资源更新完成。
-ID 变化:Skills 和 3 个 Agents 已更新为新 ID；Environment 和 Memory Store 保持原 ID。
+ID 变化:Skills 和 2 个 Agents 已更新为新 ID；Environment 和 Memory Store 保持原 ID。
 Coordinator 新 ID 已回写 ${CONFIG_FILE}。
 update_ma.sh 不会代替具体用户完成 OAuth。每位妙搭发布人首次使用前运行:
   cd "${FEISHU_BOT_DIR}"
-  python cases/topic6/authorize_miaoda_user.py
+  python -m cases.topic6.authorize_miaoda_user
 
 Gateway 未重启。请在另一个终端手动重启:
   cd "${FEISHU_BOT_DIR}"
-  python -m arkagent run --case topic6
+  python -m arkagent run --case topicx
 EOF

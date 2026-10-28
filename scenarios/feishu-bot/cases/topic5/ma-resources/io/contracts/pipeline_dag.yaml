@@ -1,0 +1,359 @@
+# Topic5 营销活动复盘报告 — 机器可读 Pipeline DAG
+#
+# 权威来源：Agent.Producer/.../Topic5_报告输出流程框图.md（流程图）
+# 定位：本文件是可执行编排规格，驱动本地 pipeline-orchestrator 运行。
+#       与旧 pipeline_config.yaml（自述"不驱动执行"的规范说明）区别开。
+# 业务口径（NSR 分母、UGC 四类/动态、报告章节数等）外置到 params，节点只引用，不写死。
+#
+# 节点字段：
+#   id             节点稳定标识
+#   name           可读名
+#   owner          project_agent | coordinator | validator | user | tool
+#   mode           code | tool | agent | human | decision
+#   handler        orchestrator 中注册的处理器名（stub 阶段可复用通用 stub）
+#   inputs         依赖的 artifact 键（上游产出）
+#   outputs        本节点产出的 artifact 键
+#   success        通过条件（可读）
+#   side_effect    外部副作用说明（无则 none）
+#   idempotency    外部副作用的幂等键模板（none 表示无副作用）
+#   retry          {max, on_fail} 失败重试策略
+#   timeout_min    软超时（分钟，human 节点用于催办/上报）
+#   checkpoint     true 时执行前后强制写 run.json，便于续跑
+#   next           默认后继节点 id（终点为 null）
+#   routes         decision 节点的分支：{条件标签: 目标节点}
+
+version: "0.1"
+slug: marketing-activity-review
+topic: Topic5 营销活动复盘报告
+entry: n00_intake
+
+# ─── 业务口径参数（外置，不进节点逻辑）────────────────────────
+params:
+  annotation_routing_threshold: 1000        # <阈值走小引擎，>=走 DataHub
+  ugc_category_mode: dynamic                 # dynamic | fixed_four（待业务裁决，默认动态发现）
+  nsr_denominator_includes_neutral: true     # 维度 NSR 分母是否含中性（待裁决）
+  report_chapters: five                      # three | five（待裁决，默认五部分）
+  qc_max_rounds: 3
+  user_confirm_timeout_days: 2
+  include_competitor: conditional            # 需求单有 competitor 字段才启用
+  include_product_wordcloud: conditional     # 需求单有 product_keyword 才启用
+
+nodes:
+  # ── ① 准备阶段 ──────────────────────────────────────────
+  - id: n00_intake
+    name: 需求受理与字段校验
+    owner: project_agent
+    mode: code
+    handler: intake_check
+    inputs: [requirement_form, plan_doc]
+    outputs: [requirement_snapshot]
+    success: 必填字段完整
+    side_effect: none
+    idempotency: none
+    retry: {max: 0, on_fail: pause}
+    checkpoint: true
+    next: n01_load_lm
+
+  - id: n01_load_lm
+    name: 加载 LM 错误案例（必读）
+    owner: coordinator
+    mode: code
+    handler: load_context
+    inputs: [requirement_snapshot]
+    outputs: [exec_context]
+    success: 错误案例与执行清单已载入上下文
+    side_effect: none
+    idempotency: none
+    retry: {max: 0, on_fail: pause}
+    checkpoint: false
+    next: n02a_brand_pull
+
+  # ── ② 数据获取阶段 ─────────────────────────────────────
+  - id: n02a_brand_pull
+    name: 品牌·活动期数据拉取
+    owner: tool
+    mode: tool
+    handler: ssjh_pull
+    inputs: [requirement_snapshot]
+    outputs: [brand_stats]
+    success: brand_stats.json 字段齐全
+    side_effect: 调用 SSJH-Social-Stat（只读查询）
+    idempotency: "ssjh:{brand_keyword}:{campaign_period}:campaign"
+    retry: {max: 2, on_fail: exception_bypass}
+    timeout_min: 15
+    checkpoint: true
+    next: n02b_brand_baseline
+
+  - id: n02b_brand_baseline
+    name: 品牌·基准期数据拉取
+    owner: tool
+    mode: tool
+    handler: ssjh_pull
+    inputs: [requirement_snapshot]
+    outputs: [brand_stats_baseline]
+    success: brand_stats_baseline.json 字段齐全
+    side_effect: 调用 SSJH-Social-Stat（只读查询）
+    idempotency: "ssjh:{brand_keyword}:{baseline_period}:baseline"
+    retry: {max: 2, on_fail: exception_bypass}
+    timeout_min: 15
+    checkpoint: true
+    next: n03_clean
+
+  - id: n03_clean
+    name: 活动 Excel 数据清洗
+    owner: coordinator
+    mode: code
+    handler: clean_campaign
+    inputs: [requirement_snapshot]
+    outputs: [cleaned_data]
+    success: 过滤周期+去重+派生平台标签+派生kol_level 完成
+    side_effect: none
+    idempotency: none
+    retry: {max: 1, on_fail: exception_bypass}
+    checkpoint: true
+    next: n04_ugc_discovery
+
+  # ── ③ AI 标注阶段 ──────────────────────────────────────
+  - id: n04_ugc_discovery
+    name: UGC 参与方式发现
+    owner: coordinator
+    mode: agent
+    handler: ugc_discovery
+    inputs: [cleaned_data]
+    outputs: [ugc_category_list]
+    success: 产出候选类别（dynamic 模式）或采用固定四类
+    side_effect: LLM 调用
+    idempotency: none
+    retry: {max: 1, on_fail: pause}
+    checkpoint: true
+    next: n05_annotate_r1
+
+  - id: n05_annotate_r1
+    name: 轮次一标注（情感+是否活动相关）
+    owner: tool
+    mode: tool
+    handler: annotate
+    inputs: [cleaned_data]
+    outputs: [annotated_round1]
+    success: 全量行已标注，无未处理 ERROR
+    side_effect: 调用 DataHub 或 anthropic（按 routing 阈值）
+    idempotency: "annot:r1:{run_id}:{input_sha}"
+    retry: {max: 2, on_fail: pause}
+    timeout_min: 30
+    checkpoint: true
+    next: n06_hc_opinion
+
+  - id: n06_hc_opinion
+    name: HC·观点标签人工确认
+    owner: user
+    mode: human
+    handler: human_gate
+    inputs: [annotated_round1, ugc_category_list]
+    outputs: [confirmed_opinion_labels]
+    success: 用户确认观点标签集合（记录确认人/时间/版本）
+    side_effect: none
+    idempotency: none
+    retry: {max: 0, on_fail: pause}
+    timeout_min: 2880
+    checkpoint: true
+    next: n07_annotate_r2
+
+  - id: n07_annotate_r2
+    name: 轮次二标注（观点+ugc_category+discussion_dimension）
+    owner: tool
+    mode: tool
+    handler: annotate
+    inputs: [annotated_round1, confirmed_opinion_labels]
+    outputs: [annotated_data]
+    success: 三类字段完整，无未处理 ERROR
+    side_effect: 调用 DataHub 或 anthropic
+    idempotency: "annot:r2:{run_id}:{labels_version}"
+    retry: {max: 2, on_fail: pause}
+    timeout_min: 30
+    checkpoint: true
+    next: n08_aggregate
+
+  # ── ④ 统计聚合阶段 ─────────────────────────────────────
+  - id: n08_aggregate
+    name: 统计聚合（按分析对象分组）
+    owner: coordinator
+    mode: code
+    handler: aggregate
+    inputs: [annotated_data, brand_stats, brand_stats_baseline]
+    outputs: [stats_bundle]
+    success: 各 stats_* 表产出，口径与 params 一致
+    side_effect: none
+    idempotency: none
+    retry: {max: 1, on_fail: pause}
+    checkpoint: true
+    next: n09_wordcloud_pull
+
+  - id: n09_wordcloud_pull
+    name: 词云/竞品数据拉取
+    owner: tool
+    mode: tool
+    handler: ssjh_pull
+    inputs: [requirement_snapshot, stats_bundle]
+    outputs: [wordcloud_data]
+    success: 各活动词云 json 产出；竞品/产品维度按 params 条件执行
+    side_effect: 调用 SSJH-Social-Stat（只读查询）
+    idempotency: "ssjh:wordcloud:{run_id}"
+    retry: {max: 2, on_fail: exception_bypass}
+    timeout_min: 15
+    checkpoint: true
+    next: n10_charts
+
+  # ── ⑤ 图表与封面阶段 ───────────────────────────────────
+  - id: n10_charts
+    name: 图表+封面生成（本地 PNG，交付时上传飞书 media）
+    owner: coordinator
+    mode: tool
+    handler: charts_render
+    inputs: [stats_bundle, wordcloud_data]
+    outputs: [chart_urls]
+    success: 全部图表 PNG 本地生成，交付节点上传飞书 media
+    side_effect: 生成本地 PNG（飞书交付节点再上传 media）
+    idempotency: "chart-render:{run_id}:{chart_set_sha}"
+    retry: {max: 2, on_fail: pause}
+    timeout_min: 20
+    checkpoint: true
+    next: n11_wordcloud_insight
+
+  # ── ⑥ 报告撰写阶段 ─────────────────────────────────────
+  - id: n11_wordcloud_insight
+    name: 词云议题解读（三步）
+    owner: coordinator
+    mode: agent
+    handler: wordcloud_insight
+    inputs: [wordcloud_data]
+    outputs: [wordcloud_insight]
+    success: 各平台各维度议题解读文字产出
+    side_effect: LLM 调用
+    idempotency: none
+    retry: {max: 1, on_fail: pause}
+    checkpoint: false
+    next: n12_report
+
+  - id: n12_report
+    name: 撰写报告 MD（内容层，无布局）
+    owner: coordinator
+    mode: agent
+    handler: write_report
+    inputs: [stats_bundle, chart_urls, wordcloud_insight]
+    outputs: [report_md]
+    success: 报告结构符合 params.report_chapters，含数据/洞察/图表URL
+    side_effect: none
+    idempotency: none
+    retry: {max: 1, on_fail: pause}
+    checkpoint: true
+    next: n13_validate
+
+  # ── ⑦ 质检循环阶段 ─────────────────────────────────────
+  - id: n13_validate
+    name: 独立 Validator 质检
+    owner: validator
+    mode: agent
+    handler: validate
+    inputs: [report_md]
+    outputs: [qc_report]
+    success: 产出 report_qc_report.json（含问题分级）
+    side_effect: none
+    idempotency: none
+    retry: {max: 0, on_fail: pause}
+    checkpoint: true
+    next: n13_gate
+
+  - id: n13_gate
+    name: 质检结果判定
+    owner: coordinator
+    mode: decision
+    handler: qc_decision
+    inputs: [qc_report]
+    outputs: []
+    success: 路由到修复/上报/通过
+    side_effect: none
+    idempotency: none
+    retry: {max: 0, on_fail: pause}
+    checkpoint: false
+    # decision：无 P0 → 发布；有 P0 且未达上限 → 修复后复检；达上限 → 人工上报
+    routes:
+      no_p0: n14_feishu
+      has_p0_retry: n13_fix
+      has_p0_maxed: n_hc7_escalate
+    next: null
+
+  - id: n13_fix
+    name: P0 修复并版本递增
+    owner: coordinator
+    mode: agent
+    handler: fix_report
+    inputs: [report_md, qc_report]
+    outputs: [report_md]
+    success: 修复 P0，patch 版本号递增，重新提交复检
+    side_effect: none
+    idempotency: none
+    retry: {max: 0, on_fail: pause}
+    checkpoint: true
+    next: n13_validate
+
+  - id: n_hc7_escalate
+    name: HC-7 质检超限人工介入
+    owner: user
+    mode: human
+    handler: human_gate
+    inputs: [qc_report]
+    outputs: [hc7_decision]
+    success: 人工决定继续修复/放行/终止
+    side_effect: none
+    idempotency: none
+    retry: {max: 0, on_fail: pause}
+    timeout_min: 2880
+    checkpoint: true
+    next: n14_feishu
+
+  # ── ⑧ 飞书导出阶段 ─────────────────────────────────────
+  - id: n14_feishu
+    name: MD→飞书 XML 导出并创建文档
+    owner: tool
+    mode: tool
+    handler: feishu_export
+    inputs: [report_md, chart_urls]
+    outputs: [feishu_doc]
+    success: 创建飞书文档、加布局、转移所有权，取得 URL
+    side_effect: 创建飞书文档 + 转移所有权（写外部对象）
+    idempotency: "feishu:{run_id}:{report_version}"
+    retry: {max: 2, on_fail: pause}
+    timeout_min: 15
+    checkpoint: true
+    next: n15_hc_user
+
+  # ── ⑨ 用户确认阶段 ─────────────────────────────────────
+  - id: n15_hc_user
+    name: HC·用户终验（飞书文档）
+    owner: user
+    mode: human
+    handler: human_gate
+    inputs: [feishu_doc]
+    outputs: [user_confirmation]
+    success: 用户确认布局与内容（超时走催办/上报）
+    side_effect: none
+    idempotency: none
+    retry: {max: 0, on_fail: pause}
+    timeout_min: 2880
+    checkpoint: true
+    next: n16_handoff
+
+  # ── ⑩ 交付阶段 ─────────────────────────────────────────
+  - id: n16_handoff
+    name: 写 handoff 并校验
+    owner: project_agent
+    mode: code
+    handler: handoff
+    inputs: [feishu_doc, user_confirmation, report_md]
+    outputs: [handoff]
+    success: handoff.json 写入且校验通过
+    side_effect: none
+    idempotency: none
+    retry: {max: 1, on_fail: pause}
+    checkpoint: true
+    next: null

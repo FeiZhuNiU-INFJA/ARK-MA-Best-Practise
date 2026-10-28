@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""上传 topic5 skill zip 到方舟 SkillHub。
+
+使用:
+    export ARK_API_KEY=...
+    python upload_skills.py                       # 全部上传(hash 变化才重传)
+    python upload_skills.py --force               # 强制全部重传
+    python upload_skills.py --only pipeline-orchestrator  # 只上传指定 key
+
+产物:
+    - 上传成功后追加/更新 ma-resources/skill_ids.json
+    - 每条记录形如 {skill_id, version, uploaded_at, source_sha256}
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+import requests
+
+ROOT = Path(__file__).resolve().parents[1]
+OUT_DIR = Path(__file__).resolve().parent / "out"
+SKILL_IDS_FILE = ROOT / "ma-resources" / "skill_ids.json"
+# 兼容两种 ARK_BASE_URL 写法:带或不带 /api/v3 后缀
+_raw_base = os.environ.get("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3").rstrip("/")
+BASE_URL = _raw_base if _raw_base.endswith("/api/v3") else f"{_raw_base}/api/v3"
+# 方舟 CreateSkill 属于 agentic beta 面,必须带这个 header,否则 404 Not Found
+ARK_BETA_HEADER = {"X-Ark-Beta": "agentic-2026-06-01"}
+
+SKILLS = [
+    ("pipeline-orchestrator", "pipeline-orchestrator.zip", "topic5 · durable 编排引擎(28 节点 DAG)"),
+    ("SSJH-Social-Stat", "SSJH-Social-Stat.zip", "topic5 · SSJH 社媒取数(n05/n06/n13)"),
+    ("blueai-datahub-skill", "blueai-datahub-skill.zip", "topic5 · DataHub 批量标注(n09/n11)"),
+    ("blueai-yuqing-echarts-skill-new", "blueai-yuqing-echarts-skill-new.zip", "topic5 · ECharts 本地 PNG 渲染(n14，飞书 media 交付)"),
+    ("report-cover-skill", "report-cover-skill.zip", "topic5 · 报告封面生成"),
+    ("topic5-validator", "topic5-validator.zip", "topic5 · 报告质检(G3 / n17_validate)"),
+]
+
+
+def _load_state() -> dict:
+    if SKILL_IDS_FILE.exists():
+        return json.loads(SKILL_IDS_FILE.read_text(encoding="utf-8"))
+    return {"note": "", "skills": {}}
+
+
+def _save_state(state: dict) -> None:
+    SKILL_IDS_FILE.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def _read_sha(zip_path: Path) -> str:
+    sha_file = zip_path.with_suffix(zip_path.suffix + ".sha256")
+    if not sha_file.exists():
+        raise FileNotFoundError(f"{sha_file} 不存在,请先跑 pack_skills.sh")
+    return sha_file.read_text(encoding="utf-8").strip()
+
+
+def upload(key: str, zip_name: str, display_title: str, force: bool = False) -> None:
+    zip_path = OUT_DIR / zip_name
+    if not zip_path.exists():
+        print(f"  [跳过] {zip_path} 不存在")
+        return
+
+    api_key = os.environ.get("ARK_API_KEY")
+    if not api_key:
+        raise RuntimeError("请设置 ARK_API_KEY")
+
+    sha = _read_sha(zip_path)
+    state = _load_state()
+    existing = state["skills"].get(key)
+    if existing and not force and existing.get("source_sha256") == sha:
+        print(f"  [跳过] {key} 内容未变 (sha256={sha[:12]}...)")
+        return
+
+    print(f"=== 上传 {key} ({display_title}) ===")
+    with zip_path.open("rb") as fh:
+        resp = requests.post(
+            f"{BASE_URL}/skills",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                **ARK_BETA_HEADER,
+            },
+            files={"files": (zip_name, fh, "application/zip")},
+            data={"display_title": display_title},
+            timeout=300,
+        )
+    if not resp.ok:
+        raise RuntimeError(f"上传失败 status={resp.status_code} body={resp.text[:500]}")
+
+    payload = resp.json()
+    # 方舟响应可能包在 data 里,兼容两种形状
+    record = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    skill_id = record.get("id")
+    if not skill_id:
+        raise RuntimeError(f"上传成功但响应无 id: {payload}")
+    state["skills"][key] = {
+        "skill_id": skill_id,
+        "version": record.get("latest_version", "1"),
+        "uploaded_at": int(time.time()),
+        "source_sha256": sha,
+        "display_title": display_title,
+    }
+    _save_state(state)
+    print(f"  ok · skill_id={skill_id} · version={record.get('latest_version')}")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--force", action="store_true", help="强制重传")
+    ap.add_argument("--only", help="只上传指定 key")
+    args = ap.parse_args()
+
+    for key, zip_name, title in SKILLS:
+        if args.only and args.only != key:
+            continue
+        try:
+            upload(key, zip_name, title, force=args.force)
+        except Exception as exc:
+            print(f"  [失败] {key}: {exc}", file=sys.stderr)
+            return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

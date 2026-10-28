@@ -1,0 +1,37 @@
+{
+  "version": "0.2",
+  "note": "凭证连接登记。secret 仅以文件引用方式登记，真实值在各 skill 的凭证文件内（不写入本文件/日志/回执）。本包为特殊部署场景将凭证随包，受 .gitignore 保护不入版本库。",
+  "updated_at": "2026-10-21",
+  "connections": [
+    {
+      "id": "ssjh",
+      "service": "SSJH-Social-Stat 数说聚合",
+      "secret_ref": "skills/SSJH-Social-Stat/config.json#api_token",
+      "base_url_ref": "skills/SSJH-Social-Stat/config.json#base_url",
+      "consumed_by": ["n05_brand_pull", "n06_brand_baseline", "n13_wordcloud_pull"],
+      "purpose": "品牌活动期/基准期声量聚合、词云权威数据源（竞品 SOV 已下线 2026-10-21）",
+      "status": "present"
+    },
+    {
+      "id": "datahub",
+      "service": "BlueAI DataHub 批量标注",
+      "secret_ref": "skills/blueai-datahub-skill/.env#DATAHUB_API_KEY",
+      "consumed_by": ["n09_annotate_r1", "n11_annotate_r2"],
+      "purpose": "≥1000 条批量标注入口（annotation_routing_threshold 路由）",
+      "status": "present"
+    },
+    {
+      "id": "report_cover",
+      "service": "BlueAI relay 图像生成",
+      "secret_ref": "skills/report-cover-skill/.env#REPORT_COVER_API_KEY",
+      "base_url_ref": "skills/report-cover-skill/.env#REPORT_COVER_API_BASE_URL",
+      "consumed_by": ["n14_charts"],
+      "purpose": "报告封面生成",
+      "status": "present"
+    }
+  ],
+  "not_bundled": [
+    {"id": "feishu", "reason": "A10 飞书 skill 未迁入，无消费实体；接 n20 时补"},
+    {"id": "blueai-a2ui / html-publish", "reason": "属 a2ui/发布工具，非 Topic5 执行链路依赖"}
+  ]
+}

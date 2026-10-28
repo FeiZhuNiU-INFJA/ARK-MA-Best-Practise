@@ -26,8 +26,9 @@ def main(argv: list[str] | None = None) -> int:
         elif command == "doctor":
             asyncio.run(_doctor())
         elif command == "init":
-            if "--topic6" in argv[1:]:
-                asyncio.run(_init_topic6())
+            case_name = _parse_init_case(argv[1:])
+            if case_name:
+                asyncio.run(_init_case(case_name))
             else:
                 asyncio.run(_init())
         elif command == "update-agent":
@@ -202,28 +203,59 @@ async def _init() -> None:
     print("初始化完成。运行 `arkagent run` 启动 Gateway。")
 
 
-async def _init_topic6() -> None:
-    """topic6 专用轻量初始化:只建飞书应用 + 写 case 私有 config.env。
+def _parse_init_case(args: list[str]) -> str | None:
+    """从 init 参数里解析目标 case 名,支持两种写法:
 
-    与默认 ``init`` 的区别:不创建 digital-employee Agent、不要求 mock 客户A MCP 公网地址。
-    topic6 的 MA 资源(Environment/Memory/Coordinator 等)由
-    ``cases/topic6/ma-resources/create_all.sh`` 单独创建,产出的 ID 再追加到 case 的 config.env。
+        arkagent init --case topicx   # 统一 Topic5/Topic6 飞书入口
+        arkagent init --topicx        # 兼容简写
+
+    没传则返回 None,走默认的交互式 init(建客户A 销售助手 Agent)。
+    """
+    for index, token in enumerate(args):
+        if token == "--case":
+            if index + 1 >= len(args):
+                raise RuntimeError("--case 需要一个 case 名参数,例如 --case topic5")
+            return args[index + 1].strip() or None
+        if token.startswith("--case="):
+            return token.split("=", 1)[1].strip() or None
+        # --topicx 兼容简写:去掉前导 -- 即 case 名
+        if token.startswith("--topic") and len(token) > len("--topic"):
+            return token[len("--"):].strip() or None
+    return None
+
+
+async def _init_case(case_name: str) -> None:
+    """case 轻量初始化:只建飞书应用 + 写 case 私有 config.env。
+
+    适用于 topicx 这类「薄 Router + 独立业务 Session」场景:
+    与默认 ``init`` 的区别是不创建 digital-employee Agent、不要求 mock 客户A MCP 公网地址。
+    case 的 MA 资源(Environment/Memory/Coordinator 等)由
+    ``cases/{case}/ma-resources/create_all.sh`` 单独创建,产出的 ID 再追加到 case 的 config.env。
     """
     if not sys.stdin.isatty():
         raise RuntimeError("交互式 init 需要在终端中运行")
 
+    from .case_registry import list_cases
     from .config import parse_env_text, serialize_env
     from .init import _write_secure
     from .node_helper import register_feishu_app
     from .paths import get_case_paths
 
-    case_paths = get_case_paths("topic6")
+    available = list_cases()
+    if case_name not in available:
+        hint = "、".join(available) if available else "(无)"
+        raise RuntimeError(
+            f"未知 case:{case_name!r}(cases/ 下需包含 gateway.py 与 config.py)。可选:{hint}"
+        )
+
+    case_paths = get_case_paths(case_name)
+    os.makedirs(case_paths.case_dir, exist_ok=True)
 
     ark_api_key = read_masked_input("火山方舟 API Key(输入内容以 • 显示): ").strip()
     if not ark_api_key:
         raise RuntimeError("方舟 API Key 不能为空")
 
-    print("接下来扫码创建飞书应用(topic6 将复用该 Bot)…")
+    print(f"接下来扫码创建飞书应用({case_name} 将复用该 Bot)…")
     feishu_app = await asyncio.get_event_loop().run_in_executor(None, register_feishu_app)
 
     existing: dict[str, str] = {}
@@ -242,9 +274,9 @@ async def _init_topic6() -> None:
     print(f"飞书 Bot 已创建:{feishu_app.app_id}")
     print(f"配置已写入 {case_paths.config_path}(仅含方舟 Key + 飞书凭据)。")
     print("下一步:")
-    print(f"  1) 在 {case_paths.config_path} 补齐 HOT_TOPICS_MCP_URL / BLUEAI_API_KEY / DATAHUB_ENDPOINT / DATAHUB_API_KEY")
-    print("  2) cd cases/topic6 && ./update_ma.sh  # 一键完成 pack/upload/建资源,TOPIC6_* ID 自动回写 config.env")
-    print("  3) arkagent run --case topic6")
+    print(f"  1) 在 {case_paths.config_path} 补齐该 case 所需的业务凭据(见 cases/{case_name}/ 文档)")
+    print(f"  2) cd cases/{case_name} && ./update_ma.sh  # 一键完成 pack/upload/建资源,资源 ID 自动回写 config.env")
+    print(f"  3) arkagent run --case {case_name}")
 
 
 async def _update_agent(args: list[str] | None = None) -> None:
@@ -337,11 +369,12 @@ def _print_help() -> None:
     print(
         "arkagent [command]\n\n"
         "  init          交互式创建 客户A 销售助手 Agent + 飞书应用（扫码）+ static_bearer 凭据\n"
-        "  init --topic6 仅扫码创建飞书 Bot + 写最小配置(不建客户A Agent、不需要 MCP 地址)\n"
+        "  init --case topicx  仅扫码创建统一飞书 Bot + 写 cases/topicX/config.env\n"
+        "                     MA 资源由 cases/topicx/update_ma.sh 统一装配\n"
         "  update-agent  用最新的 system prompt/工具配置更新现有 Agent（不重扫码、不新建 bot）\n"
         "                加 --mcp-url <新地址> 可一并换 MCP 公网地址：重建 static_bearer 凭据 + 写回 config.env\n"
         "  doctor        检查配置并验证方舟 Agent\n"
-        "  run           启动本地 Gateway（默认）"
+        "  run --case topicx  启动 Topic5/Topic6 统一 Gateway"
     )
 
 

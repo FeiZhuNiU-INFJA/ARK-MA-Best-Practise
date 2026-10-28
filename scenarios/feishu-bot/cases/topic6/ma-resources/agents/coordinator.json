@@ -2,7 +2,9 @@
   "name": "topic6-coordinator",
   "description": "topic6 社媒热点周刊主协调器。承载 Producer 主线 14 步时序 + 子 Agent 委派。",
   "model": {
-    "id": "doubao-seed-2-1-pro-260628"
+    "id": "doubao-seed-2-1-lite-260915",
+    "thinking": "enabled",
+    "reasoning_effort": "minimal"
   },
   "system_file": "coordinator.system.md",
   "skills": [
@@ -36,7 +38,6 @@
     "type": "coordinator",
     "agents": [
       {"type": "agent", "id": "${agent_id.topic6-annotator}"},
-      {"type": "agent", "id": "${agent_id.topic6-insighter}"},
       {"type": "self"}
     ]
   }

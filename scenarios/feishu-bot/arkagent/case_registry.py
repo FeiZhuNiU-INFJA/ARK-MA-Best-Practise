@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import errno
 import fcntl
+import importlib
 import importlib.util
+import json
 import os
 import sys
 from dataclasses import dataclass
@@ -30,8 +32,7 @@ class CaseModule:
     config_module: object
 
 
-def list_cases() -> list[str]:
-    """返回 cases/ 下具备 gateway.py 的合法 case 名(按字典序)。"""
+def _case_names(*, exposed_only: bool) -> list[str]:
     if not CASES_ROOT.exists():
         return []
     names: list[str] = []
@@ -40,9 +41,24 @@ def list_cases() -> list[str]:
             continue
         if entry.name.startswith(".") or entry.name.startswith("_"):
             continue
-        if (entry / "gateway.py").exists() and (entry / "config.py").exists():
+        if not (entry / "gateway.py").exists() or not (entry / "config.py").exists():
+            continue
+        metadata_path = entry / "case.json"
+        exposed = True
+        if metadata_path.exists():
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise RuntimeError(f"无法读取 case 元数据 {metadata_path}: {error}") from error
+            exposed = bool(metadata.get("exposed", True))
+        if not exposed_only or exposed:
             names.append(entry.name)
     return names
+
+
+def list_cases() -> list[str]:
+    """返回公开的合法 case 名(按字典序)。"""
+    return _case_names(exposed_only=True)
 
 
 def _load_module(module_name: str, path: Path):
@@ -57,21 +73,29 @@ def _load_module(module_name: str, path: Path):
 
 def load_case(name: str) -> CaseModule:
     """按名称加载 case 的 gateway/config 模块;不存在时给出可选项提示。"""
-    available = list_cases()
+    available = _case_names(exposed_only=False)
     if name not in available:
         raise RuntimeError(
             f"未知 case:{name!r}。可选:{', '.join(available) if available else '(无)'}"
         )
     directory = CASES_ROOT / name
-    # 把 case 目录加进 sys.path,使 gateway.py 里的裸导入(如 pipeline_store)可以命中同目录同伴模块。
-    if str(directory) not in sys.path:
-        sys.path.insert(0, str(directory))
     safe_name = name.replace("-", "_")
-    # config.py 用两个名字注册:短名 "config" 让 gateway.py 的 `from config import ...` 命中,
-    # 长名做 debug 友好标识。同一时刻只跑一个 case,短名不会冲突。
-    config_module = _load_module("config", directory / "config.py")
-    sys.modules[f"arkagent_case_{safe_name}_config"] = config_module
-    gateway_module = _load_module(f"arkagent_case_{safe_name}_gateway", directory / "gateway.py")
+    if (directory / "__init__.py").exists() and name.isidentifier():
+        package = f"cases.{name}"
+        config_module = importlib.import_module(f"{package}.config")
+        gateway_module = importlib.import_module(f"{package}.gateway")
+    else:
+        # Legacy cases with non-package names (for example digital-employee) retain
+        # their isolated, single-case loader until they are packaged separately.
+        if str(directory) not in sys.path:
+            sys.path.insert(0, str(directory))
+        config_module = _load_module(
+            f"arkagent_case_{safe_name}_config", directory / "config.py"
+        )
+        sys.modules["config"] = config_module
+        gateway_module = _load_module(
+            f"arkagent_case_{safe_name}_gateway", directory / "gateway.py"
+        )
     return CaseModule(
         name=name,
         directory=directory,

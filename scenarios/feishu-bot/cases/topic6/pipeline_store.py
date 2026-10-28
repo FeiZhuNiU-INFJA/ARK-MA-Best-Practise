@@ -23,7 +23,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 DEFAULT_PIPELINE_DB_PATH = str(
     Path(__file__).resolve().parents[3] / "data" / "topic6_pipeline.db"
@@ -32,9 +32,15 @@ DEFAULT_PIPELINE_DB_PATH = str(
 # 生命周期状态。
 STATUS_RUNNING = "running"
 STATUS_WAIT_HC = "wait_hc"
+STATUS_STOPPING = "stopping"
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
 STATUS_STOPPED = "stopped"
+
+FAILURE_SCOPE_RECOVERABLE = "recoverable"
+FAILURE_SCOPE_SESSION = "session"
+FAILURE_SCOPE_TASK = "task"
+RETRY_STRATEGY_RESUME_SESSION = "resume_session"
 
 # HC 卡点标识。
 HC_KINDS = ("HC1", "HC2", "HC3")
@@ -83,6 +89,13 @@ class PipelineJob:
     last_error: str = ""
     online_url: str = ""  # Phase H 妙搭产物
     progress_card_message_id: str = ""  # 进度卡片飞书 message_id;用于 patch 覆写
+    root_message_id: str = ""
+    topic_thread_id: str = ""
+    task_id: str = ""
+    stop_requested_at: Optional[int] = None
+    stop_requested_by: str = ""
+    failure_scope: str = ""
+    retry_strategy: str = ""
 
 
 @dataclass
@@ -112,6 +125,7 @@ class PipelineStore:
         self._path = Path(path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self._status_listener: Optional[Callable[[PipelineJob, str], None]] = None
         self._conn = sqlite3.connect(
             str(self._path), check_same_thread=False, isolation_level=None
         )
@@ -138,8 +152,15 @@ class PipelineStore:
                 updated_at INTEGER NOT NULL,
                 finished_at INTEGER,
                 last_error TEXT NOT NULL DEFAULT '',
+                failure_scope TEXT NOT NULL DEFAULT '',
+                retry_strategy TEXT NOT NULL DEFAULT '',
                 online_url TEXT NOT NULL DEFAULT '',
-                progress_card_message_id TEXT NOT NULL DEFAULT ''
+                progress_card_message_id TEXT NOT NULL DEFAULT '',
+                root_message_id TEXT NOT NULL DEFAULT '',
+                topic_thread_id TEXT NOT NULL DEFAULT '',
+                task_id TEXT NOT NULL DEFAULT '',
+                stop_requested_at INTEGER,
+                stop_requested_by TEXT NOT NULL DEFAULT ''
             );
 
             CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_session_key
@@ -185,6 +206,40 @@ class PipelineStore:
             self._conn.execute(
                 "ALTER TABLE pipeline_jobs ADD COLUMN progress_card_message_id TEXT NOT NULL DEFAULT ''"
             )
+        if "root_message_id" not in cols:
+            self._conn.execute(
+                "ALTER TABLE pipeline_jobs ADD COLUMN root_message_id TEXT NOT NULL DEFAULT ''"
+            )
+        if "topic_thread_id" not in cols:
+            self._conn.execute(
+                "ALTER TABLE pipeline_jobs ADD COLUMN topic_thread_id TEXT NOT NULL DEFAULT ''"
+            )
+        if "task_id" not in cols:
+            self._conn.execute(
+                "ALTER TABLE pipeline_jobs ADD COLUMN task_id TEXT NOT NULL DEFAULT ''"
+            )
+        if "stop_requested_at" not in cols:
+            self._conn.execute(
+                "ALTER TABLE pipeline_jobs ADD COLUMN stop_requested_at INTEGER"
+            )
+        if "stop_requested_by" not in cols:
+            self._conn.execute(
+                "ALTER TABLE pipeline_jobs ADD COLUMN stop_requested_by TEXT NOT NULL DEFAULT ''"
+            )
+        if "failure_scope" not in cols:
+            self._conn.execute(
+                "ALTER TABLE pipeline_jobs ADD COLUMN failure_scope TEXT NOT NULL DEFAULT ''"
+            )
+        if "retry_strategy" not in cols:
+            self._conn.execute(
+                "ALTER TABLE pipeline_jobs ADD COLUMN retry_strategy TEXT NOT NULL DEFAULT ''"
+            )
+        self._conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_pipeline_jobs_task_id
+            ON pipeline_jobs(task_id) WHERE task_id <> ''
+            """
+        )
         hc_cols = {
             r[1] for r in self._conn.execute("PRAGMA table_info(pipeline_hc_events)").fetchall()
         }
@@ -202,6 +257,18 @@ class PipelineStore:
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+    def set_status_listener(
+        self, listener: Optional[Callable[[PipelineJob, str], None]]
+    ) -> None:
+        self._status_listener = listener
+
+    def _notify_status(self, job_id: str, status: str) -> None:
+        if self._status_listener is None:
+            return
+        job = self.get_job(job_id)
+        if job is not None:
+            self._status_listener(job, status)
 
     # ---- user_oauth -------------------------------------------------------
 
@@ -269,7 +336,16 @@ class PipelineStore:
         ma_session_id: str,
         mode: str,
         project_dir: str,
+        root_message_id: str = "",
+        task_id: str = "",
     ) -> PipelineJob:
+        if task_id:
+            with self._lock:
+                existing = self._conn.execute(
+                    "SELECT * FROM pipeline_jobs WHERE task_id = ?", (task_id,)
+                ).fetchone()
+            if existing:
+                return self._row_to_job(existing)
         job = PipelineJob(
             job_id=_new_job_id(),
             chat_id=chat_id,
@@ -278,6 +354,8 @@ class PipelineStore:
             ma_session_id=ma_session_id,
             mode=mode,
             project_dir=project_dir,
+            root_message_id=root_message_id,
+            task_id=task_id,
         )
         with self._lock:
             self._conn.execute(
@@ -285,8 +363,9 @@ class PipelineStore:
                 INSERT INTO pipeline_jobs
                     (job_id, chat_id, thread_id, user_open_id, ma_session_id,
                      mode, project_dir, current_phase, status,
-                     started_at, updated_at, finished_at, last_error, online_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     started_at, updated_at, finished_at, last_error, online_url,
+                     root_message_id, task_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     job.job_id,
@@ -303,6 +382,8 @@ class PipelineStore:
                     job.finished_at,
                     job.last_error,
                     job.online_url,
+                    job.root_message_id,
+                    job.task_id,
                 ),
             )
         return job
@@ -311,6 +392,15 @@ class PipelineStore:
         with self._lock:
             row = self._conn.execute(
                 "SELECT * FROM pipeline_jobs WHERE job_id = ?", (job_id,)
+            ).fetchone()
+        return self._row_to_job(row) if row else None
+
+    def get_job_by_task(self, task_id: str) -> Optional[PipelineJob]:
+        if not task_id:
+            return None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM pipeline_jobs WHERE task_id = ?", (task_id,)
             ).fetchone()
         return self._row_to_job(row) if row else None
 
@@ -323,10 +413,17 @@ class PipelineStore:
                 """
                 SELECT * FROM pipeline_jobs
                 WHERE chat_id = ? AND thread_id = ? AND user_open_id = ?
-                  AND status IN (?, ?)
+                  AND status IN (?, ?, ?)
                 ORDER BY started_at DESC LIMIT 1
                 """,
-                (chat_id, thread_id or "", user_open_id, STATUS_RUNNING, STATUS_WAIT_HC),
+                (
+                    chat_id,
+                    thread_id or "",
+                    user_open_id,
+                    STATUS_RUNNING,
+                    STATUS_WAIT_HC,
+                    STATUS_STOPPING,
+                ),
             ).fetchone()
         return self._row_to_job(row) if row else None
 
@@ -342,24 +439,44 @@ class PipelineStore:
 
         完成态(done)不返回:已出报告的任务没有续跑语义。
         """
+        thread = thread_id or ""
         with self._lock:
-            row = self._conn.execute(
-                """
-                SELECT * FROM pipeline_jobs
-                WHERE chat_id = ? AND thread_id = ? AND user_open_id = ?
-                  AND status IN (?, ?, ?, ?)
-                ORDER BY updated_at DESC LIMIT 1
-                """,
-                (
-                    chat_id,
-                    thread_id or "",
-                    user_open_id,
-                    STATUS_RUNNING,
-                    STATUS_WAIT_HC,
-                    STATUS_FAILED,
-                    STATUS_STOPPED,
-                ),
-            ).fetchone()
+            if thread:
+                row = self._conn.execute(
+                    """
+                    SELECT * FROM pipeline_jobs
+                    WHERE chat_id = ? AND user_open_id = ?
+                      AND (thread_id = ? OR topic_thread_id = ?)
+                      AND status IN (?, ?, ?)
+                    ORDER BY updated_at DESC LIMIT 1
+                    """,
+                    (
+                        chat_id,
+                        user_open_id,
+                        thread,
+                        thread,
+                        STATUS_RUNNING,
+                        STATUS_WAIT_HC,
+                        STATUS_FAILED,
+                    ),
+                ).fetchone()
+            else:
+                row = self._conn.execute(
+                    """
+                    SELECT * FROM pipeline_jobs
+                    WHERE chat_id = ? AND user_open_id = ?
+                      AND thread_id = '' AND topic_thread_id = ''
+                      AND status IN (?, ?, ?)
+                    ORDER BY updated_at DESC LIMIT 1
+                    """,
+                    (
+                        chat_id,
+                        user_open_id,
+                        STATUS_RUNNING,
+                        STATUS_WAIT_HC,
+                        STATUS_FAILED,
+                    ),
+                ).fetchone()
         return self._row_to_job(row) if row else None
 
     def get_active_job(self) -> Optional[PipelineJob]:
@@ -368,10 +485,10 @@ class PipelineStore:
             row = self._conn.execute(
                 """
                 SELECT * FROM pipeline_jobs
-                WHERE status IN (?, ?)
+                WHERE status IN (?, ?, ?)
                 ORDER BY started_at DESC LIMIT 1
                 """,
-                (STATUS_RUNNING, STATUS_WAIT_HC),
+                (STATUS_RUNNING, STATUS_WAIT_HC, STATUS_STOPPING),
             ).fetchone()
         return self._row_to_job(row) if row else None
 
@@ -381,10 +498,10 @@ class PipelineStore:
             rows = self._conn.execute(
                 """
                 SELECT * FROM pipeline_jobs
-                WHERE status IN (?, ?)
+                WHERE status IN (?, ?, ?)
                 ORDER BY started_at ASC
                 """,
-                (STATUS_RUNNING, STATUS_WAIT_HC),
+                (STATUS_RUNNING, STATUS_WAIT_HC, STATUS_STOPPING),
             ).fetchall()
         return [self._row_to_job(row) for row in rows]
 
@@ -435,33 +552,105 @@ class PipelineStore:
                 "WHERE job_id = ?",
                 (STATUS_WAIT_HC, hc_kind, _now(), job_id),
             )
+        self._notify_status(job_id, STATUS_WAIT_HC)
 
     def resume_running(self, job_id: str, next_phase: str) -> None:
         with self._lock:
             self._conn.execute(
                 "UPDATE pipeline_jobs SET status = ?, current_phase = ?, updated_at = ?, "
-                "finished_at = NULL, last_error = '' WHERE job_id = ?",
+                "finished_at = NULL, last_error = '', failure_scope = '', "
+                "retry_strategy = '' WHERE job_id = ?",
                 (STATUS_RUNNING, next_phase, _now(), job_id),
             )
+        self._notify_status(job_id, STATUS_RUNNING)
 
     def mark_done(self, job_id: str, online_url: str = "") -> None:
         now = _now()
         with self._lock:
             self._conn.execute(
                 "UPDATE pipeline_jobs SET status = ?, finished_at = ?, updated_at = ?, "
-                "online_url = COALESCE(NULLIF(?, ''), online_url), last_error = '' "
+                "online_url = COALESCE(NULLIF(?, ''), online_url), last_error = '', "
+                "failure_scope = '', retry_strategy = '' "
                 "WHERE job_id = ?",
                 (STATUS_DONE, now, now, online_url, job_id),
             )
+        self._notify_status(job_id, STATUS_DONE)
 
-    def mark_failed(self, job_id: str, error: str) -> None:
+    def mark_failed(
+        self,
+        job_id: str,
+        error: str,
+        *,
+        failure_scope: str = FAILURE_SCOPE_RECOVERABLE,
+        retry_strategy: str = RETRY_STRATEGY_RESUME_SESSION,
+    ) -> None:
+        if failure_scope not in {
+            FAILURE_SCOPE_RECOVERABLE,
+            FAILURE_SCOPE_SESSION,
+            FAILURE_SCOPE_TASK,
+        }:
+            raise ValueError(f"invalid failure_scope: {failure_scope}")
+        if retry_strategy not in {"", RETRY_STRATEGY_RESUME_SESSION}:
+            raise ValueError(f"invalid retry_strategy: {retry_strategy}")
         now = _now()
         with self._lock:
             self._conn.execute(
                 "UPDATE pipeline_jobs SET status = ?, finished_at = ?, updated_at = ?, "
-                "last_error = ? WHERE job_id = ?",
-                (STATUS_FAILED, now, now, error, job_id),
+                "last_error = ?, failure_scope = ?, retry_strategy = ? WHERE job_id = ?",
+                (
+                    STATUS_FAILED,
+                    now,
+                    now,
+                    error,
+                    failure_scope,
+                    retry_strategy,
+                    job_id,
+                ),
             )
+        self._notify_status(job_id, STATUS_FAILED)
+
+    def claim_retry(self, job_id: str) -> bool:
+        """Atomically claim one failed/recoverable job for a retry callback."""
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                UPDATE pipeline_jobs
+                SET status = ?, finished_at = NULL, updated_at = ?
+                WHERE job_id = ? AND status = ? AND failure_scope IN ('', ?)
+                """,
+                (
+                    STATUS_RUNNING,
+                    _now(),
+                    job_id,
+                    STATUS_FAILED,
+                    FAILURE_SCOPE_RECOVERABLE,
+                ),
+            )
+        return cursor.rowcount == 1
+
+    def mark_stopping(self, job_id: str, operator_open_id: str) -> bool:
+        now = _now()
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                UPDATE pipeline_jobs
+                SET status = ?, stop_requested_at = ?, stop_requested_by = ?,
+                    updated_at = ?
+                WHERE job_id = ? AND status IN (?, ?)
+                """,
+                (
+                    STATUS_STOPPING,
+                    now,
+                    operator_open_id,
+                    now,
+                    job_id,
+                    STATUS_RUNNING,
+                    STATUS_WAIT_HC,
+                ),
+            )
+        if cursor.rowcount:
+            self._notify_status(job_id, STATUS_STOPPING)
+        return cursor.rowcount == 1
 
     def mark_stopped(self, job_id: str, reason: str = "user_interrupt") -> None:
         now = _now()
@@ -471,6 +660,7 @@ class PipelineStore:
                 "last_error = ? WHERE job_id = ?",
                 (STATUS_STOPPED, now, now, reason, job_id),
             )
+        self._notify_status(job_id, STATUS_STOPPED)
 
     def set_progress_card_message_id(self, job_id: str, message_id: str) -> None:
         with self._lock:
@@ -478,6 +668,14 @@ class PipelineStore:
                 "UPDATE pipeline_jobs SET progress_card_message_id = ?, updated_at = ? "
                 "WHERE job_id = ?",
                 (message_id or "", _now(), job_id),
+            )
+
+    def set_topic_thread_id(self, job_id: str, thread_id: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE pipeline_jobs SET topic_thread_id = ?, updated_at = ? "
+                "WHERE job_id = ?",
+                (thread_id or "", _now(), job_id),
             )
 
     # ---- hc_events ---------------------------------------------------------
@@ -591,10 +789,33 @@ class PipelineStore:
             updated_at=row["updated_at"],
             finished_at=row["finished_at"],
             last_error=row["last_error"],
+            failure_scope=(
+                row["failure_scope"] if "failure_scope" in row.keys() else ""
+            ),
+            retry_strategy=(
+                row["retry_strategy"] if "retry_strategy" in row.keys() else ""
+            ),
             online_url=row["online_url"],
             progress_card_message_id=(
                 row["progress_card_message_id"]
                 if "progress_card_message_id" in row.keys()
+                else ""
+            ),
+            root_message_id=(
+                row["root_message_id"] if "root_message_id" in row.keys() else ""
+            ),
+            topic_thread_id=(
+                row["topic_thread_id"] if "topic_thread_id" in row.keys() else ""
+            ),
+            task_id=row["task_id"] if "task_id" in row.keys() else "",
+            stop_requested_at=(
+                row["stop_requested_at"]
+                if "stop_requested_at" in row.keys()
+                else None
+            ),
+            stop_requested_by=(
+                row["stop_requested_by"]
+                if "stop_requested_by" in row.keys()
                 else ""
             ),
         )

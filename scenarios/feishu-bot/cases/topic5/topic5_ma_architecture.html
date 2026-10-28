@@ -1,0 +1,824 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Topic5 在 Topicx 统一入口下的 Managed Agents 架构、Durable Workflow、门禁与交付边界">
+  <title>Topic5 · Managed Agents 架构</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #f3f5f2;
+      --paper: #ffffff;
+      --ink: #18201b;
+      --muted: #657069;
+      --faint: #88918b;
+      --line: #d7ddd8;
+      --line-strong: #aeb8b1;
+      --control: #c33b32;
+      --control-soft: #f8e8e5;
+      --agent: #256c62;
+      --agent-soft: #e1f0ec;
+      --workflow: #2f5f91;
+      --workflow-soft: #e5edf6;
+      --human: #ad6a10;
+      --human-soft: #f8ecd9;
+      --data: #73548f;
+      --data-soft: #eee8f3;
+      --success: #2e7448;
+      --success-soft: #e6f1e9;
+      --danger: #a53832;
+      --shadow: 0 18px 48px rgba(27, 41, 32, .12);
+      --body: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --radius: 7px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      min-width: 320px;
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: var(--body);
+      line-height: 1.55;
+    }
+    button, a { font: inherit; }
+    button:focus-visible, a:focus-visible {
+      outline: 3px solid rgba(37, 108, 98, .28);
+      outline-offset: 3px;
+    }
+    code {
+      padding: 2px 5px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: #f6f7f5;
+      font-family: var(--mono);
+      font-size: .9em;
+      overflow-wrap: anywhere;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid var(--line);
+      background: rgba(243, 245, 242, .96);
+      backdrop-filter: blur(12px);
+    }
+    .topbar-inner {
+      width: min(1380px, calc(100% - 40px));
+      min-height: 58px;
+      margin: auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      font-size: 14px;
+      font-weight: 750;
+    }
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      flex: 0 0 auto;
+      place-items: center;
+      border-radius: 5px;
+      background: var(--ink);
+      color: white;
+      font: 700 11px/1 var(--mono);
+    }
+    .topnav {
+      display: flex;
+      gap: 22px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .topnav::-webkit-scrollbar { display: none; }
+    .topnav a {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .topnav a:hover { color: var(--ink); }
+
+    main {
+      width: min(1380px, calc(100% - 40px));
+      margin: auto;
+      padding: 46px 0 90px;
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(300px, .72fr) minmax(540px, 1.28fr);
+      gap: clamp(34px, 5vw, 72px);
+      align-items: end;
+      min-height: 310px;
+      padding-bottom: 44px;
+      border-bottom: 1px solid var(--line-strong);
+    }
+    .eyebrow {
+      margin: 0 0 16px;
+      color: var(--control);
+      font: 700 11px/1.2 var(--mono);
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 580px;
+      margin: 0;
+      font-size: clamp(38px, 5vw, 68px);
+      line-height: 1.02;
+      letter-spacing: 0;
+    }
+    .hero-copy {
+      max-width: 600px;
+      margin: 22px 0 0;
+      color: var(--muted);
+      font-size: 16px;
+    }
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border-top: 1px solid var(--line-strong);
+      border-left: 1px solid var(--line-strong);
+    }
+    .fact {
+      min-height: 112px;
+      padding: 18px;
+      border-right: 1px solid var(--line-strong);
+      border-bottom: 1px solid var(--line-strong);
+      background: rgba(255,255,255,.34);
+    }
+    .fact strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 24px;
+      line-height: 1;
+    }
+    .fact span { color: var(--muted); font-size: 12px; }
+
+    .section {
+      padding: 64px 0 0;
+      scroll-margin-top: 70px;
+    }
+    .section-head {
+      display: grid;
+      grid-template-columns: minmax(230px, .65fr) minmax(360px, 1.35fr);
+      gap: 36px;
+      align-items: end;
+      margin-bottom: 24px;
+    }
+    .kicker {
+      margin: 0 0 9px;
+      color: var(--control);
+      font: 700 11px/1.2 var(--mono);
+      text-transform: uppercase;
+    }
+    h2 { margin: 0; font-size: clamp(25px, 3vw, 36px); line-height: 1.1; }
+    .section-intro { margin: 0; color: var(--muted); font-size: 14px; }
+
+    .architecture-shell {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: var(--paper);
+    }
+    .lane {
+      display: grid;
+      grid-template-columns: 132px minmax(0, 1fr);
+      border-bottom: 1px solid var(--line);
+    }
+    .lane:last-child { border-bottom: 0; }
+    .lane-label {
+      padding: 20px 16px;
+      border-right: 1px solid var(--line);
+      background: #f7f8f6;
+    }
+    .lane-index {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--faint);
+      font: 700 10px/1 var(--mono);
+    }
+    .lane-label strong { font-size: 13px; }
+    .lane-content {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 10px;
+      align-items: stretch;
+      padding: 14px;
+    }
+    .component {
+      position: relative;
+      min-width: 0;
+      min-height: 88px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-top: 3px solid var(--accent, var(--agent));
+      border-radius: 6px;
+      background: var(--paper);
+      color: var(--ink);
+      text-align: left;
+      cursor: pointer;
+      transition: border-color .16s ease, transform .16s ease, box-shadow .16s ease;
+    }
+    .component:hover, .component.active {
+      border-color: var(--accent, var(--agent));
+      box-shadow: 0 8px 22px rgba(30, 45, 35, .09);
+      transform: translateY(-1px);
+    }
+    .component.control { --accent: var(--control); background: var(--control-soft); }
+    .component.agent { --accent: var(--agent); background: var(--agent-soft); }
+    .component.workflow { --accent: var(--workflow); background: var(--workflow-soft); }
+    .component.human { --accent: var(--human); background: var(--human-soft); }
+    .component.data { --accent: var(--data); background: var(--data-soft); }
+    .component.output { --accent: var(--success); background: var(--success-soft); }
+    .component .type {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--muted);
+      font: 700 9px/1 var(--mono);
+      text-transform: uppercase;
+    }
+    .component .name {
+      display: block;
+      font-size: 13px;
+      font-weight: 750;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .component .desc {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .span-2 { grid-column: span 2; }
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 4; }
+    .span-5 { grid-column: span 5; }
+    .span-6 { grid-column: span 6; }
+    .span-8 { grid-column: span 8; }
+    .flow-note {
+      grid-column: span 1;
+      align-self: center;
+      color: var(--faint);
+      font: 700 18px/1 var(--mono);
+      text-align: center;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+      padding: 14px 16px;
+      border-top: 1px solid var(--line);
+      background: #f7f8f6;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .legend i { width: 9px; height: 9px; border-radius: 2px; }
+
+    .resource-grid, .ownership-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border-top: 1px solid var(--line-strong);
+      border-left: 1px solid var(--line-strong);
+    }
+    .resource, .ownership {
+      min-width: 0;
+      padding: 20px;
+      border-right: 1px solid var(--line-strong);
+      border-bottom: 1px solid var(--line-strong);
+      background: rgba(255,255,255,.45);
+    }
+    .resource h3, .ownership h3 { margin: 0 0 10px; font-size: 15px; }
+    .resource p, .ownership p { margin: 0; color: var(--muted); font-size: 13px; }
+    .resource ul, .ownership ul {
+      margin: 13px 0 0;
+      padding: 0;
+      list-style: none;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .resource li, .ownership li { margin: 7px 0; overflow-wrap: anywhere; }
+    .resource li::before, .ownership li::before { content: "— "; color: var(--faint); }
+
+    .pipeline {
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: var(--paper);
+    }
+    .stage {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr);
+      border-bottom: 1px solid var(--line);
+    }
+    .stage:last-child { border-bottom: 0; }
+    .stage-label {
+      padding: 18px 16px;
+      border-right: 1px solid var(--line);
+      background: #f7f8f6;
+    }
+    .stage-label strong { display: block; font-size: 13px; }
+    .stage-label span { color: var(--faint); font: 10px/1.2 var(--mono); }
+    .stage-nodes {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      overflow-x: auto;
+      padding: 12px;
+      scrollbar-width: thin;
+    }
+    .pipeline-node {
+      min-width: 126px;
+      min-height: 60px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: white;
+      text-align: left;
+      cursor: pointer;
+    }
+    .pipeline-node:hover, .pipeline-node.active { border-color: var(--workflow); background: var(--workflow-soft); }
+    .pipeline-node.gate { border-color: #e1bd84; background: var(--human-soft); }
+    .pipeline-node.auto { border-color: #8ab9ad; background: var(--agent-soft); }
+    .pipeline-node strong { display: block; font: 700 10px/1.2 var(--mono); }
+    .pipeline-node span { display: block; margin-top: 5px; font-size: 11px; line-height: 1.25; }
+    .stage-arrow { flex: 0 0 auto; color: var(--faint); font: 700 14px/1 var(--mono); }
+
+    .gate-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line-strong);
+      background: var(--paper);
+      font-size: 13px;
+    }
+    .gate-table th, .gate-table td {
+      padding: 13px 15px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    .gate-table th { background: #f7f8f6; color: var(--muted); font-size: 11px; }
+    .gate-table tr:last-child td { border-bottom: 0; }
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+    .badge.human { color: #81500d; background: var(--human-soft); }
+    .badge.auto { color: #1f6457; background: var(--agent-soft); }
+    .badge.conditional { color: #634477; background: var(--data-soft); }
+
+    .code-map {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border-top: 1px solid var(--line-strong);
+      border-left: 1px solid var(--line-strong);
+    }
+    .code-item {
+      min-width: 0;
+      padding: 17px 18px;
+      border-right: 1px solid var(--line-strong);
+      border-bottom: 1px solid var(--line-strong);
+    }
+    .code-item strong { display: block; margin-bottom: 5px; font-size: 13px; }
+    .code-item code { display: inline; color: var(--muted); font-size: 11px; }
+
+    .drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      z-index: 50;
+      width: min(440px, 94vw);
+      height: 100dvh;
+      overflow-y: auto;
+      padding: 22px 24px 40px;
+      border-left: 1px solid var(--line-strong);
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      transform: translateX(102%);
+      transition: transform .2s ease;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 17px;
+      border-bottom: 1px solid var(--line);
+    }
+    .drawer-close {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: white;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 22px;
+      line-height: 1;
+    }
+    .drawer h3 { margin: 5px 0 0; font-size: 21px; line-height: 1.2; }
+    .drawer-kind { color: var(--control); font: 700 10px/1 var(--mono); text-transform: uppercase; }
+    .drawer-section { padding: 18px 0; border-bottom: 1px solid var(--line); }
+    .drawer-section:last-child { border-bottom: 0; }
+    .drawer-section h4 { margin: 0 0 8px; color: var(--muted); font: 700 10px/1.2 var(--mono); text-transform: uppercase; }
+    .drawer-section p, .drawer-section li { margin: 5px 0; font-size: 13px; }
+    .drawer-section ul { margin: 0; padding-left: 18px; }
+    .backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      border: 0;
+      background: rgba(22, 30, 25, .28);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease;
+    }
+    .backdrop.open { opacity: 1; pointer-events: auto; }
+
+    .footer {
+      margin-top: 64px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line-strong);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 980px) {
+      .hero { grid-template-columns: 1fr; min-height: 0; }
+      .section-head { grid-template-columns: 1fr; gap: 12px; }
+      .resource-grid, .ownership-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .lane { grid-template-columns: 104px minmax(0, 1fr); }
+      .lane-content { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+      .span-5, .span-6, .span-8 { grid-column: span 6; }
+      .span-4 { grid-column: span 3; }
+      .span-3 { grid-column: span 3; }
+      .span-2 { grid-column: span 2; }
+      .flow-note { display: none; }
+    }
+
+    @media (max-width: 640px) {
+      .topbar-inner, main { width: min(100% - 24px, 1380px); }
+      .topbar-inner { min-height: 54px; }
+      .topnav { display: none; }
+      main { padding-top: 30px; }
+      .hero { padding-bottom: 34px; }
+      h1 { font-size: 39px; }
+      .facts { grid-template-columns: 1fr 1fr; }
+      .fact { min-height: 100px; padding: 14px; }
+      .fact strong { font-size: 21px; }
+      .section { padding-top: 48px; }
+      .lane { grid-template-columns: 1fr; }
+      .lane-label { padding: 12px 14px; border-right: 0; border-bottom: 1px solid var(--line); }
+      .lane-content { grid-template-columns: 1fr 1fr; padding: 10px; }
+      .span-2, .span-3, .span-4, .span-5, .span-6, .span-8 { grid-column: span 1; }
+      .component { min-height: 98px; padding: 11px; }
+      .resource-grid, .ownership-grid, .code-map { grid-template-columns: 1fr; }
+      .stage { grid-template-columns: 1fr; }
+      .stage-label { padding: 10px 12px; border-right: 0; border-bottom: 1px solid var(--line); }
+      .gate-table { display: block; overflow-x: auto; white-space: nowrap; }
+      .gate-table td:last-child { white-space: normal; min-width: 240px; }
+      .drawer {
+        top: auto;
+        bottom: 0;
+        width: 100%;
+        height: min(78dvh, 680px);
+        border-top: 1px solid var(--line-strong);
+        border-left: 0;
+        transform: translateY(102%);
+      }
+      .drawer.open { transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand"><span class="brand-mark">T5</span><span>Topic5 · MA Architecture</span></div>
+      <nav class="topnav" aria-label="页面导航">
+        <a href="#architecture">组件架构</a>
+        <a href="#resources">MA 资源</a>
+        <a href="#pipeline">Durable DAG</a>
+        <a href="#gates">门禁</a>
+        <a href="#ownership">数据与交付</a>
+        <a href="#code">代码地图</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Topicx business package / Topic 5</p>
+        <h1>营销复盘的 Managed Agents 架构</h1>
+        <p class="hero-copy">Topicx 提供统一飞书入口与控制面；Topic5 以独立 Business Session 执行。Coordinator 保持轻薄，确定性编排器负责 28 节点 DAG、断点续跑和局部重试，独立 Validator 负责 G3 自动质检。</p>
+      </div>
+      <div class="facts" aria-label="架构摘要">
+        <div class="fact"><strong>2</strong><span>实际注册的 MA Agent<br>Coordinator + Validator</span></div>
+        <div class="fact"><strong>28</strong><span>Durable Workflow 节点<br>从需求到 handoff</span></div>
+        <div class="fact"><strong>3 + 3</strong><span>固定人工门 + 条件人工门<br>G3 不属于人工门</span></div>
+        <div class="fact"><strong>并行</strong><span>以飞书话题隔离任务<br>Topic5 不占用 Topic6 Lease</span></div>
+      </div>
+    </section>
+
+    <section class="section" id="architecture">
+      <div class="section-head">
+        <div><p class="kicker">01 / Runtime topology</p><h2>统一入口下的组件架构</h2></div>
+        <p class="section-intro">从上到下依次是控制面、Business Session、Durable Workflow 和外部能力。点击任意组件，在右侧查看职责、边界和代码位置。</p>
+      </div>
+
+      <div class="architecture-shell">
+        <div class="lane">
+          <div class="lane-label"><span class="lane-index">CONTROL</span><strong>Topicx 控制面</strong></div>
+          <div class="lane-content">
+            <button class="component control span-2" data-detail="feishu"><span class="type">Ingress</span><span class="name">飞书消息 / 卡片</span><span class="desc">统一公开入口</span></button>
+            <span class="flow-note">→</span>
+            <button class="component control span-2" data-detail="gateway"><span class="type">Gateway</span><span class="name">TopicxGateway</span><span class="desc">鉴权、话题、回调分发</span></button>
+            <span class="flow-note">→</span>
+            <button class="component control span-2" data-detail="router"><span class="type">Router session</span><span class="name">Topicx Router Agent</span><span class="desc">只做意图分类</span></button>
+            <span class="flow-note">→</span>
+            <button class="component control span-3" data-detail="controlstore"><span class="type">Control state</span><span class="name">ControlStore</span><span class="desc">task_id 串联路由与业务任务</span></button>
+          </div>
+        </div>
+
+        <div class="lane">
+          <div class="lane-label"><span class="lane-index">BUSINESS</span><strong>Topic5 Session</strong></div>
+          <div class="lane-content">
+            <button class="component agent span-3" data-detail="runner"><span class="type">Session bridge</span><span class="name">Topic5Runner</span><span class="desc">创建/续跑 Session，消费 SSE</span></button>
+            <button class="component agent span-4" data-detail="coordinator"><span class="type">MA agent</span><span class="name">topic5-coordinator</span><span class="desc">启动、抛门、续跑、交终态</span></button>
+            <button class="component human span-2" data-detail="hitl"><span class="type">Human loop</span><span class="name">Topic5Hitl</span><span class="desc">卡片与决定回注</span></button>
+            <button class="component data span-3" data-detail="store"><span class="type">Durable host state</span><span class="name">PipelineStore</span><span class="desc">Job / HC / receipt</span></button>
+          </div>
+        </div>
+
+        <div class="lane">
+          <div class="lane-label"><span class="lane-index">SANDBOX</span><strong>确定性数据面</strong></div>
+          <div class="lane-content">
+            <button class="component workflow span-5" data-detail="orchestrator"><span class="type">Custom skill</span><span class="name">pipeline-orchestrator</span><span class="desc">28 节点 DAG、ledger、checkpoint、resume</span></button>
+            <button class="component workflow span-3" data-detail="semantic"><span class="type">Handlers</span><span class="name">语义与确定性节点</span><span class="desc">清洗、聚合、撰写、返修</span></button>
+            <button class="component agent span-4" data-detail="validator"><span class="type">Independent MA agent</span><span class="name">topic5-validator</span><span class="desc">G3 机器全检 + 全文语义检查</span></button>
+          </div>
+        </div>
+
+        <div class="lane">
+          <div class="lane-label"><span class="lane-index">CAPABILITIES</span><strong>外部能力与交付</strong></div>
+          <div class="lane-content">
+            <button class="component data span-3" data-detail="ssjh"><span class="type">Data source</span><span class="name">SSJH Social Stat</span><span class="desc">品牌、基准期、词云</span></button>
+            <button class="component data span-2" data-detail="excel"><span class="type">User input</span><span class="name">活动明细 Excel</span><span class="desc">逐帖清洗源</span></button>
+            <button class="component data span-2" data-detail="datahub"><span class="type">Annotation</span><span class="name">DataHub / 小引擎</span><span class="desc">两轮 AI 标注</span></button>
+            <button class="component data span-2" data-detail="echarts"><span class="type">Renderer</span><span class="name">ECharts + resvg</span><span class="desc">本地 PNG</span></button>
+            <button class="component output span-3" data-detail="delivery"><span class="type">Delivery</span><span class="name">飞书原生文档</span><span class="desc">表格、图片、revision 绑定</span></button>
+          </div>
+        </div>
+
+        <div class="legend" aria-label="图例">
+          <span><i style="background:var(--control)"></i>控制面</span>
+          <span><i style="background:var(--agent)"></i>MA Agent / Session</span>
+          <span><i style="background:var(--workflow)"></i>Durable Workflow</span>
+          <span><i style="background:var(--human)"></i>人工协作</span>
+          <span><i style="background:var(--data)"></i>数据与工具</span>
+          <span><i style="background:var(--success)"></i>交付</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="resources">
+      <div class="section-head">
+        <div><p class="kicker">02 / MA resources</p><h2>Session 挂载与 Agent 边界</h2></div>
+        <p class="section-intro">业务 Session 挂载 Coordinator、Environment、只读 Memory、Vault 与 Skills。只有 Validator 通过 Multi-Agent 关系被委派，DAG owner 标签不等于独立 Agent。</p>
+      </div>
+      <div class="resource-grid">
+        <article class="resource"><h3>Coordinator Agent</h3><p>薄前台，不做业务判断、指标计算或报告撰写。</p><ul><li>启动 / resume 编排器</li><li>转发可见 HC</li><li>输出 FINAL_RESULT</li></ul></article>
+        <article class="resource"><h3>Validator Agent</h3><p>独立质检身份，只读报告与证据，不修改正文。</p><ul><li>scan_report.py 全量扫描</li><li>全文语义检查</li><li>p0_count == 0 放行</li></ul></article>
+        <article class="resource"><h3>Cloud Environment</h3><p>承载 Python、Node 与网络访问能力。</p><ul><li>pandas / openpyxl / httpx</li><li>ECharts + resvg 运行时</li><li>Asia/Shanghai 时区</li></ul></article>
+        <article class="resource"><h3>Read-only Memory</h3><p>跨会话保存规范与经验，不保存运行状态。</p><ul><li>/mnt/memory/topic5/MEMORY.md</li><li>版本状态</li><li>错误案例库</li></ul></article>
+        <article class="resource"><h3>Vault</h3><p>凭证只通过环境注入，文档和代码不持久化密钥。</p><ul><li>Ark / SSJH / DataHub</li><li>飞书应用凭证</li><li>报告封面服务</li></ul></article>
+        <article class="resource"><h3>Custom Skills</h3><p>能力以版本化 Skill 挂载，部署脚本统一更新。</p><ul><li>pipeline-orchestrator</li><li>SSJH / DataHub / ECharts</li><li>report-cover / validator</li></ul></article>
+      </div>
+    </section>
+
+    <section class="section" id="pipeline">
+      <div class="section-head">
+        <div><p class="kicker">03 / Durable workflow</p><h2>28 节点运行链</h2></div>
+        <p class="section-intro">DAG 由 Skill 内的确定性引擎推进。节点产物、ledger 与 checkpoint 位于任务工程目录，Host SQLite 只负责跨 Session 的 Job 与 HC 状态。</p>
+      </div>
+      <div class="pipeline" id="pipelineMap"></div>
+    </section>
+
+    <section class="section" id="gates">
+      <div class="section-head">
+        <div><p class="kicker">04 / Gates</p><h2>人工门与自动门</h2></div>
+        <p class="section-intro">G3 是内部 Agent 门，必须在当前执行链内完成 Validator 委派和自动续跑，不能渲染为用户卡片。只有质检超限才升级到 HC7。</p>
+      </div>
+      <table class="gate-table">
+        <thead><tr><th>门禁</th><th>类型</th><th>责任主体</th><th>放行条件 / 失败路径</th></tr></thead>
+        <tbody>
+          <tr><td><strong>G1</strong> 需求确认</td><td><span class="badge human">固定人工</span></td><td>任务发起人</td><td>Excel 已挂载且问卷字段完整，确认后冻结需求。</td></tr>
+          <tr><td><strong>G2</strong> 方案确认</td><td><span class="badge human">固定人工</span></td><td>任务发起人</td><td>分析方案及能力预检通过，确认后进入生产 Run。</td></tr>
+          <tr><td><strong>N10</strong> 标签策略</td><td><span class="badge conditional">条件人工</span></td><td>策略自动 / 用户</td><td>来源、样本、数量、唯一性和可标注性均通过则自动确认；歧义才暂停。</td></tr>
+          <tr><td><strong>G3</strong> 报告质检</td><td><span class="badge auto">内部自动</span></td><td>topic5-validator</td><td><code>p0_count == 0</code> 自动放行；有 P0 进入 n19 返修，禁止外溢到 Gateway。</td></tr>
+          <tr><td><strong>HC7</strong> 质检升级</td><td><span class="badge conditional">条件人工</span></td><td>人工处理</td><td>自动返修超过 <code>qc_max_rounds</code> 后升级，不能豁免 P0。</td></tr>
+          <tr><td><strong>G4</strong> 用户终验</td><td><span class="badge human">固定人工</span></td><td>任务发起人</td><td>对绑定 revision 的飞书文档验收；拒绝后回到交付修订。</td></tr>
+          <tr><td><strong>USER_ESCALATE</strong></td><td><span class="badge conditional">条件人工</span></td><td>人工处理</td><td>终验超时或异常升级，不替代用户对具体 revision 的确认。</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section" id="ownership">
+      <div class="section-head">
+        <div><p class="kicker">05 / Ownership</p><h2>状态、数据与交付所有权</h2></div>
+        <p class="section-intro">不同存储只承担单一职责，避免把运行期事实塞进 Memory，也避免用飞书消息文本反推任务状态。</p>
+      </div>
+      <div class="ownership-grid">
+        <article class="ownership"><h3>Topicx ControlStore</h3><p>统一入口的控制面事实。</p><ul><li>task_id 与 Router / Business Session 映射</li><li>飞书话题与业务 Job 映射</li><li>Topic5 不使用全局 Lease</li></ul></article>
+        <article class="ownership"><h3>Topic5 PipelineStore</h3><p>Host 侧可恢复状态。</p><ul><li>pipeline_jobs</li><li>pipeline_hc_events</li><li>pipeline_receipts</li></ul></article>
+        <article class="ownership"><h3>Sandbox Project</h3><p>单次 Run 的业务事实。</p><ul><li>节点 Artifact</li><li>ledger / checkpoint</li><li>qc_report / report_md / handoff</li></ul></article>
+        <article class="ownership"><h3>Memory Store</h3><p>只读的跨会话规范。</p><ul><li>指标口径与版本状态</li><li>历史错误案例</li><li>不保存 Job / HC / OAuth 状态</li></ul></article>
+        <article class="ownership"><h3>外部数据源</h3><p>各自保留来源边界。</p><ul><li>Excel：逐帖活动明细</li><li>SSJH：品牌统计、基准期、词云</li><li>DataHub：大批量 AI 标注</li></ul></article>
+        <article class="ownership"><h3>飞书交付</h3><p>最终报告使用原生 Docx 能力发布。</p><ul><li>原生表格与图片</li><li>owner transfer + readback</li><li>revision_id 贯穿验证与 handoff</li></ul></article>
+      </div>
+    </section>
+
+    <section class="section" id="code">
+      <div class="section-head">
+        <div><p class="kicker">06 / Code map</p><h2>实现入口</h2></div>
+        <p class="section-intro">以下路径均相对仓库根目录，架构事实以这些源码与 MA 资源定义为准。</p>
+      </div>
+      <div class="code-map">
+        <div class="code-item"><strong>统一入口装配</strong><code>scenarios/feishu-bot/cases/topicx/gateway.py</code></div>
+        <div class="code-item"><strong>Router 与业务 Session</strong><code>scenarios/feishu-bot/cases/topicx/topicx_runner.py</code></div>
+        <div class="code-item"><strong>Topic5 Session 桥</strong><code>scenarios/feishu-bot/cases/topic5/topic5_runner.py</code></div>
+        <div class="code-item"><strong>Job / HC 持久化</strong><code>scenarios/feishu-bot/cases/topic5/pipeline_store.py</code></div>
+        <div class="code-item"><strong>人工卡片与决定回注</strong><code>scenarios/feishu-bot/cases/topic5/topic5_hitl.py</code></div>
+        <div class="code-item"><strong>Coordinator 契约</strong><code>scenarios/feishu-bot/cases/topic5/ma-resources/agents/coordinator.system.md</code></div>
+        <div class="code-item"><strong>Validator 契约</strong><code>scenarios/feishu-bot/cases/topic5/ma-resources/agents/validator.system.md</code></div>
+        <div class="code-item"><strong>DAG 与 handlers</strong><code>scenarios/feishu-bot/cases/topic5/ma-resources/skills/pipeline-orchestrator/</code></div>
+      </div>
+    </section>
+
+    <footer class="footer">Topic5 是 Topicx 统一入口下的业务包，不是独立公开入口。本文档不包含凭证、资源 ID 或运行期个人信息。</footer>
+  </main>
+
+  <button class="backdrop" id="backdrop" aria-label="关闭详情"></button>
+  <aside class="drawer" id="drawer" aria-hidden="true" aria-label="组件详情">
+    <div class="drawer-head">
+      <div><span class="drawer-kind" id="detailKind"></span><h3 id="detailTitle"></h3></div>
+      <button class="drawer-close" id="drawerClose" aria-label="关闭">×</button>
+    </div>
+    <div id="detailBody"></div>
+  </aside>
+
+  <script>
+    const details = {
+      feishu: {kind:"Ingress", title:"飞书消息与交互卡片", role:"用户只面对 Topicx 统一 Bot。根消息进入路由，话题内的文件、补充消息和卡片回调根据 task_id / job_id 送回对应 Topic5 任务。", boundary:["不直接创建 Topic5 独立入口","任务以飞书话题隔离","停止按钮只中断 Business Session"]},
+      gateway: {kind:"Control plane", title:"TopicxGateway", role:"执行用户白名单检查，接收消息与卡片动作，定位任务后分发到 Router、Topic5 HITL 或停止处理器。", boundary:["身份由 Gateway 的 user_open_id 决定","不信任模型传递的身份","不参与报告业务判断"], code:"scenarios/feishu-bot/cases/topicx/gateway.py"},
+      router: {kind:"MA session", title:"Topicx Router Session", role:"只识别 Topic5、Topic6 或 Unsupported，并通过受控工具提交业务意图。路由完成后由 Gateway 创建独立 Business Session。", boundary:["Router 与 Business 是两个 Session","Router 不运行 Topic5 DAG","业务后续不回流 Router"]},
+      controlstore: {kind:"Durable control", title:"ControlStore", role:"用全局 task_id 串联飞书话题、路由记录、业务场景、Job ID 与 Business Session ID。", boundary:["Topic5 任务可按话题并行","仅 Topic6 需要全局 Lease","状态同步来自业务 PipelineStore"]},
+      runner: {kind:"Session bridge", title:"Topic5Runner", role:"创建挂载 Coordinator / Environment / Memory / Vault 的 MA Session，消费 SSE，识别 HC_PENDING 与 FINAL_RESULT，并在恢复时重新连接活跃 Job。", boundary:["同一 Session 同时只有一个 SSE 消费任务","G3 在 Runner 内验证独立 Validator 结果后自动决定","活跃 PID / Session 不因空日志被误判卡死"], code:"scenarios/feishu-bot/cases/topic5/topic5_runner.py"},
+      coordinator: {kind:"MA agent", title:"topic5-coordinator", role:"薄 Agent 只做启动、处理暂停、续跑与输出终态。它调用 pipeline-orchestrator，并在 G3 委派独立 Validator。", boundary:["不计算指标","不撰写报告","不决定业务 pass/fail","G3 原始控制信号不得发给 Gateway"], code:"scenarios/feishu-bot/cases/topic5/ma-resources/agents/coordinator.system.md"},
+      hitl: {kind:"Human loop", title:"Topic5Hitl", role:"把可见人工门渲染为飞书卡片，校验操作者权限与决定格式，再通过 Runner 注入原 Business Session。", boundary:["固定门 G1 / G2 / G4","条件门 N10 / HC7 / USER_ESCALATE","G3 永不渲染人工卡片"], code:"scenarios/feishu-bot/cases/topic5/topic5_hitl.py"},
+      store: {kind:"Host state", title:"PipelineStore", role:"独立 SQLite 保存 pipeline_jobs、pipeline_hc_events 和 pipeline_receipts，支持 Gateway 重启后的恢复与幂等回调。", boundary:["与 Memory Store 分离","与沙箱 Artifact 分离","同一话题最多一个活跃 Job"], code:"scenarios/feishu-bot/cases/topic5/pipeline_store.py"},
+      orchestrator: {kind:"Custom skill", title:"pipeline-orchestrator", role:"确定性 DAG 引擎负责拓扑调度、Artifact、ledger、checkpoint、HumanPause、局部重试和冷进程续跑。", boundary:["28 节点由 handlers 实现","副作用执行前后对账","核心依赖失败时 fail-closed"], code:"scenarios/feishu-bot/cases/topic5/ma-resources/skills/pipeline-orchestrator/"},
+      semantic: {kind:"Handlers", title:"语义与确定性节点", role:"Discovery、Opinion、Insight、Narrative 等名称是逻辑职责，不是额外 MA Agent。语义节点经统一模型接口执行，清洗、聚合、门禁和交付由确定性代码约束。", boundary:["减少子 Agent 冷启动与 IPC","指标口径由代码和参数锁定","语义结果必须通过结构校验"]},
+      validator: {kind:"Independent MA agent", title:"topic5-validator", role:"G3 由独立身份执行 scan_report.py 机器全检与 Agent 全文语义检查，产出绑定当前 ReportArtifact 的 qc_report。", boundary:["只读报告与证据","不修改正文、不写飞书","p0_count == 0 才能放行","最多 3 轮后进入 HC7"], code:"scenarios/feishu-bot/cases/topic5/ma-resources/agents/validator.system.md"},
+      ssjh: {kind:"External data", title:"SSJH Social Stat", role:"n05、n06、n13 分别获取活动期品牌统计、30 天不重叠基准期和各平台词云。", boundary:["与 Excel 逐帖明细来源不同","502 / timeout 时主链阻断","禁止模拟数据降级"]},
+      excel: {kind:"Mounted input", title:"活动明细 Excel", role:"用户在 G1 所在话题上传，Gateway 校验容器并挂入 Session；n07 映射逐帖数据后过滤、去重与派生字段。", boundary:["声明文件但缺失时直接报错","demo 清洗后稳定抽样最多 500 条","full 保留全量"]},
+      datahub: {kind:"Annotation", title:"DataHub 与小引擎", role:"n09 / n11 执行情感、相关性、观点、UGC 类别与讨论维度标注。小数据走语义小引擎，大批量可走 DataHub。", boundary:["缺 AI 情感直接报错","N/A 可作为合法标签","覆盖率必须校验"]},
+      echarts: {kind:"Renderer", title:"ECharts + resvg", role:"n14 在 MA 沙箱将图表规格渲染为本地 PNG；n20 再通过飞书媒体接口原生上传。", boundary:["空图、全零图、单类别图会被剔除","渲染器缺失时阻断交付","不依赖外部对象存储"]},
+      delivery: {kind:"Delivery", title:"飞书原生文档", role:"报告发布器使用飞书原生结构渲染表格、图片与布局，完成所有权转移、回读和 revision_id 记录。", boundary:["不用 Markdown 表格冒充原生表格","验证与 handoff 绑定同一 revision","G4 只确认具体 revision"]}
+    };
+
+    const pipelineStages = [
+      {id:"A-B", name:"需求与方案", nodes:[["n00","意图模板"],["G1","需求确认","gate"],["n02","方案生成"],["G2","方案确认","gate"]]},
+      {id:"C-E", name:"初始化与清洗", nodes:[["n04","运行初始化"],["n05","品牌取数"],["n06","基准取数"],["n07","Excel 清洗"]]},
+      {id:"F-H", name:"发现与标注", nodes:[["n08","UGC 发现"],["n09","标注一"],["n09b","观点候选"],["N10","标签策略","gate"],["n11","标注二"]]},
+      {id:"I-J", name:"聚合与撰写", nodes:[["n12","指标聚合"],["n13","词云取数"],["n14","图表渲染"],["n15","词云解读"],["n16","报告撰写"]]},
+      {id:"K", name:"自动质检循环", nodes:[["G3","Validator 自动门","auto"],["n18","QC 判定"],["n19","报告返修"],["HC7","超限升级","gate"]]},
+      {id:"L-M", name:"交付与落定", nodes:[["n20","飞书草稿"],["G4","用户终验","gate"],["n22","终验判定"],["USER_ESCALATE","终验升级","gate"],["n23","交付提交"],["n24","Handoff"]]}
+    ];
+
+    const pipelineDetails = {
+      n00:["意图模板","声明 G1 需要的字段，不伪造 demo 默认值。"],
+      G1:["G1 · 需求确认","用户上传 Excel 并确认品牌、周期、平台、关键词与内容范围。"],
+      n02:["方案生成","根据已确认需求生成分析计划与能力预检。"],
+      G2:["G2 · 方案确认","冻结 ConfirmedPlan，之后生产节点以此为依据。"],
+      n04:["运行初始化","建立 Run 工作目录并冻结输入与资源指纹。"],
+      n05:["活动期品牌取数","通过 SSJH 获取活动期品牌声量与互动统计。"],
+      n06:["基准期取数","获取活动开始前 30 天且不重叠的基准数据。"],
+      n07:["活动明细清洗","读取挂载 Excel，按周期过滤、去重并派生平台/KOL 字段。"],
+      n08:["UGC 发现","从清洗数据发现 UGC 主题，输出结构化结果。"],
+      n09:["第一轮标注","标注 AI 情感与活动相关性；按数据量选择 DataHub 或小引擎。"],
+      n09b:["观点候选","抽取可用于第二轮标注的观点候选标签。"],
+      N10:["N10 · 标签策略门","策略校验通过则自动确认，动态或歧义标签才暂停人工。"],
+      n11:["第二轮标注","标注观点、UGC 类别与讨论维度并检查覆盖率。"],
+      n12:["指标聚合","严格按白名单计算条均互动、品牌提及率、产品提及占比与 NSR。"],
+      n13:["词云取数","按平台独立获取词频数据，不跨平台合并。"],
+      n14:["图表渲染","生成 ECharts 规格并在沙箱渲染本地 PNG。"],
+      n15:["词云解读","每个平台独立生成有证据绑定的词云洞察；证据不足时 fail-closed。"],
+      n16:["报告撰写","根据统计、图表、词云与观点生成报告正文。"],
+      G3:["G3 · Validator 自动门","独立 Validator 检查当前报告；无 P0 自动放行，有 P0 进入返修。"],
+      n18:["QC 判定","根据 qc_report 选择交付、返修或超限升级。"],
+      n19:["报告返修","逐项消费 qc_report.issues 修复，并在写入前用同规则预检。"],
+      HC7:["HC7 · 质检超限","自动返修超过上限后升级人工，但不能直接豁免 P0。"],
+      n20:["飞书交付草稿","发布原生飞书文档，上传图片、转移 owner、回读并记录 revision。"],
+      G4:["G4 · 用户终验","用户确认绑定 revision 的最终飞书报告。"],
+      n22:["终验判定","通过则落定，拒绝则回到交付修订，异常走 USER_ESCALATE。"],
+      USER_ESCALATE:["USER_ESCALATE · 终验升级","用户终验超时或异常时升级人工处理，不能替代用户对具体 revision 的确认。"],
+      n23:["交付提交","写入正式提交结果。"],
+      n24:["Handoff","校验 Artifact、Validation、Delivery 的 revision 链一致后落 handoff。"]
+    };
+
+    const map = document.getElementById("pipelineMap");
+    pipelineStages.forEach(stage => {
+      const row = document.createElement("div");
+      row.className = "stage";
+      row.innerHTML = `<div class="stage-label"><span>${stage.id}</span><strong>${stage.name}</strong></div>`;
+      const nodes = document.createElement("div");
+      nodes.className = "stage-nodes";
+      stage.nodes.forEach((node, index) => {
+        const button = document.createElement("button");
+        button.className = `pipeline-node ${node[2] || ""}`;
+        button.dataset.pipeline = node[0];
+        button.innerHTML = `<strong>${node[0]}</strong><span>${node[1]}</span>`;
+        nodes.appendChild(button);
+        if (index < stage.nodes.length - 1) {
+          const arrow = document.createElement("span");
+          arrow.className = "stage-arrow";
+          arrow.textContent = "→";
+          nodes.appendChild(arrow);
+        }
+      });
+      row.appendChild(nodes);
+      map.appendChild(row);
+    });
+
+    const drawer = document.getElementById("drawer");
+    const backdrop = document.getElementById("backdrop");
+    const detailKind = document.getElementById("detailKind");
+    const detailTitle = document.getElementById("detailTitle");
+    const detailBody = document.getElementById("detailBody");
+
+    function renderDetail(item) {
+      detailKind.textContent = item.kind || "Pipeline node";
+      detailTitle.textContent = item.title;
+      let html = `<section class="drawer-section"><h4>职责</h4><p>${item.role}</p></section>`;
+      if (item.boundary) html += `<section class="drawer-section"><h4>关键边界</h4><ul>${item.boundary.map(x => `<li>${x}</li>`).join("")}</ul></section>`;
+      if (item.code) html += `<section class="drawer-section"><h4>代码位置</h4><p><code>${item.code}</code></p></section>`;
+      detailBody.innerHTML = html;
+      drawer.classList.add("open");
+      backdrop.classList.add("open");
+      drawer.setAttribute("aria-hidden", "false");
+    }
+
+    function closeDrawer() {
+      drawer.classList.remove("open");
+      backdrop.classList.remove("open");
+      drawer.setAttribute("aria-hidden", "true");
+      document.querySelectorAll(".active").forEach(el => el.classList.remove("active"));
+    }
+
+    document.querySelectorAll("[data-detail]").forEach(button => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".active").forEach(el => el.classList.remove("active"));
+        button.classList.add("active");
+        renderDetail(details[button.dataset.detail]);
+      });
+    });
+
+    document.addEventListener("click", event => {
+      const button = event.target.closest("[data-pipeline]");
+      if (!button) return;
+      document.querySelectorAll(".active").forEach(el => el.classList.remove("active"));
+      button.classList.add("active");
+      const item = pipelineDetails[button.dataset.pipeline];
+      renderDetail({title:item[0], role:item[1], boundary:["由 pipeline-orchestrator 的 DAG 契约与 handler 驱动","产物写入当前 Run 的 Artifact / ledger / checkpoint"]});
+    });
+
+    document.getElementById("drawerClose").addEventListener("click", closeDrawer);
+    backdrop.addEventListener("click", closeDrawer);
+    document.addEventListener("keydown", event => { if (event.key === "Escape") closeDrawer(); });
+  </script>
+</body>
+</html>
