@@ -28,9 +28,9 @@ ark-agent-feishu-bot/
     │   ├── arkagent/                 # Gateway、CLI 与 MA 客户端
     │   ├── mock_mcp/                 # 客户 A 示例 MCP
     │   ├── node-helper/              # 扫码创建飞书应用
-    │   ├── cases/                    # Topic 6、数字员工、客户 A 四卡点
+    │   ├── cases/                    # Topicx 统一入口、Topic5/6、数字员工、客户 A
     │   └── tests/
-    └── ma-replica/                   # 场景2：客户 Agent 轨迹在 MA 重放对比
+    ├── ma-replica/                   # 场景2：客户 Agent 轨迹在 MA 重放对比
     └── maimai-fde-browser/           # 场景3：MA × headless 浏览器扫码登录脉脉抓 FDE 职位
 ```
 
@@ -39,13 +39,16 @@ ark-agent-feishu-bot/
 访问 **[GitHub Pages 在线站点](https://feizhuniu-infja.github.io/ARK-MA-Best-Practise/)**
 可浏览场景索引，并进入
 [Managed Agents 交互式架构全景](common/docs/managed-agents-architecture-atlas.html)、
-Topic 6 架构图和完整流水线。本地也可以直接打开 [index.html](index.html)。
+[Topicx 统一入口架构](scenarios/feishu-bot/cases/topicx/topicx_architecture/topicx_architecture.html)、
+[Topic5 营销复盘架构](scenarios/feishu-bot/cases/topic5/topic5_ma_architecture.html)和
+[Topic6 热点周报架构](scenarios/feishu-bot/cases/topic6/topic6_ma_architecture.html)。
+本地也可以直接打开 [index.html](index.html)。
 
 ## 场景
 
 | 场景 | 一句话 | 目录 |
 | --- | --- | --- |
-| **MA × 飞书 Bot** | 把飞书对话机器人接到 MA；包含 Topic 6 社媒热点周刊、数字员工阿 J、客户 A 四卡点三个案例。 | [scenarios/feishu-bot/](scenarios/feishu-bot/) |
+| **MA × 飞书 Bot** | 把飞书对话机器人接到 MA；Topicx 以独立 Router Agent 统一识别意图，再分别启动 Topic5 营销复盘或 Topic6 热点周报 Business Session，另含数字员工阿 J 与客户 A 四卡点案例。 | [scenarios/feishu-bot/](scenarios/feishu-bot/) |
 | **客户 Agent 轨迹重放** | 将客户自研 Agent 的运行轨迹在 MA 上模拟重放，对比耗时、token、cache 与结果等效性。 | [scenarios/ma-replica/](scenarios/ma-replica/) |
 | **MA × headless 浏览器** | 在 MA 云端沙箱跑 headless 浏览器：扫码登录脉脉（二维码回传客户端由你扫）、搜「FDE」抓前 10 个职位；额外验证时暂停通知。 | [scenarios/maimai-fde-browser/](scenarios/maimai-fde-browser/) |
 
@@ -65,9 +68,10 @@ Topic 6 架构图和完整流水线。本地也可以直接打开 [index.html](i
 
 ## 上手
 
-每个场景自带完整的环境搭建与运行说明——进对应目录看 README。跨场景**没有统一的一键安装**：两个场景的依赖与环境相互独立。
+每个场景自带完整的环境搭建与运行说明——进对应目录看 README。跨场景**没有统一的一键安装**：各场景的依赖与环境相互独立。
 
 - **场景1（MA × 飞书 Bot）**：conda 环境、`pip install -e .`（打包配置在仓库根，`package-dir` 把包目录指到 `scenarios/feishu-bot/`，import 名仍是 `arkagent` / `mock_mcp`，故安装/测试命令**从仓库根执行**）、扫码建应用及按 case 运行 Gateway —— 见 [scenarios/feishu-bot/README.md](scenarios/feishu-bot/README.md)。
+- **Topicx 统一入口**：环境配置、资源更新、启动及冒烟测试统一参考 [TOPICX_DEBUG_QUICKSTART.md](scenarios/feishu-bot/cases/topicx/TOPICX_DEBUG_QUICKSTART.md)。
 - **场景2（客户 Agent 轨迹重放）**：最小环境（仅依赖 `httpx`，不碰场景1 的包）、轨迹抽取 / mock / MA 实跑 / 对比报告 —— 见 [scenarios/ma-replica/README.md](scenarios/ma-replica/README.md)。
 
 > 外部一手文档（火山方舟 / 飞书官网链接）随场景收录在各自 README 的「参考资料」；跨场景权威出处是上面 `common/` 里的 MA 文档合集。

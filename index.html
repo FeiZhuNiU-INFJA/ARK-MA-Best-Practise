@@ -797,7 +797,7 @@
     <section class="topic" id="business" aria-labelledby="topic-title">
       <div class="section-heading">
         <h2 id="topic-title">一个入口，两条业务链</h2>
-        <p>所有飞书请求先进入 Topicx Router，再根据意图创建 Topic5 或 Topic6 Business Session；统一控制任务身份、状态、停止与恢复。</p>
+        <p>所有飞书请求先进入独立的 Topicx Router MA Agent；Gateway 接收其结构化意图后，再创建 Topic5 或 Topic6 Business Session，统一控制任务身份、状态、停止与恢复。</p>
       </div>
 
       <div class="route" aria-label="Topicx 统一执行链">
@@ -808,8 +808,8 @@
         </div>
         <div class="route-step">
           <small>ROUTER SESSION</small>
-          <b>意图识别</b>
-          <span>提交 intent、mode、reason</span>
+          <b>独立 Router Agent</b>
+          <span>只提交 intent、mode、reason</span>
         </div>
         <div class="route-step">
           <small>DISPATCH</small>
