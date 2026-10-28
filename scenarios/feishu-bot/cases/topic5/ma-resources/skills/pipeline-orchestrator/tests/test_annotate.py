@@ -198,6 +198,33 @@ class TestRouting(unittest.TestCase):
         self.assertEqual(requests[1], ["k1"])
         self.assertEqual([row["ai_sentiment"] for row in rows], [1, 0])
 
+    def test_small_engine_r2_retries_only_missing_rows(self):
+        rows = _rows(2)
+        annotate_mod._tag_ids(rows)
+        requests = []
+
+        def fake_chat_json(_system, user, **_kwargs):
+            payload = __import__("json").loads(user)
+            requests.append([item["id"] for item in payload])
+            target = rows[0] if len(requests) == 1 else rows[1]
+            return [{
+                "id": target["_annot_id"],
+                "opinion": "正面体验",
+                "ugc_category": "测评分享",
+                "discussion_dimension": "活动玩法",
+            }]
+
+        with patch("semantic.chat_json", side_effect=fake_chat_json):
+            annotate_mod._small_engine_r2(
+                rows,
+                ["正面体验"],
+                ["测评分享"],
+            )
+
+        self.assertEqual(requests[0], ["k0", "k1"])
+        self.assertEqual(requests[1], ["k1"])
+        self.assertFalse(annotate_mod.check_coverage(rows)["has_error"])
+
     def test_route_datahub_when_over_threshold(self):
         """行数 ≥ 阈值且 DataHub 可用 → 走批量；monkeypatch 避免真实网络。"""
         calls = {"dh": 0}

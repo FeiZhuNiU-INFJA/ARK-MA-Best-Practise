@@ -940,15 +940,25 @@ def charts_render(node, state, ctx):
                 return charts.render_charts(
                     stats, wc, project=project, version=version,
                     report_name=report_name, outdir=outdir)
-            except Exception:
-                return charts.fallback(
-                    stats, wc, project=project, version=version, report_name=report_name)
-        return charts.fallback(
+            except Exception as error:
+                result = charts.fallback(
+                    stats, wc, project=project, version=version,
+                    report_name=report_name)
+                result["render_error"] = f"{type(error).__name__}: {error}"
+                return result
+        result = charts.fallback(
             stats, wc, project=project, version=version, report_name=report_name)
+        result["render_error"] = (
+            "renderer unavailable: " + charts.renderer_diagnostic()
+        )
+        return result
 
     result = _build()
     if result.get("degraded"):
-        raise RuntimeError("charts_render: 图表渲染失败，禁止无图交付")
+        detail = str(result.get("render_error") or "unknown render error")
+        raise RuntimeError(
+            f"charts_render: 图表渲染失败，禁止无图交付: {detail}"
+        )
     return {"artifacts": {"chart_urls": result}}
 
 

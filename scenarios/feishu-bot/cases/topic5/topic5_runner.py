@@ -113,7 +113,11 @@ def _event_contract_text(event: dict) -> str:
     if event.get("type") != "agent.tool_result":
         return ""
     body = event_text(event)
-    if "HC_PENDING " in body or "FINAL_RESULT " in body:
+    if (
+        "HC_PENDING " in body
+        or "FINAL_RESULT " in body
+        or re.search(r"\bstatus\s*[:=]\s*failed\b", body, re.IGNORECASE)
+    ):
         return body
     return ""
 
@@ -1125,6 +1129,8 @@ class Topic5Runner:
              if (value := extract_final_envelope(text))),
             {},
         )
+        if not envelope:
+            envelope = extract_nonstructured_failure(collected)
         if envelope.get("status") == "failed":
             reason = str(
                 envelope.get("reason") or envelope.get("error")
@@ -1487,4 +1493,39 @@ def extract_final_envelope(text: str) -> dict:
             )
         ):
             return value
+    return {}
+
+
+def extract_nonstructured_failure(texts: list[str]) -> dict:
+    """Recover a failed durable-run result when the Coordinator omitted FINAL_RESULT.
+
+    This fallback is intentionally strict: the current turn must contain an explicit
+    ``status=failed``/``status: failed`` marker and a safe node identifier.
+    """
+    node_patterns = (
+        r"\bstatus\s*=\s*failed\s+node\s*=\s*([A-Za-z0-9_-]+)",
+        r"\bstatus\s*:\s*failed\b[\s\S]{0,160}?\bcurrent_node\s*:\s*([A-Za-z0-9_-]+)",
+    )
+    for text in reversed(texts):
+        if not re.search(r"\bstatus\s*[:=]\s*failed\b", text, re.IGNORECASE):
+            continue
+        node = ""
+        for pattern in node_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                node = match.group(1)
+                break
+        if not node:
+            continue
+        reason_match = re.search(
+            r"\*\*Failure Reason\*\*\s*:\s*(.+?)(?:\n\s*\n|\Z)",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        reason = (
+            reason_match.group(1).strip()
+            if reason_match else f"Durable pipeline failed at {node}"
+        )
+        reason = re.sub(r"\s+", " ", reason)[:400]
+        return {"status": "failed", "node": node, "reason": reason}
     return {}

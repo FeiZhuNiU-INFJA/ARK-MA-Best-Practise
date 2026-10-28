@@ -56,7 +56,9 @@
      > "$WS/tasks/$TASK/runs/$RUN/start.log" 2>&1 &
    ```
 4. 轮询 `start.log`：出现 `HC_PENDING {...}` → 走「抛关卡」；出现 `status=completed` → 走「交终态」；
-   出现 `status=failed`/异常 → 把末尾 50 行日志作为失败原因收尾（不要自行重试业务逻辑，重试由引擎负责）。
+   出现 `status=failed`/异常 → 必须输出唯一结构化终态行
+   `FINAL_RESULT {"status":"failed","node":"<current_node>","reason":"<失败原因>"}` 后结束 turn；
+   不得只输出自然语言失败说明（不要自行重试业务逻辑，重试由引擎负责）。
    **只要后台 PID 仍存活，就继续等待它自然退出**。`current_node` 是最近一次 checkpoint，
    可能滞后；日志为空、Artifact 已出现、CPU 较低都不代表进程卡死。
 5. 阶段推进时顺手回报阶段（runner 解析 `[phase] X` 更新进度卡）：

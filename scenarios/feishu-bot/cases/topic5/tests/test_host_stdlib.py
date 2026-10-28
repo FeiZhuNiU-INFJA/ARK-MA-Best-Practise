@@ -1095,6 +1095,46 @@ class RunnerFinalResultParsingTest(unittest.TestCase):
             )
             store.close()
 
+    def test_handle_idle_recovers_nonstructured_node_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ps.PipelineStore(str(Path(temp_dir) / "runner.db"))
+            job = store.create_job("c", "", "u", "session-1", "demo", "")
+            runner = self.runner.Topic5Runner(
+                object(),
+                object(),
+                store,
+                self.runner.Topic5Config("agent", "env"),
+            )
+
+            async def no_render(*_args, **_kwargs):
+                return None
+
+            runner._render_and_patch = no_render
+            message = (
+                "The pipeline has failed.\n\n"
+                "[run run-1] status=failed node=n11_annotate_r2 "
+                "completed=14/15 qc_rounds=0\n\n"
+                "**Failure Reason**: annotate r2 覆盖检查存在缺口："
+                "{'opinion': 2, 'ugc_category': 2, 'discussion_dimension': 2}\n\n"
+                "The Gateway can retry this node."
+            )
+            asyncio.run(runner._handle_idle(job.job_id, [message]))
+
+            failed = store.get_job(job.job_id)
+            self.assertEqual(failed.status, ps.STATUS_FAILED)
+            self.assertEqual(failed.current_phase, "n11_annotate_r2")
+            self.assertEqual(failed.retry_strategy, ps.RETRY_STRATEGY_NODE)
+            self.assertIn("覆盖检查存在缺口", failed.last_error)
+            store.close()
+
+    def test_nonstructured_failure_requires_explicit_failed_node(self) -> None:
+        self.assertEqual(
+            self.runner.extract_nonstructured_failure([
+                "The pipeline may have failed; please inspect n11_annotate_r2."
+            ]),
+            {},
+        )
+
     def test_hc_payload_does_not_repair_truncated_string(self) -> None:
         text = '{"hc":"G2","prompt":"方案确认'
         self.assertIsNone(self.runner.extract_hc_payload(text))
