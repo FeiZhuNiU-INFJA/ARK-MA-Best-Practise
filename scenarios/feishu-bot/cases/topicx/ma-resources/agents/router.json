@@ -2,7 +2,9 @@
   "name": "topicx-router",
   "description": "统一飞书入口的轻量意图路由器，只区分 Topic5 复盘报告、Topic6 热点周报和不支持请求。",
   "model": {
-    "id": "doubao-seed-2-1-lite-ultra-vision-260920"
+    "id": "doubao-seed-2-1-lite-260915",
+    "thinking": "enabled",
+    "reasoning_effort": "minimal"
   },
   "system_file": "router.system.md",
   "tools": [

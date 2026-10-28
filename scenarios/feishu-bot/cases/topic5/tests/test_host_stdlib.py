@@ -753,13 +753,22 @@ class RunnerFinalResultParsingTest(unittest.TestCase):
         feishu_mod = types.ModuleType("arkagent.feishu")
         feishu_mod.FeishuSender = type("FeishuSender", (), {})
         feishu_mod.ResourceRef = type("ResourceRef", (), {})
+        session_state_mod = types.ModuleType("arkagent.session_state")
+        session_state_mod.is_session_resumable = lambda status: False
+        session_state_mod.session_status_from_payload = lambda payload: ""
         cls._old_modules = {
             name: sys.modules.get(name)
-            for name in ("arkagent", "arkagent.ark", "arkagent.feishu")
+            for name in (
+                "arkagent",
+                "arkagent.ark",
+                "arkagent.feishu",
+                "arkagent.session_state",
+            )
         }
         sys.modules["arkagent"] = ark_pkg
         sys.modules["arkagent.ark"] = ark_mod
         sys.modules["arkagent.feishu"] = feishu_mod
+        sys.modules["arkagent.session_state"] = session_state_mod
         spec = importlib.util.spec_from_file_location(
             "_topic5_runner_for_test", _CASE_DIR / "topic5_runner.py"
         )

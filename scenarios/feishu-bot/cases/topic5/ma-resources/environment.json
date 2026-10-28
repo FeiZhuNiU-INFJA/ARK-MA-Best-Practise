@@ -23,7 +23,7 @@
     "env": {
       "TZ": "Asia/Shanghai",
       "PYTHONUNBUFFERED": "1",
-      "TOPIC5_MODEL_ID": "doubao-seed-2-1-lite-ultra-vision-260920",
+      "TOPIC5_MODEL_ID": "doubao-seed-2-1-lite-260915",
       "TOPIC5_SEMANTIC_MODEL": "doubao-seed-2-1-lite-ultra-vision-260920",
       "TOPIC5_SEMANTIC_THINKING": "disabled",
       "ARK_API_KEY": "${ARK_API_KEY}",

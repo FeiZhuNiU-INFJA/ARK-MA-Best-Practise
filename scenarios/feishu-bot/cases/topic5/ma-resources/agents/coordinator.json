@@ -2,7 +2,9 @@
   "name": "topic5-coordinator",
   "description": "topic5 营销活动复盘报告主协调器(薄 Agent)。触发后在沙箱内驱动确定性 durable 编排器(run_pipeline.py)推进 28 节点 DAG,遇人工关卡输出 HC JSON 结束 turn,HC 决策回注后续跑;终态输出飞书报告 URL。",
   "model": {
-    "id": "doubao-seed-2-1-lite-ultra-vision-260920"
+    "id": "doubao-seed-2-1-lite-260915",
+    "thinking": "enabled",
+    "reasoning_effort": "minimal"
   },
   "system_file": "coordinator.system.md",
   "skills": [
