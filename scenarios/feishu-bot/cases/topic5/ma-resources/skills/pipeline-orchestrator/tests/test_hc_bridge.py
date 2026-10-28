@@ -15,7 +15,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import tempfile
 import shutil
 import unittest
-import base64
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -156,6 +155,46 @@ class TestHcPendingFile(unittest.TestCase):
         self.assertEqual(context["execution_plan"]["stages"][0]["name"], "数据准备")
         self.assertEqual(context["selected_modules"]["core"], ["brand_context"])
 
+    def test_hc7_pending_contains_external_permission_error(self):
+        self.st.human = {
+            "node": "n_hc7_escalate",
+            "prompt": "异常升级",
+            "expect": ["escalation_decision"],
+        }
+        issue = {
+            "id": "P0-postpublish-owner",
+            "severity": "P0",
+            "title": "飞书文档未完成所有权转移",
+            "evidence": "飞书 HTTP 403 code=1063002 msg=Permission denied",
+            "locus": "feishu-permission",
+        }
+        self.st.write_artifact("qc_report", {
+            "has_p0": True,
+            "p0_count": 1,
+            "issues": [issue],
+        })
+        self.st.write_artifact("delivery_draft", {
+            "state": "needs_review",
+            "url": "https://www.feishu.cn/docx/doc_real",
+            "ownership_target": "ou_target",
+            "ownership_transferred": False,
+            "post_publish_validation": {
+                "has_p0": True,
+                "p0_count": 1,
+                "issues": [issue],
+            },
+        })
+
+        payload = hc_bridge.write_hc_pending(self.st, self.st.run_dir)
+
+        context = payload["review_context"]
+        self.assertEqual(context["escalation_reason"], "external_permission")
+        self.assertEqual(context["issues"][0]["id"], "P0-postpublish-owner")
+        self.assertIn("1063002", context["issues"][0]["evidence"])
+        self.assertEqual(
+            context["delivery_draft"]["ownership_target"], "ou_target"
+        )
+
 
 class TestBuildHumanOutputs(unittest.TestCase):
     def setUp(self):
@@ -218,20 +257,105 @@ class TestBuildHumanOutputs(unittest.TestCase):
             hc_bridge.build_human_outputs(self.st, "escalate", "")["user_confirmation"]["status"],
             "escalate")
 
+    def test_hc7_external_permission_pass_retries_delivery(self):
+        self.st.human = {
+            "node": "n_hc7_escalate",
+            "expect": ["escalation_decision"],
+        }
+        self.st.write_artifact("delivery_draft", {
+            "state": "needs_review",
+            "post_publish_validation": {
+                "has_p0": True,
+                "issues": [{
+                    "id": "P0-postpublish-owner",
+                    "severity": "P0",
+                    "locus": "feishu-permission",
+                }],
+            },
+        })
+
+        out = hc_bridge.build_human_outputs(self.st, "pass", "权限已修复")
+
+        self.assertEqual(out["_control"]["next"], "n20_delivery_draft")
+        self.assertFalse(
+            out["escalation_decision"]["release_authorized"]
+        )
+
+    def test_hc7_qc_exhausted_pass_retries_report_fix(self):
+        self.st.human = {
+            "node": "n_hc7_escalate",
+            "expect": ["escalation_decision"],
+        }
+        self.st.write_artifact("qc_report", {
+            "has_p0": True,
+            "issues": [{
+                "id": "P0-report-content",
+                "severity": "P0",
+                "locus": "report-md",
+            }],
+        })
+
+        out = hc_bridge.build_human_outputs(self.st, "pass", "继续返修")
+
+        self.assertEqual(out["_control"]["next"], "n19_fix")
+
     def test_g1_structured_requirement_and_g2_inheritance(self):
         self.st.human = {
             "node": "n01_hc_requirement",
             "expect": ["requirement_confirmed"],
         }
+        g1_payload = json.loads(_g1_note())
+        g1_payload.pop("source_file")
         requirement = hc_bridge.build_human_outputs(
-            self.st, "pass", _g1_note()
+            self.st, "pass", json.dumps(g1_payload, ensure_ascii=False)
         )["requirement_confirmed"]
         self.assertTrue(requirement["confirmed"])
         self.assertEqual(requirement["brand"], "瑞幸")
+        self.assertNotIn("source_file", requirement)
+        self.st.write_artifact("requirement_confirmed", requirement)
+        plan_out = handlers.plan_compile(
+            {"id": "n02_plan", "name": "方案编制"}, self.st, {}
+        )
+        for key, payload in plan_out["artifacts"].items():
+            self.st.write_artifact(key, payload)
         self.assertEqual(
-            requirement["source_file"]["mount_path"],
+            plan_out["artifacts"]["execution_plan"]["preflight"]["status"],
+            "READY_PENDING_INPUT",
+        )
+        self.st.human = {
+            "node": "n03_hc_plan",
+            "expect": ["confirmed_plan"],
+        }
+        plan = hc_bridge.build_human_outputs(
+            self.st,
+            "pass",
+            json.dumps(
+                {
+                    "source_file": {
+                        "name": "瑞幸暹罗厘普联名数据.xlsx",
+                        "mount_path": "topic5_activity_detail_job_x.xlsx",
+                    }
+                },
+                ensure_ascii=False,
+            ),
+        )["confirmed_plan"]
+        self.assertEqual(plan["brand"], "瑞幸")
+        self.assertEqual(
+            plan["source_file"]["mount_path"],
             "topic5_activity_detail_job_x.xlsx",
         )
+        self.assertEqual(plan["version"], "plan-v1")
+        self.assertIn("瑞幸×暹罗厘普联名活动", plan["analysis_plan"]["title"])
+        self.assertEqual(plan["execution_plan"]["stages"][0]["name"], "数据准备")
+        self.assertEqual(
+            plan["selected_modules"]["core"],
+            ["brand_context", "activity_performance", "evidence_summary"],
+        )
+
+    def test_g2_rejects_resume_without_activity_file_reference(self):
+        requirement = json.loads(_g1_note())
+        requirement.pop("source_file")
+        requirement["confirmed"] = True
         self.st.write_artifact("requirement_confirmed", requirement)
         plan_out = handlers.plan_compile(
             {"id": "n02_plan", "name": "方案编制"}, self.st, {}
@@ -242,17 +366,8 @@ class TestBuildHumanOutputs(unittest.TestCase):
             "node": "n03_hc_plan",
             "expect": ["confirmed_plan"],
         }
-        plan = hc_bridge.build_human_outputs(
-            self.st, "pass", ""
-        )["confirmed_plan"]
-        self.assertEqual(plan["brand"], "瑞幸")
-        self.assertEqual(plan["version"], "plan-v1")
-        self.assertIn("瑞幸×暹罗厘普联名活动", plan["analysis_plan"]["title"])
-        self.assertEqual(plan["execution_plan"]["stages"][0]["name"], "数据准备")
-        self.assertEqual(
-            plan["selected_modules"]["core"],
-            ["brand_context", "activity_performance", "evidence_summary"],
-        )
+        with self.assertRaisesRegex(ValueError, "缺少活动明细文件引用"):
+            hc_bridge.build_human_outputs(self.st, "pass", "")
 
     def test_g1_accepts_requirement_without_product_dimension(self):
         self.st.human = {
@@ -275,19 +390,6 @@ class TestBuildHumanOutputs(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "有效 JSON"):
             hc_bridge.build_human_outputs(self.st, "pass", "not-json")
-
-    def test_g1_accepts_base64_transport(self):
-        self.st.human = {
-            "node": "n01_hc_requirement",
-            "expect": ["requirement_confirmed"],
-        }
-        encoded = base64.urlsafe_b64encode(
-            _g1_note().encode("utf-8")
-        ).decode("ascii")
-        out = hc_bridge.build_human_outputs(
-            self.st, "pass", "b64:" + encoded
-        )
-        self.assertEqual(out["requirement_confirmed"]["brand"], "瑞幸")
 
     def test_g1_accepts_mounted_requirement_file(self):
         self.st.human = {

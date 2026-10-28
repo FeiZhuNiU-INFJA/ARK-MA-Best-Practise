@@ -2,7 +2,7 @@
 
 权威样例列来自 ``瑞幸暹罗厘普联名数据.xlsx``。文件由 Host Gateway 上传 Ark Files API，
 并挂载到 ``/mnt/session/uploads/<mount_path>``；confirmed_plan.source_file.mount_path
-是唯一运行期引用。没有 source_file 的历史任务返回 None，让 handler 回退 SSJH articles；
+是唯一运行期引用。没有 source_file 时返回 None，让 handler fail-closed；
 已声明文件但不可读则抛错，禁止静默换源。
 """
 from __future__ import annotations

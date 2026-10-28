@@ -73,7 +73,10 @@ def _print_state(st: RunState) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["start", "resume", "retry", "status"])
+    ap.add_argument(
+        "cmd",
+        choices=["start", "resume", "retry", "status"],
+    )
     ap.add_argument("--dag")
     ap.add_argument("--workspace", required=True)
     ap.add_argument("--task", required=True)

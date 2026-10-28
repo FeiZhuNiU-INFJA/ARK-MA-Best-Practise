@@ -1,6 +1,6 @@
 {
   "name": "topic5-prod-env",
-  "description": "topic5 营销活动复盘报告生产环境。承载 28 节点 durable pipeline:SSJH 取数 → 清洗/标注 → 聚合 → 词云 → ECharts 本地渲染图表 → 报告撰写 → Validator 质检 → 飞书原生插图导出(medias/upload_all)。",
+  "description": "topic5 营销活动复盘报告生产环境。承载 29 节点 durable pipeline:SSJH 取数 → 清洗/标注 → 聚合 → 词云 → ECharts 本地渲染图表 → 报告撰写 → Validator 质检 → 飞书原生插图导出(medias/upload_all)。",
   "config": {
     "type": "cloud",
     "networking": {
@@ -36,8 +36,7 @@
       "REPORT_COVER_API_BASE_URL": "${REPORT_COVER_API_BASE_URL}",
       "FEISHU_APP_ID": "${FEISHU_APP_ID}",
       "FEISHU_APP_SECRET": "${FEISHU_APP_SECRET}",
-      "FEISHU_OPENAPI_BASE": "${FEISHU_OPENAPI_BASE}",
-      "FEISHU_DELIVERY_OWNER_OPEN_ID": "${FEISHU_DELIVERY_OWNER_OPEN_ID}"
+      "FEISHU_OPENAPI_BASE": "${FEISHU_OPENAPI_BASE}"
     }
   }
 }

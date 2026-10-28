@@ -49,6 +49,7 @@ try:
         STATUS_STOPPING,
         STATUS_STOPPED,
         STATUS_WAIT_HC,
+        STATUS_WAIT_INPUT,
         PipelineJob,
         PipelineStore,
     )
@@ -70,6 +71,7 @@ except ImportError:  # pragma: no cover - standalone compatibility
         STATUS_STOPPING,
         STATUS_STOPPED,
         STATUS_WAIT_HC,
+        STATUS_WAIT_INPUT,
         PipelineJob,
         PipelineStore,
     )
@@ -111,7 +113,11 @@ def _event_contract_text(event: dict) -> str:
     if event.get("type") != "agent.tool_result":
         return ""
     body = event_text(event)
-    if "HC_PENDING " in body or "FINAL_RESULT " in body:
+    if (
+        "HC_PENDING " in body
+        or "FINAL_RESULT " in body
+        or re.search(r"\bstatus\s*[:=]\s*failed\b", body, re.IGNORECASE)
+    ):
         return body
     return ""
 
@@ -633,6 +639,38 @@ class Topic5Runner:
         task = self._spawn_stream(job, first_user_message=decision_message)
         self._active_streams[job.ma_session_id] = task
 
+    async def wait_for_activity_file(self, job: PipelineJob) -> None:
+        """G2 已确认后暂停在宿主侧，等待活动 Excel 到位。"""
+        self._store.mark_wait_input(job.job_id)
+        await self._render_and_patch(
+            job.job_id, status=STATUS_WAIT_INPUT, force=True
+        )
+        await self.reply_for_job(
+            job,
+            "G2 方案已确认。请在当前话题上传活动明细 `.xlsx` 文件；"
+            "挂载成功后将自动进入生产 Run。",
+        )
+
+    async def resume_after_activity_file(self, job: PipelineJob) -> None:
+        """文件挂载完成后，把引用注入 G2 ConfirmedPlan 并自动续跑。"""
+        if not job.source_file_id or not job.source_file_mount_path:
+            raise Topic5RunnerError("活动明细文件尚未完成挂载")
+        source_note = json.dumps(
+            {
+                "source_file": {
+                    "name": job.source_file_name,
+                    "mount_path": job.source_file_mount_path,
+                }
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        await self.reply_for_job(
+            job,
+            f"数据文件已挂载：`{job.source_file_name}`。正在自动启动生产 Run。",
+        )
+        await self.resume_job(job, f"G2 pass: {source_note}")
+
     async def attach_activity_file(
         self,
         *,
@@ -643,16 +681,16 @@ class Topic5Runner:
     ) -> PipelineJob:
         """下载飞书话题里的活动明细 Excel，并挂到对应 MA Session。
 
-        只允许 G1 需求确认阶段上传；同一任务可重传，最后一次成功挂载的唯一 mount_path
-        会写入 pipeline_jobs，并随 G1 结构化需求冻结到 confirmed_plan。
+        只允许 G2 确认后的 input 阶段上传；同一任务可重传，最后一次成功挂载的
+        唯一 mount_path 会写入 pipeline_jobs，并注入 ConfirmedPlan。
         """
         job = self._store.get_active_job_by_session_key(
             chat_id, thread_id, user_open_id
         )
         if job is None:
             raise Topic5RunnerError("当前话题没有可接收数据文件的活跃任务")
-        if job.status != STATUS_WAIT_HC or job.current_phase != "G1":
-            raise Topic5RunnerError("活动明细只能在 G1 需求确认阶段上传")
+        if job.status != STATUS_WAIT_INPUT:
+            raise Topic5RunnerError("请先完成 G1 需求确认和 G2 方案确认，再上传活动明细")
         file_name = (resource.file_name or "").strip()
         if not file_name.lower().endswith(".xlsx"):
             raise Topic5RunnerError("活动明细仅支持 .xlsx 文件")
@@ -874,6 +912,11 @@ class Topic5Runner:
 
     async def recover_job(self, job: PipelineJob) -> str:
         """根据历史事件恢复一个本地活跃任务,返回已采取的恢复动作。"""
+        if job.status == STATUS_WAIT_INPUT:
+            await self._render_and_patch(
+                job.job_id, status=STATUS_WAIT_INPUT, force=True
+            )
+            return STATUS_WAIT_INPUT
         events = await self._ark.list_session_events(job.ma_session_id)
         if job.status == STATUS_STOPPING:
             return "stopping"
@@ -1086,6 +1129,8 @@ class Topic5Runner:
              if (value := extract_final_envelope(text))),
             {},
         )
+        if not envelope:
+            envelope = extract_nonstructured_failure(collected)
         if envelope.get("status") == "failed":
             reason = str(
                 envelope.get("reason") or envelope.get("error")
@@ -1448,4 +1493,39 @@ def extract_final_envelope(text: str) -> dict:
             )
         ):
             return value
+    return {}
+
+
+def extract_nonstructured_failure(texts: list[str]) -> dict:
+    """Recover a failed durable-run result when the Coordinator omitted FINAL_RESULT.
+
+    This fallback is intentionally strict: the current turn must contain an explicit
+    ``status=failed``/``status: failed`` marker and a safe node identifier.
+    """
+    node_patterns = (
+        r"\bstatus\s*=\s*failed\s+node\s*=\s*([A-Za-z0-9_-]+)",
+        r"\bstatus\s*:\s*failed\b[\s\S]{0,160}?\bcurrent_node\s*:\s*([A-Za-z0-9_-]+)",
+    )
+    for text in reversed(texts):
+        if not re.search(r"\bstatus\s*[:=]\s*failed\b", text, re.IGNORECASE):
+            continue
+        node = ""
+        for pattern in node_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                node = match.group(1)
+                break
+        if not node:
+            continue
+        reason_match = re.search(
+            r"\*\*Failure Reason\*\*\s*:\s*(.+?)(?:\n\s*\n|\Z)",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        reason = (
+            reason_match.group(1).strip()
+            if reason_match else f"Durable pipeline failed at {node}"
+        )
+        reason = re.sub(r"\s+", " ", reason)[:400]
+        return {"status": "failed", "node": node, "reason": reason}
     return {}

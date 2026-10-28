@@ -72,8 +72,7 @@ TRIGGER_KEYWORDS = ("热点报告", "热点周报")
 
 # 模式关键词(用户消息里带就用,不带默认 full)。
 MODE_DEMO_KEYWORDS = ("demo", "演示")
-# 旧 test 触发词保留为 full 的兼容别名，但不再作为内部 mode 值。
-MODE_FULL_KEYWORDS = ("full", "完整", "正式", "test", "小样本", "试跑")
+MODE_FULL_KEYWORDS = ("full", "完整", "正式")
 MODE_SKIP_SAMPLING_KEYWORDS = (
     "skip_sampling",
     "skip-sampling",
@@ -119,25 +118,6 @@ def parse_trigger(text: str) -> Optional[str]:
 # ---- 事件解析 --------------------------------------------------------------
 
 
-# 兜底"文本意图检测"用:如果 Agent 违约(说要输出 HC JSON 但没真输出),
-# 只要正文出现 HC 关键词 + 明确的"等确认"意图,就伪造一个占位 payload,
-# 免得 pipeline 被吞掉。关键词覆盖 coordinator.system.md 里禁止的元描述表达。
-_HC_INTENT_KEYWORDS = (
-    "等用户",
-    "等你审",
-    "请审核",
-    "请点击卡片",
-    "等待用户",
-    "等待确认",
-    "点击卡片确认",
-    "确认后继续",
-    "现在输出",
-    "接下来输出",
-    "输出结构化 JSON",
-    "输出 HC",
-)
-
-
 def extract_hc_payload(text: str) -> Optional[dict]:
     """从 agent.message 正文里抠出 HC 结构化 JSON;抠不到返回 None。
 
@@ -181,99 +161,6 @@ def extract_project_dir(text: str) -> Optional[str]:
         return None
     match = re.search(r"(?m)^\[project_dir\]\s+([^\r\n]+?)\s*$", text)
     return normalize_project_dir(match.group(1)) if match else None
-
-
-def detect_hc_intent(text: str) -> Optional[str]:
-    """兜底:Agent 违约时,从文本里嗅出它**想**触发的 HC 类型。
-
-    coordinator.system.md 严禁"现在输出 HC1..." 之类的元描述——但方舟 doubao 模型
-    在长上下文/多工具后偶发违约,只在文本里"讲"要输出 JSON、却没真输出。gateway
-    如果只认严格 JSON,就会把这一轮当普通 idle 收工,导致 HITL 卡片不发、用户
-    看不到审批入口、pipeline 静默停滞在 A phase(见 job_1f05e24cccdc 场景)。
-
-    检测规则:文本同时包含 HC1/HC2/HC3 之一 **和** 至少一个意图关键词(等用户 /
-    等你审 / 请审核 / 点击卡片 等),就认为 Agent 在**表达**要触发 HC 但未落 JSON,
-    返回它想触发的 HC 类型;调用方用一个空 payload 兜住,照走 mark_wait_hc + 发卡片。
-    没匹配到返回 None,保留原有"当普通完成"路径。
-    """
-    if not text:
-        return None
-    hc_kind: Optional[str] = None
-    for kind in HC_KINDS:
-        if kind in text:
-            hc_kind = kind
-            break
-    if hc_kind is None:
-        return None
-    if not any(kw in text for kw in _HC_INTENT_KEYWORDS):
-        return None
-    return hc_kind
-
-
-def build_hc_fallback_payload(
-    job: PipelineJob, hc_kind: str, collected_messages: list[str]
-) -> dict:
-    """从 Agent 已输出的核验摘要恢复 HC1/HC2 卡片字段。
-
-    这里只恢复文本中有明确证据的指标；不猜测缺失值。路径按既定产物契约生成，
-    并保留 ``__fallback__``，让卡片明确提示结构化载荷来自 Gateway 兜底。
-    """
-    transcript = "\n".join(collected_messages[-12:])
-    project_name = (
-        PurePosixPath(job.project_dir.rstrip("/")).name if job.project_dir else ""
-    )
-    payload: dict = {
-        "hc": hc_kind,
-        "mode": job.mode,
-        "project_dir": job.project_dir,
-        "__fallback__": True,
-        "agent_message_tail": (collected_messages[-1] if collected_messages else "")[-400:],
-    }
-    if hc_kind not in {"HC1", "HC2"}:
-        return payload
-
-    if project_name:
-        artifact_mode = job.mode if hc_kind == "HC1" else "skip_sampling"
-        payload["wide_table_path"] = (
-            f"/mnt/session/outputs/{project_name}/05_合并/"
-            f"wide_table_{artifact_mode}_r1.xlsx"
-        )
-
-    summary: dict = {}
-    shape_match = re.search(r"(\d[\d,]*)\s*行\s*[×xX*]\s*(\d+)\s*列", transcript)
-    if shape_match:
-        summary["rows"] = int(shape_match.group(1).replace(",", ""))
-        summary["cols"] = int(shape_match.group(2))
-
-    c0_match = re.search(
-        r"C0.{0,24}?有效率\s*(?:为|=|:|：)?\s*(\d+(?:\.\d+)?)\s*%",
-        transcript,
-        re.IGNORECASE,
-    )
-    if c0_match:
-        summary["c0_valid_rate"] = float(c0_match.group(1)) / 100
-
-    routes_match = re.search(
-        r"R1\s*[~～\-—至到]+\s*R5.{0,48}?有效率.{0,16}?(\d+(?:\.\d+)?)\s*%",
-        transcript,
-        re.IGNORECASE,
-    )
-    if routes_match:
-        route_rate = float(routes_match.group(1)) / 100
-        summary["r1_r5_valid_rates"] = [route_rate] * 5
-
-    marketing_match = re.search(
-        r"营销(?:命中|可用)(?:率)?\s*(?:为|=|:|：)?\s*(\d+(?:\.\d+)?)\s*%",
-        transcript,
-    )
-    if hc_kind == "HC2" and marketing_match:
-        summary["marketing_hit_rate"] = float(marketing_match.group(1)) / 100
-
-    if summary:
-        payload["distribution_summary"] = summary
-    if any(marker in transcript for marker in ("所有 HC", "检查项通过", "无缺失")):
-        payload["issues_detected"] = []
-    return payload
 
 
 def validate_hc_payload(payload: dict) -> Optional[str]:
@@ -917,18 +804,6 @@ class Topic6Runner:
             return
         last = collected[-1] if collected else ""
         payload = extract_hc_payload(last)
-        if payload is None:
-            # 兜底:Agent 违约(只在文本里说"要输出 HC JSON"但没真输出),嗅出意图后
-            # 伪造一个占位 payload,防止流程被吞。占位标记 __fallback__=True 让 HC 卡片
-            # 渲染层能提示用户"AI 未输出结构化载荷,请照常审阅原始输出"。
-            intent_hc = detect_hc_intent(last)
-            if intent_hc is not None:
-                log.warning(
-                    "topic6 HC fallback triggered job=%s hc=%s (agent did not emit JSON, using intent detection)",
-                    job_id,
-                    intent_hc,
-                )
-                payload = build_hc_fallback_payload(job, intent_hc, collected)
         if payload:
             hc_kind = str(payload["hc"])
             payload_project_dir = normalize_project_dir(payload.get("project_dir"))

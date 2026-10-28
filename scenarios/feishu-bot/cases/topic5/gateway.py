@@ -146,22 +146,7 @@ class Topic5Gateway:
                         user_open_id=message.user_open_id,
                         resource=resource,
                     )
-                    try:
-                        await self._hitl.refresh_pending_g1_card(job)
-                    except Exception as error:  # noqa: BLE001
-                        log.exception(
-                            "topic5 refresh G1 card after file attach failed "
-                            "job=%s: %s",
-                            job.job_id,
-                            error,
-                        )
-                    await self._runner.reply_for_job(
-                        job,
-                        (
-                            f"数据文件已挂载：`{job.source_file_name}`。"
-                            "现在可以提交 G1 需求问卷。"
-                        ),
-                    )
+                    await self._runner.resume_after_activity_file(job)
                 except Topic5RunnerError as error:
                     await self._runner.reply_to_message(
                         message.message_id, f"数据文件未接收：{error}"

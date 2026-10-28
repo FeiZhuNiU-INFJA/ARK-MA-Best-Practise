@@ -54,7 +54,17 @@ class TestCleanCampaign(unittest.TestCase):
 
     def _run(self, brand_stats):
         self.st.write_artifact("brand_stats", brand_stats)
-        return handlers.clean_campaign({"id": "n07"}, self.st, {})["artifacts"]["cleaned_data"]
+        excel_payload = {
+            "rows": handlers._iter_ssjh_rows(brand_stats),
+            "meta": brand_stats.get("meta") or {},
+        }
+        with patch(
+            "handlers.excel_source.load_activity_rows",
+            return_value=excel_payload,
+        ):
+            return handlers.clean_campaign(
+                {"id": "n07"}, self.st, {}
+            )["artifacts"]["cleaned_data"]
 
     def test_period_filter_and_dedup(self):
         bs = _brand_stats([
@@ -90,8 +100,20 @@ class TestCleanCampaign(unittest.TestCase):
         bad = {"articles": {"xiaohongshu": [
             {"fingerprint": "a", "sentiment": 1, "interaction_cnt": 1},
         ]}}
-        self.st.write_artifact("brand_stats", bad)
-        with self.assertRaises(ValueError):
+        with patch(
+            "handlers.excel_source.load_activity_rows",
+            return_value={
+                "rows": handlers._iter_ssjh_rows(bad),
+                "meta": {},
+            },
+        ), self.assertRaises(ValueError):
+            handlers.clean_campaign({"id": "n07"}, self.st, {})
+
+    def test_missing_source_file_fails_closed(self):
+        with patch(
+            "handlers.excel_source.load_activity_rows",
+            return_value=None,
+        ), self.assertRaisesRegex(ValueError, "缺少 G2 冻结"):
             handlers.clean_campaign({"id": "n07"}, self.st, {})
 
     def test_uploaded_excel_rows_take_precedence(self):
@@ -334,7 +356,14 @@ class TestCleanToAggregateFlow(unittest.TestCase):
             _row("b", "20260712", -1, 20, title="立白", keywords=["立白"]),
         ])
         self.st.write_artifact("brand_stats", bs)
-        out = handlers.clean_campaign({"id": "n07"}, self.st, {})
+        with patch(
+            "handlers.excel_source.load_activity_rows",
+            return_value={
+                "rows": handlers._iter_ssjh_rows(bs),
+                "meta": bs["meta"],
+            },
+        ):
+            out = handlers.clean_campaign({"id": "n07"}, self.st, {})
         # 直调 handler 不经引擎持久化，手动写回 Artifact（模拟引擎 commit）
         self.st.write_artifact("cleaned_data", out["artifacts"]["cleaned_data"])
         # 无 annotated_data → 回退清洗 rows；无 relevance → relevance_missing

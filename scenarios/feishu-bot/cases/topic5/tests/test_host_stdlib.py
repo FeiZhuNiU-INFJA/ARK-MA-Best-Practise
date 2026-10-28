@@ -208,6 +208,20 @@ class PipelineStoreTest(unittest.TestCase):
             got.source_file_mount_path, "topic5_activity_detail_job_1.xlsx"
         )
 
+    def test_wait_input_job_remains_active_across_lookup_paths(self) -> None:
+        job = self.store.create_job("c", "thread", "u", "s", "full", "d")
+        self.store.mark_wait_input(job.job_id)
+        got = self.store.get_job(job.job_id)
+        self.assertEqual(got.status, ps.STATUS_WAIT_INPUT)
+        self.assertEqual(got.current_phase, "input")
+        self.assertEqual(
+            self.store.get_active_job_by_session_key(
+                "c", "thread", "u"
+            ).job_id,
+            job.job_id,
+        )
+        self.assertIn(job.job_id, {item.job_id for item in self.store.list_active_jobs()})
+
     def test_old_db_alter_adds_thread_columns(self) -> None:
         # 老库(无话题字段)重开后应自动补列,读回默认空串而非抛错。
         path = str(Path(self._tmp.name) / "legacy.db")
@@ -549,6 +563,56 @@ class ProgressCardTest(unittest.TestCase):
         self.assertIn("G1 · ✅ 通过 · 俞麟", text)
         self.assertIn("瑞幸活动明细.xlsx（已挂载）", text)
         self.assertIn("活动取数关键词", text)
+        self.assertNotIn("hidden.xlsx", text)
+    def test_g2_review_keeps_confirmed_plan_snapshot(self) -> None:
+        event = ps.HcEvent(
+            id=2,
+            job_id="job_x",
+            hc_kind="G2",
+            payload={
+                "review_context": {
+                    "analysis_plan": {
+                        "revision": 1,
+                        "plan_bundle_sha256": "abcdef1234567890",
+                        "scope": {
+                            "brand": "瑞幸",
+                            "activities": ["瑞幸联名活动"],
+                            "period_start": "2026-09-28",
+                            "period_end": "2026-10-07",
+                            "platforms": ["xiaohongshu"],
+                            "content_scope": "all",
+                        },
+                        "report_structure": ["品牌传播表现", "总结与建议"],
+                        "preflight": {"status": "READY_PENDING_INPUT"},
+                    },
+                    "execution_plan": {
+                        "plan_bundle_sha256": "abcdef1234567890",
+                        "stages": [
+                            {"name": "数据准备"},
+                            {"name": "发布交付"},
+                        ],
+                    },
+                    "selected_modules": {
+                        "plan_bundle_sha256": "abcdef1234567890",
+                        "core_plus_conditional": [
+                            "brand_context",
+                            "activity_performance",
+                        ],
+                    },
+                }
+            },
+            user_decision="pass",
+            operator_label="俞麟",
+            resolved_at=1,
+        )
+        text = "\n".join(card.format_review_lines([event]))
+        self.assertIn("G2 · ✅ 通过 · 俞麟", text)
+        self.assertIn("**已确认方案**", text)
+        self.assertIn("瑞幸联名活动", text)
+        self.assertIn("品牌传播表现 → 总结与建议", text)
+        self.assertIn("品牌背景、活动表现", text)
+        self.assertIn("方案通过，待上传活动明细", text)
+        self.assertIn("v1 · `abcdef123456`", text)
         self.assertNotIn("hidden.xlsx", text)
 
     def test_review_limit_preserves_g1(self) -> None:
@@ -1031,6 +1095,46 @@ class RunnerFinalResultParsingTest(unittest.TestCase):
             )
             store.close()
 
+    def test_handle_idle_recovers_nonstructured_node_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ps.PipelineStore(str(Path(temp_dir) / "runner.db"))
+            job = store.create_job("c", "", "u", "session-1", "demo", "")
+            runner = self.runner.Topic5Runner(
+                object(),
+                object(),
+                store,
+                self.runner.Topic5Config("agent", "env"),
+            )
+
+            async def no_render(*_args, **_kwargs):
+                return None
+
+            runner._render_and_patch = no_render
+            message = (
+                "The pipeline has failed.\n\n"
+                "[run run-1] status=failed node=n11_annotate_r2 "
+                "completed=14/15 qc_rounds=0\n\n"
+                "**Failure Reason**: annotate r2 覆盖检查存在缺口："
+                "{'opinion': 2, 'ugc_category': 2, 'discussion_dimension': 2}\n\n"
+                "The Gateway can retry this node."
+            )
+            asyncio.run(runner._handle_idle(job.job_id, [message]))
+
+            failed = store.get_job(job.job_id)
+            self.assertEqual(failed.status, ps.STATUS_FAILED)
+            self.assertEqual(failed.current_phase, "n11_annotate_r2")
+            self.assertEqual(failed.retry_strategy, ps.RETRY_STRATEGY_NODE)
+            self.assertIn("覆盖检查存在缺口", failed.last_error)
+            store.close()
+
+    def test_nonstructured_failure_requires_explicit_failed_node(self) -> None:
+        self.assertEqual(
+            self.runner.extract_nonstructured_failure([
+                "The pipeline may have failed; please inspect n11_annotate_r2."
+            ]),
+            {},
+        )
+
     def test_hc_payload_does_not_repair_truncated_string(self) -> None:
         text = '{"hc":"G2","prompt":"方案确认'
         self.assertIsNone(self.runner.extract_hc_payload(text))
@@ -1197,17 +1301,14 @@ class HitlActionParsingTest(unittest.TestCase):
             f"G1 pass: {reference}",
         )
 
-    def test_g1_submission_persists_snapshot_but_resumes_with_file_reference(
+    def test_g1_submission_does_not_backfill_previously_attached_file(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             store = ps.PipelineStore(str(Path(temp_dir) / "g1-audit.db"))
             job = store.create_job("c", "", "u", "session-1", "demo", "")
             store.set_source_file(
-                job.job_id,
-                "file-1",
-                "瑞幸活动明细.xlsx",
-                "topic5_activity_detail.xlsx",
+                job.job_id, "file_old", "old.xlsx", "old.xlsx"
             )
             store.mark_wait_hc(job.job_id, "G1")
             event_id = store.append_hc_event(
@@ -1265,9 +1366,7 @@ class HitlActionParsingTest(unittest.TestCase):
             event = store.get_hc_event(event_id)
             snapshot = json.loads(event.user_note)
             self.assertEqual(snapshot["brand"], "瑞幸")
-            self.assertEqual(
-                snapshot["source_file"]["name"], "瑞幸活动明细.xlsx"
-            )
+            self.assertNotIn("source_file", snapshot)
             self.assertEqual(
                 resumed,
                 [
@@ -1278,7 +1377,6 @@ class HitlActionParsingTest(unittest.TestCase):
             review = "\n".join(card.format_review_lines([event]))
             self.assertIn("G1 · ✅ 通过 · 俞麟", review)
             self.assertIn("活动取数关键词", review)
-            self.assertIn("瑞幸活动明细.xlsx（已挂载）", review)
             store.close()
 
     def test_only_demo_g1_card_prefills_requirement_form(self) -> None:
@@ -1313,7 +1411,48 @@ class HitlActionParsingTest(unittest.TestCase):
         self.assertEqual(demo_brand["default_value"], "瑞幸")
         self.assertNotIn("default_value", full_brand)
 
-    def test_g1_submit_revision_changes_after_file_attach(self) -> None:
+    def test_hc7_card_displays_external_permission_error(self) -> None:
+        job = ps.PipelineJob(
+            job_id="job_x",
+            chat_id="c",
+            thread_id="",
+            user_open_id="u",
+            ma_session_id="s",
+            mode="full",
+            project_dir="d",
+        )
+        payload = {
+            "node": "n_hc7_escalate",
+            "prompt": "异常升级",
+            "review_context": {
+                "escalation_reason": "external_permission",
+                "issues": [{
+                    "id": "P0-postpublish-owner",
+                    "severity": "P0",
+                    "title": "飞书文档未完成所有权转移",
+                    "evidence": (
+                        "飞书 HTTP 403 code=1063002 msg=Permission denied"
+                    ),
+                    "locus": "feishu-permission",
+                }],
+                "delivery_draft": {
+                    "url": "https://www.feishu.cn/docx/doc_real",
+                    "ownership_target": "ou_target",
+                    "ownership_transferred": False,
+                },
+            },
+        }
+
+        card_json = self.hitl.build_hc_card(job, "HC7", 7, payload)
+        rendered = json.dumps(card_json, ensure_ascii=False)
+
+        self.assertIn("报告内容返修无法解决", rendered)
+        self.assertIn("HTTP 403", rendered)
+        self.assertIn("1063002", rendered)
+        self.assertIn("Permission denied", rendered)
+        self.assertIn("ou_target", rendered)
+
+    def test_g1_submit_is_independent_of_file_attach(self) -> None:
         base = dict(
             job_id="job_x",
             chat_id="c",
@@ -1343,12 +1482,8 @@ class HitlActionParsingTest(unittest.TestCase):
             )
             return submit["value"]
 
-        self.assertEqual(
-            submit_value(waiting)["form_revision"], "awaiting-file"
-        )
-        self.assertEqual(
-            submit_value(attached)["form_revision"], "file_123"
-        )
+        self.assertEqual(submit_value(waiting)["form_revision"], "requirement")
+        self.assertEqual(submit_value(attached)["form_revision"], "requirement")
         self.assertEqual(
             self.hitl._extract_action_value(
                 {"action": {"value": submit_value(attached)}}
@@ -1372,6 +1507,103 @@ class HitlActionParsingTest(unittest.TestCase):
             "",
         )
 
+    def test_g2_pass_accepts_plan_pending_activity_input(self) -> None:
+        payload = {
+            "review_context": {
+                "analysis_plan": {"plan_bundle_sha256": "hash-1"},
+                "execution_plan": {
+                    "plan_bundle_sha256": "hash-1",
+                    "preflight": {"status": "READY_PENDING_INPUT"},
+                },
+                "selected_modules": {"plan_bundle_sha256": "hash-1"},
+            },
+        }
+        self.assertEqual(
+            self.hitl._decision_block_reason("G2", payload, "pass"),
+            "",
+        )
+
+    def test_g2_pass_accepts_forwarded_preflight_under_analysis_plan(self) -> None:
+        payload = {
+            "review_context": {
+                "analysis_plan": {
+                    "plan_bundle_sha256": "hash-1",
+                    "preflight": {"status": "READY_PENDING_INPUT"},
+                },
+                "execution_plan": {"plan_bundle_sha256": "hash-1"},
+                "selected_modules": {"plan_bundle_sha256": "hash-1"},
+            },
+        }
+        self.assertEqual(
+            self.hitl._decision_block_reason("G2", payload, "pass"),
+            "",
+        )
+
+    def test_g2_pass_waits_for_file_before_resuming(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ps.PipelineStore(str(Path(temp_dir) / "g2-input.db"))
+            job = store.create_job("c", "", "u", "session-1", "demo", "")
+            store.mark_wait_hc(job.job_id, "G2")
+            payload = {
+                "hc": "G2",
+                "review_context": {
+                    "analysis_plan": {"plan_bundle_sha256": "hash-1"},
+                    "execution_plan": {
+                        "plan_bundle_sha256": "hash-1",
+                        "preflight": {"status": "READY_PENDING_INPUT"},
+                    },
+                    "selected_modules": {"plan_bundle_sha256": "hash-1"},
+                },
+            }
+            event_id = store.append_hc_event(job.job_id, "G2", payload)
+            calls: list[str] = []
+
+            class FakeFeishu:
+                @staticmethod
+                def resolve_operator_name(
+                    _open_id: str, *, chat_id: str | None = None
+                ) -> str:
+                    return "俞麟"
+
+            class FakeRunner:
+                _feishu = FakeFeishu()
+
+                @staticmethod
+                async def reply_for_job(_job, _text) -> None:
+                    return None
+
+                @staticmethod
+                async def patch_job_card(_job_id, _card) -> str:
+                    return "om_card"
+
+                @staticmethod
+                async def wait_for_activity_file(_job) -> None:
+                    calls.append("wait_input")
+
+                @staticmethod
+                async def resume_job(_job, _message) -> None:
+                    calls.append("resume")
+
+            facade = self.hitl.Topic5Hitl(
+                self.hitl.Topic5HitlDeps(store=store, runner=FakeRunner())
+            )
+            action = {
+                "action": {
+                    "value": {
+                        "decision": "pass",
+                        "event_id": event_id,
+                        "job_id": job.job_id,
+                        "hc": "G2",
+                    }
+                },
+                "operator": {"open_id": "ou_test"},
+                "chat_id": "c",
+            }
+            asyncio.run(facade.handle_card_action(action))
+            self.assertEqual(calls, ["wait_input"])
+            self.assertEqual(store.get_hc_event(event_id).user_decision, "pass")
+            store.close()
+
     def test_g2_pass_rejects_inconsistent_bundle_hash(self) -> None:
         payload = {
             "review_context": {
@@ -1388,31 +1620,7 @@ class HitlActionParsingTest(unittest.TestCase):
             self.hitl._decision_block_reason("G2", payload, "pass"),
         )
 
-    def test_file_attach_refreshes_pending_g1_card(self) -> None:
-        event = ps.HcEvent(
-            id=7,
-            job_id="job_x",
-            hc_kind="G1",
-            payload={"hc": "G1"},
-            card_message_id="om_card",
-        )
-
-        class FakeStore:
-            @staticmethod
-            def latest_hc_for_job(job_id: str, hc_kind: str) -> ps.HcEvent:
-                self.assertEqual((job_id, hc_kind), ("job_x", "G1"))
-                return event
-
-        facade = self.hitl.Topic5Hitl(
-            self.hitl.Topic5HitlDeps(store=FakeStore(), runner=object())
-        )
-        calls = []
-
-        async def fake_send(job, hc_kind, event_id, payload):
-            calls.append((job.job_id, hc_kind, event_id, payload))
-            return "om_card"
-
-        facade.send_hc_card = fake_send
+    def test_requirement_form_is_shown_without_file(self) -> None:
         job = ps.PipelineJob(
             job_id="job_x",
             chat_id="c",
@@ -1421,10 +1629,16 @@ class HitlActionParsingTest(unittest.TestCase):
             ma_session_id="s",
             mode="demo",
             project_dir="d",
-            source_file_id="file_123",
         )
-        self.assertTrue(asyncio.run(facade.refresh_pending_g1_card(job)))
-        self.assertEqual(calls, [("job_x", "G1", 7, {"hc": "G1"})])
+        card = self.hitl.build_hc_card(job, "G1", 7, {"hc": "G1"})
+        submit = next(
+            element
+            for block in card["body"]["elements"]
+            if block.get("tag") == "form"
+            for element in block["elements"]
+            if element.get("name") == "requirement_submit"
+        )
+        self.assertNotIn("disabled", submit)
 
     def test_g1_resolved_card_contains_requirement_snapshot(self) -> None:
         requirement = intake.normalize_requirement(

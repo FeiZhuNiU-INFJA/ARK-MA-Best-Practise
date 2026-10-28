@@ -11,8 +11,6 @@ remark 无内容只记录、不触发续跑（等待后续消息）；remark 带
 """
 from __future__ import annotations
 
-import base64
-import binascii
 import json
 import re
 from datetime import date
@@ -63,6 +61,18 @@ def hc_kind_for_node(node_id: str) -> str:
     return NODE_TO_HC.get(node_id, node_id)
 
 
+def _is_external_permission_p0(issues: list[Any]) -> bool:
+    return any(
+        isinstance(issue, dict)
+        and issue.get("severity") == "P0"
+        and (
+            issue.get("locus") == "feishu-permission"
+            or issue.get("id") == "P0-postpublish-owner"
+        )
+        for issue in issues
+    )
+
+
 def write_hc_pending(st, run_dir: Path) -> dict:
     """引擎暂停在人工关卡时，落 hc_pending.json 供薄 Agent 产卡。"""
     human = st.human or {}
@@ -105,6 +115,29 @@ def write_hc_pending(st, run_dir: Path) -> dict:
                 if qc_path.exists() else None
             ),
         }
+    elif node_id == "n_hc7_escalate":
+        qc_report = st.read_artifact("qc_report") or {}
+        delivery_draft = st.read_artifact("delivery_draft") or {}
+        post_publish = (
+            delivery_draft.get("post_publish_validation")
+            if isinstance(delivery_draft, dict) else {}
+        ) or {}
+        issues = list(post_publish.get("issues") or [])
+        if not issues and isinstance(qc_report, dict):
+            issues = list(qc_report.get("issues") or [])
+        payload["review_context"] = {
+            "escalation_reason": (
+                "external_permission"
+                if _is_external_permission_p0(issues)
+                else "qc_retry_exhausted"
+            ),
+            "issues": issues,
+            "qc_report": qc_report,
+            "delivery_draft": delivery_draft,
+            "qc_report_ref": st.artifact_ref("qc_report"),
+            "delivery_ref": st.artifact_ref("delivery_draft"),
+            "report_ref": st.artifact_ref("report_md"),
+        }
     elif node_id == "n21_hc_user":
         payload["review_context"] = {
             "delivery_draft": st.read_artifact("delivery_draft") or {},
@@ -140,11 +173,6 @@ def _parse_requirement(note: str) -> dict:
             raw = path.read_text(encoding="utf-8")
         except OSError as error:
             raise ValueError("G1 需求文件无法读取") from error
-    elif raw.startswith("b64:"):
-        try:
-            raw = base64.urlsafe_b64decode(raw[4:].encode("ascii")).decode("utf-8")
-        except (binascii.Error, ValueError, UnicodeError) as error:
-            raise ValueError("G1 需求 Base64 载荷无效") from error
     try:
         value = json.loads(raw)
     except (TypeError, ValueError) as error:
@@ -166,13 +194,24 @@ def _parse_requirement(note: str) -> dict:
         raise ValueError("G1 活动开始日期不能晚于结束日期")
     if value.get("content_scope") not in ("all", "ugc", "pgc"):
         raise ValueError("G1 content_scope 必须是 all/ugc/pgc")
-    source = value.get("source_file")
+    return value
+
+
+def _parse_source_file(note: str) -> dict:
+    try:
+        value = json.loads(note or "")
+    except (TypeError, ValueError) as error:
+        raise ValueError("G2 通过后缺少活动明细文件引用") from error
+    source = value.get("source_file") if isinstance(value, dict) else None
     if not isinstance(source, dict) or not source.get("mount_path"):
-        raise ValueError("G1 缺少已挂载的活动明细 Excel")
+        raise ValueError("G2 通过后缺少活动明细文件引用")
     mount_path = str(source["mount_path"])
     if Path(mount_path).name != mount_path or not mount_path.lower().endswith(".xlsx"):
-        raise ValueError("G1 source_file.mount_path 非法")
-    return value
+        raise ValueError("G2 source_file.mount_path 非法")
+    return {
+        "name": str(source.get("name") or mount_path),
+        "mount_path": mount_path,
+    }
 
 
 def build_human_outputs(
@@ -318,7 +357,23 @@ def build_human_outputs(
 
     # HC7 never waives P0. A positive decision means another repair/review round.
     if node_id == "n_hc7_escalate":
-        target = "n19_fix" if decision in ("pass", "confirmed") else node_id
+        target = node_id
+        if decision in ("pass", "confirmed"):
+            draft = st.read_artifact("delivery_draft") or {}
+            post_publish = (
+                draft.get("post_publish_validation")
+                if isinstance(draft, dict) else {}
+            ) or {}
+            issues = list(post_publish.get("issues") or [])
+            if not issues:
+                qc = st.read_artifact("qc_report") or {}
+                if isinstance(qc, dict):
+                    issues = list(qc.get("issues") or [])
+            target = (
+                "n20_delivery_draft"
+                if _is_external_permission_p0(issues)
+                else "n19_fix"
+            )
         return {
             expect[0] if expect else "escalation_decision": {
                 "decision": decision,
@@ -366,7 +421,6 @@ def build_human_outputs(
                 "status": "passed",
                 "rules": [
                     "required_fields", "date_range", "content_scope",
-                    "mounted_xlsx",
                 ],
                 "authority": "user",
             },
@@ -388,8 +442,22 @@ def build_human_outputs(
         if None in plan_hashes or len(plan_hashes) != 1:
             raise ValueError("G2 方案 Artifact 的 bundle hash 不一致")
         confirmed = decision in ("pass", "confirmed")
+        source_file = {}
+        if confirmed:
+            source_file = (
+                _parse_source_file(note)
+                if note
+                else (
+                    requirement.get("source_file")
+                    if isinstance(requirement.get("source_file"), dict)
+                    else {}
+                )
+            )
+            if not source_file:
+                raise ValueError("G2 通过后缺少活动明细文件引用")
         plan = {
             **(requirement if isinstance(requirement, dict) else {}),
+            **({"source_file": source_file} if source_file else {}),
             "analysis_plan": analysis_plan,
             "execution_plan": execution_plan,
             "selected_modules": selected_modules,
@@ -402,7 +470,8 @@ def build_human_outputs(
             "validator_precheck": {
                 "status": (
                     "passed"
-                    if (execution_plan.get("preflight") or {}).get("status") == "READY"
+                    if (execution_plan.get("preflight") or {}).get("status")
+                    in ("READY", "READY_PENDING_INPUT")
                     else "failed"
                 ) if isinstance(execution_plan, dict) else "failed",
                 "rules": [
@@ -414,7 +483,10 @@ def build_human_outputs(
         }
         if confirmed:
             preflight = execution_plan.get("preflight") if isinstance(execution_plan, dict) else {}
-            if (preflight or {}).get("status") != "READY":
+            if (preflight or {}).get("status") not in (
+                "READY",
+                "READY_PENDING_INPUT",
+            ):
                 raise ValueError("G2 能力/权限/输入预检未通过，禁止进入生产 Run")
             return {"confirmed_plan": plan}
         return {

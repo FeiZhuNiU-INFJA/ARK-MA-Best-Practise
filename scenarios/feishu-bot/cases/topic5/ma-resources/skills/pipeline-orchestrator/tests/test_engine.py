@@ -32,8 +32,12 @@ class TestDagLoad(unittest.TestCase):
         self.assertEqual(dag.entry, "n00_intake")
         self.assertEqual(dag.slug, "marketing-activity-review")
         self.assertEqual(dag.version, "0.2")
-        self.assertEqual(len(dag.nodes), 28)
+        self.assertEqual(len(dag.nodes), 29)
         self.assertIn("qc_max_rounds", dag.params)
+        self.assertEqual(
+            dag.nodes["n20_delivery_gate"]["routes"]["has_p0_retry"],
+            "n19_fix",
+        )
 
 
 class TestCreateRun(unittest.TestCase):
@@ -150,7 +154,116 @@ class TestQcLoop(unittest.TestCase):
         human = {"n17_validate": {"qc_report": {"has_p0": False, "issues": []}}}
         drive_to_completion(self.dag, st, human_outputs_by_node=human)
         self.assertIn("no_p0", st.nodes["n18_qc_gate"]["routes"])
+        self.assertIn("ready", st.nodes["n20_delivery_gate"]["routes"])
         self.assertIn("confirmed", st.nodes["n22_user_gate"]["routes"])
+
+    def test_post_publish_p0_reenters_fix_without_reaching_g4(self):
+        st = engine.create_run(self.dag, Path(self.ws), "t", "r")
+        st.current_node = "n20_delivery_draft"
+        st.frontier = ["n20_delivery_draft"]
+        st.params["resource_lock"] = "lock_test"
+        st.write_artifact("report_md", {
+            "markdown": "# 测试报告",
+            "version": "0.0",
+        })
+        st.write_artifact("chart_urls", {"charts": []})
+        st.write_artifact("stats_bundle", {"campaigns": {}})
+        original_delivery = handlers._REGISTRY["delivery_draft"]
+
+        def post_publish_failure(node, _st, _ctx):
+            payloads = {
+                "delivery_draft": {
+                    "state": "needs_review",
+                    "post_publish_validation": {
+                        "has_p0": True,
+                        "p0_count": 1,
+                    },
+                },
+                "external_receipts": {"revision_id": 1},
+                "feishu_doc": {"revision_id": 1},
+                "qc_report": {
+                    "has_p0": True,
+                    "p0_count": 1,
+                    "issues": [{
+                        "id": "P0-postpublish-images",
+                        "severity": "P0",
+                    }],
+                },
+            }
+            return {
+                "artifacts": {
+                    key: payloads[key] for key in node.get("outputs", [])
+                }
+            }
+
+        with compliant_pipeline_services():
+            handlers._REGISTRY["delivery_draft"] = post_publish_failure
+            try:
+                engine.run(self.dag, st)
+            finally:
+                handlers._REGISTRY["delivery_draft"] = original_delivery
+
+        self.assertEqual(st.status, "awaiting_human")
+        self.assertEqual(st.human["node"], "n17_validate")
+        self.assertEqual(st.nodes["n19_fix"]["status"], "completed")
+        self.assertNotIn("n21_hc_user", st.nodes)
+
+    def test_post_publish_permission_p0_escalates_without_report_fix(self):
+        st = engine.create_run(self.dag, Path(self.ws), "t", "r")
+        st.current_node = "n20_delivery_draft"
+        st.frontier = ["n20_delivery_draft"]
+        st.params["resource_lock"] = "lock_test"
+        st.write_artifact("report_md", {
+            "markdown": "# 测试报告",
+            "version": "0.0",
+        })
+        st.write_artifact("chart_urls", {"charts": []})
+        st.write_artifact("stats_bundle", {"campaigns": {}})
+        original_delivery = handlers._REGISTRY["delivery_draft"]
+        issue = {
+            "id": "P0-postpublish-owner",
+            "severity": "P0",
+            "title": "飞书文档未完成所有权转移",
+            "evidence": "飞书 HTTP 403 code=1063002 msg=Permission denied",
+            "locus": "feishu-permission",
+        }
+
+        def permission_failure(node, _st, _ctx):
+            payloads = {
+                "delivery_draft": {
+                    "state": "needs_review",
+                    "ownership_transferred": False,
+                    "ownership_target": "ou_target",
+                    "post_publish_validation": {
+                        "has_p0": True,
+                        "p0_count": 1,
+                        "issues": [issue],
+                    },
+                },
+                "external_receipts": {"revision_id": 1},
+                "feishu_doc": {"revision_id": 1},
+                "qc_report": {
+                    "has_p0": True,
+                    "p0_count": 1,
+                    "issues": [issue],
+                },
+            }
+            return {
+                "artifacts": {
+                    key: payloads[key] for key in node.get("outputs", [])
+                }
+            }
+
+        with compliant_pipeline_services():
+            handlers._REGISTRY["delivery_draft"] = permission_failure
+            try:
+                engine.run(self.dag, st)
+            finally:
+                handlers._REGISTRY["delivery_draft"] = original_delivery
+
+        self.assertEqual(st.status, "awaiting_human")
+        self.assertEqual(st.human["node"], "n_hc7_escalate")
+        self.assertNotIn("n19_fix", st.nodes)
 
 
 class TestResumeWritesHumanArtifact(unittest.TestCase):
@@ -258,6 +371,71 @@ class TestIdempotentReplayOnRealNode(unittest.TestCase):
                 handlers._REGISTRY.pop("_test_external_effect", None)
             else:
                 handlers._REGISTRY["_test_external_effect"] = old_handler
+
+    def test_output_contract_change_invalidates_old_ledger_and_journal(self):
+        calls = {"count": 0}
+
+        def external_handler(node, state, ctx):
+            calls["count"] += 1
+            return {
+                "artifacts": {
+                    key: {"generation": calls["count"]}
+                    for key in node.get("outputs", [])
+                }
+            }
+
+        base_node = {
+            "id": "n1",
+            "handler": "_test_contract_upgrade",
+            "inputs": [],
+            "outputs": ["old_output"],
+            "side_effect": "remote-update",
+            "idempotency": "remote:{task_id}",
+            "checkpoint": True,
+            "next": None,
+        }
+        old_dag = engine.Dag({
+            "slug": "contract-upgrade-test",
+            "version": "1",
+            "entry": "n1",
+            "params": {},
+            "nodes": [base_node],
+        })
+        new_dag = engine.Dag({
+            "slug": "contract-upgrade-test",
+            "version": "2",
+            "entry": "n1",
+            "params": {},
+            "nodes": [{
+                **base_node,
+                "outputs": ["old_output", "new_output"],
+            }],
+        })
+        old_handler = handlers._REGISTRY.get("_test_contract_upgrade")
+        handlers._REGISTRY["_test_contract_upgrade"] = external_handler
+        try:
+            st = engine.create_run(old_dag, Path(self.ws), "t-upgrade", "r-upgrade")
+            engine.run(old_dag, st)
+            self.assertEqual(calls["count"], 1)
+
+            st.status = "running"
+            st.current_node = "n1"
+            st.frontier = ["n1"]
+            engine.run(new_dag, st)
+
+            self.assertEqual(calls["count"], 2)
+            self.assertEqual(
+                st.read_artifact("new_output"),
+                {"generation": 2},
+            )
+            events = {event["event"] for event in st.log}
+            self.assertIn("stale_idempotency_contract", events)
+            self.assertIn("stale_effect_journal_contract", events)
+        finally:
+            if old_handler is None:
+                handlers._REGISTRY.pop("_test_contract_upgrade", None)
+            else:
+                handlers._REGISTRY["_test_contract_upgrade"] = old_handler
 
 
 if __name__ == "__main__":

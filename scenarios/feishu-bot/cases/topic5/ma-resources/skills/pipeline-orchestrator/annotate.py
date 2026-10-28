@@ -263,6 +263,7 @@ def annotate_round2(rows: list[dict], *, opinion_labels: list[str],
 def _small_engine_r2(
     rows: list[dict], opinion_labels, ugc_categories, batch: int = 20,
     ugc_not_applicable: bool = False,
+    max_attempts: int = 3,
 ) -> None:
     sys_p = _r2_sys(
         opinion_labels, ugc_categories,
@@ -270,15 +271,35 @@ def _small_engine_r2(
     )
     for i in range(0, len(rows), batch):
         chunk = rows[i:i + batch]
-        payload = [{"id": r["_annot_id"],
-                    "content": str(r.get("content") or "")[:200],
-                    "title": str(r.get("title") or "")[:80]} for r in chunk]
-        data = semantic.chat_json(sys_p, json.dumps(payload, ensure_ascii=False), max_tokens=2560)
-        by_id = {str(d.get("id")): d for d in data} if isinstance(data, list) else {}
-        for r in chunk:
-            p = by_id.get(r["_annot_id"])
-            if isinstance(p, dict):
-                _apply_r2(r, p)
+        pending = list(chunk)
+        for _attempt in range(max_attempts):
+            payload = [{
+                "id": r["_annot_id"],
+                "content": str(r.get("content") or "")[:200],
+                "title": str(r.get("title") or "")[:80],
+            } for r in pending]
+            data = semantic.chat_json(
+                sys_p,
+                json.dumps(payload, ensure_ascii=False),
+                max_tokens=2560,
+            )
+            by_id = (
+                {str(d.get("id")): d for d in data if isinstance(d, dict)}
+                if isinstance(data, list) else {}
+            )
+            for row in pending:
+                parsed = by_id.get(row["_annot_id"])
+                if isinstance(parsed, dict):
+                    _apply_r2(row, parsed)
+            pending = [
+                row for row in pending
+                if any(
+                    task not in row or not str(row.get(task) or "").strip()
+                    for task in _ROUND2_TASKS
+                )
+            ]
+            if not pending:
+                break
 
 
 def _degrade_r2(rows: list[dict], opinion_labels, ugc_categories) -> None:

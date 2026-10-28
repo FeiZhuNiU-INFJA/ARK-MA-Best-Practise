@@ -6,7 +6,7 @@
 
 | 文件 | 内容 | 状态 |
 |---|---|---|
-| `pipeline.v0.2.yaml` | **权威** 28 节点 schema + 治理层,engine 直接驱动 | active |
+| `pipeline.v0.2.yaml` | **权威** 29 节点 schema + 治理层,engine 直接驱动 | active |
 | `connections.v0.2.json` | 节点连接/路由边 | active |
 | `DEPENDENCIES.v0.2.md` | A/B/C/D 四类依赖说明 | active |
 | `pipeline.v0.2.html` | v0.2 可视化 | 参考 |

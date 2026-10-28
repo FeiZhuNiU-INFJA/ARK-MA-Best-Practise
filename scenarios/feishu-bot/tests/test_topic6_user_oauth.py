@@ -298,8 +298,7 @@ async def test_missing_authorization_triggers_in_chat_flow_and_rejects_on_failur
             raise AssertionError("授权失败时不应创建任务")
 
     class Hitl:
-        async def handle_remark_message(self, **_kwargs):
-            return False
+        pass
 
     class UserAuth:
         async def vault_id(self, _open_id):
@@ -341,8 +340,7 @@ async def test_gateway_passes_scanned_users_vault_to_runner():
             return job
 
     class Hitl:
-        async def handle_remark_message(self, **_kwargs):
-            return False
+        pass
 
     class UserAuth:
         async def vault_id(self, open_id):
@@ -377,50 +375,6 @@ async def test_gateway_passes_scanned_users_vault_to_runner():
     assert artifact_calls == [("job-1", None)]
 
 
-async def test_gateway_bypasses_user_oauth_when_explicitly_configured():
-    calls = []
-    keepalive_calls = []
-    job = SimpleNamespace(job_id="job-1")
-
-    class Store:
-        def complete_event(self, *_args):
-            pass
-
-    class Runner:
-        async def start_job(self, **kwargs):
-            calls.append(kwargs)
-            return job
-
-    class Hitl:
-        async def handle_remark_message(self, **_kwargs):
-            return False
-
-    class UserAuth:
-        async def vault_id(self, _open_id):
-            raise AssertionError("bypass mode must not request user authorization")
-
-    async def reply(_chat_id, _text):
-        pass
-
-    gateway = Topic6Gateway(
-        SimpleNamespace(authorized_open_ids=(), skip_miaoda_oauth=True),
-        Store(),
-        Runner(),
-        Hitl(),
-        UserAuth(),
-        reply,
-        None,
-    )
-    gateway._start_token_keepalive = (  # type: ignore[method-assign]
-        lambda *_args: keepalive_calls.append(True)
-    )
-
-    await gateway._process(_message())
-
-    assert calls[0]["user_vault_id"] == ""
-    assert keepalive_calls == []
-
-
 async def test_continue_command_passes_trailing_text_to_runner():
     calls = []
     replies = []
@@ -451,7 +405,7 @@ async def test_continue_command_passes_trailing_text_to_runner():
         replies.append(text)
 
     gateway = Topic6Gateway(
-        SimpleNamespace(authorized_open_ids=(), skip_miaoda_oauth=False),
+        SimpleNamespace(authorized_open_ids=()),
         Store(),
         Runner(),
         SimpleNamespace(),

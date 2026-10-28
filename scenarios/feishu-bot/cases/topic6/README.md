@@ -49,9 +49,6 @@ python cases/topic6/authorize_miaoda_user.py
 脚本会打开飞书授权页，并在扫码成功后自动读取扫码者的 `open_id`；无需手工传
 `open_id`。需要防止扫错账号时，可额外传 `--expected-open-id ou_xxx` 做校验。
 
-临时演示可在 `config.env` 设置 `TOPIC6_SKIP_MIAODA_OAUTH=true` 跳过扫码并启动
-主流程；此时 Phase H 妙搭发布会因缺少用户凭据失败，完成演示后应删除该配置。
-
 ## 系统组成
 
 Topic 6 使用 `1 Coordinator + 1 类子 Agent`：

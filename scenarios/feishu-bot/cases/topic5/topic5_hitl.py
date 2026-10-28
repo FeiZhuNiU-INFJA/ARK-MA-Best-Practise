@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 import time
@@ -209,7 +208,7 @@ def _preflight_failure_detail(item: dict) -> str:
         labels = [_REQUIREMENT_FIELD_LABELS.get(str(key), str(key)) for key in detail]
         return "缺少：" + "、".join(labels)
     if name == "activity_detail_reference":
-        return "请重新上传并挂载活动明细文件"
+        return "G2 确认后上传并挂载活动明细文件"
     if name == "objectives_mapped_to_registered_modules" and isinstance(detail, list):
         unsupported = [
             value for value in detail
@@ -228,6 +227,21 @@ def _preflight_failure_detail(item: dict) -> str:
     if name == "allowed_actions_supported":
         return "当前动作超出已授权范围"
     return str(detail or "需要调整方案")
+
+
+def _plan_preflight(context: dict) -> dict:
+    """Read preflight defensively from any G2 plan part.
+
+    Coordinator transport may reorder a large review_context while preserving
+    the three version-bound plan objects. The durable artifacts remain
+    authoritative, so the card must not fail merely because preflight was
+    forwarded under analysis_plan or selected_modules.
+    """
+    for key in ("execution_plan", "analysis_plan", "selected_modules"):
+        part = context.get(key)
+        if isinstance(part, dict) and isinstance(part.get("preflight"), dict):
+            return part["preflight"]
+    return {}
 
 
 def _plan_review_elements(payload: dict) -> list[dict]:
@@ -255,7 +269,7 @@ def _plan_review_elements(payload: dict) -> list[dict]:
         ),
         f"**平台**：{'、'.join(str(x) for x in (scope.get('platforms') or [])) or '未指定'}",
         f"**内容范围**：{scope_name}",
-        f"**数据文件**：{scope.get('source_file_name') or '未指定'}",
+        f"**数据文件**：{scope.get('source_file_name') or 'G2 确认后上传'}",
     ]
 
     metric_lines = []
@@ -320,10 +334,10 @@ def _plan_review_elements(payload: dict) -> list[dict]:
         for item in (analysis.get("chart_plan") or [])
         if isinstance(item, dict)
     ]
-    preflight = execution.get("preflight") or {}
+    preflight = _plan_preflight(context)
     preflight_lines = [
         (
-            f"- {'✅' if item.get('ok') else '❌'} "
+            f"- {'✅' if item.get('ok') else '⏳' if item.get('deferred') else '❌'} "
             f"**{_PREFLIGHT_LABELS.get(str(item.get('name')), '执行前检查')}**"
             + (
                 ""
@@ -336,6 +350,7 @@ def _plan_review_elements(payload: dict) -> list[dict]:
     ]
     status_label = {
         "READY": "检查通过，可以开始执行",
+        "READY_PENDING_INPUT": "方案可确认，确认后等待上传活动明细",
         "NEEDS_CAPABILITY_EXTENSION": "当前方案需要补充能力或调整目标",
         "BLOCKED": "信息不完整，暂不能开始执行",
     }.get(str(preflight.get("status")), "检查状态未知")
@@ -461,8 +476,45 @@ def _delivery_review_elements(payload: dict) -> list[dict]:
             f"- 文档 revision：`{draft.get('revision_id') or '缺失'}`\n"
             f"- 报告版本：`{draft.get('report_version') or '缺失'}`\n"
             f"- 回读状态：`{draft.get('state') or 'unknown'}`\n"
+            f"- 所有权已转移：`{bool(draft.get('ownership_transferred'))}`\n"
+            f"- 可管理协作者降级：`{bool(draft.get('collaborator_added'))}`"
+            f"（`{draft.get('collaborator_perm') or 'none'}`）\n"
             f"- Report Artifact：`{((context.get('report_ref') or {}).get('artifact_id')) or '缺失'}`\n"
             f"- Delivery Artifact：`{((context.get('delivery_ref') or {}).get('artifact_id')) or '缺失'}`"
+        ),
+    }]
+
+
+def _escalation_review_elements(payload: dict) -> list[dict]:
+    context = payload.get("review_context") or {}
+    draft = context.get("delivery_draft") or {}
+    issues = context.get("issues") or []
+    issue_lines = []
+    for item in issues:
+        if not isinstance(item, dict):
+            continue
+        issue_lines.append(
+            f"- **{item.get('severity', 'UNKNOWN')} · "
+            f"{item.get('title') or item.get('id') or '未命名问题'}**"
+            f"\n  `{item.get('id') or 'unknown'}`"
+            f" · 位置：`{item.get('locus') or 'unknown'}`"
+            f"\n  {item.get('evidence') or item.get('msg') or '无错误证据'}"
+        )
+    reason = context.get("escalation_reason") or "unknown"
+    reason_label = {
+        "external_permission": "飞书外部权限/所有权异常，报告内容返修无法解决",
+        "qc_retry_exhausted": "报告质检返修已达到次数上限",
+    }.get(reason, str(reason))
+    return [{
+        "tag": "markdown",
+        "content": (
+            f"**升级原因**\n{reason_label}"
+            f"\n\n**飞书文档**\n"
+            f"- 链接：{draft.get('url') or '缺失'}\n"
+            f"- 所有权目标：`{draft.get('ownership_target') or '缺失'}`\n"
+            f"- 所有权已转移：`{bool(draft.get('ownership_transferred'))}`"
+            "\n\n**错误明细**\n"
+            + ("\n".join(issue_lines) or "未提供结构化错误明细")
         ),
     }]
 
@@ -474,7 +526,10 @@ def _decision_block_reason(hc_kind: str, payload: dict, decision: str) -> str:
     context = payload.get("review_context") or {}
     if hc_kind == "G2":
         execution = context.get("execution_plan") or {}
-        if (execution.get("preflight") or {}).get("status") != "READY":
+        if _plan_preflight(context).get("status") not in (
+            "READY",
+            "READY_PENDING_INPUT",
+        ):
             return "方案生产预检未通过，不能确认进入生产 Run"
         plan_parts = [
             context.get("analysis_plan"),
@@ -580,15 +635,16 @@ def build_hc_card(
         elements.extend(_qc_review_elements(payload))
     elif hc_kind == "G4":
         elements.extend(_delivery_review_elements(payload))
+    elif hc_kind == "HC7":
+        elements.extend(_escalation_review_elements(payload))
     elements.append({"tag": "hr"})
     if hc_kind == "G1":
         elements.append(
             {
                 "tag": "markdown",
                 "content": (
-                    "**活动明细数据**\n"
-                    "请先把 `.xlsx` 文件直接发送到当前话题。收到“数据文件已挂载”回执后，"
-                    "填写并提交下面的需求问卷。"
+                    "**需求确认**\n"
+                    "请填写并提交下面的需求问卷。需求确认后将编制分析方案。"
                 ),
             }
         )
@@ -600,7 +656,7 @@ def build_hc_card(
                     hc_kind,
                     event_id,
                     decision,
-                    form_revision=job.source_file_id or "awaiting-file",
+                    form_revision="requirement",
                 ),
                 defaults=DEMO_REQUIREMENT_DEFAULTS if job.mode == "demo" else None,
             )
@@ -812,21 +868,6 @@ class Topic5Hitl(Topic5CardSenderProtocol):
         self._store = deps.store
         self._runner = deps.runner
 
-    async def refresh_pending_g1_card(self, job: PipelineJob) -> bool:
-        """文件挂载后重绘 G1，更新按钮修订标识以避开 SDK 动作去重。"""
-        hc_event = self._store.latest_hc_for_job(job.job_id, "G1")
-        if hc_event is None or hc_event.resolved_at is not None:
-            return False
-        message_id = await self.send_hc_card(
-            job, "G1", hc_event.id, hc_event.payload
-        )
-        if message_id and message_id != hc_event.card_message_id:
-            self._store._conn.execute(  # noqa: SLF001 - HITL 与 store 同包
-                "UPDATE pipeline_hc_events SET card_message_id = ? WHERE id = ?",
-                (message_id, hc_event.id),
-            )
-        return True
-
     async def process_due_g4_timeouts(self, now: Optional[int] = None) -> int:
         """Idempotently send the 2-day reminder and escalate after day 3."""
         handled = 0
@@ -877,7 +918,11 @@ class Topic5Hitl(Topic5CardSenderProtocol):
     # ---- SendHcCard(runner → hitl)----------------------------------------
 
     async def send_hc_card(
-        self, _job: PipelineJob, _hc_kind: str, _event_id: int, _payload: dict,
+        self,
+        _job: PipelineJob,
+        _hc_kind: str,
+        _event_id: int,
+        _payload: dict,
     ) -> Optional[str]:
         if _hc_kind == "G3":
             log.error(
@@ -1005,12 +1050,6 @@ class Topic5Hitl(Topic5CardSenderProtocol):
             await self._runner.reply_for_job(job, blocked)
             return
         if hc_kind == "G1" and decision == DECISION_PASS:
-            if not job.source_file_id:
-                await self._runner.reply_for_job(
-                    job,
-                    "请先在当前话题上传活动明细 `.xlsx` 文件；收到挂载成功回执后再提交需求。",
-                )
-                return
             try:
                 requirement = normalize_requirement(_extract_form_value(action))
             except IntakeValidationError as error:
@@ -1019,10 +1058,6 @@ class Topic5Hitl(Topic5CardSenderProtocol):
                     f"需求问卷未通过校验：{error}",
                 )
                 return
-            requirement["source_file"] = {
-                "name": job.source_file_name,
-                "mount_path": job.source_file_mount_path,
-            }
             decision_note = await self._runner.attach_requirement_payload(
                 job, requirement, hc_event.id
             )
@@ -1091,6 +1126,20 @@ class Topic5Hitl(Topic5CardSenderProtocol):
                 target_message_id, hc_event_updated, action, operator_label=operator_label
             )
 
+        if hc_kind == "G2" and decision == DECISION_PASS:
+            if not job.source_file_id:
+                await self._runner.wait_for_activity_file(job)
+                return
+            decision_note = json.dumps(
+                {
+                    "source_file": {
+                        "name": job.source_file_name,
+                        "mount_path": job.source_file_mount_path,
+                    }
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
         decision_message = _build_decision_message(
             hc_kind, decision, decision_note
         )
@@ -1296,10 +1345,7 @@ def _build_decision_message(hc_kind: str, decision: str, note: str) -> str:
     """
     if decision == DECISION_PASS:
         if hc_kind == "G1" and note:
-            if note.startswith("@/mnt/session/uploads/"):
-                return f"{hc_kind} pass: {note}"
-            encoded = base64.urlsafe_b64encode(note.encode("utf-8")).decode("ascii")
-            return f"{hc_kind} pass: b64:{encoded}"
+            return f"{hc_kind} pass: {note}"
         return f"{hc_kind} pass: {note}" if note else f"{hc_kind} pass"
     if decision == DECISION_REJECT:
         return f"{hc_kind} reject: {note or '无说明'}"

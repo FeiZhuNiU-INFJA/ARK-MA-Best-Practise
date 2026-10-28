@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import tempfile
 import shutil
 import unittest
+from unittest.mock import patch
 
 import charts
 import handlers
@@ -45,6 +46,21 @@ _WORDCLOUD = {"campaigns": {"c1": {"overall": {
 
 
 class TestChartSpecs(unittest.TestCase):
+    def test_resolve_skill_dir_falls_back_to_ma_mount(self):
+        local_root = charts._SKILLS_DIR
+        mounted = "/mnt/skills/blueai-yuqing-echarts-skill-new"
+
+        def fake_isdir(path):
+            return path == mounted
+
+        with patch("charts.os.path.isdir", side_effect=fake_isdir), \
+                patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("TOPIC5_SKILLS_ROOT", None)
+            self.assertEqual(
+                charts._resolve_skill_dir("blueai-yuqing-echarts-skill-new"),
+                mounted,
+            )
+
     def test_renderer_registers_packaged_chinese_font_files(self):
         render_script = charts._RENDER_SCRIPT.replace(
             "render_from_spec.js", "render_chart.js"
@@ -146,6 +162,17 @@ class TestChartsRenderHandler(unittest.TestCase):
                     handlers.get("charts_render")(
                         _node("n14_charts", ["chart_urls"]), self.st, {}
                     )
+
+    def test_handler_preserves_renderer_diagnostic(self):
+        with patch("charts.renderer_available", return_value=False), \
+                patch("charts.renderer_diagnostic",
+                      return_value="echarts_dir=/mnt/skills/example"):
+            with self.assertRaisesRegex(
+                RuntimeError, "echarts_dir=/mnt/skills/example"
+            ):
+                handlers.get("charts_render")(
+                    _node("n14_charts", ["chart_urls"]), self.st, {}
+                )
 
     def test_chart_urls_consumable_by_fallback_report(self):
         """降级 chart_urls 喂给 write_report 应产出报告 MD（无图时不塞死链）。"""

@@ -27,11 +27,27 @@ import sys
 import tempfile
 from typing import Any, Optional
 
-# 仓内图表 / 封面 skill 根目录
+# 图表 / 封面 skill 根目录。节点恢复包会把 pipeline-orchestrator 解压到 /tmp，
+# 此时兄弟 Skill 仍位于 MA 标准挂载根 /mnt/skills。
 _ORCH_DIR = os.path.dirname(os.path.abspath(__file__))
 _SKILLS_DIR = os.path.dirname(_ORCH_DIR)
-ECHARTS_DIR = os.path.join(_SKILLS_DIR, "blueai-yuqing-echarts-skill-new")
-COVER_DIR = os.path.join(_SKILLS_DIR, "report-cover-skill")
+
+
+def _resolve_skill_dir(name: str) -> str:
+    roots = [
+        os.environ.get("TOPIC5_SKILLS_ROOT", ""),
+        _SKILLS_DIR,
+        "/mnt/skills",
+    ]
+    for root in roots:
+        candidate = os.path.join(root, name) if root else ""
+        if candidate and os.path.isdir(candidate):
+            return candidate
+    return os.path.join(_SKILLS_DIR, name)
+
+
+ECHARTS_DIR = _resolve_skill_dir("blueai-yuqing-echarts-skill-new")
+COVER_DIR = _resolve_skill_dir("report-cover-skill")
 _RENDER_SCRIPT = os.path.join(ECHARTS_DIR, "scripts", "render_from_spec.js")
 _ECHARTS_NODE_MODULES = os.path.join(ECHARTS_DIR, "scripts", "node_modules")
 
@@ -58,6 +74,14 @@ def renderer_available() -> bool:
         return True
     except Exception:
         return False
+
+
+def renderer_diagnostic() -> str:
+    return (
+        f"echarts_dir={ECHARTS_DIR}, "
+        f"render_script={os.path.isfile(_RENDER_SCRIPT)}, "
+        f"node_modules={os.path.isdir(_ECHARTS_NODE_MODULES)}"
+    )
 
 
 def cover_available() -> bool:

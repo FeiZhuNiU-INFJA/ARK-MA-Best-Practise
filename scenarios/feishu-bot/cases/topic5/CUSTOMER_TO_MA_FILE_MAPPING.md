@@ -25,7 +25,7 @@ Subagent（Discovery/Opinion/Insight/Narrative）**合并**为确定性编排器
 
 | 客户原始资源                                                | MA 版本                                                   | 状态     | 说明                                                                 |
 | ----------------------------------------------------------- | -------------------------------------------------------- | -------- | -------------------------------------------------------------------- |
-| `ma-resources-Topic5/` + `ma-resources-ProjectAgent/` 的编排与业务逻辑 | `ma-resources/skills/pipeline-orchestrator/`             | 合并重写 | 28 节点 DAG 引擎 + 全部节点 handler（清洗/聚合/语义/标注/图表/交付） |
+| `ma-resources-Topic5/` + `ma-resources-ProjectAgent/` 的编排与业务逻辑 | `ma-resources/skills/pipeline-orchestrator/`             | 合并重写 | 29 节点 DAG 引擎 + 全部节点 handler（清洗/聚合/语义/标注/图表/交付） |
 | 4 个 Subagent（Discovery/Opinion/Insight/Narrative）         | `pipeline-orchestrator/semantic.py` + `handlers.py` 内的语义 handler | 合并重写 | sub-agent 归并为确定性 handler，不各建独立 MA Agent                  |
 | SSJH 社媒统计工具                                           | `ma-resources/skills/SSJH-Social-Stat/`                  | 适配迁入 | n05/n06/n13 取数；凭据改为「入参 > 环境变量 > config.json」优先级    |
 | DataHub 批量标注工具                                        | `ma-resources/skills/blueai-datahub-skill/`              | 适配迁入 | n09/n11 标注；`DATAHUB_API_KEY` 从环境变量读，不入库 `.env`          |
@@ -38,7 +38,7 @@ Subagent（Discovery/Opinion/Insight/Narrative）**合并**为确定性编排器
 
 ## 二、`pipeline-orchestrator`（确定性编排器）
 
-这是 topic5 的核心，承载 28 节点 DAG 引擎与全部节点 handler。
+这是 topic5 的核心，承载 29 节点 DAG 引擎与全部节点 handler。
 
 | MA 文件            | 职责                                                                             | 状态     |
 | ------------------ | -------------------------------------------------------------------------------- | -------- |

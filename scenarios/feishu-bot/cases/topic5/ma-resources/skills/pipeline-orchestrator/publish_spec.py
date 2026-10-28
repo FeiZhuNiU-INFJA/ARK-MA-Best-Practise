@@ -85,10 +85,12 @@ DOCS = {
                     ["KS_Exception_Handling.md"], "real_logic"),
     "n19_fix": ("P0 必须修复并 patch 版本递增后复检（回到 n17），避免带病交付。",
                 ["KS_Exception_Handling.md"], "real_logic"),
-    "n_hc7_escalate": ("质检修复超 qc_max_rounds 轮触发人工介入（操作级 HC），防止无限循环。",
+    "n_hc7_escalate": ("质检修复超 qc_max_rounds 轮，或飞书权限等外部异常无法由报告返修解决时触发人工介入（操作级 HC）。",
                        ["流程图 HC-7"], "human"),
     "n20_delivery_draft": ("内容层 MD → 飞书布局层 XML(grid/callout)，创建 draft 文档并转移所有权（发布门 G4）。p0 禁发/p1 可披露放行。",
                            ["KS_Feishu_Format.md", "build_table_with_hc.py", "feishu-doc-writer"], "has_asset"),
+    "n20_delivery_gate": ("发布后机器质检路由：通过才进入用户终验；内容 P0 回到 n19 修复复检，外部权限 P0 或达到轮次上限时升级人工。",
+                          ["release_policy.post_publish_checks", "KS_Exception_Handling.md"], "real_logic"),
     "n21_hc_user": ("用户对飞书文档终验（发布门 G4）；超 user_confirm_timeout_days 催办，再超则升级。自动流程不得替代用户确认。",
                     ["流程图 HC-T5-2 超时/催办/上报"], "human"),
     "n22_user_gate": ("终验判定路由：确认→提交；有问题→返修草稿；超时无响应→升级。",
@@ -111,7 +113,7 @@ STAGES = [
     ("⑥ 图表封面", ["n14_charts"]),
     ("⑦ 报告撰写", ["n15_wordcloud_insight", "n16_report"]),
     ("⑧ 质检循环 + 验证门 G3", ["n17_validate", "n18_qc_gate", "n19_fix", "n_hc7_escalate"]),
-    ("⑨ 交付草稿 + 终验门 G4", ["n20_delivery_draft", "n21_hc_user", "n22_user_gate", "n_user_escalate"]),
+    ("⑨ 交付草稿 + 终验门 G4", ["n20_delivery_draft", "n20_delivery_gate", "n21_hc_user", "n22_user_gate", "n_user_escalate"]),
     ("⑩ 提交闭环", ["n23_delivery_commit", "n24_handoff"]),
 ]
 

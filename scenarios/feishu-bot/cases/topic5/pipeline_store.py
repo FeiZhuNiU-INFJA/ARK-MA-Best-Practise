@@ -38,6 +38,7 @@ DEFAULT_PIPELINE_DB_PATH = str(
 # 生命周期状态。
 STATUS_RUNNING = "running"
 STATUS_WAIT_HC = "wait_hc"
+STATUS_WAIT_INPUT = "wait_input"
 STATUS_STOPPING = "stopping"
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
@@ -427,7 +428,7 @@ class PipelineStore:
                     SELECT * FROM pipeline_jobs
                     WHERE chat_id = ? AND user_open_id = ?
                       AND (thread_id = ? OR topic_thread_id = ?)
-                      AND status IN (?, ?, ?)
+                      AND status IN (?, ?, ?, ?)
                     ORDER BY started_at DESC LIMIT 1
                     """,
                     (
@@ -437,6 +438,7 @@ class PipelineStore:
                         thread,
                         STATUS_RUNNING,
                         STATUS_WAIT_HC,
+                        STATUS_WAIT_INPUT,
                         STATUS_STOPPING,
                     ),
                 ).fetchone()
@@ -448,7 +450,7 @@ class PipelineStore:
                     SELECT * FROM pipeline_jobs
                     WHERE chat_id = ? AND user_open_id = ?
                       AND thread_id = '' AND topic_thread_id = ''
-                      AND status IN (?, ?, ?)
+                      AND status IN (?, ?, ?, ?)
                     ORDER BY started_at DESC LIMIT 1
                     """,
                     (
@@ -456,6 +458,7 @@ class PipelineStore:
                         user_open_id,
                         STATUS_RUNNING,
                         STATUS_WAIT_HC,
+                        STATUS_WAIT_INPUT,
                         STATUS_STOPPING,
                     ),
                 ).fetchone()
@@ -474,7 +477,7 @@ class PipelineStore:
                 SELECT * FROM pipeline_jobs
                 WHERE chat_id = ?
                   AND (thread_id = ? OR topic_thread_id = ?)
-                  AND status IN (?, ?, ?)
+                  AND status IN (?, ?, ?, ?)
                 ORDER BY started_at DESC LIMIT 1
                 """,
                 (
@@ -483,6 +486,7 @@ class PipelineStore:
                     thread,
                     STATUS_RUNNING,
                     STATUS_WAIT_HC,
+                    STATUS_WAIT_INPUT,
                     STATUS_STOPPING,
                 ),
             ).fetchone()
@@ -493,7 +497,7 @@ class PipelineStore:
     ) -> Optional[PipelineJob]:
         """会话键上最近一个“可续跑”的 job(供 /continue 用)。
 
-        running/wait_hc/failed/stopped 都纳入候选,以便把被本地误判为死的 Session 捞回。
+        running/wait_hc/wait_input/failed 都纳入候选,以便把被本地误判为死的 Session 捞回。
         完成态(done)不返回:已出报告的任务没有续跑语义。
         """
         thread = thread_id or ""
@@ -504,7 +508,7 @@ class PipelineStore:
                     SELECT * FROM pipeline_jobs
                     WHERE chat_id = ? AND user_open_id = ?
                       AND (thread_id = ? OR topic_thread_id = ?)
-                      AND status IN (?, ?, ?)
+                      AND status IN (?, ?, ?, ?)
                     ORDER BY updated_at DESC LIMIT 1
                     """,
                     (
@@ -514,6 +518,7 @@ class PipelineStore:
                         thread,
                         STATUS_RUNNING,
                         STATUS_WAIT_HC,
+                        STATUS_WAIT_INPUT,
                         STATUS_FAILED,
                     ),
                 ).fetchone()
@@ -523,7 +528,7 @@ class PipelineStore:
                     SELECT * FROM pipeline_jobs
                     WHERE chat_id = ? AND user_open_id = ?
                       AND thread_id = '' AND topic_thread_id = ''
-                      AND status IN (?, ?, ?)
+                      AND status IN (?, ?, ?, ?)
                     ORDER BY updated_at DESC LIMIT 1
                     """,
                     (
@@ -531,6 +536,7 @@ class PipelineStore:
                         user_open_id,
                         STATUS_RUNNING,
                         STATUS_WAIT_HC,
+                        STATUS_WAIT_INPUT,
                         STATUS_FAILED,
                     ),
                 ).fetchone()
@@ -542,23 +548,33 @@ class PipelineStore:
             row = self._conn.execute(
                 """
                 SELECT * FROM pipeline_jobs
-                WHERE status IN (?, ?, ?)
+                WHERE status IN (?, ?, ?, ?)
                 ORDER BY started_at DESC LIMIT 1
                 """,
-                (STATUS_RUNNING, STATUS_WAIT_HC, STATUS_STOPPING),
+                (
+                    STATUS_RUNNING,
+                    STATUS_WAIT_HC,
+                    STATUS_WAIT_INPUT,
+                    STATUS_STOPPING,
+                ),
             ).fetchone()
         return self._row_to_job(row) if row else None
 
     def list_active_jobs(self) -> list[PipelineJob]:
-        """返回全部运行中或等待审核的任务,供 Gateway 重启恢复。"""
+        """返回全部运行中、等待审核或等待输入的任务,供 Gateway 重启恢复。"""
         with self._lock:
             rows = self._conn.execute(
                 """
                 SELECT * FROM pipeline_jobs
-                WHERE status IN (?, ?, ?)
+                WHERE status IN (?, ?, ?, ?)
                 ORDER BY started_at ASC
                 """,
-                (STATUS_RUNNING, STATUS_WAIT_HC, STATUS_STOPPING),
+                (
+                    STATUS_RUNNING,
+                    STATUS_WAIT_HC,
+                    STATUS_WAIT_INPUT,
+                    STATUS_STOPPING,
+                ),
             ).fetchall()
         return [self._row_to_job(row) for row in rows]
 
@@ -610,6 +626,15 @@ class PipelineStore:
                 (STATUS_WAIT_HC, hc_kind, _now(), job_id),
             )
         self._notify_status(job_id, STATUS_WAIT_HC)
+
+    def mark_wait_input(self, job_id: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE pipeline_jobs SET status = ?, current_phase = ?, updated_at = ? "
+                "WHERE job_id = ?",
+                (STATUS_WAIT_INPUT, "input", _now(), job_id),
+            )
+        self._notify_status(job_id, STATUS_WAIT_INPUT)
 
     def resume_running(self, job_id: str, next_phase: str) -> None:
         with self._lock:

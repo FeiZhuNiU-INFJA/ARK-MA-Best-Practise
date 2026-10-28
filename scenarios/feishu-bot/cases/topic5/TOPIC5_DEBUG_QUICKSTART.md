@@ -151,11 +151,11 @@ ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 >
 > `demo` 仅预填 G1 表单。进入流水线后与 `full` 使用相同标准；缺核心凭证或出现 `degraded:true` 时对应节点阻断。
 
-### 2.3 飞书交付所有权转移（L 阶段必需）
+### 2.3 飞书交付（L 阶段）
 
 ```env
-# n20 交付后把文档所有权转给的目标 open_id（报告发起人）
-FEISHU_DELIVERY_OWNER_OPEN_ID=ou_xxx
+# n20 使用 Session 注入的 FEISHU_USER_OPEN_ID，把所有权转给任务发起人。
+# 正常任务无需在全局配置中设置 owner open_id。
 FEISHU_OPENAPI_BASE=https://open.feishu.cn
 # 可选：企业自定义飞书域名；未配置时使用 https://www.feishu.cn
 FEISHU_WEB_BASE=https://your-tenant.feishu.cn
@@ -228,13 +228,14 @@ cd ../.. && python -m arkagent run --case topicx
 
 1. Bot 基于触发消息创建话题，并把进度卡放进该话题；
 2. Gateway 日志滚动 SSE `agent.message.delta`；
-3. G1 卡片展示结构化需求问卷；先在当前话题发送活动明细 `.xlsx`，收到挂载成功回执后提交问卷；
-4. Excel 通过飞书资源下载 → Ark Files API → Session `/mnt/session/uploads/`，由 n07 优先读取；SSJH 仍负责 n05/n06/n13；
-5. 后续固定弹出 **G2（方案确认）/ G4（用户终验）**；N10 仅在观点或 UGC 标签有歧义时弹出；
-6. 点击按钮 → Coordinator `resume` → 编排器续跑下一阶段；
-7. G3 由独立 `topic5-validator` 子 Agent 按客户完整规则适配表自动执行（脚本全量扫描 +
+3. G1 卡片展示结构化需求问卷，提交后进入方案编制；
+4. 通过 **G2（方案确认）** 后，在当前话题发送活动明细 `.xlsx`；
+5. Excel 通过飞书资源下载 → Ark Files API → Session `/mnt/session/uploads/`，挂载成功后自动续跑；n07 读取该文件，SSJH 仍负责 n05/n06/n13；
+6. 后续固定弹出 **G4（用户终验）**；N10 仅在观点或 UGC 标签有歧义时弹出；
+7. 点击按钮 → Coordinator `resume` → 编排器续跑下一阶段；
+8. G3 由独立 `topic5-validator` 子 Agent 按客户完整规则适配表自动执行（脚本全量扫描 +
    Agent 全文语义检查），`p0_count==0` 自动放行，有 P0 自动返修，不发人工审核卡；
-8. 最终产出飞书文档链接（经转移所有权 + 回读核对 + revision_id 记录三门禁）。
+9. 最终产出飞书文档链接（经转移所有权 + 回读核对 + revision_id 记录三门禁）。
 
 ### HC 决策消息格式（严格）
 
@@ -247,8 +248,9 @@ HCx remark: <note>
 ```
 
 其中 `HCx` 是关卡种类（`G1`/`G2`/`N10`/`G3`/`G4`/`HC7`/`USER_ESCALATE`）。**备注（remark）无内容时只记录 remark，不触发 resume_job**，需等用户后续消息指令。
-G1 是特殊结构化消息：`G1 pass: b64:<需求问卷 JSON 的 URL-safe Base64>`，Coordinator
-必须把 `b64:...` 原样传给 `run_pipeline.py resume --note`，不得解码、摘要或改写。
+G1 是特殊结构化消息：Gateway 将需求问卷写入 Session 挂载文件，并以
+`G1 pass: @/mnt/session/uploads/topic5_requirement_*.json` 注入。Coordinator 必须把文件引用
+原样传给 `run_pipeline.py resume --note`，不得读取、摘要或改写。
 
 ---
 
@@ -280,7 +282,7 @@ G1 是特殊结构化消息：`G1 pass: b64:<需求问卷 JSON 的 URL-safe Base
 | SSE 中断/超时                 | 单会话默认超时，超长任务加大 `SESSION_TIMEOUT_MS`（毫秒）                       |
 | n14 图表渲染失败              | 检查 `REPORT_COVER_API_KEY`；沙箱 node_modules 是否安装成功（看 setup_script 日志）|
 | n09/n11 标注走降级            | 检查 `DATAHUB_API_KEY` / `DATAHUB_BASE_URL`；行数 <1000 会走小引擎 semantic     |
-| 飞书交付失败                  | 检查 `docs:permission.member:transfer` 权限与 `FEISHU_DELIVERY_OWNER_OPEN_ID`  |
+| 飞书交付失败                  | 检查 `docs:permission.member:transfer` 权限与 Session 是否注入 `FEISHU_USER_OPEN_ID` |
 | 报告缺指标/口径不符           | 对照 README「口径红线」；缺 AI 情感会直接报错（设计如此，不兜底）               |
 
 ---

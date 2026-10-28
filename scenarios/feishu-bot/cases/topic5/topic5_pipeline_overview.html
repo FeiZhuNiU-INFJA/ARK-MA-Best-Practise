@@ -230,7 +230,7 @@
 
 <header>
   <a class="home-link" href="./README.md">← topic5 README</a>
-  <h1>topic5 · 营销活动复盘报告 Pipeline<span class="tag-arch">薄 Agent + Durable Workflow · 28 节点 DAG · 3 道固定人工门</span></h1>
+  <h1>topic5 · 营销活动复盘报告 Pipeline<span class="tag-arch">薄 Agent + Durable Workflow · 29 节点 DAG · 3 道固定人工门</span></h1>
   <span class="subtitle">点击左侧任一节点，右侧显示该节点的 owner / handler / 职责 / 输入输出 / 关键约束</span>
   <span class="legend">
     <span class="legend-item"><span class="dot" style="background:#7c3aed"></span> 语义 handler</span>
@@ -304,6 +304,7 @@ flowchart TD
 
     subgraph sgDelivery ["L · 交付草稿 + 终验 · G4"]
       n20_delivery_draft["n20 交付草稿<br/>delivery_draft · 飞书三门禁"]:::tool
+      n20_delivery_gate{"n20g 发布后质检路由<br/>delivery_draft_decision"}:::engine
       n21_hc_user["n21 用户终验 · G4<br/>human_gate"]:::hc
       n22_user_gate{"n22 终验路由<br/>user_decision"}:::engine
       n_user_escalate["n_user_escalate 终验升级<br/>human_gate · USER_ESCALATE"]:::hc
@@ -342,7 +343,10 @@ flowchart TD
     n18_qc_gate -->|"has_p0_maxed"| n_hc7_escalate
     n19_fix --> n17_validate
     n_hc7_escalate --> n20_delivery_draft
-    n20_delivery_draft -->|"G4"| n21_hc_user
+    n20_delivery_draft --> n20_delivery_gate
+    n20_delivery_gate -->|"ready"| n21_hc_user
+    n20_delivery_gate -->|"has_p0_retry"| n19_fix
+    n20_delivery_gate -->|"has_p0_maxed"| n_hc7_escalate
     n21_hc_user --> n22_user_gate
     n22_user_gate -->|"confirmed"| n23_delivery_commit
     n22_user_gate -->|"issues · 返修"| n20_delivery_draft
@@ -399,7 +403,7 @@ flowchart TD
       tags: ['<span class="tag code">code</span>', '<span class="tag">owner: ProjectAgent</span>', '<span class="tag">handler: intake_check</span>'],
       desc: "生成 G1 待填写需求模板，不伪造 demo 默认值。",
       content:
-        sec("职责", `<p>声明品牌 / 活动 / 周期 / 平台 / 取数词 / 产品词 / 内容范围 / source_file 字段；真实值由 G1 问卷提交。</p>`) +
+        sec("职责", `<p>声明品牌 / 活动 / 周期 / 平台 / 取数词 / 产品词 / 内容范围；真实值由 G1 问卷提交。source_file 在 G2 确认后的上传阶段注入。</p>`) +
         io("—（入口节点）", "<code>requirement_snapshot</code>") +
         sec("关键约束", `<p>retry max=0，失败即 <code>pause</code>；checkpoint=true；无副作用。</p>`)
     },
@@ -462,9 +466,9 @@ flowchart TD
     n07_clean: {
       title: "n07 · 活动数据清洗",
       tags: ['<span class="tag code">code</span>', '<span class="tag">owner: Topic5Agent</span>', '<span class="tag">handler: clean_campaign</span>'],
-      desc: "优先清洗用户上传的活动明细 Excel；旧任务回退 SSJH articles。",
+      desc: "只清洗 G2 确认并冻结的活动明细 Excel；缺少 source_file 时阻断。",
       content:
-        sec("职责", `<p><code>excel_source.py</code> 把中文列映射为统一行结构，再做周期过滤（<code>publish_time</code> epoch ms → CST）、去重和 KOL 分层。未声明 source_file 的旧任务才回退 SSJH articles。</p>`) +
+        sec("职责", `<p><code>excel_source.py</code> 把 G2 冻结的活动明细 Excel 中文列映射为统一行结构，再做周期过滤（<code>publish_time</code> epoch ms → CST）、去重和 KOL 分层。缺少 source_file 时 fail-closed。</p>`) +
         io("Session <code>activity_detail.xlsx</code>（<code>brand_stats</code> 为调度依赖）", "<code>cleaned_data</code>") +
         sec("关键约束", `<p>去重键优先级 <code>fingerprint → id → item_id → url</code>。</p>
            <p class="note">声明了 source_file 但文件不存在、列缺失或过滤后无数据时直接报错，不静默换源。剔除比例 &gt; 10% 触发抽查。</p>`)
@@ -609,13 +613,24 @@ flowchart TD
     },
     n20_delivery_draft: {
       title: "n20 · 交付草稿（飞书 draft）",
-      tags: ['<span class="tag tool">tool</span>', '<span class="tag gate">发布门 G4</span>', '<span class="tag">handler: delivery_draft</span>'],
+      tags: ['<span class="tag tool">tool</span>', '<span class="tag">handler: delivery_draft</span>'],
       desc: "内容层 → 飞书布局层，创建文档并转移所有权。",
       content:
-        sec("职责", `<p>MD → 飞书文档。<b>三门禁</b>：转移所有权（transfer_owner）+ 导出后回读核对（readback）+ 记录 <code>revision_id</code>。p0 禁发 / p1 可披露放行。</p>`) +
-        io("<code>report_md</code> · <code>chart_urls</code>", "<code>delivery_draft</code> · <code>external_receipts</code> · <code>feishu_doc</code>") +
+        sec("职责", `<p>MD → 飞书文档。<b>三门禁</b>：转移所有权（transfer_owner）+ 导出后回读核对（readback）+ 记录 <code>revision_id</code>。发布后问题合并回 <code>qc_report</code>。</p>`) +
+        io("<code>report_md</code> · <code>chart_urls</code>", "<code>delivery_draft</code> · <code>external_receipts</code> · <code>feishu_doc</code> · <code>qc_report</code>") +
         sec("关键约束", `<p>side_effect=feishu-doc-create；幂等键 <code>feishu:{task_id}:{resource_lock}:{report_version}</code>；retry max=2。</p>
            <p class="note">禁用 <code>drive+import</code> MD 直导。缺凭证时 fail-closed；<code>online_url</code> = 飞书 docx URL。</p>`)
+    },
+    n20_delivery_gate: {
+      title: "n20g · 发布后质检路由",
+      tags: ['<span class="tag engine">decision</span>', '<span class="tag">owner: engine</span>', '<span class="tag">handler: delivery_draft_decision</span>'],
+      desc: "发布后机器检查通过才进入 G4；P0 自动回到报告返修循环。",
+      content:
+        sec("路由", `<ul>
+             <li><code>ready</code> → n21 用户终验</li>
+             <li><code>has_p0_retry</code> → n19 修复并回到 n17 复检</li>
+             <li><code>has_p0_maxed</code> → HC7 人工升级</li>
+           </ul>`)
     },
     n21_hc_user: {
       title: "n21 · 用户终验（G4）",

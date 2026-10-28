@@ -6,7 +6,7 @@ description: Run the Topic5 durable report pipeline. Use for starting, resuming 
 # pipeline-orchestrator
 
 Topic5 复盘报告流水线的确定性执行引擎。读取包内 `contracts/pipeline.v0.2.yaml`
-（28 节点 + 治理层），按节点 `handler` 驱动执行、在人工关卡暂停、支持续跑与状态查看。
+（29 节点 + 治理层），按节点 `handler` 驱动执行、在人工关卡暂停、支持续跑与状态查看。
 该文件由打包脚本从源码树唯一权威契约注入。归属 **Topic5 专属**，由 coordinator 身份持有。
 
 ## 文件
@@ -44,8 +44,9 @@ python run_pipeline.py status --workspace <ws> --task <task_id> --run <run_id>
 
 - Python 3.9+；`PyYAML`（解析 contract）、`openpyxl`（读取用户上传的活动明细 Excel）。
 - 运行期事实写入 `--workspace` 指向的 `tasks/{task_id}/runs/{run_id}/`，**不写回本资源目录**。
-- G1 的 `requirement_confirmed.source_file.mount_path` 指向
-  `/mnt/session/uploads/<mount_path>`；n07 优先读取该 Excel，旧任务未声明时回退 SSJH articles。
+- G1 只确认业务需求。G2 通过后，Gateway 等待用户上传 Excel，并把
+  `source_file.mount_path` 写入 `confirmed_plan`；n07 从
+  `/mnt/session/uploads/<mount_path>` 读取该文件。
 
 ## 幂等执行层（已实现）
 

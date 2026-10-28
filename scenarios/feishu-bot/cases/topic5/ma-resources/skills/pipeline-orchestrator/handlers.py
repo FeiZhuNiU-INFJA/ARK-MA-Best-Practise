@@ -187,19 +187,14 @@ def clean_campaign(node, state, ctx):
       - 全部缺发表时间 → 直接报错（日期口径无法建立）。
     """
     plan = state.read_artifact("confirmed_plan") or {}
-    try:
-        excel_data = excel_source.load_activity_rows(plan)
-    except FileNotFoundError:
-        raise
+    excel_data = excel_source.load_activity_rows(plan)
     if excel_data is None:
-        brand_stats = state.read_artifact("brand_stats") or {}
-        raw_rows = _iter_ssjh_rows(brand_stats)
-        meta = brand_stats.get("meta") or {}
-        source = "ssjh_articles"
-    else:
-        raw_rows = list(excel_data["rows"])
-        meta = excel_data.get("meta") or {}
-        source = "user_uploaded_excel"
+        raise ValueError(
+            "clean_campaign: confirmed_plan 缺少 G2 冻结的活动明细 source_file"
+        )
+    raw_rows = list(excel_data["rows"])
+    meta = excel_data.get("meta") or {}
+    source = "user_uploaded_excel"
     total_in = len(raw_rows)
 
     # 活动窗口：优先 confirmed_plan，回退 SSJH meta 的 start/end（YYYY-MM-DD → YYYYMMDD）。
@@ -637,6 +632,10 @@ def handoff(node, state, ctx):
         "live_revision_verified": live_revision_verified,
         "revision_changed": revision_changed,
         "ownership_transferred": bool(delivery_record.get("ownership_transferred")),
+        "collaborator_added": bool(delivery_record.get("collaborator_added")),
+        "delivery_access_granted": bool(
+            delivery_record.get("delivery_access_granted")
+        ),
         "link_accessible": bool(delivery_record.get("link_accessible")),
         "version_chain_aligned": bool(report_version) and (
             isinstance(user_conf, dict)
@@ -657,7 +656,7 @@ def handoff(node, state, ctx):
     validated = (checks["committed"] and checks["post_publish_checks_passed"]
                  and checks["revision_bound"] and checks["live_revision_verified"]
                  and not checks["revision_changed"]
-                 and checks["ownership_transferred"] and checks["link_accessible"]
+                 and checks["delivery_access_granted"] and checks["link_accessible"]
                  and checks["version_chain_aligned"]
                  and checks["validation_aligned"] and not degraded)
     handoff_payload = {
@@ -940,15 +939,25 @@ def charts_render(node, state, ctx):
                 return charts.render_charts(
                     stats, wc, project=project, version=version,
                     report_name=report_name, outdir=outdir)
-            except Exception:
-                return charts.fallback(
-                    stats, wc, project=project, version=version, report_name=report_name)
-        return charts.fallback(
+            except Exception as error:
+                result = charts.fallback(
+                    stats, wc, project=project, version=version,
+                    report_name=report_name)
+                result["render_error"] = f"{type(error).__name__}: {error}"
+                return result
+        result = charts.fallback(
             stats, wc, project=project, version=version, report_name=report_name)
+        result["render_error"] = (
+            "renderer unavailable: " + charts.renderer_diagnostic()
+        )
+        return result
 
     result = _build()
     if result.get("degraded"):
-        raise RuntimeError("charts_render: 图表渲染失败，禁止无图交付")
+        detail = str(result.get("render_error") or "unknown render error")
+        raise RuntimeError(
+            f"charts_render: 图表渲染失败，禁止无图交付: {detail}"
+        )
     return {"artifacts": {"chart_urls": result}}
 
 
@@ -1837,6 +1846,35 @@ def qc_decision(node, state, ctx):
     return {"route": "has_p0_retry"}
 
 
+@handler("delivery_draft_decision")
+def delivery_draft_decision(node, state, ctx):
+    """Route content defects to repair and external permission failures to HC7."""
+    draft = state.read_artifact("delivery_draft") or {}
+    validation = draft.get("post_publish_validation") or {}
+    has_p0 = bool(validation.get("has_p0")) or draft.get("state") != "ready"
+    if not has_p0:
+        return {"route": "ready"}
+
+    issues = validation.get("issues") or []
+    external_p0 = any(
+        isinstance(issue, dict)
+        and issue.get("severity") == "P0"
+        and (
+            issue.get("locus") == "feishu-permission"
+            or issue.get("id") == "P0-postpublish-owner"
+        )
+        for issue in issues
+    )
+    if external_p0:
+        return {"route": "has_p0_maxed"}
+
+    max_rounds = state.params.get("qc_max_rounds", 3)
+    rounds = state.counters.get("qc_rounds", 0)
+    if rounds >= max_rounds:
+        return {"route": "has_p0_maxed"}
+    return {"route": "has_p0_retry"}
+
+
 # ── v0.2 新增：方案 / Run 初始化 / 交付 draft·commit / 终验路由 ──────────
 @handler("plan_compile")
 def plan_compile(node, state, ctx):
@@ -2048,8 +2086,9 @@ def plan_compile(node, state, ctx):
     )
     preflight = {
         "status": (
-            "READY" if (
-                not missing_fields and source_declared and not unknown_modules
+            ("READY" if source_declared else "READY_PENDING_INPUT")
+            if (
+                not missing_fields and not unknown_modules
                 and not unsupported_objectives
                 and delivery_supported and actions_supported
             ) else (
@@ -2062,6 +2101,7 @@ def plan_compile(node, state, ctx):
             {"name": "required_requirement_fields", "ok": not missing_fields,
              "detail": missing_fields},
             {"name": "activity_detail_reference", "ok": source_declared,
+             "deferred": not source_declared,
              "detail": source_file.get("name") if isinstance(source_file, dict) else None},
             {"name": "registered_modules_only", "ok": not unknown_modules,
              "detail": unknown_modules},
@@ -2440,6 +2480,8 @@ def delivery_draft(node, state, ctx):
 
     readback = feishu_doc.get("readback") or {}
     ownership_transferred = bool(feishu_doc.get("ownership_transferred"))
+    collaborator_added = bool(feishu_doc.get("collaborator_added"))
+    delivery_access_granted = ownership_transferred or collaborator_added
     post_publish_issues = []
     if not readback.get("chapters_complete"):
         post_publish_issues.append({
@@ -2461,29 +2503,96 @@ def delivery_draft(node, state, ctx):
             "locus": "feishu-docx",
         })
     if not ownership_transferred:
-        post_publish_issues.append({
-            "id": "P0-postpublish-owner",
-            "severity": "P0",
-            "title": "飞书文档未完成所有权转移",
-            "evidence": "ownership_transferred=false",
-            "locus": "feishu-permission",
-        })
+        ownership_error = str(
+            feishu_doc.get("ownership_error") or "unknown ownership error"
+        )
+        if collaborator_added:
+            post_publish_issues.append({
+                "id": "P1-postpublish-owner-fallback",
+                "severity": "P1",
+                "title": "所有权转移失败，已降级为可管理协作者",
+                "evidence": (
+                    "ownership_transferred=false; collaborator_added=true; "
+                    "perm=full_access; transfer_error=" + ownership_error
+                ),
+                "locus": "feishu-permission",
+            })
+        else:
+            collaborator_error = str(
+                feishu_doc.get("collaborator_error")
+                or "unknown collaborator error"
+            )
+            post_publish_issues.append({
+                "id": "P0-postpublish-owner",
+                "severity": "P0",
+                "title": "飞书文档所有权转移和协作者降级均失败",
+                "evidence": (
+                    "ownership_transferred=false; collaborator_added=false; "
+                    f"transfer_error={ownership_error}; "
+                    f"collaborator_error={collaborator_error}"
+                ),
+                "locus": "feishu-permission",
+            })
+    post_publish_p0_count = sum(
+        1 for issue in post_publish_issues
+        if issue.get("severity") == "P0"
+    )
     post_publish_validation = {
         "validator": "topic5-validator",
         "rules_version": "topic5-validator-qc-v1.6",
         "scope": "post_publish",
         "issues": post_publish_issues,
-        "p0_count": len(post_publish_issues),
-        "has_p0": bool(post_publish_issues),
+        "p0_count": post_publish_p0_count,
+        "has_p0": post_publish_p0_count > 0,
         "manual_checks": [
             "5.2 传播概况 grid", "5.3 词云 grid", "5.4 口碑观点 grid",
             "5.6 callout 类型与视觉",
         ],
     }
+    prior_qc = state.read_artifact("qc_report") or {}
+    prior_issues = (
+        list(prior_qc.get("issues") or [])
+        if isinstance(prior_qc, dict) else []
+    )
+    prior_issues = [
+        issue for issue in prior_issues
+        if not (
+            isinstance(issue, dict)
+            and (
+                str(issue.get("id") or "").startswith(
+                    ("P0-postpublish-", "P1-postpublish-")
+                )
+                or issue.get("locus") in ("feishu-docx", "feishu-permission")
+            )
+        )
+    ]
+    merged_issues = []
+    seen_issue_ids = set()
+    for issue in prior_issues + post_publish_issues:
+        issue_id = (
+            str(issue.get("id") or "")
+            if isinstance(issue, dict) else str(issue)
+        )
+        if issue_id and issue_id in seen_issue_ids:
+            continue
+        if issue_id:
+            seen_issue_ids.add(issue_id)
+        merged_issues.append(issue)
+    merged_p0_count = sum(
+        1 for issue in merged_issues
+        if isinstance(issue, dict) and issue.get("severity") == "P0"
+    )
+    qc_report = {
+        **(prior_qc if isinstance(prior_qc, dict) else {}),
+        "issues": merged_issues,
+        "p0_count": merged_p0_count,
+        "has_p0": merged_p0_count > 0,
+        "post_publish_validation": post_publish_validation,
+    }
     # 发布后机器检查通过才进入 G4；原生 grid/callout 视觉仍由用户终验。
     draft_state = (
         "ready"
-        if readback.get("ok") and ownership_transferred
+        if readback.get("ok") and delivery_access_granted
         else "needs_review"
     )
     delivery_draft_art = {
@@ -2494,6 +2603,12 @@ def delivery_draft(node, state, ctx):
         "revision_id": feishu_doc.get("revision_id"),
         "report_ref": state.artifact_ref("report_md"),
         "ownership_transferred": ownership_transferred,
+        "ownership_target": feishu_doc.get("ownership_target"),
+        "ownership_error": feishu_doc.get("ownership_error"),
+        "collaborator_added": collaborator_added,
+        "collaborator_perm": feishu_doc.get("collaborator_perm"),
+        "collaborator_error": feishu_doc.get("collaborator_error"),
+        "delivery_access_granted": delivery_access_granted,
         "readback": readback,
         "post_publish_validation": post_publish_validation,
         "degraded": bool(feishu_doc.get("degraded")),
@@ -2504,6 +2619,9 @@ def delivery_draft(node, state, ctx):
         "revision_id": feishu_doc.get("revision_id"),
         "report_version": report_version,
         "ownership_transferred": bool(feishu_doc.get("ownership_transferred")),
+        "collaborator_added": collaborator_added,
+        "collaborator_perm": feishu_doc.get("collaborator_perm"),
+        "delivery_access_granted": delivery_access_granted,
         "side_effect": "feishu-doc-create",
         "degraded": bool(feishu_doc.get("degraded")),
     }
@@ -2511,6 +2629,7 @@ def delivery_draft(node, state, ctx):
         "delivery_draft": delivery_draft_art,
         "external_receipts": external_receipts,
         "feishu_doc": feishu_doc,
+        "qc_report": qc_report,
     }
     return {"artifacts": {k: base.get(k, _stub_payload(node, "delivery")) for k in out}}
 
@@ -2545,6 +2664,8 @@ def delivery_commit(node, state, ctx):
         and readback.get("ok")
     )
     ownership_transferred = bool((feishu_doc or {}).get("ownership_transferred"))
+    collaborator_added = bool((feishu_doc or {}).get("collaborator_added"))
+    delivery_access_granted = ownership_transferred or collaborator_added
     acceptance_aligned = bool(
         user_confirmed
         and user_conf.get("report_version") == report_version
@@ -2556,7 +2677,7 @@ def delivery_commit(node, state, ctx):
         not checks_ok
         or not acceptance_aligned
         or not revision_id
-        or not ownership_transferred
+        or not delivery_access_granted
         or not link_accessible
         or bool((feishu_doc or {}).get("degraded"))
     ):
@@ -2567,7 +2688,7 @@ def delivery_commit(node, state, ctx):
     delivery_record = {
         "committed": (
             checks_ok and acceptance_aligned and bool(revision_id)
-            and ownership_transferred and link_accessible
+            and delivery_access_granted and link_accessible
             and not bool((feishu_doc or {}).get("degraded"))
         ),
         "post_publish_checks": "passed" if checks_ok else "needs_review",
@@ -2580,6 +2701,9 @@ def delivery_commit(node, state, ctx):
         "validation_ref": state.artifact_ref("qc_report"),
         "user_acceptance_ref": state.artifact_ref("user_confirmation"),
         "ownership_transferred": ownership_transferred,
+        "collaborator_added": collaborator_added,
+        "collaborator_perm": (feishu_doc or {}).get("collaborator_perm"),
+        "delivery_access_granted": delivery_access_granted,
         "link_accessible": link_accessible,
         "acceptance_aligned": acceptance_aligned,
         "user_confirmed": user_confirmed,

@@ -54,16 +54,14 @@ class TestSsjhPull(unittest.TestCase):
             self.assertIn(k, row)
         self.assertEqual(bs["meta"]["window"], "campaign")
 
-    def test_brand_stats_consumable_by_clean_campaign(self):
-        """降级 brand_stats 喂给 clean_campaign 应产出非空 cleaned rows。"""
+    def test_brand_stats_cannot_replace_required_activity_excel(self):
         self.st.write_artifact("brand_stats", ssjh.fallback(self.plan))
-        with patch("handlers.excel_source.load_activity_rows", return_value=None):
-            cl = handlers.get("clean_campaign")(
+        with patch(
+            "handlers.excel_source.load_activity_rows", return_value=None
+        ), self.assertRaisesRegex(ValueError, "缺少 G2 冻结"):
+            handlers.get("clean_campaign")(
                 _node("n07_clean", ["cleaned_data"]), self.st, {}
             )
-        cleaned = cl["artifacts"]["cleaned_data"]
-        self.assertGreater(len(cleaned["rows"]), 0)
-        self.assertEqual(cleaned["clean_record"]["period"]["start"], "20240501")
 
     def test_baseline_window_is_30d_before_campaign(self):
         bl = ssjh.fallback(self.plan, baseline=True)

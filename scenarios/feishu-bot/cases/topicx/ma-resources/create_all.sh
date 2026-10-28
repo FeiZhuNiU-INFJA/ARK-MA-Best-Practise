@@ -46,7 +46,7 @@ fi
 
 ROUTER_JSON="$ROOT/agents/router.json"
 ROUTER_NAME="$(jq -r .name "$ROUTER_JSON")"
-MODEL_ID="${TOPICX_ROUTER_MODEL_ID:-doubao-seed-2-1-lite-ultra-vision-260920}"
+MODEL_ID="${TOPICX_ROUTER_MODEL_ID:-$(jq -er '.model.id' "$ROUTER_JSON")}"
 SYSTEM="$(jq -Rs . <"$ROOT/agents/router.system.md")"
 PAYLOAD="$(jq -c --arg model "$MODEL_ID" --argjson system "$SYSTEM" \
   '.model.id = $model | .system = $system | del(.system_file)' "$ROUTER_JSON")"

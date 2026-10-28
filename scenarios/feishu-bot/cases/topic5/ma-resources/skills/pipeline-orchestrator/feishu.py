@@ -20,7 +20,7 @@
 
 凭据只从环境变量读（生产由 MA Vault 注入）：
   FEISHU_APP_ID / FEISHU_APP_SECRET（tenant token），或 FEISHU_USER_ACCESS_TOKEN（用户态）。
-  FEISHU_DELIVERY_OWNER_OPEN_ID（可选，转移所有权目标）。
+  FEISHU_USER_OPEN_ID（任务发起人，所有权转移目标；缺失时交付 fail-closed）。
   FEISHU_WEB_BASE（可选，用户访问域名；默认 https://www.feishu.cn）。
 """
 from __future__ import annotations
@@ -30,6 +30,7 @@ import os
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from typing import Any, Optional
@@ -421,9 +422,12 @@ def create_delivery(report_md: str, *, title: str, task_id: str,
         _fill_tables(token, doc_token, blocks, created)
         images_filled = _fill_images(token, doc_token, blocks, created)
 
-    # 转移所有权（可选）。full_access 只是协作者权限，不能作为所有权转移回执。
-    owner = os.environ.get("FEISHU_DELIVERY_OWNER_OPEN_ID")
+    # 优先转移所有权；失败时降级添加 full_access 协作者，保证发起人可管理文档。
+    owner = os.environ.get("FEISHU_USER_OPEN_ID")
     ownership_transferred = False
+    ownership_error = ""
+    collaborator_added = False
+    collaborator_error = ""
     if owner:
         try:
             _req("POST", f"/open-apis/drive/v1/permissions/{doc_token}/members/transfer_owner"
@@ -431,8 +435,30 @@ def create_delivery(report_md: str, *, title: str, task_id: str,
                  "&old_owner_perm=full_access&stay_put=true", token,
                  {"member_type": "openid", "member_id": owner})
             ownership_transferred = True
-        except Exception:
+        except Exception as error:
             ownership_transferred = False
+            ownership_error = f"{type(error).__name__}: {error}"
+            try:
+                _req(
+                    "POST",
+                    f"/open-apis/drive/v1/permissions/{doc_token}/members"
+                    "?type=docx&need_notification=false",
+                    token,
+                    {
+                        "member_type": "openid",
+                        "member_id": owner,
+                        "perm": "full_access",
+                        "type": "user",
+                    },
+                )
+                collaborator_added = True
+            except Exception as collaborator_exc:
+                collaborator_error = (
+                    f"{type(collaborator_exc).__name__}: {collaborator_exc}"
+                )
+    else:
+        ownership_error = "owner_not_configured"
+        collaborator_error = "collaborator_target_not_configured"
 
     # 导出后回读核对：重新读回 blocks，核对章节齐全、图 block 生效、版本一致。
     readback = _readback_check(token, doc_token, report_md, report_version)
@@ -444,6 +470,12 @@ def create_delivery(report_md: str, *, title: str, task_id: str,
         "revision_id": revision_id,
         "report_version": report_version,
         "ownership_transferred": ownership_transferred,
+        "ownership_target": owner,
+        "ownership_error": ownership_error,
+        "collaborator_added": collaborator_added,
+        "collaborator_perm": "full_access" if collaborator_added else "",
+        "collaborator_error": collaborator_error,
+        "delivery_access_granted": ownership_transferred or collaborator_added,
         "images_filled": images_filled,
         "readback": readback,
         "degraded": False,
@@ -459,14 +491,33 @@ def _expected_image_count(report_md: str) -> int:
     return n
 
 
+def _list_document_blocks(token: str, doc_token: str) -> list[dict]:
+    """Read every block page; tables can push tail chapters beyond page 1."""
+    items: list[dict] = []
+    page_token = ""
+    while True:
+        path = (
+            f"/open-apis/docx/v1/documents/{doc_token}/blocks?page_size=500"
+        )
+        if page_token:
+            path += "&page_token=" + urllib.parse.quote(page_token, safe="")
+        data = _req("GET", path, token)
+        items.extend(data.get("items") or [])
+        if not data.get("has_more"):
+            return items
+        next_token = str(data.get("page_token") or "")
+        if not next_token or next_token == page_token:
+            raise RuntimeError("飞书文档 block 分页游标缺失或未推进")
+        page_token = next_token
+
+
 def _readback_check(token: str, doc_token: str, report_md: str,
                     report_version: str) -> dict:
     """导出后回读核对：章节齐全 / 图 block 生效 / 绑定版本一致。"""
     data = _req("GET", f"/open-apis/docx/v1/documents/{doc_token}", token)
     doc = data.get("document") or {}
     revision_id = doc.get("revision_id")
-    items = _req("GET", f"/open-apis/docx/v1/documents/{doc_token}/blocks"
-                 "?page_size=500", token).get("items") or []
+    items = _list_document_blocks(token, doc_token)
     text_all = "\n".join(
         el.get("text_run", {}).get("content", "")
         for b in items for el in (b.get(_key_for(b), {}) or {}).get("elements", [])
@@ -527,6 +578,12 @@ def fallback(report_md: str, *, title: str, task_id: str,
         "revision_id": 1,
         "report_version": report_version,
         "ownership_transferred": False,
+        "ownership_target": None,
+        "ownership_error": "diagnostic_fallback",
+        "collaborator_added": False,
+        "collaborator_perm": "",
+        "collaborator_error": "diagnostic_fallback",
+        "delivery_access_granted": False,
         "images_filled": 0,
         "readback": {
             "revision_id": 1,

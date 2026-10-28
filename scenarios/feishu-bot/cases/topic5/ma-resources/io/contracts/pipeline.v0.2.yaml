@@ -89,7 +89,7 @@ nodes:
     handler: intake_check
     inputs: []
     outputs: [requirement_snapshot]
-    success: 生成 G1 需求问卷模板；必填字段与活动明细 Excel 在 G1 提交时校验
+    success: 生成 G1 需求问卷模板；G1 提交时只校验业务需求必填字段
     side_effect: none
     retry: {max: 0, on_fail: pause}
     checkpoint: true
@@ -102,7 +102,7 @@ nodes:
     gate: G1
     handler: human_gate
     outputs: [requirement_confirmed]
-    success: 用户提交结构化需求问卷，且活动明细 Excel 已挂载到当前 Session
+    success: 用户提交结构化需求问卷并冻结 RequirementSnapshot；不要求活动明细 Excel
     next: n02_plan
 
   # 方案阶段 + 方案确认门 G2（v0.1 有、旧 DAG 缺，本版补回）
@@ -181,7 +181,7 @@ nodes:
     handler: clean_campaign
     inputs: [brand_stats]
     outputs: [cleaned_data]
-    success: 优先清洗用户上传 activity_detail Excel；旧任务无上传文件时回退 SSJH articles
+    success: 只清洗 G2 确认并冻结的 activity_detail Excel；缺少 source_file 时阻断
     side_effect: none
     retry: {max: 1, on_fail: pause}
     checkpoint: true
@@ -361,13 +361,13 @@ nodes:
     next: n17_validate
 
   - id: n_hc7_escalate
-    name: 质检超限人工介入（操作级 HC）
+    name: 质检/外部权限异常人工介入（操作级 HC）
     owner: ProjectAgent
     mode: human
     handler: human_gate
     inputs: [qc_report]
     outputs: [escalation_decision]
-    success: 超 qc_max_rounds 轮触发，防无限循环
+    success: 超 qc_max_rounds 轮或遇到报告返修无法解决的外部权限异常时触发
     next: n20_delivery_draft
 
   # ⑧ 交付草稿 + 终验门 G4（draft→commit 分离）
@@ -375,16 +375,25 @@ nodes:
     name: 交付草稿（飞书文档 draft）
     owner: tool-gateway
     mode: tool
-    gate: G4
     handler: delivery_draft
     inputs: [report_md, chart_urls]
-    outputs: [delivery_draft, external_receipts, feishu_doc]
-    success: 内容层→飞书布局层，创建文档并转移所有权；p0 禁发/p1 可披露放行
+    outputs: [delivery_draft, external_receipts, feishu_doc, qc_report]
+    success: 内容层→飞书布局层，创建文档并转移所有权；发布后机器检查结果合并回 qc_report
     side_effect: feishu-doc-create
-    idempotency: "feishu:{task_id}:{resource_lock}:{report_version}"
+    idempotency: "feishu:{task_id}:{resource_lock}:{report_artifact_sha256}"
     retry: {max: 2, on_fail: pause}
     checkpoint: true
-    next: n21_hc_user
+    next: n20_delivery_gate
+
+  - id: n20_delivery_gate
+    name: 发布后质检路由
+    owner: engine
+    mode: decision
+    handler: delivery_draft_decision
+    routes:
+      ready: n21_hc_user
+      has_p0_retry: n19_fix
+      has_p0_maxed: n_hc7_escalate
 
   - id: n21_hc_user
     name: 用户终验（G4）
