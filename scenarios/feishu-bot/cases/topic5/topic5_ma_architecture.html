@@ -635,7 +635,7 @@
       <table class="gate-table">
         <thead><tr><th>门禁</th><th>类型</th><th>责任主体</th><th>放行条件 / 失败路径</th></tr></thead>
         <tbody>
-          <tr><td><strong>G1</strong> 需求确认</td><td><span class="badge human">固定人工</span></td><td>任务发起人</td><td>Excel 已挂载且问卷字段完整，确认后冻结需求。</td></tr>
+          <tr><td><strong>G1</strong> 需求确认</td><td><span class="badge human">固定人工</span></td><td>任务发起人</td><td>问卷字段完整，确认后冻结需求并进入方案编制。</td></tr>
           <tr><td><strong>G2</strong> 方案确认</td><td><span class="badge human">固定人工</span></td><td>任务发起人</td><td>分析方案及能力预检通过，确认后进入生产 Run。</td></tr>
           <tr><td><strong>N10</strong> 标签策略</td><td><span class="badge conditional">条件人工</span></td><td>策略自动 / 用户</td><td>来源、样本、数量、唯一性和可标注性均通过则自动确认；歧义才暂停。</td></tr>
           <tr><td><strong>G3</strong> 报告质检</td><td><span class="badge auto">内部自动</span></td><td>topic5-validator</td><td><code>p0_count == 0</code> 自动放行；有 P0 进入 n19 返修，禁止外溢到 Gateway。</td></tr>
@@ -704,7 +704,7 @@
       semantic: {kind:"Handlers", title:"语义与确定性节点", role:"Discovery、Opinion、Insight、Narrative 等名称是逻辑职责，不是额外 MA Agent。语义节点经统一模型接口执行，清洗、聚合、门禁和交付由确定性代码约束。", boundary:["减少子 Agent 冷启动与 IPC","指标口径由代码和参数锁定","语义结果必须通过结构校验"]},
       validator: {kind:"Independent MA agent", title:"topic5-validator", role:"G3 由独立身份执行 scan_report.py 机器全检与 Agent 全文语义检查，产出绑定当前 ReportArtifact 的 qc_report。", boundary:["只读报告与证据","不修改正文、不写飞书","p0_count == 0 才能放行","最多 3 轮后进入 HC7"], code:"scenarios/feishu-bot/cases/topic5/ma-resources/agents/validator.system.md"},
       ssjh: {kind:"External data", title:"SSJH Social Stat", role:"n05、n06、n13 分别获取活动期品牌统计、30 天不重叠基准期和各平台词云。", boundary:["与 Excel 逐帖明细来源不同","502 / timeout 时主链阻断","禁止模拟数据降级"]},
-      excel: {kind:"Mounted input", title:"活动明细 Excel", role:"用户在 G1 所在话题上传，Gateway 校验容器并挂入 Session；n07 映射逐帖数据后过滤、去重与派生字段。", boundary:["声明文件但缺失时直接报错","demo 清洗后稳定抽样最多 500 条","full 保留全量"]},
+      excel: {kind:"Mounted input", title:"活动明细 Excel", role:"用户通过 G2 后在任务话题上传，Gateway 校验容器并挂入 Session；n07 映射逐帖数据后过滤、去重与派生字段。", boundary:["G2 后未上传时停在 wait_input","demo 清洗后稳定抽样最多 500 条","full 保留全量"]},
       datahub: {kind:"Annotation", title:"DataHub 与小引擎", role:"n09 / n11 执行情感、相关性、观点、UGC 类别与讨论维度标注。小数据走语义小引擎，大批量可走 DataHub。", boundary:["缺 AI 情感直接报错","N/A 可作为合法标签","覆盖率必须校验"]},
       echarts: {kind:"Renderer", title:"ECharts + resvg", role:"n14 在 MA 沙箱将图表规格渲染为本地 PNG；n20 再通过飞书媒体接口原生上传。", boundary:["空图、全零图、单类别图会被剔除","渲染器缺失时阻断交付","不依赖外部对象存储"]},
       delivery: {kind:"Delivery", title:"飞书原生文档", role:"报告发布器使用飞书原生结构渲染表格、图片与布局，完成所有权转移、回读和 revision_id 记录。", boundary:["不用 Markdown 表格冒充原生表格","验证与 handoff 绑定同一 revision","G4 只确认具体 revision"]}
@@ -721,7 +721,7 @@
 
     const pipelineDetails = {
       n00:["意图模板","声明 G1 需要的字段，不伪造 demo 默认值。"],
-      G1:["G1 · 需求确认","用户上传 Excel 并确认品牌、周期、平台、关键词与内容范围。"],
+      G1:["G1 · 需求确认","用户确认品牌、周期、平台、关键词与内容范围；无需先上传 Excel。"],
       n02:["方案生成","根据已确认需求生成分析计划与能力预检。"],
       G2:["G2 · 方案确认","冻结 ConfirmedPlan，之后生产节点以此为依据。"],
       n04:["运行初始化","建立 Run 工作目录并冻结输入与资源指纹。"],

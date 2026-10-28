@@ -89,7 +89,7 @@ nodes:
     handler: intake_check
     inputs: []
     outputs: [requirement_snapshot]
-    success: 生成 G1 需求问卷模板；必填字段与活动明细 Excel 在 G1 提交时校验
+    success: 生成 G1 需求问卷模板；G1 提交时只校验业务需求必填字段
     side_effect: none
     retry: {max: 0, on_fail: pause}
     checkpoint: true
@@ -102,7 +102,7 @@ nodes:
     gate: G1
     handler: human_gate
     outputs: [requirement_confirmed]
-    success: 用户提交结构化需求问卷，且活动明细 Excel 已挂载到当前 Session
+    success: 用户提交结构化需求问卷并冻结 RequirementSnapshot；不要求活动明细 Excel
     next: n02_plan
 
   # 方案阶段 + 方案确认门 G2（v0.1 有、旧 DAG 缺，本版补回）

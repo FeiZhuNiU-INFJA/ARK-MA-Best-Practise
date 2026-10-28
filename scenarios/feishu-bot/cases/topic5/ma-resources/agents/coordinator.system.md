@@ -143,7 +143,11 @@ nohup python3 run_pipeline.py resume \
 - **G1 特殊**：生产路径的 note 是 `@/mnt/session/uploads/topic5_requirement_*.json`。
   必须把冒号后的短文件引用**原样**作为 `--note` 参数传给脚本，不得读取、摘要、改写或
   重新生成；`hc_bridge` 会在沙箱内读取并校验。旧任务的 `b64:...` 封套仍兼容，同样必须
-  原样转发。其中 `source_file.mount_path` 已绑定用户上传到当前 Session 的活动明细 Excel。
+  原样转发。G1 需求不包含活动明细文件引用。
+- **G2 通过特殊**：Gateway 会等用户在 G2 后上传 Excel，再把
+  `{"source_file":{"name":"...","mount_path":"..."}}` 作为 note 原样注入。
+  必须原样传给 `resume --hc G2 --decision pass --note ...`，由 `hc_bridge` 写入
+  `ConfirmedPlan` 后才允许进入生产 Run。
 - `decision` 只能是 `pass` / `reject` / `remark`。
 - **remark 无内容**：脚本打印 `REMARK_RECORDED ...` 且**不续跑**——你只需回报「已记录备注，等待进一步指令」，
   **不要**自己把它当 pass 推进（project_memory 硬约束）。

@@ -2048,8 +2048,9 @@ def plan_compile(node, state, ctx):
     )
     preflight = {
         "status": (
-            "READY" if (
-                not missing_fields and source_declared and not unknown_modules
+            ("READY" if source_declared else "READY_PENDING_INPUT")
+            if (
+                not missing_fields and not unknown_modules
                 and not unsupported_objectives
                 and delivery_supported and actions_supported
             ) else (
@@ -2062,6 +2063,7 @@ def plan_compile(node, state, ctx):
             {"name": "required_requirement_fields", "ok": not missing_fields,
              "detail": missing_fields},
             {"name": "activity_detail_reference", "ok": source_declared,
+             "deferred": not source_declared,
              "detail": source_file.get("name") if isinstance(source_file, dict) else None},
             {"name": "registered_modules_only", "ok": not unknown_modules,
              "detail": unknown_modules},

@@ -228,13 +228,14 @@ cd ../.. && python -m arkagent run --case topicx
 
 1. Bot 基于触发消息创建话题，并把进度卡放进该话题；
 2. Gateway 日志滚动 SSE `agent.message.delta`；
-3. G1 卡片展示结构化需求问卷；先在当前话题发送活动明细 `.xlsx`，收到挂载成功回执后提交问卷；
-4. Excel 通过飞书资源下载 → Ark Files API → Session `/mnt/session/uploads/`，由 n07 优先读取；SSJH 仍负责 n05/n06/n13；
-5. 后续固定弹出 **G2（方案确认）/ G4（用户终验）**；N10 仅在观点或 UGC 标签有歧义时弹出；
-6. 点击按钮 → Coordinator `resume` → 编排器续跑下一阶段；
-7. G3 由独立 `topic5-validator` 子 Agent 按客户完整规则适配表自动执行（脚本全量扫描 +
+3. G1 卡片展示结构化需求问卷，提交后进入方案编制；
+4. 通过 **G2（方案确认）** 后，在当前话题发送活动明细 `.xlsx`；
+5. Excel 通过飞书资源下载 → Ark Files API → Session `/mnt/session/uploads/`，挂载成功后自动续跑；n07 读取该文件，SSJH 仍负责 n05/n06/n13；
+6. 后续固定弹出 **G4（用户终验）**；N10 仅在观点或 UGC 标签有歧义时弹出；
+7. 点击按钮 → Coordinator `resume` → 编排器续跑下一阶段；
+8. G3 由独立 `topic5-validator` 子 Agent 按客户完整规则适配表自动执行（脚本全量扫描 +
    Agent 全文语义检查），`p0_count==0` 自动放行，有 P0 自动返修，不发人工审核卡；
-8. 最终产出飞书文档链接（经转移所有权 + 回读核对 + revision_id 记录三门禁）。
+9. 最终产出飞书文档链接（经转移所有权 + 回读核对 + revision_id 记录三门禁）。
 
 ### HC 决策消息格式（严格）
 

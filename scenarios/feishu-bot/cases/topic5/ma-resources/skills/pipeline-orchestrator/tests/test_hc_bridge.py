@@ -223,15 +223,58 @@ class TestBuildHumanOutputs(unittest.TestCase):
             "node": "n01_hc_requirement",
             "expect": ["requirement_confirmed"],
         }
+        g1_payload = json.loads(_g1_note())
+        g1_payload.pop("source_file")
         requirement = hc_bridge.build_human_outputs(
-            self.st, "pass", _g1_note()
+            self.st, "pass", json.dumps(g1_payload, ensure_ascii=False)
         )["requirement_confirmed"]
         self.assertTrue(requirement["confirmed"])
         self.assertEqual(requirement["brand"], "瑞幸")
+        self.assertNotIn("source_file", requirement)
+        self.st.write_artifact("requirement_confirmed", requirement)
+        plan_out = handlers.plan_compile(
+            {"id": "n02_plan", "name": "方案编制"}, self.st, {}
+        )
+        for key, payload in plan_out["artifacts"].items():
+            self.st.write_artifact(key, payload)
         self.assertEqual(
-            requirement["source_file"]["mount_path"],
+            plan_out["artifacts"]["execution_plan"]["preflight"]["status"],
+            "READY_PENDING_INPUT",
+        )
+        self.st.human = {
+            "node": "n03_hc_plan",
+            "expect": ["confirmed_plan"],
+        }
+        plan = hc_bridge.build_human_outputs(
+            self.st,
+            "pass",
+            json.dumps(
+                {
+                    "source_file": {
+                        "name": "瑞幸暹罗厘普联名数据.xlsx",
+                        "mount_path": "topic5_activity_detail_job_x.xlsx",
+                    }
+                },
+                ensure_ascii=False,
+            ),
+        )["confirmed_plan"]
+        self.assertEqual(plan["brand"], "瑞幸")
+        self.assertEqual(
+            plan["source_file"]["mount_path"],
             "topic5_activity_detail_job_x.xlsx",
         )
+        self.assertEqual(plan["version"], "plan-v1")
+        self.assertIn("瑞幸×暹罗厘普联名活动", plan["analysis_plan"]["title"])
+        self.assertEqual(plan["execution_plan"]["stages"][0]["name"], "数据准备")
+        self.assertEqual(
+            plan["selected_modules"]["core"],
+            ["brand_context", "activity_performance", "evidence_summary"],
+        )
+
+    def test_g2_rejects_resume_without_activity_file_reference(self):
+        requirement = json.loads(_g1_note())
+        requirement.pop("source_file")
+        requirement["confirmed"] = True
         self.st.write_artifact("requirement_confirmed", requirement)
         plan_out = handlers.plan_compile(
             {"id": "n02_plan", "name": "方案编制"}, self.st, {}
@@ -242,17 +285,8 @@ class TestBuildHumanOutputs(unittest.TestCase):
             "node": "n03_hc_plan",
             "expect": ["confirmed_plan"],
         }
-        plan = hc_bridge.build_human_outputs(
-            self.st, "pass", ""
-        )["confirmed_plan"]
-        self.assertEqual(plan["brand"], "瑞幸")
-        self.assertEqual(plan["version"], "plan-v1")
-        self.assertIn("瑞幸×暹罗厘普联名活动", plan["analysis_plan"]["title"])
-        self.assertEqual(plan["execution_plan"]["stages"][0]["name"], "数据准备")
-        self.assertEqual(
-            plan["selected_modules"]["core"],
-            ["brand_context", "activity_performance", "evidence_summary"],
-        )
+        with self.assertRaisesRegex(ValueError, "缺少活动明细文件引用"):
+            hc_bridge.build_human_outputs(self.st, "pass", "")
 
     def test_g1_accepts_requirement_without_product_dimension(self):
         self.st.human = {

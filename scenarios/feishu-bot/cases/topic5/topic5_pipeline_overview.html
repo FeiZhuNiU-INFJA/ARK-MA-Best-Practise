@@ -399,7 +399,7 @@ flowchart TD
       tags: ['<span class="tag code">code</span>', '<span class="tag">owner: ProjectAgent</span>', '<span class="tag">handler: intake_check</span>'],
       desc: "生成 G1 待填写需求模板，不伪造 demo 默认值。",
       content:
-        sec("职责", `<p>声明品牌 / 活动 / 周期 / 平台 / 取数词 / 产品词 / 内容范围 / source_file 字段；真实值由 G1 问卷提交。</p>`) +
+        sec("职责", `<p>声明品牌 / 活动 / 周期 / 平台 / 取数词 / 产品词 / 内容范围；真实值由 G1 问卷提交。source_file 在 G2 确认后的上传阶段注入。</p>`) +
         io("—（入口节点）", "<code>requirement_snapshot</code>") +
         sec("关键约束", `<p>retry max=0，失败即 <code>pause</code>；checkpoint=true；无副作用。</p>`)
     },

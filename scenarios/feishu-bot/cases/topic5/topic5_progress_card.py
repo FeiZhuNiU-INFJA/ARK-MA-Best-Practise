@@ -6,6 +6,7 @@
 生命周期:一次 pipeline 全程复用同一张卡片(patch 覆写):
   - running  ⇒ 🚀 header + tool_lines
   - wait_hc  ⇒ ⏸️ header,在同一张卡片中展示 HCx 操作
+  - wait_input ⇒ ⏸️ header,提示 G2 后上传活动明细
   - done     ⇒ ✅ header,底部加"打开报告"链接(若有 online_url,即飞书 docx URL)
   - failed   ⇒ ❌ header,末尾附错误摘要
 
@@ -29,6 +30,7 @@ try:
         STATUS_STOPPING,
         STATUS_STOPPED,
         STATUS_WAIT_HC,
+        STATUS_WAIT_INPUT,
         PipelineJob,
     )
     from .topic5_intake import format_requirement_snapshot
@@ -43,6 +45,7 @@ except ImportError:  # pragma: no cover - standalone compatibility
         STATUS_STOPPING,
         STATUS_STOPPED,
         STATUS_WAIT_HC,
+        STATUS_WAIT_INPUT,
         PipelineJob,
     )
     from topic5_intake import format_requirement_snapshot
@@ -50,6 +53,20 @@ except ImportError:  # pragma: no cover - standalone compatibility
 # 卡片最多渲染的近期 tool 行数;超出用 "+N 条更早" 提示,防止 element 超过飞书上限。
 MAX_TOOL_LINES = 10
 MAX_REVIEW_LINES = 7
+
+_PLAN_MODULE_LABELS = {
+    "brand_context": "品牌背景",
+    "activity_performance": "活动表现",
+    "evidence_summary": "证据总结",
+    "baseline_lift": "基准期对比",
+    "sentiment_opinion": "情感与观点",
+    "wordcloud_topics": "平台词云议题",
+    "top_content": "代表内容",
+    "kol_effectiveness": "KOL 层级表现",
+    "product_funnel": "品牌/产品提及漏斗",
+    "ugc_participation": "UGC 参与",
+    "multi_activity_compare": "多活动对比",
+}
 
 
 def _format_elapsed(seconds: int) -> str:
@@ -74,6 +91,8 @@ def _header(status: str, phase: str, failure_scope: str = "") -> dict:
             title, template = "❌ Topic5 复盘报告 · 已终止", "red"
     elif status == STATUS_WAIT_HC:
         title, template = f"⏸️ Topic5 复盘报告 · 等待审核 {phase}", "turquoise"
+    elif status == STATUS_WAIT_INPUT:
+        title, template = "⏸️ Topic5 复盘报告 · 等待活动明细", "turquoise"
     elif status == STATUS_STOPPING:
         title, template = "Topic5 复盘报告 · 正在停止", "grey"
     else:
@@ -116,13 +135,13 @@ def _review_lines_block(review_lines: list[str]) -> Optional[dict]:
 
 
 def _review_snapshot(review_lines: Iterable[str]) -> list[str]:
-    """保留最新 G1/N10 确认快照，限制重复关卡导致的卡片体积。"""
+    """保留最新 G1/G2/N10 确认快照，限制重复关卡导致的卡片体积。"""
     lines = list(review_lines)
     if len(lines) <= MAX_REVIEW_LINES:
         return lines
     pinned = {
         index
-        for kind in ("G1", "N10")
+        for kind in ("G1", "G2", "N10")
         for index in [
             next(
                 (i for i in range(len(lines) - 1, -1, -1)
@@ -179,8 +198,74 @@ def format_label_snapshot(payload: dict, note: str = "") -> str:
     return "\n".join(lines)
 
 
+def format_plan_snapshot(payload: dict) -> str:
+    """Render the version-bound G2 plan as a compact persistent audit summary."""
+    context = payload.get("review_context") or {}
+    analysis = context.get("analysis_plan") or {}
+    execution = context.get("execution_plan") or {}
+    modules = context.get("selected_modules") or {}
+    scope = analysis.get("scope") or {}
+    activities = "、".join(str(item) for item in scope.get("activities") or [])
+    platforms = "、".join(str(item) for item in scope.get("platforms") or [])
+    content_scope = {
+        "all": "全部",
+        "ugc": "仅 UGC",
+        "pgc": "仅 PGC",
+    }.get(str(scope.get("content_scope") or ""), "未指定")
+    report_structure = " → ".join(
+        str(item) for item in analysis.get("report_structure") or []
+    )
+    stage_names = " → ".join(
+        str(item.get("name"))
+        for item in execution.get("stages") or []
+        if isinstance(item, dict) and item.get("name")
+    )
+    selected = modules.get("core_plus_conditional") or []
+    module_names = "、".join(
+        _PLAN_MODULE_LABELS.get(str(item), str(item)) for item in selected
+    )
+    preflight = next(
+        (
+            part["preflight"]
+            for part in (execution, analysis, modules)
+            if isinstance(part, dict) and isinstance(part.get("preflight"), dict)
+        ),
+        {},
+    )
+    preflight_label = {
+        "READY": "已通过",
+        "READY_PENDING_INPUT": "方案通过，待上传活动明细",
+    }.get(str(preflight.get("status") or ""), "未记录")
+    revision = analysis.get("revision") or execution.get("revision") or "未记录"
+    plan_hash = (
+        analysis.get("plan_bundle_sha256")
+        or execution.get("plan_bundle_sha256")
+        or modules.get("plan_bundle_sha256")
+        or ""
+    )
+    lines = [
+        "**已确认方案**",
+        (
+            f"- **范围**：{scope.get('brand') or '未指定'} / "
+            f"{activities or '未指定'} / "
+            f"{scope.get('period_start') or '未指定'} ～ "
+            f"{scope.get('period_end') or '未指定'} / "
+            f"{platforms or '未指定'} / {content_scope}"
+        ),
+        f"- **报告结构**：{report_structure or '未记录'}",
+        f"- **执行阶段**：{stage_names or '未记录'}",
+        f"- **启用模块**：{module_names or '未记录'}",
+        f"- **生产预检**：{preflight_label}",
+        (
+            f"- **方案版本**：v{revision}"
+            + (f" · `{str(plan_hash)[:12]}`" if plan_hash else "")
+        ),
+    ]
+    return "\n".join(lines)
+
+
 def format_review_lines(events: Iterable[HcEvent]) -> list[str]:
-    """把审核事件渲染为持续展示的审计记录，保留 G1/N10 确认快照。"""
+    """把审核事件渲染为持续展示的审计记录，保留 G1/G2/N10 确认快照。"""
     decision_meta = {
         "pass": ("✅", "通过"),
         "reject": ("❌", "打回"),
@@ -211,6 +296,9 @@ def format_review_lines(events: Iterable[HcEvent]) -> list[str]:
                     requirement, heading=False
                 )
                 line += "\n  " + details.replace("\n", "\n  ")
+        elif event.hc_kind == "G2" and event.user_decision == "pass":
+            details = format_plan_snapshot(event.payload)
+            line += "\n  " + details.replace("\n", "\n  ")
         elif event.hc_kind == "N10" and event.user_decision == "pass":
             details = format_label_snapshot(event.payload, event.user_note)
             line += "\n  " + details.replace("\n", "\n  ")
@@ -255,6 +343,16 @@ def build_progress_card(
                 "content": (
                     f"👉 请在当前卡片完成 **{job.current_phase}** 审核"
                     "(通过,或填写打回原因后让 Agent 回退处理)。"
+                ),
+            }
+        )
+    elif status == STATUS_WAIT_INPUT:
+        elements.append(
+            {
+                "tag": "markdown",
+                "content": (
+                    "👉 G2 方案已确认。请在当前话题上传活动明细 `.xlsx` 文件，"
+                    "挂载成功后将自动进入生产 Run。"
                 ),
             }
         )
@@ -328,7 +426,7 @@ def build_progress_card(
                 "behaviors": [{"type": "open_url", "default_url": online_url}],
             }
         )
-    if status in (STATUS_RUNNING, STATUS_WAIT_HC) and job.task_id:
+    if status in (STATUS_RUNNING, STATUS_WAIT_HC, STATUS_WAIT_INPUT) and job.task_id:
         elements.extend(
             [
                 {"tag": "hr"},

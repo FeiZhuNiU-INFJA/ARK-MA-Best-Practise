@@ -46,6 +46,44 @@ async def test_followup_rejects_non_owner_before_session_side_effects():
 
 
 @pytest.mark.asyncio
+async def test_topic5_file_followup_attaches_and_resumes_production():
+    runner = object.__new__(TopicxRunner)
+    calls = []
+    job = SimpleNamespace(source_file_name="activity.xlsx")
+
+    class Topic5Runner:
+        @staticmethod
+        async def attach_activity_file(**kwargs):
+            calls.append(("attach", kwargs["resource"]))
+            return job
+
+        @staticmethod
+        async def resume_after_activity_file(attached_job):
+            calls.append(("resume", attached_job))
+
+    runner._topic5_runner = Topic5Runner()
+    message = SimpleNamespace(
+        user_open_id="ou-owner",
+        chat_id="chat",
+        thread_id="thread",
+        text="",
+        resources=["xlsx-resource"],
+    )
+    task = SimpleNamespace(
+        user_open_id="ou-owner",
+        status="wait_hc",
+        scenario="topic5",
+    )
+
+    await runner.handle_followup(message, task)
+
+    assert calls == [
+        ("attach", "xlsx-resource"),
+        ("resume", job),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_router_tool_commits_and_schedules_without_identity_fields(tmp_path):
     store = ControlStore(str(tmp_path / "control.db"))
     task, _ = store.create_or_get_task(

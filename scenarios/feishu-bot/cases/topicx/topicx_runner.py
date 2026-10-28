@@ -488,11 +488,7 @@ class TopicxRunner:
                     user_open_id=message.user_open_id,
                     resource=message.resources[0],
                 )
-                await self.reply(
-                    task,
-                    f"数据文件已挂载：{job.source_file_name}\n"
-                    "现在可以提交“确认需求并进入方案”。",
-                )
+                await self._topic5_runner.resume_after_activity_file(job)
                 return
             if await self._topic5_hitl.handle_remark_message(
                 chat_id=message.chat_id,

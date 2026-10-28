@@ -166,13 +166,24 @@ def _parse_requirement(note: str) -> dict:
         raise ValueError("G1 活动开始日期不能晚于结束日期")
     if value.get("content_scope") not in ("all", "ugc", "pgc"):
         raise ValueError("G1 content_scope 必须是 all/ugc/pgc")
-    source = value.get("source_file")
+    return value
+
+
+def _parse_source_file(note: str) -> dict:
+    try:
+        value = json.loads(note or "")
+    except (TypeError, ValueError) as error:
+        raise ValueError("G2 通过后缺少活动明细文件引用") from error
+    source = value.get("source_file") if isinstance(value, dict) else None
     if not isinstance(source, dict) or not source.get("mount_path"):
-        raise ValueError("G1 缺少已挂载的活动明细 Excel")
+        raise ValueError("G2 通过后缺少活动明细文件引用")
     mount_path = str(source["mount_path"])
     if Path(mount_path).name != mount_path or not mount_path.lower().endswith(".xlsx"):
-        raise ValueError("G1 source_file.mount_path 非法")
-    return value
+        raise ValueError("G2 source_file.mount_path 非法")
+    return {
+        "name": str(source.get("name") or mount_path),
+        "mount_path": mount_path,
+    }
 
 
 def build_human_outputs(
@@ -366,7 +377,6 @@ def build_human_outputs(
                 "status": "passed",
                 "rules": [
                     "required_fields", "date_range", "content_scope",
-                    "mounted_xlsx",
                 ],
                 "authority": "user",
             },
@@ -388,8 +398,22 @@ def build_human_outputs(
         if None in plan_hashes or len(plan_hashes) != 1:
             raise ValueError("G2 方案 Artifact 的 bundle hash 不一致")
         confirmed = decision in ("pass", "confirmed")
+        source_file = {}
+        if confirmed:
+            source_file = (
+                _parse_source_file(note)
+                if note
+                else (
+                    requirement.get("source_file")
+                    if isinstance(requirement.get("source_file"), dict)
+                    else {}
+                )
+            )
+            if not source_file:
+                raise ValueError("G2 通过后缺少活动明细文件引用")
         plan = {
             **(requirement if isinstance(requirement, dict) else {}),
+            **({"source_file": source_file} if source_file else {}),
             "analysis_plan": analysis_plan,
             "execution_plan": execution_plan,
             "selected_modules": selected_modules,
@@ -402,7 +426,8 @@ def build_human_outputs(
             "validator_precheck": {
                 "status": (
                     "passed"
-                    if (execution_plan.get("preflight") or {}).get("status") == "READY"
+                    if (execution_plan.get("preflight") or {}).get("status")
+                    in ("READY", "READY_PENDING_INPUT")
                     else "failed"
                 ) if isinstance(execution_plan, dict) else "failed",
                 "rules": [
@@ -414,7 +439,10 @@ def build_human_outputs(
         }
         if confirmed:
             preflight = execution_plan.get("preflight") if isinstance(execution_plan, dict) else {}
-            if (preflight or {}).get("status") != "READY":
+            if (preflight or {}).get("status") not in (
+                "READY",
+                "READY_PENDING_INPUT",
+            ):
                 raise ValueError("G2 能力/权限/输入预检未通过，禁止进入生产 Run")
             return {"confirmed_plan": plan}
         return {
