@@ -466,9 +466,9 @@ flowchart TD
     n07_clean: {
       title: "n07 · 活动数据清洗",
       tags: ['<span class="tag code">code</span>', '<span class="tag">owner: Topic5Agent</span>', '<span class="tag">handler: clean_campaign</span>'],
-      desc: "优先清洗用户上传的活动明细 Excel；旧任务回退 SSJH articles。",
+      desc: "只清洗 G2 确认并冻结的活动明细 Excel；缺少 source_file 时阻断。",
       content:
-        sec("职责", `<p><code>excel_source.py</code> 把中文列映射为统一行结构，再做周期过滤（<code>publish_time</code> epoch ms → CST）、去重和 KOL 分层。未声明 source_file 的旧任务才回退 SSJH articles。</p>`) +
+        sec("职责", `<p><code>excel_source.py</code> 把 G2 冻结的活动明细 Excel 中文列映射为统一行结构，再做周期过滤（<code>publish_time</code> epoch ms → CST）、去重和 KOL 分层。缺少 source_file 时 fail-closed。</p>`) +
         io("Session <code>activity_detail.xlsx</code>（<code>brand_stats</code> 为调度依赖）", "<code>cleaned_data</code>") +
         sec("关键约束", `<p>去重键优先级 <code>fingerprint → id → item_id → url</code>。</p>
            <p class="note">声明了 source_file 但文件不存在、列缺失或过滤后无数据时直接报错，不静默换源。剔除比例 &gt; 10% 触发抽查。</p>`)

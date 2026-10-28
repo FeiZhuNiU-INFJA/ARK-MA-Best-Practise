@@ -11,8 +11,6 @@ remark 无内容只记录、不触发续跑（等待后续消息）；remark 带
 """
 from __future__ import annotations
 
-import base64
-import binascii
 import json
 import re
 from datetime import date
@@ -63,6 +61,18 @@ def hc_kind_for_node(node_id: str) -> str:
     return NODE_TO_HC.get(node_id, node_id)
 
 
+def _is_external_permission_p0(issues: list[Any]) -> bool:
+    return any(
+        isinstance(issue, dict)
+        and issue.get("severity") == "P0"
+        and (
+            issue.get("locus") == "feishu-permission"
+            or issue.get("id") == "P0-postpublish-owner"
+        )
+        for issue in issues
+    )
+
+
 def write_hc_pending(st, run_dir: Path) -> dict:
     """引擎暂停在人工关卡时，落 hc_pending.json 供薄 Agent 产卡。"""
     human = st.human or {}
@@ -105,6 +115,29 @@ def write_hc_pending(st, run_dir: Path) -> dict:
                 if qc_path.exists() else None
             ),
         }
+    elif node_id == "n_hc7_escalate":
+        qc_report = st.read_artifact("qc_report") or {}
+        delivery_draft = st.read_artifact("delivery_draft") or {}
+        post_publish = (
+            delivery_draft.get("post_publish_validation")
+            if isinstance(delivery_draft, dict) else {}
+        ) or {}
+        issues = list(post_publish.get("issues") or [])
+        if not issues and isinstance(qc_report, dict):
+            issues = list(qc_report.get("issues") or [])
+        payload["review_context"] = {
+            "escalation_reason": (
+                "external_permission"
+                if _is_external_permission_p0(issues)
+                else "qc_retry_exhausted"
+            ),
+            "issues": issues,
+            "qc_report": qc_report,
+            "delivery_draft": delivery_draft,
+            "qc_report_ref": st.artifact_ref("qc_report"),
+            "delivery_ref": st.artifact_ref("delivery_draft"),
+            "report_ref": st.artifact_ref("report_md"),
+        }
     elif node_id == "n21_hc_user":
         payload["review_context"] = {
             "delivery_draft": st.read_artifact("delivery_draft") or {},
@@ -121,69 +154,6 @@ def clear_hc_pending(run_dir: Path) -> None:
     p = Path(run_dir) / "hc_pending.json"
     if p.exists():
         p.unlink()
-
-
-def build_post_publish_recovery_outputs(st) -> dict:
-    """System-reject an invalid G4 draft without impersonating a user decision."""
-    human = st.human or {}
-    if st.status != "awaiting_human" or human.get("node") != "n21_hc_user":
-        raise ValueError("发布后恢复仅允许用于当前暂停在 G4 的 run")
-    draft = st.read_artifact("delivery_draft") or {}
-    validation = (
-        draft.get("post_publish_validation")
-        if isinstance(draft, dict) else {}
-    ) or {}
-    post_issues = list(validation.get("issues") or [])
-    if not validation.get("has_p0") or not post_issues:
-        raise ValueError("G4 草稿没有发布后 P0，不允许系统自动打回")
-
-    prior_qc = st.read_artifact("qc_report") or {}
-    prior_issues = (
-        list(prior_qc.get("issues") or [])
-        if isinstance(prior_qc, dict) else []
-    )
-    merged = []
-    seen = set()
-    for issue in prior_issues + post_issues:
-        issue_id = (
-            str(issue.get("id") or "")
-            if isinstance(issue, dict) else str(issue)
-        )
-        if issue_id and issue_id in seen:
-            continue
-        if issue_id:
-            seen.add(issue_id)
-        merged.append(issue)
-    p0_count = sum(
-        1 for issue in merged
-        if isinstance(issue, dict) and issue.get("severity") == "P0"
-    )
-    qc_report = {
-        **(prior_qc if isinstance(prior_qc, dict) else {}),
-        "issues": merged,
-        "p0_count": p0_count,
-        "has_p0": p0_count > 0,
-        "post_publish_validation": validation,
-    }
-    return {
-        "user_confirmation": {
-            "status": "auto_rejected",
-            "authority": "system",
-            "reason": "post_publish_p0",
-            "report_ref": st.artifact_ref("report_md"),
-            "delivery_ref": st.artifact_ref("delivery_draft"),
-            "revision_id": draft.get("revision_id"),
-        },
-        "qc_report": qc_report,
-        "_control": {
-            "next": "n19_fix",
-            "gate_status": "auto_rejected",
-            "invalidate_artifacts": [
-                "delivery_draft", "external_receipts", "feishu_doc",
-                "delivery_record", "task_result", "handoff",
-            ],
-        },
-    }
 
 
 def _parse_requirement(note: str) -> dict:
@@ -203,11 +173,6 @@ def _parse_requirement(note: str) -> dict:
             raw = path.read_text(encoding="utf-8")
         except OSError as error:
             raise ValueError("G1 需求文件无法读取") from error
-    elif raw.startswith("b64:"):
-        try:
-            raw = base64.urlsafe_b64decode(raw[4:].encode("ascii")).decode("utf-8")
-        except (binascii.Error, ValueError, UnicodeError) as error:
-            raise ValueError("G1 需求 Base64 载荷无效") from error
     try:
         value = json.loads(raw)
     except (TypeError, ValueError) as error:
@@ -392,7 +357,23 @@ def build_human_outputs(
 
     # HC7 never waives P0. A positive decision means another repair/review round.
     if node_id == "n_hc7_escalate":
-        target = "n19_fix" if decision in ("pass", "confirmed") else node_id
+        target = node_id
+        if decision in ("pass", "confirmed"):
+            draft = st.read_artifact("delivery_draft") or {}
+            post_publish = (
+                draft.get("post_publish_validation")
+                if isinstance(draft, dict) else {}
+            ) or {}
+            issues = list(post_publish.get("issues") or [])
+            if not issues:
+                qc = st.read_artifact("qc_report") or {}
+                if isinstance(qc, dict):
+                    issues = list(qc.get("issues") or [])
+            target = (
+                "n20_delivery_draft"
+                if _is_external_permission_p0(issues)
+                else "n19_fix"
+            )
         return {
             expect[0] if expect else "escalation_decision": {
                 "decision": decision,

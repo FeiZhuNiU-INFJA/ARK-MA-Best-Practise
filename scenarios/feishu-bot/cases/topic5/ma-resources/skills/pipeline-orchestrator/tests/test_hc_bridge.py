@@ -15,7 +15,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import tempfile
 import shutil
 import unittest
-import base64
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -156,6 +155,46 @@ class TestHcPendingFile(unittest.TestCase):
         self.assertEqual(context["execution_plan"]["stages"][0]["name"], "数据准备")
         self.assertEqual(context["selected_modules"]["core"], ["brand_context"])
 
+    def test_hc7_pending_contains_external_permission_error(self):
+        self.st.human = {
+            "node": "n_hc7_escalate",
+            "prompt": "异常升级",
+            "expect": ["escalation_decision"],
+        }
+        issue = {
+            "id": "P0-postpublish-owner",
+            "severity": "P0",
+            "title": "飞书文档未完成所有权转移",
+            "evidence": "飞书 HTTP 403 code=1063002 msg=Permission denied",
+            "locus": "feishu-permission",
+        }
+        self.st.write_artifact("qc_report", {
+            "has_p0": True,
+            "p0_count": 1,
+            "issues": [issue],
+        })
+        self.st.write_artifact("delivery_draft", {
+            "state": "needs_review",
+            "url": "https://www.feishu.cn/docx/doc_real",
+            "ownership_target": "ou_target",
+            "ownership_transferred": False,
+            "post_publish_validation": {
+                "has_p0": True,
+                "p0_count": 1,
+                "issues": [issue],
+            },
+        })
+
+        payload = hc_bridge.write_hc_pending(self.st, self.st.run_dir)
+
+        context = payload["review_context"]
+        self.assertEqual(context["escalation_reason"], "external_permission")
+        self.assertEqual(context["issues"][0]["id"], "P0-postpublish-owner")
+        self.assertIn("1063002", context["issues"][0]["evidence"])
+        self.assertEqual(
+            context["delivery_draft"]["ownership_target"], "ou_target"
+        )
+
 
 class TestBuildHumanOutputs(unittest.TestCase):
     def setUp(self):
@@ -218,59 +257,47 @@ class TestBuildHumanOutputs(unittest.TestCase):
             hc_bridge.build_human_outputs(self.st, "escalate", "")["user_confirmation"]["status"],
             "escalate")
 
-    def test_post_publish_recovery_is_system_owned_and_routes_to_fix(self):
-        self.st.status = "awaiting_human"
+    def test_hc7_external_permission_pass_retries_delivery(self):
         self.st.human = {
-            "node": "n21_hc_user",
-            "expect": ["user_confirmation"],
+            "node": "n_hc7_escalate",
+            "expect": ["escalation_decision"],
         }
-        self.st.write_artifact("qc_report", {
-            "has_p0": False,
-            "p0_count": 0,
-            "issues": [{"id": "P1-existing", "severity": "P1"}],
-        })
         self.st.write_artifact("delivery_draft", {
             "state": "needs_review",
-            "revision_id": 244,
             "post_publish_validation": {
                 "has_p0": True,
-                "p0_count": 1,
                 "issues": [{
-                    "id": "P0-postpublish-images",
+                    "id": "P0-postpublish-owner",
                     "severity": "P0",
+                    "locus": "feishu-permission",
                 }],
             },
         })
 
-        out = hc_bridge.build_post_publish_recovery_outputs(self.st)
+        out = hc_bridge.build_human_outputs(self.st, "pass", "权限已修复")
 
-        self.assertEqual(out["user_confirmation"]["authority"], "system")
-        self.assertEqual(out["user_confirmation"]["status"], "auto_rejected")
-        self.assertEqual(out["_control"]["next"], "n19_fix")
-        self.assertEqual(out["_control"]["gate_status"], "auto_rejected")
-        self.assertTrue(out["qc_report"]["has_p0"])
-        self.assertEqual(out["qc_report"]["p0_count"], 1)
-        self.assertIn(
-            "P0-postpublish-images",
-            [issue["id"] for issue in out["qc_report"]["issues"]],
+        self.assertEqual(out["_control"]["next"], "n20_delivery_draft")
+        self.assertFalse(
+            out["escalation_decision"]["release_authorized"]
         )
 
-    def test_post_publish_recovery_rejects_ready_draft(self):
-        self.st.status = "awaiting_human"
+    def test_hc7_qc_exhausted_pass_retries_report_fix(self):
         self.st.human = {
-            "node": "n21_hc_user",
-            "expect": ["user_confirmation"],
+            "node": "n_hc7_escalate",
+            "expect": ["escalation_decision"],
         }
-        self.st.write_artifact("delivery_draft", {
-            "state": "ready",
-            "post_publish_validation": {
-                "has_p0": False,
-                "p0_count": 0,
-                "issues": [],
-            },
+        self.st.write_artifact("qc_report", {
+            "has_p0": True,
+            "issues": [{
+                "id": "P0-report-content",
+                "severity": "P0",
+                "locus": "report-md",
+            }],
         })
-        with self.assertRaisesRegex(ValueError, "没有发布后 P0"):
-            hc_bridge.build_post_publish_recovery_outputs(self.st)
+
+        out = hc_bridge.build_human_outputs(self.st, "pass", "继续返修")
+
+        self.assertEqual(out["_control"]["next"], "n19_fix")
 
     def test_g1_structured_requirement_and_g2_inheritance(self):
         self.st.human = {
@@ -363,19 +390,6 @@ class TestBuildHumanOutputs(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "有效 JSON"):
             hc_bridge.build_human_outputs(self.st, "pass", "not-json")
-
-    def test_g1_accepts_base64_transport(self):
-        self.st.human = {
-            "node": "n01_hc_requirement",
-            "expect": ["requirement_confirmed"],
-        }
-        encoded = base64.urlsafe_b64encode(
-            _g1_note().encode("utf-8")
-        ).decode("ascii")
-        out = hc_bridge.build_human_outputs(
-            self.st, "pass", "b64:" + encoded
-        )
-        self.assertEqual(out["requirement_confirmed"]["brand"], "瑞幸")
 
     def test_g1_accepts_mounted_requirement_file(self):
         self.st.human = {

@@ -208,6 +208,63 @@ class TestQcLoop(unittest.TestCase):
         self.assertEqual(st.nodes["n19_fix"]["status"], "completed")
         self.assertNotIn("n21_hc_user", st.nodes)
 
+    def test_post_publish_permission_p0_escalates_without_report_fix(self):
+        st = engine.create_run(self.dag, Path(self.ws), "t", "r")
+        st.current_node = "n20_delivery_draft"
+        st.frontier = ["n20_delivery_draft"]
+        st.params["resource_lock"] = "lock_test"
+        st.write_artifact("report_md", {
+            "markdown": "# 测试报告",
+            "version": "0.0",
+        })
+        st.write_artifact("chart_urls", {"charts": []})
+        st.write_artifact("stats_bundle", {"campaigns": {}})
+        original_delivery = handlers._REGISTRY["delivery_draft"]
+        issue = {
+            "id": "P0-postpublish-owner",
+            "severity": "P0",
+            "title": "飞书文档未完成所有权转移",
+            "evidence": "飞书 HTTP 403 code=1063002 msg=Permission denied",
+            "locus": "feishu-permission",
+        }
+
+        def permission_failure(node, _st, _ctx):
+            payloads = {
+                "delivery_draft": {
+                    "state": "needs_review",
+                    "ownership_transferred": False,
+                    "ownership_target": "ou_target",
+                    "post_publish_validation": {
+                        "has_p0": True,
+                        "p0_count": 1,
+                        "issues": [issue],
+                    },
+                },
+                "external_receipts": {"revision_id": 1},
+                "feishu_doc": {"revision_id": 1},
+                "qc_report": {
+                    "has_p0": True,
+                    "p0_count": 1,
+                    "issues": [issue],
+                },
+            }
+            return {
+                "artifacts": {
+                    key: payloads[key] for key in node.get("outputs", [])
+                }
+            }
+
+        with compliant_pipeline_services():
+            handlers._REGISTRY["delivery_draft"] = permission_failure
+            try:
+                engine.run(self.dag, st)
+            finally:
+                handlers._REGISTRY["delivery_draft"] = original_delivery
+
+        self.assertEqual(st.status, "awaiting_human")
+        self.assertEqual(st.human["node"], "n_hc7_escalate")
+        self.assertNotIn("n19_fix", st.nodes)
+
 
 class TestResumeWritesHumanArtifact(unittest.TestCase):
     def setUp(self):

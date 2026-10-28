@@ -76,7 +76,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
   n17_validate["n17_validate<br/>质检关卡（G3·独立 Validator 两段式审计）"]
   n18_qc_gate{"n18_qc_gate<br/>质检路由"}
   n19_fix["n19_fix<br/>P0 修复（patch 递增）"]
-  n_hc7_escalate(["n_hc7_escalate<br/>质检超限人工介入（操作级 HC）"])
+  n_hc7_escalate(["n_hc7_escalate<br/>质检/外部权限异常人工介入（操作级 HC）"])
   n20_delivery_draft["n20_delivery_draft<br/>交付草稿（飞书文档 draft）"]
   n20_delivery_gate{"n20_delivery_gate<br/>发布后质检路由"}
   n21_hc_user(["n21_hc_user<br/>用户终验（G4）"])
@@ -403,7 +403,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         <div><b>输入</b><code>brand_stats</code></div>
         <div><b>产出</b><code>cleaned_data</code></div>
       </div>
-      <div><b>通过条件</b>优先清洗用户上传 activity_detail Excel；旧任务无上传文件时回退 SSJH articles</div>
+      <div><b>通过条件</b>只清洗 G2 确认并冻结的 activity_detail Excel；缺少 source_file 时阻断</div>
       <div class="grid2">
         <div><b>副作用</b>none</div>
         <div><b>幂等键</b><code>none</code></div>
@@ -752,7 +752,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
     <div class="card" id="n_hc7_escalate">
       <div class="card-h">
         <span class="nid">n_hc7_escalate</span>
-        <span class="nname">质检超限人工介入（操作级 HC）</span>
+        <span class="nname">质检/外部权限异常人工介入（操作级 HC）</span>
         <span class="badge" style="color:#6b3fa0;background:#f0e9fa">人工关卡</span>
       </div>
       <div class="meta">
@@ -762,12 +762,12 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         
         
       </div>
-      <div class="biz"><b>业务背景</b>质检修复超 qc_max_rounds 轮触发人工介入（操作级 HC），防止无限循环。</div>
+      <div class="biz"><b>业务背景</b>质检修复超 qc_max_rounds 轮，或飞书权限等外部异常无法由报告返修解决时触发人工介入（操作级 HC）。</div>
       <div class="grid2">
         <div><b>输入</b><code>qc_report</code></div>
         <div><b>产出</b><code>escalation_decision</code></div>
       </div>
-      <div><b>通过条件</b>超 qc_max_rounds 轮触发，防无限循环</div>
+      <div><b>通过条件</b>超 qc_max_rounds 轮或遇到报告返修无法解决的外部权限异常时触发</div>
       <div class="grid2">
         <div><b>副作用</b>none</div>
         <div><b>幂等键</b><code>none</code></div>
@@ -796,7 +796,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
       <div><b>通过条件</b>内容层→飞书布局层，创建文档并转移所有权；发布后机器检查结果合并回 qc_report</div>
       <div class="grid2">
         <div><b>副作用</b>feishu-doc-create</div>
-        <div><b>幂等键</b><code>feishu:{task_id}:{resource_lock}:{report_version}</code></div>
+        <div><b>幂等键</b><code>feishu:{task_id}:{resource_lock}:{report_artifact_sha256}</code></div>
       </div>
       <div><b>流转</b><code>→ n20_delivery_gate</code></div>
       <div class="src"><b>实现 / 源文件映射</b><ul><li><code>KS_Feishu_Format.md</code></li><li><code>build_table_with_hc.py</code></li><li><code>feishu-doc-writer</code></li></ul></div>
@@ -814,7 +814,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         
         
       </div>
-      <div class="biz"><b>业务背景</b>发布后机器质检路由：通过才进入用户终验；P0 自动回到 n19 修复复检，达到轮次上限才升级人工。</div>
+      <div class="biz"><b>业务背景</b>发布后机器质检路由：通过才进入用户终验；内容 P0 回到 n19 修复复检，外部权限 P0 或达到轮次上限时升级人工。</div>
       <div class="grid2">
         <div><b>输入</b><code>—</code></div>
         <div><b>产出</b><code>—</code></div>

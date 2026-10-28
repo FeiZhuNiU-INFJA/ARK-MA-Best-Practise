@@ -49,7 +49,7 @@ _REPORT_MD = (
 
 def _clear_feishu_creds():
     for k in ("FEISHU_USER_ACCESS_TOKEN", "FEISHU_APP_ID", "FEISHU_APP_SECRET",
-              "FEISHU_USER_OPEN_ID", "FEISHU_DELIVERY_OWNER_OPEN_ID"):
+              "FEISHU_USER_OPEN_ID"):
         os.environ.pop(k, None)
 
 
@@ -148,6 +148,25 @@ class TestFeishuAdapter(unittest.TestCase):
     def test_current_revision_none_without_creds(self):
         self.assertIsNone(feishu.current_revision("docx_stub_x"))
 
+    def test_list_document_blocks_follows_all_pages(self):
+        calls = []
+
+        def fake_req(method, path, token, body=None, timeout=30):
+            calls.append(path)
+            if "page_token=" in path:
+                return {"items": [{"block_id": "b2"}], "has_more": False}
+            return {
+                "items": [{"block_id": "b1"}],
+                "has_more": True,
+                "page_token": "next/+ token",
+            }
+
+        with patch("feishu._req", side_effect=fake_req):
+            blocks = feishu._list_document_blocks("token", "doc")
+
+        self.assertEqual([block["block_id"] for block in blocks], ["b1", "b2"])
+        self.assertIn("page_token=next%2F%2B%20token", calls[1])
+
     def test_delivery_owner_prefers_task_initiator(self):
         seen = []
 
@@ -164,7 +183,6 @@ class TestFeishuAdapter(unittest.TestCase):
 
         with patch.dict(os.environ, {
             "FEISHU_USER_OPEN_ID": "ou_initiator",
-            "FEISHU_DELIVERY_OWNER_OPEN_ID": "ou_fallback",
         }, clear=False), \
                 patch("feishu._tenant_token", return_value="t-token"), \
                 patch("feishu._req", side_effect=fake_req):
@@ -175,32 +193,75 @@ class TestFeishuAdapter(unittest.TestCase):
         self.assertEqual(seen, ["ou_initiator"])
         self.assertTrue(result["ownership_transferred"])
 
-    def test_delivery_owner_falls_back_for_legacy_session(self):
-        seen = []
+    def test_delivery_preserves_owner_transfer_error(self):
+        calls = []
 
         def fake_req(method, path, token, body=None, timeout=30):
             if method == "POST" and path.endswith("/documents"):
                 return {"document": {"document_id": "doc_owner"}}
             if "transfer_owner" in path:
-                seen.append(body["member_id"])
+                raise RuntimeError("permission denied")
+            if path.endswith("/members?type=docx&need_notification=false"):
+                calls.append(body)
+                return {"member": body}
             if method == "GET" and path.endswith("/documents/doc_owner"):
                 return {"document": {"revision_id": 1}}
             if method == "GET" and "/blocks" in path:
                 return {"items": []}
             return {}
 
-        with patch.dict(os.environ, {
-            "FEISHU_DELIVERY_OWNER_OPEN_ID": "ou_fallback",
-        }, clear=False), \
-                patch("feishu._tenant_token", return_value="t-token"), \
-                patch("feishu._req", side_effect=fake_req):
-            os.environ.pop("FEISHU_USER_OPEN_ID", None)
+        with patch.dict(
+            os.environ, {"FEISHU_USER_OPEN_ID": "ou_initiator"}, clear=False
+        ), patch("feishu._tenant_token", return_value="t-token"), patch(
+            "feishu._req", side_effect=fake_req
+        ):
             result = feishu.create_delivery(
                 "", title="测试", task_id="t5", report_version="0.0"
             )
 
-        self.assertEqual(seen, ["ou_fallback"])
-        self.assertTrue(result["ownership_transferred"])
+        self.assertFalse(result["ownership_transferred"])
+        self.assertEqual(result["ownership_target"], "ou_initiator")
+        self.assertIn("permission denied", result["ownership_error"])
+        self.assertTrue(result["collaborator_added"])
+        self.assertEqual(result["collaborator_perm"], "full_access")
+        self.assertTrue(result["delivery_access_granted"])
+        self.assertEqual(calls, [{
+            "member_type": "openid",
+            "member_id": "ou_initiator",
+            "perm": "full_access",
+            "type": "user",
+        }])
+
+    def test_delivery_preserves_both_owner_and_collaborator_errors(self):
+        def fake_req(method, path, token, body=None, timeout=30):
+            if method == "POST" and path.endswith("/documents"):
+                return {"document": {"document_id": "doc_owner"}}
+            if "transfer_owner" in path:
+                raise RuntimeError("transfer permission denied")
+            if path.endswith("/members?type=docx&need_notification=false"):
+                raise RuntimeError("collaborator permission denied")
+            if method == "GET" and path.endswith("/documents/doc_owner"):
+                return {"document": {"revision_id": 1}}
+            if method == "GET" and "/blocks" in path:
+                return {"items": []}
+            return {}
+
+        with patch.dict(
+            os.environ, {"FEISHU_USER_OPEN_ID": "ou_initiator"}, clear=False
+        ), patch("feishu._tenant_token", return_value="t-token"), patch(
+            "feishu._req", side_effect=fake_req
+        ):
+            result = feishu.create_delivery(
+                "", title="测试", task_id="t5", report_version="0.0"
+            )
+
+        self.assertFalse(result["ownership_transferred"])
+        self.assertFalse(result["collaborator_added"])
+        self.assertFalse(result["delivery_access_granted"])
+        self.assertIn("transfer permission denied", result["ownership_error"])
+        self.assertIn(
+            "collaborator permission denied", result["collaborator_error"]
+        )
 
     def test_create_delivery_uploads_media_and_fills_image(self):
         """真路径（monkeypatch HTTP）：本地图 → 建 image block → 上传 media → PATCH 回填。
@@ -385,12 +446,144 @@ class TestDeliveryHandlers(unittest.TestCase):
     def test_delivery_gate_routes_p0_to_fix_before_g4(self):
         self.st.write_artifact("delivery_draft", {
             "state": "needs_review",
-            "post_publish_validation": {"has_p0": True, "p0_count": 1},
+            "post_publish_validation": {
+                "has_p0": True,
+                "p0_count": 1,
+                "issues": [{
+                    "id": "P0-postpublish-images",
+                    "severity": "P0",
+                    "locus": "feishu-docx",
+                }],
+            },
         })
         route = handlers.get("delivery_draft_decision")(
             _node("n20_delivery_gate", []), self.st, {}
         )
         self.assertEqual(route, {"route": "has_p0_retry"})
+
+    def test_delivery_draft_accepts_full_access_collaborator_fallback(self):
+        created = {
+            "doc_token": "doc_real",
+            "url": "https://www.feishu.cn/docx/doc_real",
+            "revision_id": 8,
+            "report_version": "0.0",
+            "ownership_transferred": False,
+            "ownership_target": "ou_initiator",
+            "ownership_error": "RuntimeError: Permission denied",
+            "collaborator_added": True,
+            "collaborator_perm": "full_access",
+            "collaborator_error": "",
+            "delivery_access_granted": True,
+            "readback": {
+                "ok": True,
+                "revision_id": 8,
+                "chapters_complete": True,
+                "missing_chapters": [],
+                "images_referenced": True,
+                "expected_images": 13,
+                "got_images": 13,
+            },
+            "degraded": False,
+        }
+        with patch("handlers.feishu.api_available", return_value=True), patch(
+            "handlers.feishu.create_delivery", return_value=created
+        ):
+            result = handlers.get("delivery_draft")(
+                _node("n20_delivery_draft", [
+                    "delivery_draft", "external_receipts", "feishu_doc",
+                    "qc_report",
+                ]),
+                self.st,
+                {},
+            )
+
+        draft = result["artifacts"]["delivery_draft"]
+        qc = result["artifacts"]["qc_report"]
+        self.assertEqual(draft["state"], "ready")
+        self.assertFalse(draft["ownership_transferred"])
+        self.assertTrue(draft["collaborator_added"])
+        self.assertTrue(draft["delivery_access_granted"])
+        self.assertFalse(qc["has_p0"])
+        self.assertEqual(qc["p0_count"], 0)
+        self.assertIn(
+            "P1-postpublish-owner-fallback",
+            [issue["id"] for issue in qc["issues"]],
+        )
+
+    def test_delivery_retry_replaces_stale_post_publish_permission_p0(self):
+        self.st.write_artifact("qc_report", {
+            "has_p0": True,
+            "p0_count": 1,
+            "issues": [{
+                "id": "P0-postpublish-owner",
+                "severity": "P0",
+                "locus": "feishu-permission",
+            }],
+        })
+        created = {
+            "doc_token": "doc_real",
+            "url": "https://www.feishu.cn/docx/doc_real",
+            "revision_id": 9,
+            "report_version": "0.0",
+            "ownership_transferred": True,
+            "ownership_target": "ou_initiator",
+            "ownership_error": "",
+            "collaborator_added": False,
+            "collaborator_perm": "",
+            "collaborator_error": "",
+            "delivery_access_granted": True,
+            "readback": {
+                "ok": True,
+                "revision_id": 9,
+                "chapters_complete": True,
+                "missing_chapters": [],
+                "images_referenced": True,
+                "expected_images": 13,
+                "got_images": 13,
+            },
+            "degraded": False,
+        }
+        with patch("handlers.feishu.api_available", return_value=True), patch(
+            "handlers.feishu.create_delivery", return_value=created
+        ):
+            result = handlers.get("delivery_draft")(
+                _node("n20_delivery_draft", [
+                    "delivery_draft", "external_receipts", "feishu_doc",
+                    "qc_report",
+                ]),
+                self.st,
+                {},
+            )
+
+        qc = result["artifacts"]["qc_report"]
+        self.assertFalse(qc["has_p0"])
+        self.assertNotIn(
+            "P0-postpublish-owner",
+            [issue["id"] for issue in qc["issues"]],
+        )
+
+    def test_delivery_gate_routes_ownership_failure_directly_to_hc7(self):
+        self.st.write_artifact("delivery_draft", {
+            "state": "needs_review",
+            "post_publish_validation": {
+                "has_p0": True,
+                "p0_count": 1,
+                "issues": [{
+                    "id": "P0-postpublish-owner",
+                    "severity": "P0",
+                    "title": "飞书文档未完成所有权转移",
+                    "evidence": (
+                        "ownership_transferred=false; 飞书 HTTP 403 "
+                        "code=1063002 msg=Permission denied"
+                    ),
+                    "locus": "feishu-permission",
+                }],
+            },
+        })
+        route = handlers.get("delivery_draft_decision")(
+            _node("n20_delivery_gate", []), self.st, {}
+        )
+        self.assertEqual(route, {"route": "has_p0_maxed"})
 
     def test_delivery_gate_routes_ready_to_g4(self):
         self.st.write_artifact("delivery_draft", {
@@ -405,7 +598,9 @@ class TestDeliveryHandlers(unittest.TestCase):
     def _seed_delivery(self):
         self._seed_full_delivery()
 
-    def _seed_full_delivery(self, *, ownership=True, stale_delivery_ref=False):
+    def _seed_full_delivery(
+        self, *, ownership=True, collaborator=False, stale_delivery_ref=False
+    ):
         self.st.params["run_mode"] = "full"
         draft = {
             "state": "ready",
@@ -415,6 +610,9 @@ class TestDeliveryHandlers(unittest.TestCase):
             "revision_id": 7,
             "report_ref": self.st.artifact_ref("report_md"),
             "ownership_transferred": ownership,
+            "collaborator_added": collaborator,
+            "collaborator_perm": "full_access" if collaborator else "",
+            "delivery_access_granted": ownership or collaborator,
             "readback": {"ok": True, "revision_id": 7},
             "degraded": False,
         }
@@ -425,11 +623,17 @@ class TestDeliveryHandlers(unittest.TestCase):
             "revision_id": 7,
             "report_version": "0.0",
             "ownership_transferred": ownership,
+            "collaborator_added": collaborator,
+            "collaborator_perm": "full_access" if collaborator else "",
+            "delivery_access_granted": ownership or collaborator,
             "degraded": False,
         })
         self.st.write_artifact("feishu_doc", {
             **draft,
             "ownership_transferred": ownership,
+            "collaborator_added": collaborator,
+            "collaborator_perm": "full_access" if collaborator else "",
+            "delivery_access_granted": ownership or collaborator,
         })
         delivery_ref = (
             {"artifact_id": "delivery_draft@v0"}
@@ -510,6 +714,29 @@ class TestDeliveryHandlers(unittest.TestCase):
                 self.st,
                 {},
             )
+
+    def test_full_commit_and_handoff_accept_collaborator_fallback(self):
+        self._seed_full_delivery(ownership=False, collaborator=True)
+        commit = handlers.get("delivery_commit")(
+            _node("n23_delivery_commit", ["delivery_record", "task_result"]),
+            self.st,
+            {},
+        )
+        record = commit["artifacts"]["delivery_record"]
+        self.assertTrue(record["committed"])
+        self.assertFalse(record["ownership_transferred"])
+        self.assertTrue(record["collaborator_added"])
+        self.assertTrue(record["delivery_access_granted"])
+        for key, value in commit["artifacts"].items():
+            self.st.write_artifact(key, value)
+        with patch("handlers.feishu.current_revision", return_value=7):
+            handoff = handlers.get("handoff")(
+                _node("n24_handoff", ["handoff"]), self.st, {}
+            )["artifacts"]["handoff"]
+        self.assertTrue(handoff["terminal_accepted"])
+        self.assertFalse(handoff["checks"]["ownership_transferred"])
+        self.assertTrue(handoff["checks"]["collaborator_added"])
+        self.assertTrue(handoff["checks"]["delivery_access_granted"])
 
     def test_full_commit_rejects_stale_draft_ref(self):
         self._seed_full_delivery(stale_delivery_ref=True)

@@ -27,6 +27,9 @@
 - 记忆（只读）：`/mnt/memory/topic5/`，启动前先 `cat MEMORY.md` 过一遍必读清单。
 - 凭据：SSJH / DataHub / 封面 / 飞书的 token 全部由 MA Vault 以环境变量注入，你**看不到明文**，
   也**不要**在消息里回显任何 token。
+- 飞书交付由编排器确定性执行：优先将文档所有权转给任务发起人；若转移失败，必须尝试将发起人
+  添加为 `full_access` 可管理协作者。两者都失败才升级 HC7；协作者降级成功必须在交付中披露，
+  不得声称所有权已转移。
 - `mode=demo` 只表示 Gateway 已为 G1 表单预填默认值；编排器内的数据、模型、图表、质检和交付标准与
   `full` 完全相同，任何核心能力降级都必须阻断。
 
@@ -144,8 +147,7 @@ nohup python3 run_pipeline.py resume \
 
 - **G1 特殊**：生产路径的 note 是 `@/mnt/session/uploads/topic5_requirement_*.json`。
   必须把冒号后的短文件引用**原样**作为 `--note` 参数传给脚本，不得读取、摘要、改写或
-  重新生成；`hc_bridge` 会在沙箱内读取并校验。旧任务的 `b64:...` 封套仍兼容，同样必须
-  原样转发。G1 需求不包含活动明细文件引用。
+  重新生成；`hc_bridge` 会在沙箱内读取并校验。G1 需求不包含活动明细文件引用。
 - **G2 通过特殊**：Gateway 会等用户在 G2 后上传 Excel，再把
   `{"source_file":{"name":"...","mount_path":"..."}}` 作为 note 原样注入。
   必须原样传给 `resume --hc G2 --decision pass --note ...`，由 `hc_bridge` 写入

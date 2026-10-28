@@ -1301,12 +1301,15 @@ class HitlActionParsingTest(unittest.TestCase):
             f"G1 pass: {reference}",
         )
 
-    def test_g1_submission_without_file_persists_requirement_snapshot(
+    def test_g1_submission_does_not_backfill_previously_attached_file(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             store = ps.PipelineStore(str(Path(temp_dir) / "g1-audit.db"))
             job = store.create_job("c", "", "u", "session-1", "demo", "")
+            store.set_source_file(
+                job.job_id, "file_old", "old.xlsx", "old.xlsx"
+            )
             store.mark_wait_hc(job.job_id, "G1")
             event_id = store.append_hc_event(
                 job.job_id, "G1", {"hc": "G1"}
@@ -1407,6 +1410,47 @@ class HitlActionParsingTest(unittest.TestCase):
         )
         self.assertEqual(demo_brand["default_value"], "瑞幸")
         self.assertNotIn("default_value", full_brand)
+
+    def test_hc7_card_displays_external_permission_error(self) -> None:
+        job = ps.PipelineJob(
+            job_id="job_x",
+            chat_id="c",
+            thread_id="",
+            user_open_id="u",
+            ma_session_id="s",
+            mode="full",
+            project_dir="d",
+        )
+        payload = {
+            "node": "n_hc7_escalate",
+            "prompt": "异常升级",
+            "review_context": {
+                "escalation_reason": "external_permission",
+                "issues": [{
+                    "id": "P0-postpublish-owner",
+                    "severity": "P0",
+                    "title": "飞书文档未完成所有权转移",
+                    "evidence": (
+                        "飞书 HTTP 403 code=1063002 msg=Permission denied"
+                    ),
+                    "locus": "feishu-permission",
+                }],
+                "delivery_draft": {
+                    "url": "https://www.feishu.cn/docx/doc_real",
+                    "ownership_target": "ou_target",
+                    "ownership_transferred": False,
+                },
+            },
+        }
+
+        card_json = self.hitl.build_hc_card(job, "HC7", 7, payload)
+        rendered = json.dumps(card_json, ensure_ascii=False)
+
+        self.assertIn("报告内容返修无法解决", rendered)
+        self.assertIn("HTTP 403", rendered)
+        self.assertIn("1063002", rendered)
+        self.assertIn("Permission denied", rendered)
+        self.assertIn("ou_target", rendered)
 
     def test_g1_submit_is_independent_of_file_attach(self) -> None:
         base = dict(

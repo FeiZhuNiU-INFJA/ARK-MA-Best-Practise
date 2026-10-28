@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 import time
@@ -477,8 +476,45 @@ def _delivery_review_elements(payload: dict) -> list[dict]:
             f"- 文档 revision：`{draft.get('revision_id') or '缺失'}`\n"
             f"- 报告版本：`{draft.get('report_version') or '缺失'}`\n"
             f"- 回读状态：`{draft.get('state') or 'unknown'}`\n"
+            f"- 所有权已转移：`{bool(draft.get('ownership_transferred'))}`\n"
+            f"- 可管理协作者降级：`{bool(draft.get('collaborator_added'))}`"
+            f"（`{draft.get('collaborator_perm') or 'none'}`）\n"
             f"- Report Artifact：`{((context.get('report_ref') or {}).get('artifact_id')) or '缺失'}`\n"
             f"- Delivery Artifact：`{((context.get('delivery_ref') or {}).get('artifact_id')) or '缺失'}`"
+        ),
+    }]
+
+
+def _escalation_review_elements(payload: dict) -> list[dict]:
+    context = payload.get("review_context") or {}
+    draft = context.get("delivery_draft") or {}
+    issues = context.get("issues") or []
+    issue_lines = []
+    for item in issues:
+        if not isinstance(item, dict):
+            continue
+        issue_lines.append(
+            f"- **{item.get('severity', 'UNKNOWN')} · "
+            f"{item.get('title') or item.get('id') or '未命名问题'}**"
+            f"\n  `{item.get('id') or 'unknown'}`"
+            f" · 位置：`{item.get('locus') or 'unknown'}`"
+            f"\n  {item.get('evidence') or item.get('msg') or '无错误证据'}"
+        )
+    reason = context.get("escalation_reason") or "unknown"
+    reason_label = {
+        "external_permission": "飞书外部权限/所有权异常，报告内容返修无法解决",
+        "qc_retry_exhausted": "报告质检返修已达到次数上限",
+    }.get(reason, str(reason))
+    return [{
+        "tag": "markdown",
+        "content": (
+            f"**升级原因**\n{reason_label}"
+            f"\n\n**飞书文档**\n"
+            f"- 链接：{draft.get('url') or '缺失'}\n"
+            f"- 所有权目标：`{draft.get('ownership_target') or '缺失'}`\n"
+            f"- 所有权已转移：`{bool(draft.get('ownership_transferred'))}`"
+            "\n\n**错误明细**\n"
+            + ("\n".join(issue_lines) or "未提供结构化错误明细")
         ),
     }]
 
@@ -599,6 +635,8 @@ def build_hc_card(
         elements.extend(_qc_review_elements(payload))
     elif hc_kind == "G4":
         elements.extend(_delivery_review_elements(payload))
+    elif hc_kind == "HC7":
+        elements.extend(_escalation_review_elements(payload))
     elements.append({"tag": "hr"})
     if hc_kind == "G1":
         elements.append(
@@ -1020,12 +1058,6 @@ class Topic5Hitl(Topic5CardSenderProtocol):
                     f"需求问卷未通过校验：{error}",
                 )
                 return
-            # 兼容切换前已在 G1 挂载文件的活跃 Session；新任务在 G1 没有该字段。
-            if job.source_file_id:
-                requirement["source_file"] = {
-                    "name": job.source_file_name,
-                    "mount_path": job.source_file_mount_path,
-                }
             decision_note = await self._runner.attach_requirement_payload(
                 job, requirement, hc_event.id
             )
@@ -1313,10 +1345,7 @@ def _build_decision_message(hc_kind: str, decision: str, note: str) -> str:
     """
     if decision == DECISION_PASS:
         if hc_kind == "G1" and note:
-            if note.startswith("@/mnt/session/uploads/"):
-                return f"{hc_kind} pass: {note}"
-            encoded = base64.urlsafe_b64encode(note.encode("utf-8")).decode("ascii")
-            return f"{hc_kind} pass: b64:{encoded}"
+            return f"{hc_kind} pass: {note}"
         return f"{hc_kind} pass: {note}" if note else f"{hc_kind} pass"
     if decision == DECISION_REJECT:
         return f"{hc_kind} reject: {note or '无说明'}"

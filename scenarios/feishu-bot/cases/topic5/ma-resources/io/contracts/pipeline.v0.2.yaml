@@ -181,7 +181,7 @@ nodes:
     handler: clean_campaign
     inputs: [brand_stats]
     outputs: [cleaned_data]
-    success: 优先清洗用户上传 activity_detail Excel；旧任务无上传文件时回退 SSJH articles
+    success: 只清洗 G2 确认并冻结的 activity_detail Excel；缺少 source_file 时阻断
     side_effect: none
     retry: {max: 1, on_fail: pause}
     checkpoint: true
@@ -361,13 +361,13 @@ nodes:
     next: n17_validate
 
   - id: n_hc7_escalate
-    name: 质检超限人工介入（操作级 HC）
+    name: 质检/外部权限异常人工介入（操作级 HC）
     owner: ProjectAgent
     mode: human
     handler: human_gate
     inputs: [qc_report]
     outputs: [escalation_decision]
-    success: 超 qc_max_rounds 轮触发，防无限循环
+    success: 超 qc_max_rounds 轮或遇到报告返修无法解决的外部权限异常时触发
     next: n20_delivery_draft
 
   # ⑧ 交付草稿 + 终验门 G4（draft→commit 分离）

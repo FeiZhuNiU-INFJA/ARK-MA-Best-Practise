@@ -151,12 +151,11 @@ ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 >
 > `demo` 仅预填 G1 表单。进入流水线后与 `full` 使用相同标准；缺核心凭证或出现 `degraded:true` 时对应节点阻断。
 
-### 2.3 飞书交付所有权转移（L 阶段必需）
+### 2.3 飞书交付（L 阶段）
 
 ```env
-# n20 默认使用 Session 注入的 FEISHU_USER_OPEN_ID，把所有权转给任务发起人。
-# 仅供旧 Session 或非 Gateway 调试时兜底：
-FEISHU_DELIVERY_OWNER_OPEN_ID=ou_xxx
+# n20 使用 Session 注入的 FEISHU_USER_OPEN_ID，把所有权转给任务发起人。
+# 正常任务无需在全局配置中设置 owner open_id。
 FEISHU_OPENAPI_BASE=https://open.feishu.cn
 # 可选：企业自定义飞书域名；未配置时使用 https://www.feishu.cn
 FEISHU_WEB_BASE=https://your-tenant.feishu.cn
@@ -249,8 +248,9 @@ HCx remark: <note>
 ```
 
 其中 `HCx` 是关卡种类（`G1`/`G2`/`N10`/`G3`/`G4`/`HC7`/`USER_ESCALATE`）。**备注（remark）无内容时只记录 remark，不触发 resume_job**，需等用户后续消息指令。
-G1 是特殊结构化消息：`G1 pass: b64:<需求问卷 JSON 的 URL-safe Base64>`，Coordinator
-必须把 `b64:...` 原样传给 `run_pipeline.py resume --note`，不得解码、摘要或改写。
+G1 是特殊结构化消息：Gateway 将需求问卷写入 Session 挂载文件，并以
+`G1 pass: @/mnt/session/uploads/topic5_requirement_*.json` 注入。Coordinator 必须把文件引用
+原样传给 `run_pipeline.py resume --note`，不得读取、摘要或改写。
 
 ---
 
@@ -282,7 +282,7 @@ G1 是特殊结构化消息：`G1 pass: b64:<需求问卷 JSON 的 URL-safe Base
 | SSE 中断/超时                 | 单会话默认超时，超长任务加大 `SESSION_TIMEOUT_MS`（毫秒）                       |
 | n14 图表渲染失败              | 检查 `REPORT_COVER_API_KEY`；沙箱 node_modules 是否安装成功（看 setup_script 日志）|
 | n09/n11 标注走降级            | 检查 `DATAHUB_API_KEY` / `DATAHUB_BASE_URL`；行数 <1000 会走小引擎 semantic     |
-| 飞书交付失败                  | 检查 `docs:permission.member:transfer` 权限与 `FEISHU_DELIVERY_OWNER_OPEN_ID`  |
+| 飞书交付失败                  | 检查 `docs:permission.member:transfer` 权限与 Session 是否注入 `FEISHU_USER_OPEN_ID` |
 | 报告缺指标/口径不符           | 对照 README「口径红线」；缺 AI 情感会直接报错（设计如此，不兜底）               |
 
 ---
