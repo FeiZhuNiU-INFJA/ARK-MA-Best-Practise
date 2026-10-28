@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>topic5 Pipeline · 交互式全景</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #faf9fd;
+    --card-bg: #fff;
+    --border: #e5e7eb;
+    --primary: #6d28d9;
+    --primary-soft: #ede9fe;
+    --secondary: #64748b;
+    --hc: #f97316;
+    --tool: #0891b2;
+    --engine: #64748b;
+    --control: #ef4444;
+    --code: #94a3b8;
+    --success: #10b981;
+    --code-bg: #f3f4f6;
+    --text: #1f2937;
+    --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  header {
+    padding: 12px 20px;
+    background: var(--card-bg);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 18px; margin: 0 0 4px 0; }
+  header h1 .tag-arch { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+  header .subtitle { font-size: 12px; color: var(--muted); }
+  .home-link {
+    float: right;
+    margin: 1px 0 6px 16px;
+    padding: 4px 9px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--secondary);
+    font-size: 12px;
+    text-decoration: none;
+  }
+  .home-link:hover { border-color: var(--primary); color: var(--primary); }
+  .legend {
+    display: inline-flex;
+    gap: 10px;
+    margin-left: 16px;
+    font-size: 12px;
+    vertical-align: middle;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--code-bg);
+    padding: 2px 8px;
+    border-radius: 3px;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(340px, 33vw, 480px);
+    min-height: 0;
+  }
+  .diagram-pane {
+    min-width: 0;
+    overflow: auto;
+    padding: 0;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+    position: relative;
+  }
+  .zoom-bar {
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 5;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 8px 12px;
+    background: rgba(255,255,255,0.92);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(6px);
+  }
+  .zoom-bar button {
+    width: 28px; height: 28px;
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 15px;
+    color: var(--secondary);
+    display: grid; place-items: center;
+  }
+  .zoom-bar button:hover { border-color: var(--primary); color: var(--primary); }
+  .zoom-bar .zoom-label { font-size: 12px; color: var(--muted); min-width: 42px; text-align: center; }
+  .zoom-bar .hint { font-size: 11px; color: var(--muted); margin-left: auto; }
+  .diagram-scroll { padding: 20px; }
+  .mermaid {
+    cursor: default;
+    min-width: 760px;
+    margin: 0;
+    transform-origin: top center;
+    transition: transform 0.12s ease;
+  }
+  .mermaid svg { display: block; margin: 0 auto; }
+  .mermaid .node { cursor: pointer; transition: opacity 0.2s; }
+  .mermaid .node:hover { opacity: 0.78; }
+  .mermaid .node.selected rect,
+  .mermaid .node.selected polygon,
+  .mermaid .node.selected circle {
+    stroke-width: 3px !important;
+    stroke: var(--primary) !important;
+    filter: drop-shadow(0 0 6px rgba(109,40,217,0.4));
+  }
+
+  .detail-pane {
+    min-width: 0;
+    overflow-y: auto;
+    padding: 0 20px 28px;
+    background: #faf8ff;
+  }
+  .detail-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin: 0 -20px 18px;
+    padding: 20px 20px 16px;
+    background: rgba(255, 255, 255, 0.96);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 8px 20px rgba(109, 40, 217, 0.05);
+    backdrop-filter: blur(8px);
+  }
+  .detail-pane h2 {
+    font-size: 19px;
+    margin: 0 0 8px;
+    color: var(--primary);
+    line-height: 1.3;
+  }
+  .detail-tags { margin-bottom: 8px; }
+  .detail-pane .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--primary-soft);
+    color: #5b21b6;
+    margin: 0 6px 4px 0;
+  }
+  .detail-pane .tag.hc { background: #ffedd5; color: #9a3412; }
+  .detail-pane .tag.tool { background: #cffafe; color: #0e7490; }
+  .detail-pane .tag.engine { background: #e2e8f0; color: #334155; }
+  .detail-pane .tag.control { background: #fee2e2; color: #991b1b; }
+  .detail-pane .tag.code { background: #f1f5f9; color: #475569; }
+  .detail-pane .tag.gate { background: #d1fae5; color: #065f46; }
+  .detail-pane .desc { color: var(--secondary); margin: 0; font-size: 13px; line-height: 1.5; }
+
+  .detail-section {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 14px;
+    overflow: hidden;
+  }
+  .detail-section > h3 {
+    margin: 0;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--primary);
+    background: var(--primary-soft);
+    border-bottom: 1px solid var(--border);
+  }
+  .detail-section .body { padding: 10px 14px; }
+  .detail-pane p, .detail-pane li { font-size: 13.5px; }
+  .detail-pane ul { padding-left: 20px; margin: 6px 0; }
+  .detail-pane li { margin: 3px 0; }
+  code {
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-family: "SF Mono", Menlo, monospace;
+    color: #be185d;
+  }
+  .io-table { width: 100%; border-collapse: collapse; margin: 4px 0; font-size: 12.5px; }
+  .io-table th, .io-table td { padding: 6px 8px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+  .io-table th { background: var(--code-bg); color: var(--secondary); width: 68px; white-space: nowrap; }
+  .note {
+    font-size: 12px;
+    color: #9a3412;
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    background: #fff7ed;
+    border-left: 3px solid var(--hc);
+    border-radius: 3px;
+  }
+  .note.red { color: #991b1b; background: #fef2f2; border-left-color: var(--control); }
+  .note.ok { color: #065f46; background: #ecfdf5; border-left-color: var(--success); }
+  .placeholder { color: var(--muted); font-size: 14px; text-align: center; margin-top: 40px; }
+
+  @media (max-width: 1100px) {
+    .layout { grid-template-columns: minmax(0, 1fr) 340px; }
+  }
+  @media (max-width: 920px) {
+    .layout { grid-template-columns: minmax(560px, 1fr) minmax(280px, 34vw); overflow-x: auto; }
+    .legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="home-link" href="./README.md">← topic5 README</a>
+  <h1>topic5 · 营销活动复盘报告 Pipeline<span class="tag-arch">薄 Agent + Durable Workflow · 28 节点 DAG · 3 道固定人工门</span></h1>
+  <span class="subtitle">点击左侧任一节点，右侧显示该节点的 owner / handler / 职责 / 输入输出 / 关键约束</span>
+  <span class="legend">
+    <span class="legend-item"><span class="dot" style="background:#7c3aed"></span> 语义 handler</span>
+    <span class="legend-item"><span class="dot" style="background:#0891b2"></span> 工具网关</span>
+    <span class="legend-item"><span class="dot" style="background:#f97316"></span> 人工关卡 HC</span>
+    <span class="legend-item"><span class="dot" style="background:#64748b"></span> 引擎判定</span>
+    <span class="legend-item"><span class="dot" style="background:#ef4444"></span> 控制面 stub</span>
+    <span class="legend-item"><span class="dot" style="background:#94a3b8"></span> 确定性本地</span>
+  </span>
+</header>
+
+<div class="layout">
+  <div class="diagram-pane">
+    <div class="zoom-bar">
+      <button id="zoomOut" title="缩小">−</button>
+      <span class="zoom-label" id="zoomLabel">100%</span>
+      <button id="zoomIn" title="放大">+</button>
+      <button id="zoomReset" title="复位" style="width:auto;padding:0 8px;font-size:12px;">复位</button>
+      <span class="hint">Ctrl + 滚轮缩放 · 点节点看详情</span>
+    </div>
+    <div class="diagram-scroll">
+      <pre class="mermaid" id="diagram">
+flowchart TD
+    START(["用户消息<br/>复盘报告 / 营销复盘 / 活动复盘"]):::entry --> n00_intake
+
+    subgraph sgAB ["A·B · 需求 + 方案确认"]
+      n00_intake["n00 需求受理<br/>intake_check"]:::code
+      n01_hc_requirement["n01 需求确认 · G1<br/>human_gate"]:::hc
+      n02_plan["n02 方案编制<br/>plan_compile"]:::agent
+      n03_hc_plan["n03 方案确认 · G2<br/>human_gate · 冻结 ConfirmedPlan"]:::hc
+    end
+
+    subgraph sgInit ["C · Run 初始化"]
+      n04_run_init["n04 Run 初始化<br/>run_init · 控制面 stub"]:::control
+    end
+
+    subgraph sgData ["D · 数据获取 · SSJH"]
+      n05_brand_pull["n05 品牌活动期声量<br/>ssjh_pull"]:::tool
+      n06_brand_baseline["n06 基准期声量<br/>ssjh_pull · 前 30 天不重叠"]:::tool
+      n13_wordcloud_pull["n13 词云拉取<br/>ssjh_pull"]:::tool
+    end
+
+    subgraph sgClean ["E · 清洗"]
+      n07_clean["n07 活动数据清洗<br/>clean_campaign"]:::code
+    end
+
+    subgraph sgAnnot ["F·G·H · 发现 + AI 标注"]
+      n08_ugc_discovery["n08 UGC 参与发现<br/>ugc_discovery"]:::agent
+      n09_annotate_r1["n09 轮次一标注<br/>annotate · 情感 + 相关"]:::tool
+      n09b_opinion_candidates["n09b 观点候选生成<br/>opinion_candidates"]:::agent
+      n10_hc_opinion["n10 观点标签策略门 · N10<br/>自动确认 / 歧义转人工"]:::agent
+      n11_annotate_r2["n11 轮次二标注<br/>annotate · 观点/UGC/维度"]:::tool
+    end
+
+    subgraph sgAgg ["I · 统计聚合 + 图表"]
+      n12_aggregate["n12 分对象统计聚合<br/>aggregate"]:::code
+      n14_charts["n14 图表 + 封面本地 PNG<br/>charts_render"]:::tool
+      n15_wordcloud_insight["n15 词云三步解读<br/>wordcloud_insight"]:::agent
+    end
+
+    subgraph sgReport ["J · 报告撰写"]
+      n16_report["n16 报告内容层撰写<br/>write_report"]:::agent
+    end
+
+    subgraph sgQC ["K · 质检循环 · G3"]
+      n17_validate["n17 独立 Validator · G3<br/>自动质检 · p0==0 放行"]:::agent
+      n18_qc_gate{"n18 质检路由<br/>qc_decision"}:::engine
+      n19_fix["n19 P0 修复<br/>fix_report · patch 递增"]:::agent
+      n_hc7_escalate["n_hc7 质检超限介入 · HC7<br/>human_gate"]:::hc
+    end
+
+    subgraph sgDelivery ["L · 交付草稿 + 终验 · G4"]
+      n20_delivery_draft["n20 交付草稿<br/>delivery_draft · 飞书三门禁"]:::tool
+      n21_hc_user["n21 用户终验 · G4<br/>human_gate"]:::hc
+      n22_user_gate{"n22 终验路由<br/>user_decision"}:::engine
+      n_user_escalate["n_user_escalate 终验升级<br/>human_gate · USER_ESCALATE"]:::hc
+    end
+
+    subgraph sgCommit ["M · 交付提交 + 闭环"]
+      n23_delivery_commit["n23 交付提交<br/>delivery_commit · 控制面 stub"]:::control
+      n24_handoff["n24 交回 Supervisor<br/>handoff"]:::code
+    end
+
+    n00_intake --> n01_hc_requirement
+    n01_hc_requirement -->|"G1 通过"| n02_plan
+    n02_plan --> n03_hc_plan
+    n03_hc_plan -->|"G2 通过 · 冻结"| n04_run_init
+    n04_run_init --> n05_brand_pull
+    n04_run_init --> n06_brand_baseline
+    n04_run_init --> n13_wordcloud_pull
+    n05_brand_pull --> n07_clean
+    n06_brand_baseline --> n12_aggregate
+    n07_clean --> n08_ugc_discovery
+    n07_clean --> n09_annotate_r1
+    n08_ugc_discovery --> n11_annotate_r2
+    n09_annotate_r1 --> n09b_opinion_candidates
+    n09b_opinion_candidates --> n10_hc_opinion
+    n10_hc_opinion -->|"N10 确认"| n11_annotate_r2
+    n11_annotate_r2 --> n12_aggregate
+    n13_wordcloud_pull --> n14_charts
+    n13_wordcloud_pull --> n15_wordcloud_insight
+    n12_aggregate --> n14_charts
+    n14_charts --> n16_report
+    n15_wordcloud_insight --> n16_report
+    n16_report --> n17_validate
+    n17_validate -->|"G3 质检"| n18_qc_gate
+    n18_qc_gate -->|"no_p0"| n20_delivery_draft
+    n18_qc_gate -->|"has_p0_retry"| n19_fix
+    n18_qc_gate -->|"has_p0_maxed"| n_hc7_escalate
+    n19_fix --> n17_validate
+    n_hc7_escalate --> n20_delivery_draft
+    n20_delivery_draft -->|"G4"| n21_hc_user
+    n21_hc_user --> n22_user_gate
+    n22_user_gate -->|"confirmed"| n23_delivery_commit
+    n22_user_gate -->|"issues · 返修"| n20_delivery_draft
+    n22_user_gate -->|"escalate"| n_user_escalate
+    n_user_escalate --> n23_delivery_commit
+    n23_delivery_commit --> n24_handoff
+    n24_handoff --> END(["飞书文档交付 · 闭环"]):::final
+
+    classDef entry fill:#ede9fe,stroke:#6d28d9,color:#5b21b6,font-weight:bold;
+    classDef final fill:#d1fae5,stroke:#10b981,color:#065f46,font-weight:bold;
+    classDef agent fill:#f5f3ff,stroke:#7c3aed,color:#5b21b6;
+    classDef tool fill:#ecfeff,stroke:#0891b2,color:#0e7490;
+    classDef hc fill:#ffedd5,stroke:#f97316,color:#9a3412;
+    classDef engine fill:#f1f5f9,stroke:#64748b,color:#334155;
+    classDef control fill:#fef2f2,stroke:#ef4444,color:#991b1b,stroke-dasharray: 4 3;
+    classDef code fill:#ffffff,stroke:#94a3b8,color:#1f2937;
+      </pre>
+    </div>
+  </div>
+
+  <div class="detail-pane" id="detail">
+    <p class="placeholder">← 点击左侧任一节点<br>查看详细说明</p>
+  </div>
+</div>
+
+<script>
+  // ── 小工具 ──
+  const sec = (title, bodyHtml) => `<div class="detail-section"><h3>${title}</h3><div class="body">${bodyHtml}</div></div>`;
+  const io = (inp, out) => sec("输入 / 输出",
+    `<table class="io-table"><tr><th>输入</th><td>${inp}</td></tr><tr><th>输出</th><td>${out}</td></tr></table>`);
+
+  // 节点详情:key 必须与 mermaid 节点 id 完全一致（取自 pipeline.v0.2.yaml）
+  const DETAILS = {
+    START: {
+      title: "触发入口",
+      tags: ['<span class="tag code">飞书事件</span>', '<span class="tag">Gateway</span>'],
+      desc: "用户在飞书里发含触发词的消息，topic5-coordinator 启动 pipeline。",
+      content:
+        sec("做了什么",
+          `<ul>
+             <li>触发词 <code>复盘报告</code> / <code>营销复盘</code> / <code>活动复盘</code> 命中后创建 MA Session（挂 topic5-coordinator）</li>
+             <li><code>demo</code> 只预填 G1 表单，后续与 <code>full</code> 同标准；默认 <code>full</code></li>
+             <li>白名单 <code>AUTHORIZED_OPEN_IDS</code> 防误触；HC 决策格式严格 <code>HCx pass / HCx reject:note / HCx remark:note</code></li>
+           </ul>`) +
+        sec("薄 Agent 边界",
+          `<ul>
+             <li>全程仅注册 <b>2 个 MA Agent</b>：<code>topic5-coordinator</code>（薄前台）+ <code>topic5-validator</code>（独立质检）</li>
+             <li>DAG 上 owner 标签 Discovery/Opinion/Insight/Narrative Subagent 是<b>逻辑归属</b>，由确定性 handler（semantic.py）实现，不各建独立 MA Agent</li>
+           </ul>
+           <p class="note">薄前台只做四件事：启动 / 抛关卡 JSON / 续跑 / 交终态，不做业务判断。</p>`)
+    },
+    n00_intake: {
+      title: "n00 · 需求受理",
+      tags: ['<span class="tag code">code</span>', '<span class="tag">owner: ProjectAgent</span>', '<span class="tag">handler: intake_check</span>'],
+      desc: "生成 G1 待填写需求模板，不伪造 demo 默认值。",
+      content:
+        sec("职责", `<p>声明品牌 / 活动 / 周期 / 平台 / 取数词 / 产品词 / 内容范围 / source_file 字段；真实值由 G1 问卷提交。</p>`) +
+        io("—（入口节点）", "<code>requirement_snapshot</code>") +
+        sec("关键约束", `<p>retry max=0，失败即 <code>pause</code>；checkpoint=true；无副作用。</p>`)
+    },
+    n01_hc_requirement: {
+      title: "n01 · 需求确认（G1）",
+      tags: ['<span class="tag hc">human · HC</span>', '<span class="tag gate">发布门 G1</span>', '<span class="tag">authority: user</span>'],
+      desc: "第一道发布门：上传活动明细 Excel，并提交结构化需求问卷。",
+      content:
+        sec("职责", `<p>Bot 在触发消息下创建话题；用户发送 <code>.xlsx</code>，Gateway 下载后经 Ark Files API 挂载到 Session，再填写品牌、活动周期、平台、取数词、产品词和内容范围。</p>`) +
+        io("<code>requirement_snapshot</code>", "<code>requirement_confirmed</code>") +
+        sec("关键约束", `<p class="note">问卷 JSON 以 URL-safe Base64 封套跨 Agent 边界传输，<code>hc_bridge</code> 二次校验字段、日期和 mount_path。</p>`)
+    },
+    n02_plan: {
+      title: "n02 · 方案编制",
+      tags: ['<span class="tag">agent</span>', '<span class="tag">owner: Topic5Agent</span>', '<span class="tag">handler: plan_compile</span>'],
+      desc: "编制分析方案 / 执行方案 / 模块选择。",
+      content:
+        sec("职责", `<p>产出含 <code>selected_modules</code> 的方案；未登记需求按 <code>unregistered_request_policy</code>（needs-capability-extension-before-G2）先扩能力。</p>`) +
+        io("<code>requirement_confirmed</code>", "<code>analysis_plan</code> · <code>execution_plan</code> · <code>selected_modules</code>") +
+        sec("关键约束", `<p>retry max=1，失败 <code>pause</code>；checkpoint=true。核心模块 brand_context / activity_performance / evidence_summary 恒开；条件模块按口径启停。</p>`)
+    },
+    n03_hc_plan: {
+      title: "n03 · 方案确认（G2）",
+      tags: ['<span class="tag hc">human · HC</span>', '<span class="tag gate">发布门 G2</span>', '<span class="tag">authority: user</span>'],
+      desc: "第二道发布门：确认并冻结 ConfirmedPlan。",
+      content:
+        sec("职责", `<p>用户确认方案，冻结 <code>confirmed_plan_artifact_id</code> + <code>version</code>。</p>`) +
+        io("<code>analysis_plan</code> · <code>execution_plan</code>", "<code>confirmed_plan</code>") +
+        sec("关键约束", `<p class="note">G2 之后、生产节点前必须就绪：confirmed_plan_artifact_id / confirmed_plan_version / activity_detail_checksum / input_schema_validation。</p>`)
+    },
+    n04_run_init: {
+      title: "n04 · Run 初始化",
+      tags: ['<span class="tag control">control_plane</span>', '<span class="tag">owner: blueflare-ada</span>', '<span class="tag">handler: run_init</span>'],
+      desc: "资源锁 / 上下文快照（控制面，未上线以本地 stub 执行）。",
+      content:
+        sec("职责", `<p>冻结资源版本与输入校验（required_before_production 全就绪），随后 <b>fan-out 三路取数</b>：品牌期 / 基准期 / 词云。</p>`) +
+        io("<code>confirmed_plan</code>", "<code>run_record</code> · <code>resource_lock</code> · <code>context_snapshot</code>") +
+        sec("关键约束", `<p>side_effect=resource-lock；幂等键 <code>runinit:{task_id}:{confirmed_plan_version}</code>。</p>
+           <p class="note red">控制面 Blueflare-Ada 未上线，本地 runner 以 stub 执行；上线后只换 handler 不改 schema。</p>`)
+    },
+    n05_brand_pull: {
+      title: "n05 · 品牌活动期声量",
+      tags: ['<span class="tag tool">tool</span>', '<span class="tag">owner: tool-gateway</span>', '<span class="tag">SSJH</span>'],
+      desc: "拉取品牌活动期聚合（声量 / 互动 / 情感 / 词云 / 热门内容）。",
+      content:
+        sec("职责", `<p>module=<code>brand_context</code>。SSJH 社媒统计返回活动期聚合，产 <code>brand_stats</code>（含 <code>articles:{platform:[row]}</code>）。</p>`) +
+        io("<code>confirmed_plan</code>", "<code>brand_stats</code>") +
+        sec("关键约束", `<p>side_effect=external-stat-pull；幂等键 <code>ssjh:brand:{task_id}:{resource_lock}</code>；retry max=2。</p>
+           <p class="note">缺 <code>SSJH_API_TOKEN</code> 时 handler fail-closed，禁止模拟数据进入清洗链。</p>`)
+    },
+    n06_brand_baseline: {
+      title: "n06 · 基准期声量",
+      tags: ['<span class="tag tool">tool</span>', '<span class="tag">owner: tool-gateway</span>', '<span class="tag">module: baseline_lift</span>'],
+      desc: "拉取基准期声量，直接汇入聚合。",
+      content:
+        sec("职责", `<p>基准期 = 活动前 30 天不重叠 <code>[start-30, start-1]</code>；产 <code>brand_stats_baseline</code>。</p>`) +
+        io("<code>confirmed_plan</code>", "<code>brand_stats_baseline</code>") +
+        sec("关键约束", `<p>retry max=2，on_fail=<code>exception_bypass</code>（基准缺失按 conflict_policy 降级该指标并建 DataIssue，不整跑失败）。<b>不串清洗链</b>，直接 join 到 n12 聚合。</p>`)
+    },
+    n07_clean: {
+      title: "n07 · 活动数据清洗",
+      tags: ['<span class="tag code">code</span>', '<span class="tag">owner: Topic5Agent</span>', '<span class="tag">handler: clean_campaign</span>'],
+      desc: "优先清洗用户上传的活动明细 Excel；旧任务回退 SSJH articles。",
+      content:
+        sec("职责", `<p><code>excel_source.py</code> 把中文列映射为统一行结构，再做周期过滤（<code>publish_time</code> epoch ms → CST）、去重和 KOL 分层。未声明 source_file 的旧任务才回退 SSJH articles。</p>`) +
+        io("Session <code>activity_detail.xlsx</code>（<code>brand_stats</code> 为调度依赖）", "<code>cleaned_data</code>") +
+        sec("关键约束", `<p>去重键优先级 <code>fingerprint → id → item_id → url</code>。</p>
+           <p class="note">声明了 source_file 但文件不存在、列缺失或过滤后无数据时直接报错，不静默换源。剔除比例 &gt; 10% 触发抽查。</p>`)
+    },
+    n08_ugc_discovery: {
+      title: "n08 · UGC 参与发现",
+      tags: ['<span class="tag">agent · 语义</span>', '<span class="tag">owner: DiscoverySubagent</span>', '<span class="tag">module: ugc_participation</span>'],
+      desc: "发现 UGC 参与类别（语义 handler）。",
+      content:
+        sec("职责", `<p>语义 handler 确定性调用 Ark Chat API，发现类别。<code>ugc_category_mode</code> 参数控制（默认 <code>fixed_four</code> 固定四类，dynamic 分支保留）。结果 join 入轮次二。</p>`) +
+        io("<code>cleaned_data</code>", "<code>ugc_category_list</code>") +
+        sec("关键约束", `<p class="note">owner 为逻辑归属（DiscoverySubagent），实际由 semantic.py handler 执行，不建独立 MA Agent。硬护栏禁用措辞：人均 / 转化率 / 转化 / 性价比。</p>`)
+    },
+    n09_annotate_r1: {
+      title: "n09 · 轮次一标注",
+      tags: ['<span class="tag tool">tool</span>', '<span class="tag">owner: tool-gateway</span>', '<span class="tag">handler: annotate</span>'],
+      desc: "情感 + 活动相关性全量标注。",
+      content:
+        sec("职责", `<p>两基础标签：情感 <code>ai_sentiment ∈ {1,0,-1}</code> + 活动相关。按 <code>annotation_routing_threshold</code>（默认 1000）路由：行数≥阈值且 DataHub 可用→批量引擎，否则小引擎 semantic，再否则降级。</p>`) +
+        io("<code>cleaned_data</code>", "<code>annotated_round1</code>") +
+        sec("关键约束", `<p>CSV 上传 utf-8 <b>无 BOM</b>；幂等键 <code>annot:r1:{task_id}:{resource_lock}</code>；retry max=2。</p>
+           <p class="note red">口径红线（2026-10-21）：情感以 AI 标注为准，<b>缺 AI 情感直接报错，不兜底</b>。</p>`)
+    },
+    n09b_opinion_candidates: {
+      title: "n09b · 观点候选生成",
+      tags: ['<span class="tag">agent · 语义</span>', '<span class="tag">owner: OpinionSubagent</span>', '<span class="tag">handler: opinion_candidates</span>'],
+      desc: "基于轮次一抽样聚类出观点候选，供 HC 确认。",
+      content:
+        sec("职责", `<p>从轮次一结果抽样聚类，产出观点候选标签，供用户在 N10 确认后注入轮次二。</p>`) +
+        io("<code>annotated_round1</code>", "<code>opinion_candidates</code>") +
+        sec("关键约束", `<p>retry max=1，失败 <code>pause</code>；无副作用。</p>`)
+    },
+    n10_hc_opinion: {
+      title: "n10 · 观点标签策略门（N10）",
+      tags: ['<span class="tag hc">human · HC</span>', '<span class="tag">操作级关卡（非发布门）</span>', '<span class="tag">authority: user</span>'],
+      desc: "用户确认观点候选后方可注入轮次二。",
+      content:
+        sec("职责", `<p>操作级 HC：用户确认观点候选白名单。属 <code>operational_hcs</code>，不是发布门。</p>`) +
+        io("<code>opinion_candidates</code>", "<code>confirmed_opinion_labels</code>") +
+        sec("关键约束", `<p class="note">稳定标签自动确认；仅动态、降级、重复、宽泛或证据不足时进入 <code>N10</code> 人工确认。</p>`)
+    },
+    n11_annotate_r2: {
+      title: "n11 · 轮次二标注",
+      tags: ['<span class="tag tool">tool</span>', '<span class="tag">owner: tool-gateway</span>', '<span class="tag">handler: annotate</span>'],
+      desc: "观点 / UGC 方式 / 讨论维度三任务标注 + 覆盖检查。",
+      content:
+        sec("职责", `<p>三独立任务（观点 / UGC 方式 / 分维度）+ 覆盖检查。多活动逐个处理 + 混合抽样；不适用情形跳过并标注，不阻断。</p>`) +
+        io("<code>confirmed_opinion_labels</code> · <code>ugc_category_list</code>", "<code>annotated_data</code>") +
+        sec("关键约束", `<p>幂等键 <code>annot:r2:{task_id}:{resource_lock}</code>；retry max=2。</p>
+           <p class="note red">口径修订（2026-10-21）：三任务拆分 + 覆盖检查，缺口显式报错（status=ERROR → 引擎 pause 重试）；N/A 是合法标注计入 labeled 不算缺口。</p>`)
+    },
+    n12_aggregate: {
+      title: "n12 · 分对象统计聚合",
+      tags: ['<span class="tag code">code</span>', '<span class="tag">owner: Topic5Agent</span>', '<span class="tag">module: activity_performance</span>'],
+      desc: "各活动独立统计（趋势 / 互动 / 情感 / TopN / KOL / UGC / NSR）。",
+      content:
+        sec("职责", `<p>join <code>annotated_data</code> + <code>brand_stats</code> + <code>brand_stats_baseline</code>，分对象统计产 <code>stats_bundle</code>。</p>`) +
+        io("<code>annotated_data</code> · <code>brand_stats</code> · <code>brand_stats_baseline</code>", "<code>stats_bundle</code>") +
+        sec("口径红线", `<p class="note red">
+             指标白名单：<b>条均互动量 / 品牌提及率 / 产品提及占比 / NSR</b>；禁用：人均 / 转化率 / 转化 / 性价比。<br>
+             NSR 分母默认<b>含中性</b>（<code>nsr_denominator_includes_neutral=true</code>，参数化读 state.params，勿硬编码）。<br>
+             提及漏斗嵌套（产品提及 ⊆ 品牌提及，占比 ≤ 1）。活动层分母 = 活动相关内容条数；<b>多活动逐个不相加</b>。
+           </p>`)
+    },
+    n13_wordcloud_pull: {
+      title: "n13 · 词云拉取",
+      tags: ['<span class="tag tool">tool</span>', '<span class="tag">owner: tool-gateway</span>', '<span class="tag">module: wordcloud_topics</span>'],
+      desc: "逐活动拉整体 / 品牌 / 产品词云。",
+      content:
+        sec("职责", `<p>SSJH 逐活动拉词云。随后 <b>fan-out</b> 两路：图表（n14）与解读（n15）。</p>`) +
+        io("<code>confirmed_plan</code>", "<code>wordcloud_data</code>（<code>{platform: cloud_word}</code>）") +
+        sec("关键约束", `<p>retry max=2，on_fail=<code>exception_bypass</code>。</p>
+           <p class="note">口径修订（2026-10-21）：竞品 SOV 已下线；<b>缺平台不再跨平台合并</b>，各平台独立。</p>`)
+    },
+    n14_charts: {
+      title: "n14 · 图表 + 封面（本地 PNG）",
+      tags: ['<span class="tag tool">tool</span>', '<span class="tag">owner: tool-gateway</span>', '<span class="tag">handler: charts_render</span>'],
+      desc: "按规范产全部图表 + 封面为本地 PNG，交付时经飞书 media 原生插图。",
+      content:
+        sec("职责", `<p>join <code>stats_bundle</code> + <code>wordcloud_data</code>。<code>build_chart_specs</code> 产 echarts spec（剔空图/全零/单类别）；<code>render_charts</code> 逐张沙箱 resvg 渲染为本地 PNG + 封面，由 n20 经飞书 <code>medias/upload_all</code> 原生插图。</p>`) +
+        io("<code>stats_bundle</code> · <code>wordcloud_data</code>", "<code>chart_urls</code>（含每张 local_path）") +
+        sec("关键约束", `<p>side_effect=chart-render；幂等键 <code>chart-render:{task_id}:{resource_lock}</code>；retry max=2。</p>
+           <p class="note">真渲染需 <code>node_modules</code>（Environment setup_script 沙箱内安装）。缺渲染器时 handler fail-closed，禁止无图交付；图片由飞书 media API 原生上传。</p>`)
+    },
+    n15_wordcloud_insight: {
+      title: "n15 · 词云三步解读",
+      tags: ['<span class="tag">agent · 语义</span>', '<span class="tag">owner: InsightSubagent</span>', '<span class="tag">handler: wordcloud_insight</span>'],
+      desc: "逐词查帖 → 剔噪音 → 聚 3-5 议题。",
+      content:
+        sec("职责", `<p>语义 handler：各平台各维独立解读，产出议题。</p>`) +
+        io("<code>wordcloud_data</code>", "<code>wordcloud_insight</code>") +
+        sec("关键约束", `<p class="note">各平台词云<b>独立解读，禁止跨平台合并</b>。</p>`)
+    },
+    n16_report: {
+      title: "n16 · 报告内容层撰写",
+      tags: ['<span class="tag">agent · 语义</span>', '<span class="tag">owner: NarrativeSubagent</span>', '<span class="tag">module: evidence_summary</span>'],
+      desc: "汇总指标 / 图表 / 词云撰写复盘报告 MD。",
+      content:
+        sec("职责", `<p>join <code>stats_bundle</code> + <code>chart_urls</code> + <code>wordcloud_insight</code>，产内容层 MD（<code>report_chapters</code> 参数控制结构，默认五部分，嵌入封面 + 各图）。<b>不含飞书布局</b>。</p>`) +
+        io("<code>stats_bundle</code> · <code>chart_urls</code> · <code>wordcloud_insight</code>", "<code>report_md</code>") +
+        sec("关键约束", `<p>retry max=1，checkpoint=true。降级报告走 <code>_fallback_report_md</code>（同样嵌封面 + 图占位）。</p>`)
+    },
+    n17_validate: {
+      title: "n17 · 质检关卡（G3）",
+      tags: ['<span class="tag agent">agent · automatic</span>', '<span class="tag gate">发布门 G3</span>', '<span class="tag">authority: validator</span>'],
+      desc: "质检终审门，pass_policy = p0_count==0。",
+      content:
+        sec("职责", `<p>按质检清单分级产出 <code>qc_report</code>；放行策略 <code>p0_count==0</code>。</p>`) +
+        io("<code>report_md</code> · <code>chart_urls</code> · <code>stats_bundle</code>", "<code>qc_report</code>") +
+        sec("两段式审计", `<p>独立 <code>topic5-validator</code> 子 Agent：① <code>scan_report.py</code> 全量机器检查 ② Agent 按客户完整规则适配表做全文语义检查（数字溯源 / 数据来源 / 提及漏斗 / NSR / 证据 / 隐私 / 跨章节逻辑）。独立身份只读不改报告。</p>
+           <p class="note">节点 owner=Validator、mode=agent。Coordinator 自动委派独立 topic5-validator，<code>p0_count==0</code> 自动续跑；有 P0 自动返修，超限才进入 HC7。</p>`)
+    },
+    n18_qc_gate: {
+      title: "n18 · 质检路由",
+      tags: ['<span class="tag engine">decision</span>', '<span class="tag">owner: engine</span>', '<span class="tag">handler: qc_decision</span>'],
+      desc: "引擎判定：按 P0 结果分支。",
+      content:
+        sec("路由", `<ul>
+             <li><code>no_p0</code> → n20 交付草稿</li>
+             <li><code>has_p0_retry</code> → n19 P0 修复（回 n17 复检）</li>
+             <li><code>has_p0_maxed</code> → HC7 超限介入</li>
+           </ul>`) +
+        sec("关键约束", `<p>超 <code>qc_max_rounds</code>（默认 3）轮触发 HC7，防无限循环。</p>`)
+    },
+    n19_fix: {
+      title: "n19 · P0 修复",
+      tags: ['<span class="tag">agent · 语义</span>', '<span class="tag">owner: Topic5Agent</span>', '<span class="tag">handler: fix_report</span>'],
+      desc: "修复 P0 并版本递增后复检。",
+      content:
+        sec("职责", `<p>按 <code>qc_report.issues</code> 修订报告，patch 递增后回 n17 复检。</p>`) +
+        io("<code>qc_report</code> · <code>report_md</code>", "<code>report_md</code>（修订版）") +
+        sec("关键约束", `<p class="note">retry max=0，失败 <code>pause</code>。修订保持可复检性，<b>指标口径保持不变</b>。</p>`)
+    },
+    n_hc7_escalate: {
+      title: "n_hc7 · 质检超限介入（HC7）",
+      tags: ['<span class="tag hc">human · HC</span>', '<span class="tag">操作级关卡</span>', '<span class="tag">owner: ProjectAgent</span>'],
+      desc: "超 qc_max_rounds 轮触发人工介入。",
+      content:
+        sec("职责", `<p>质检反复不过时升级人工处理，防无限循环。属 <code>operational_hcs</code>。</p>`) +
+        io("<code>qc_report</code>", "<code>escalation_decision</code>") +
+        sec("关键约束", `<p class="note">HC 决策 <code>HC7 pass / HC7 reject: note / HC7 remark: note</code>。</p>`)
+    },
+    n20_delivery_draft: {
+      title: "n20 · 交付草稿（飞书 draft）",
+      tags: ['<span class="tag tool">tool</span>', '<span class="tag gate">发布门 G4</span>', '<span class="tag">handler: delivery_draft</span>'],
+      desc: "内容层 → 飞书布局层，创建文档并转移所有权。",
+      content:
+        sec("职责", `<p>MD → 飞书文档。<b>三门禁</b>：转移所有权（transfer_owner）+ 导出后回读核对（readback）+ 记录 <code>revision_id</code>。p0 禁发 / p1 可披露放行。</p>`) +
+        io("<code>report_md</code> · <code>chart_urls</code>", "<code>delivery_draft</code> · <code>external_receipts</code> · <code>feishu_doc</code>") +
+        sec("关键约束", `<p>side_effect=feishu-doc-create；幂等键 <code>feishu:{task_id}:{resource_lock}:{report_version}</code>；retry max=2。</p>
+           <p class="note">禁用 <code>drive+import</code> MD 直导。缺凭证时 fail-closed；<code>online_url</code> = 飞书 docx URL。</p>`)
+    },
+    n21_hc_user: {
+      title: "n21 · 用户终验（G4）",
+      tags: ['<span class="tag hc">human · HC</span>', '<span class="tag gate">发布门 G4</span>', '<span class="tag">authority: user</span>'],
+      desc: "用户对飞书文档终验；超时走催办 / 升级。",
+      content:
+        sec("职责", `<p>用户终验飞书文档草稿。</p>`) +
+        io("<code>delivery_draft</code>", "<code>user_confirmation</code>") +
+        sec("关键约束", `<p>超时参数 <code>user_confirm_timeout_days</code>（默认 2 天）；超时走催办 / 升级到 USER_ESCALATE。</p>`)
+    },
+    n22_user_gate: {
+      title: "n22 · 终验路由",
+      tags: ['<span class="tag engine">decision</span>', '<span class="tag">owner: engine</span>', '<span class="tag">handler: user_decision</span>'],
+      desc: "引擎判定：确认 / 返修 / 超时升级。",
+      content:
+        sec("路由", `<ul>
+             <li><code>confirmed</code> → n23 交付提交</li>
+             <li><code>issues</code> → n20 交付草稿（返修）</li>
+             <li><code>escalate</code> → USER_ESCALATE 升级</li>
+           </ul>`)
+    },
+    n_user_escalate: {
+      title: "n_user_escalate · 终验超时升级",
+      tags: ['<span class="tag hc">human · HC</span>', '<span class="tag">操作级关卡</span>', '<span class="tag">owner: ProjectAgent</span>'],
+      desc: "超时催办仍无响应则上报 Supervisor。",
+      content:
+        sec("职责", `<p>超 <code>user_confirm_timeout_days</code> 催办仍无响应则上报 Supervisor。属 <code>operational_hcs</code>。</p>`) +
+        io("<code>delivery_draft</code>", "<code>escalation_decision</code>") +
+        sec("关键约束", `<p class="note">HC 决策 <code>USER_ESCALATE pass / reject: note / remark: note</code>。</p>`)
+    },
+    n23_delivery_commit: {
+      title: "n23 · 交付提交",
+      tags: ['<span class="tag control">control_plane</span>', '<span class="tag">owner: blueflare-ada</span>', '<span class="tag">handler: delivery_commit</span>'],
+      desc: "正式提交 + 发布后检查（控制面 stub）。",
+      content:
+        sec("职责", `<p>发布后检查全过：图片可达 / 布局 / 所有权 / 链接可达 / 版本一致。</p>`) +
+        io("<code>feishu_doc</code> · <code>user_confirmation</code>", "<code>delivery_record</code> · <code>task_result</code>") +
+        sec("关键约束", `<p>side_effect=delivery-commit；幂等键 <code>commit:{task_id}:{resource_lock}</code>；retry max=1。</p>
+           <p class="note red">控制面 Blueflare-Ada 未上线，本地 stub 执行。post_publish_checks 含 source-artifact-revision-match。</p>`)
+    },
+    n24_handoff: {
+      title: "n24 · 交回 Supervisor 闭环",
+      tags: ['<span class="tag code">code</span>', '<span class="tag">owner: ProjectAgent</span>', '<span class="tag">handler: handoff</span>'],
+      desc: "写 handoff 并校验版本链。",
+      content:
+        sec("职责", `<p>复读 <code>revision_id</code> → 校验版本链 → 写 <code>handoff.json</code>。</p>`) +
+        io("<code>delivery_record</code> · <code>task_result</code>", "<code>handoff</code>") +
+        sec("关键约束", `<p class="note ok">版本链对齐：Artifact / Validation / Delivery / Handoff 指向<b>同一 revision_id（非 latest）</b>。checks 含 committed / revision_bound / version_chain_aligned。</p>`)
+    },
+    END: {
+      title: "飞书文档交付 · 闭环",
+      tags: ['<span class="tag gate">最终交付</span>'],
+      desc: "交付飞书文档（online_url = 飞书 docx URL），不走妙搭 Miaoda。",
+      content:
+        sec("降级契约（统一）", `<p>SSJH / 图表 / 标注 / 飞书四类真路径与降级路径<b>共用同构 schema</b>，降级 payload 显式带 <code>degraded: true</code>，下游节点无差别消费。这保证缺凭证时也能端到端跑通（演示 / 验收），正式出报告需补齐真凭证。</p>`) +
+        sec("幂等执行层", `<p>render → ledger 重放 / 对账保证副作用不重复；reconcile-before-retry（外部回执 UNKNOWN 先对账再重试）；partial_rerun=dependency-scoped（只重跑受影响依赖子图）；overwrite_artifact=false（内容变更 = 新版本）。</p>`) +
+        sec("审核边界", `<p><b>固定人工门</b>：G1（需求）· G2（方案）· G4（终验）。<br><b>自动门</b>：G3（独立 Validator，p0==0）。<br><b>条件人工</b>：N10（标签歧义）· HC7（质检超限）· USER_ESCALATE（终验超时）。</p>`)
+    }
+  };
+
+  const detailEl = document.getElementById("detail");
+
+  function renderDetail(key) {
+    const d = DETAILS[key];
+    if (!d) {
+      detailEl.innerHTML = `<p class="placeholder">该节点暂无详细说明<br><code>${key}</code></p>`;
+      return;
+    }
+    detailEl.innerHTML = `
+      <div class="detail-header">
+        <h2>${d.title}</h2>
+        <div class="detail-tags">${(d.tags||[]).join(" ")}</div>
+        <p class="desc">${d.desc || ""}</p>
+      </div>
+      ${d.content || ""}
+    `;
+    detailEl.scrollTop = 0;
+  }
+
+  // ── 缩放 ──
+  let zoom = 1;
+  const mermaidEl = document.getElementById("diagram");
+  const zoomLabel = document.getElementById("zoomLabel");
+  function applyZoom() {
+    mermaidEl.style.transform = `scale(${zoom})`;
+    zoomLabel.textContent = Math.round(zoom * 100) + "%";
+  }
+  document.getElementById("zoomIn").onclick = () => { zoom = Math.min(2.2, zoom + 0.1); applyZoom(); };
+  document.getElementById("zoomOut").onclick = () => { zoom = Math.max(0.4, zoom - 0.1); applyZoom(); };
+  document.getElementById("zoomReset").onclick = () => { zoom = 1; applyZoom(); };
+  document.querySelector(".diagram-pane").addEventListener("wheel", (e) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    zoom = Math.min(2.2, Math.max(0.4, zoom + (e.deltaY < 0 ? 0.08 : -0.08)));
+    applyZoom();
+  }, { passive: false });
+
+  mermaid.initialize({ startOnLoad: true, theme: "default", flowchart: { curve: "basis" }, securityLevel: "loose" });
+
+  window.addEventListener("load", () => {
+    setTimeout(() => {
+      const svg = document.querySelector("#diagram svg");
+      if (!svg) return;
+      let currentSelected = null;
+      const pick = (nodeEl) => {
+        const rawId = nodeEl.id || "";
+        const match = rawId.match(/flowchart-(.+?)-\d+$/);
+        return match ? match[1] : rawId;
+      };
+      svg.querySelectorAll(".node").forEach(nodeEl => {
+        nodeEl.style.cursor = "pointer";
+        nodeEl.addEventListener("click", () => {
+          const key = pick(nodeEl);
+          if (currentSelected) currentSelected.classList.remove("selected");
+          nodeEl.classList.add("selected");
+          currentSelected = nodeEl;
+          renderDetail(key);
+        });
+      });
+
+      const requestedKey = new URLSearchParams(window.location.search).get("node");
+      const initialKey = requestedKey && DETAILS[requestedKey] ? requestedKey : "START";
+      const initialNode = Array.from(svg.querySelectorAll(".node")).find(n => pick(n) === initialKey);
+      if (initialNode) { initialNode.classList.add("selected"); currentSelected = initialNode; }
+      renderDetail(initialKey);
+    }, 400);
+  });
+</script>
+</body>
+</html>

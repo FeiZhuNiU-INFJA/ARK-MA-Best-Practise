@@ -28,9 +28,9 @@
 | `topic6/skill/insight/` | `ma-resources/skills/topic6-insight/` | 适配迁入 | Phase E+F；保留活跃 Prompt，脚本改为 MA 沙箱路径和 Ark API |
 | `artifact-template-bluefocus-hotspot-web-report/` | `ma-resources/skills/topic6-web-report/` | 适配迁入 | Phase G；模板和素材原样保留，Skill 名称改为 `topic6-web-report` |
 | `miaoda-web-publish/` | `ma-resources/skills/miaoda-web-publish/` | 原样迁入 | Phase H；保留用户 OAuth、Git 发布和恢复契约 |
-| `topic6/CLAUDE.md` + `topic6/prompt/*.md` + `其他相关引用/Agent.Producer_CLAUDE.md` | `ma-resources/agents/coordinator.system.md` | 重新编排 | 原单 Agent 主流程改成 Coordinator + 子 Agent + 结构化 HC |
+| `topic6/CLAUDE.md` + `topic6/prompt/*.md` + `其他相关引用/Agent.Producer_CLAUDE.md` | `ma-resources/agents/coordinator.system.md` | 重新编排 | 原单 Agent 主流程改成 Coordinator + 标注子 Agent + 结构化 HC |
 | `topic6/skill/annotation/SKILL.md` + 标注阶段契约 | `ma-resources/agents/annotator.system.md` | MA 新增 | 抽出单路 C0/C3/R1-R5 标注子 Agent |
-| `topic6/skill/insight/SKILL.md` + Phase E 契约 | `ma-resources/agents/insighter.system.md` | MA 新增 | 抽出单版块 E1-E4 洞察子 Agent |
+| `topic6/skill/insight/SKILL.md` + Phase E 契约 | `ma-resources/skills/topic6-insight/` | 适配迁入 | E1-E4 由 `pipeline_e.py` 单入口在脚本内有界并发，不注册洞察子 Agent |
 | `topic6/lm/` | `ma-resources/memory/topic6/` | 适配迁入 | 改造成 MA Memory Store 的只读业务记忆 |
 | `Validator/` | 无 | 未迁移 | 当前 MA 流程没有独立 Validator Agent 或 QC Skill |
 
@@ -159,14 +159,13 @@ Prompt 仅把客户侧 `Agent.Producer/.claude/skills/...` 引用适配为 MA �
 |---|---|---|---|
 | `agents/coordinator.system.md` | `topic6/CLAUDE.md`、`topic6/prompt/*.md`、`其他相关引用/Agent.Producer_CLAUDE.md` | MA 新增 | 汇总主流程并加入 Multi Agent、HC1-HC3、MA 挂载路径 |
 | `agents/annotator.system.md` | 标注 Skill 与 Phase C 契约 | MA 新增 | 定义单路标注子 Agent 输入输出 |
-| `agents/insighter.system.md` | 洞察 Skill 与 Phase E 契约 | MA 新增 | 定义单版块洞察子 Agent 输入输出 |
-| `agents/coordinator.json`、`annotator.json`、`insighter.json` | 无直接客户文件 | MA 新增 | MA Agent 资源、模型、Skill、工具和子 Agent 关系 |
+| `agents/coordinator.json`、`annotator.json` | 无直接客户文件 | MA 新增 | MA Agent 资源、模型、Skill、工具和标注子 Agent 关系 |
 | `memory/topic6/MEMORY.md` | `topic6/lm/MEMORY.md` | 适配迁入 | 改为 MA 资源索引、挂载路径和执行职责 |
 | `memory/topic6/_版本状态.md` | `topic6/lm/_版本状态.md` | 适配迁入 | 改为 MA 当前活跃 Prompt/Skill 版本 |
 | `memory/topic6/错误案例库.md` | `topic6/lm/错误案例库.md` | 适配迁入 | 保留业务经验并改写 MA 相关规避规则 |
 | `memory-store.json` | `topic6/lm/` | MA 新增 | 声明 3 个 Memory 文件及挂载路径 |
 | `environment.json` | `其他相关引用/Topic6_环境变量依赖清单.md` + 各工具契约 | MA 新增 | 声明依赖、网络和环境变量占位符 |
-| `create_all.sh` | 无 | MA 新增 | 创建/更新 Environment、Memory Store 和 3 个 Agent |
+| `create_all.sh` | 无 | MA 新增 | 创建/更新 Environment、Memory Store 和 2 个 Agent，并按旧 ID 精确清理已下线的 Insighter |
 | `skill_ids.json.example` | 无 | MA 新增 | Skill 上传结果模板 |
 | `skill_ids.json`、`created_ids.json` | 无 | 运行产物 | 上传/创建后生成的实际资源 ID，不是客户源码 |
 | `version_mapping.md` | 无 | MA 新增 | 维护 SkillHub 版本、源码哈希和上传记录 |
@@ -220,5 +219,3 @@ Prompt 仅把客户侧 `Agent.Producer/.claude/skills/...` 引用适配为 MA �
 | 引用位置 | 当前引用 | 实际文件 | 结论 |
 |---|---|---|---|
 | `agents/coordinator.system.md` 的筛选失败处理 | `retry_missing.py --task c0` | MA Skill 中无 `retry_missing.py` 或 `c0_retry_missing.py` | Prompt 残留客户版命令，需要改成现有重试方案或补回脚本 |
-| `agents/insighter.system.md` 的 E2 统计表 | `01_统计/e2_marketing_node.py` | `01_统计/e2_nodes.py` | 文件名引用错误 |
-| `agents/insighter.system.md` 的 E3 统计表 | `01_统计/e3_platform.py` | `01_统计/e3_platforms.py` | 文件名引用错误 |

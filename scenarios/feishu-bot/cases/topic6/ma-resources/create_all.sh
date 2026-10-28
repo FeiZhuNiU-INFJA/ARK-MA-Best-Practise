@@ -5,7 +5,7 @@
 # 幂等策略:
 #   - Environment 优先复用 TOPIC6_ENVIRONMENT_ID,缺失或失效时再按 name 查找
 #   - MemoryStore 按 name 查找,存在则复用(重建代价大且没意义)
-#   - 3 个 Agent 每次都重建(prompt/skill 更新是主要驱动),同名旧 Agent 先删后建
+#   - 2 个 Agent 每次都重建(prompt/skill 更新是主要驱动),同名旧 Agent 先删后建
 #
 # 使用:
 #   ./create_all.sh                    # 幂等运行,首次全建、后续只重建 Agent
@@ -150,6 +150,29 @@ ark_delete() {
   curl -sS -X DELETE "$BASE_URL$path" \
     -H "Authorization: Bearer $ARK_API_KEY" \
     -H "$ARK_BETA_HEADER" >/dev/null || true
+}
+
+# 删除 created_ids.json 精确记录的旧资源。404 表示已经删除，其他失败必须中止，
+# 避免本地清掉引用但远端仍遗留不可追踪的 Agent。
+ark_delete_exact() {
+  local path="$1" label="$2"
+  local tmp code
+  tmp=$(mktemp)
+  code=$(curl -sS -o "$tmp" -w "%{http_code}" -X DELETE "$BASE_URL$path" \
+    -H "Authorization: Bearer $ARK_API_KEY" \
+    -H "$ARK_BETA_HEADER")
+  if [ "$code" = "404" ]; then
+    echo "  已不存在: $label(404,按幂等成功处理)"
+  elif [ "$code" -ge 200 ] && [ "$code" -lt 300 ]; then
+    echo "  已删除: $label"
+  else
+    echo "  [HTTP $code] 删除失败: $label" >&2
+    cat "$tmp" >&2
+    echo >&2
+    rm -f "$tmp"
+    return 1
+  fi
+  rm -f "$tmp"
 }
 
 # ---- 1. Environment ----
@@ -306,28 +329,32 @@ delete_agent_if_exists() {
   fi
 }
 
-step "5) 创建子 Agent topic6-annotator"
+step "5) 清理已下线的旧洞察 Agent"
+OLD_INSIGHTER_ID=""
+if [ -f "$ROOT/created_ids.json" ]; then
+  OLD_INSIGHTER_ID=$(jq -r '.agent_insighter_id // empty' "$ROOT/created_ids.json")
+fi
+if [ -n "$OLD_INSIGHTER_ID" ]; then
+  ark_delete_exact "/agents/$OLD_INSIGHTER_ID" \
+    "旧洞察 Agent -> $OLD_INSIGHTER_ID"
+else
+  echo "  created_ids.json 中无旧 Insighter ID，跳过远端精确删除"
+fi
+
+step "6) 创建子 Agent topic6-annotator"
 delete_agent_if_exists "topic6-annotator"
 annotator_payload=$(render_agent_json annotator.json annotator.system.md)
 annotator_resp=$(ark_post "/agents" "$annotator_payload")
 AGENT_ANNOTATOR_ID=$(extract_id "$annotator_resp")
 echo "AGENT_ANNOTATOR_ID=$AGENT_ANNOTATOR_ID"
 
-step "6) 创建子 Agent topic6-insighter"
-delete_agent_if_exists "topic6-insighter"
-insighter_payload=$(render_agent_json insighter.json insighter.system.md)
-insighter_resp=$(ark_post "/agents" "$insighter_payload")
-AGENT_INSIGHTER_ID=$(extract_id "$insighter_resp")
-echo "AGENT_INSIGHTER_ID=$AGENT_INSIGHTER_ID"
-
 # ---- 7. 创建协调器 ----
 step "7) 创建协调器 topic6-coordinator"
 delete_agent_if_exists "topic6-coordinator"
 coordinator_payload=$(render_agent_json coordinator.json coordinator.system.md \
-  | jq --arg a "$AGENT_ANNOTATOR_ID" --arg i "$AGENT_INSIGHTER_ID" '
+  | jq --arg a "$AGENT_ANNOTATOR_ID" '
       (.. | strings) |= (
-          gsub("\\$\\{agent_id.topic6-annotator\\}"; $a) |
-          gsub("\\$\\{agent_id.topic6-insighter\\}"; $i)
+          gsub("\\$\\{agent_id.topic6-annotator\\}"; $a)
       )
   ')
 coordinator_resp=$(ark_post "/agents" "$coordinator_payload")
@@ -340,17 +367,17 @@ cat >"$ROOT/created_ids.json" <<EOF
   "environment_id": "$ENVIRONMENT_ID",
   "memory_store_id": "$MEMORY_STORE_ID",
   "agent_coordinator_id": "$AGENT_COORDINATOR_ID",
-  "agent_annotator_id": "$AGENT_ANNOTATOR_ID",
-  "agent_insighter_id": "$AGENT_INSIGHTER_ID"
+  "agent_annotator_id": "$AGENT_ANNOTATOR_ID"
 }
 EOF
 echo -e "\n完成。ID 落盘: $ROOT/created_ids.json"
 
 # ---- 9. 回写 gateway 侧 config.env ----
 # 子 Agent 每次都"先删旧再建新",AGENT_ID 会漂移。这里把 coordinator/env/memory
-# 三个 gateway 必读的 ID 同步到 ~/.arkagent/cases/topic6/config.env,免得用户
+# 三个 gateway 必读的 ID 同步到 ~/.arkagent/cases/topicX/config.env,免得用户
 # 重跑本脚本后 gateway 还打着旧 ID(旧 Agent 已被删,调用会 404)。
-CASE_ENV_PATH="${ARKAGENT_HOME:-$HOME/.arkagent}/cases/topic6/config.env"
+# topic5/topic6 共用字面目录 topicX;TOPIC6_* 前缀保证 ID 不与 topic5 冲突。
+CASE_ENV_PATH="${ARKAGENT_HOME:-$HOME/.arkagent}/cases/topicX/config.env"
 if [ -f "$CASE_ENV_PATH" ]; then
   step "9) 回写 gateway config: $CASE_ENV_PATH"
   TOPIC6_COORDINATOR_AGENT_ID="$AGENT_COORDINATOR_ID" \

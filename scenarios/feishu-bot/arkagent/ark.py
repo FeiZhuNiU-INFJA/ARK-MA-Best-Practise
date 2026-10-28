@@ -70,6 +70,19 @@ class RunResult:
     authorization_required: Optional[UserAuthorizationRequired] = None
 
 
+@dataclass(frozen=True)
+class InterruptBoundary:
+    requested_at_ms: int
+    prior_event_ids: frozenset[str]
+
+
+@dataclass(frozen=True)
+class InterruptResult:
+    terminal: str  # "stopped" | "failed" | "timeout"
+    event_id: str = ""
+    error: str = ""
+
+
 class ArkError(RuntimeError):
     """方舟请求异常。
 
@@ -485,6 +498,7 @@ class ArkClient:
         vault_ids: Optional[list[str]] = None,
         env_overrides: Optional[dict[str, str]] = None,
         resources: Optional[list[dict]] = None,
+        title: str = "",
     ) -> str:
         """一次成型：卡点 B（env_overrides 注入 OpenID）+ A（vault_ids）+ D（resources 挂 Memory Store）。"""
         vault_ids = vault_ids or []
@@ -492,6 +506,8 @@ class ArkClient:
         resources = resources or []
 
         body: dict = {"agent": agent_id}
+        if title:
+            body["title"] = title
         if env_overrides:
             # 卡点 B：会话级环境变量透传（environment_with_overrides）。
             with time_block("ark.get_environment_config", env=environment_id):
@@ -516,6 +532,54 @@ class ArkClient:
         if not ident:
             raise ArkError("创建 Session 成功，但响应中没有 Session ID")
         return ident
+
+    async def get_session(self, session_id: str) -> dict:
+        payload = await self._request(
+            "GET", f"/sessions/{quote(session_id, safe='')}"
+        )
+        return _normalize_session(_unwrap(payload))
+
+    async def list_sessions(self, agent_id: str, limit: int = 100) -> list[dict]:
+        query = urlencode(
+            {"agent_id": agent_id, "limit": str(max(1, min(limit, 100)))}
+        )
+        payload = await self._request("GET", f"/sessions?{query}")
+        return [_normalize_session(item) for item in _items(payload)]
+
+    async def send_interrupt(self, session_id: str) -> InterruptBoundary:
+        previous = await self.list_session_events(session_id)
+        boundary = InterruptBoundary(
+            requested_at_ms=_now_ms(),
+            prior_event_ids=frozenset(
+                str(event.get("id"))
+                for event in previous
+                if event.get("id") is not None
+            ),
+        )
+        await self._request(
+            "POST",
+            f"/sessions/{quote(session_id, safe='')}/events",
+            {"events": [{"type": "user.interrupt"}]},
+        )
+        return boundary
+
+    async def wait_for_interrupt(
+        self,
+        session_id: str,
+        boundary: InterruptBoundary,
+        timeout_ms: int = 30_000,
+        poll_interval: float = 1.0,
+    ) -> InterruptResult:
+        """Confirm an interrupt using events created after the request boundary."""
+        deadline = time.monotonic() + max(0, timeout_ms) / 1000
+        while True:
+            events = await self.list_session_events(session_id)
+            result = interrupt_result_from_events(events, boundary)
+            if result is not None:
+                return result
+            if time.monotonic() >= deadline:
+                return InterruptResult(terminal="timeout")
+            await asyncio.sleep(max(0.01, poll_interval))
 
     # ---- files & session resources (多模态：上传文件 + 挂载到 Session 文件系统) ----
     async def upload_file(self, name: str, mime_type: str, data: bytes) -> str:
@@ -1003,6 +1067,58 @@ def event_requires_action(event: dict) -> bool:
     return reason == "requires_action"
 
 
+def interrupt_result_from_events(
+    events: list[dict], boundary: InterruptBoundary
+) -> Optional[InterruptResult]:
+    fresh: list[dict] = []
+    for event in events:
+        event_id = str(event.get("id") or "")
+        if event_id and event_id in boundary.prior_event_ids:
+            continue
+        processed_at = event.get("processed_at")
+        processed_ms = (
+            _parse_iso_ms(processed_at) if isinstance(processed_at, str) else None
+        )
+        if not event_id and (
+            processed_ms is None or processed_ms < boundary.requested_at_ms
+        ):
+            continue
+        fresh.append(event)
+
+    interrupt_index = next(
+        (
+            index
+            for index, event in enumerate(fresh)
+            if event.get("type") == "user.interrupt"
+        ),
+        None,
+    )
+    if interrupt_index is None:
+        return None
+
+    for event in fresh[interrupt_index + 1 :]:
+        event_type = event.get("type")
+        event_id = str(event.get("id") or "")
+        if event_type == "session.status_idle":
+            return InterruptResult(terminal="stopped", event_id=event_id)
+        if event_type in (
+            "session.error",
+            "session.status_failed",
+            "session.status_terminated",
+        ):
+            return InterruptResult(
+                terminal="failed",
+                event_id=event_id,
+                error=event_error(event)
+                or (
+                    "session_terminated"
+                    if event_type == "session.status_terminated"
+                    else "session_failed"
+                ),
+            )
+    return None
+
+
 def result_from_events(events: list[dict], started_at: int) -> Optional[RunResult]:
     def _after(event: dict) -> bool:
         stamp = event.get("processed_at")
@@ -1161,3 +1277,26 @@ def _items(payload: dict) -> list[dict]:
     if isinstance(data, dict) and isinstance(data.get("items"), list):
         return [item for item in data["items"] if isinstance(item, dict)]
     return []
+
+
+def _normalize_session(data: dict) -> dict:
+    agent = data.get("agent")
+    if isinstance(agent, dict):
+        normalized_agent: object = {
+            "id": str(agent.get("id") or ""),
+            **(
+                {"version": agent.get("version")}
+                if agent.get("version") is not None
+                else {}
+            ),
+        }
+    else:
+        normalized_agent = str(agent or data.get("agent_id") or "")
+    return {
+        "id": str(data.get("id") or data.get("session_id") or ""),
+        "status": str(data.get("status") or ""),
+        "agent": normalized_agent,
+        "stop_reason": data.get("stop_reason"),
+        "title": str(data.get("title") or ""),
+        "updated_at": data.get("updated_at"),
+    }

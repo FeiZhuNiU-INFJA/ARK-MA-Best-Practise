@@ -13,7 +13,9 @@ from arkagent.paths import get_case_paths, get_feishu_lock_path
 
 def test_list_cases_finds_bundled_scenarios():
     names = list_cases()
-    assert "topic6" in names
+    assert "topicx" in names
+    assert "topic5" not in names
+    assert "topic6" not in names
     assert "digital-employee" in names
 
 
@@ -23,17 +25,39 @@ def test_load_case_topic6_exposes_required_symbols():
     assert hasattr(case.gateway_module, "build_gateway")
 
 
+def test_topic5_and_topic6_load_as_isolated_packages():
+    topic5 = load_case("topic5")
+    topic6 = load_case("topic6")
+    assert topic5.gateway_module.__name__ == "cases.topic5.gateway"
+    assert topic6.gateway_module.__name__ == "cases.topic6.gateway"
+    assert topic5.config_module is not topic6.config_module
+
+
 def test_load_case_rejects_unknown_name():
     with pytest.raises(RuntimeError, match="未知 case"):
         load_case("does-not-exist")
 
 
-def test_get_case_paths_separates_state(tmp_path):
+def test_get_case_paths_merges_topic_series(tmp_path):
+    """topic 系列(topic5/topic6)合并到字面目录 topicX;case 字段保留原始名。"""
     env = {"ARKAGENT_HOME": str(tmp_path)}
-    p = get_case_paths("topic6", env)
-    assert p.case_dir == str(tmp_path / "cases" / "topic6")
-    assert p.config_path == str(tmp_path / "cases" / "topic6" / "config.env")
-    assert p.database_path == str(tmp_path / "cases" / "topic6" / "gateway.db")
+    p6 = get_case_paths("topic6", env)
+    assert p6.case == "topic6"
+    assert p6.case_dir == str(tmp_path / "cases" / "topicX")
+    assert p6.config_path == str(tmp_path / "cases" / "topicX" / "config.env")
+    assert p6.database_path == str(tmp_path / "cases" / "topicX" / "gateway.db")
+    # topic5 落到同一个目录:共用 config.env 与 gateway.db。
+    p5 = get_case_paths("topic5", env)
+    assert p5.case == "topic5"
+    assert p5.case_dir == p6.case_dir
+    assert p5.config_path == p6.config_path
+
+
+def test_get_case_paths_keeps_non_topic_literal(tmp_path):
+    """非 topic 系列(如 digital-employee)仍用各自的字面目录。"""
+    env = {"ARKAGENT_HOME": str(tmp_path)}
+    p = get_case_paths("digital-employee", env)
+    assert p.case_dir == str(tmp_path / "cases" / "digital-employee")
 
 
 def test_gateway_lock_is_exclusive(tmp_path):
@@ -88,7 +112,7 @@ def test_feishu_lock_path_can_use_separate_directory(tmp_path):
         lock_dir / "feishu.cli_abc.lock"
     )
     assert get_case_paths("topic6", env).config_path == str(
-        state_dir / "cases" / "topic6" / "config.env"
+        state_dir / "cases" / "topicX" / "config.env"
     )
 
 

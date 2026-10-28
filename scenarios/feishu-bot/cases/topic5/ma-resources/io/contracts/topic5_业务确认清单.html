@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>业务确认提问清单 · 瑞幸×多邻国复盘（可填写）</title>
+<style>
+:root{--bd:#e3e6ea;--mut:#5b6672;--bg:#f6f8fa;--pri:#1f5fb0}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.7 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#1a252f;background:var(--bg)}
+.wrap{max-width:860px;margin:0 auto;padding:32px 20px 120px}
+h1{font-size:25px;margin:0 0 4px}
+.sub{color:var(--mut);margin:0 0 18px}
+.tip{background:#eef4fb;border:1px solid #cfe0f4;border-radius:10px;padding:10px 16px;margin:0 0 20px;font-size:14px}
+h2{font-size:17px;margin:26px 0 8px;color:#2c3e50;border-left:4px solid var(--pri);padding-left:10px}
+.q{background:#fff;border:1px solid var(--bd);border-radius:12px;padding:14px 18px;margin:10px 0}
+.q .t{font-weight:600}
+.must{color:#b02a2a}
+.d{color:#3a4654;margin:4px 0 8px;font-size:14px}
+.opts label{display:block;margin:4px 0;cursor:pointer}
+.opts.inline label{display:inline-block;margin:4px 14px 4px 0}
+input[type=text],input[type=number],input[type=date],textarea{font:14px inherit;border:1px solid var(--bd);border-radius:7px;padding:6px 9px;width:100%;margin-top:4px}
+textarea{min-height:52px;resize:vertical}
+.inline-in{width:auto;min-width:220px;margin-left:6px}
+.rec{color:#1a7f4b;font-size:13px}
+.bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--bd);padding:12px 20px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+button{font:600 14px inherit;border:none;border-radius:8px;padding:9px 18px;cursor:pointer}
+.b1{background:var(--pri);color:#fff}.b2{background:#eef2f6;color:#334}
+#out{max-width:860px;margin:16px auto 0;display:none}
+#out textarea{min-height:220px;background:#0f1722;color:#d6e2f0;font:13px ui-monospace,Menlo,monospace}
+.ok{color:#1a7f4b;font-size:13px;margin-left:8px}
+</style></head>
+<body><div class="wrap">
+<h1>业务确认提问清单（可填写）</h1>
+<p class="sub">瑞幸 × 多邻国 营销活动复盘</p>
+<div class="tip">每题填/选即可。<span class="must">标红的 1、3、4 必填</span>，其余可不改（默认按建议）。填完点底部<b>「生成结果」</b>，再<b>「复制」</b>发回即可。</div>
+
+<h2>A. 这次活动的基本范围</h2>
+<div class="q"><div class="t">1. 活动期是什么时间段？ <span class="must">*必填</span></div>
+<div class="d">从哪天到哪天。</div>
+开始 <input type="date" id="q1s" class="inline-in"> 结束 <input type="date" id="q1e" class="inline-in"></div>
+
+<div class="q"><div class="t">2. 基准期怎么取？</div>
+<div class="opts">
+<label><input type="radio" name="q2" value="活动开始前30天" checked> 活动开始前 30 天 <span class="rec">（建议）</span></label>
+<label><input type="radio" name="q2" value="与活动时长等长"> 与活动时长一样长</label>
+<label><input type="radio" name="q2" value="其他" data-other="q2o"> 其他：<input type="text" id="q2o" class="inline-in" placeholder="说明"></label>
+</div></div>
+
+<div class="q"><div class="t">3. 覆盖哪些平台？ <span class="must">*必填</span></div>
+<div class="d">勾选要看的平台。</div>
+<div class="opts inline" id="q3box">
+<label><input type="checkbox" name="q3" value="微博"> 微博</label>
+<label><input type="checkbox" name="q3" value="微信"> 微信</label>
+<label><input type="checkbox" name="q3" value="小红书"> 小红书</label>
+<label><input type="checkbox" name="q3" value="抖音"> 抖音</label>
+<label><input type="checkbox" name="q3" value="快手"> 快手</label>
+<label><input type="checkbox" name="q3" value="视频号"> 视频号</label>
+<label><input type="checkbox" name="q3" value="B站"> B站</label>
+<label><input type="checkbox" name="q3" value="知乎"> 知乎</label>
+<label><input type="checkbox" name="q3" value="新闻"> 新闻</label>
+<label><input type="checkbox" name="q3" value="论坛"> 论坛</label>
+</div>
+<label style="display:inline-block;margin-top:6px"><input type="checkbox" id="q3all"> 全选</label></div>
+
+<div class="q"><div class="t">4. 这波活动分几个「分析对象」？ <span class="must">*必填</span></div>
+<div class="d">比如公关稿 / 话题 / KOL 种草 —— 分开算还是合起来。请列出名称。</div>
+<textarea id="q4" placeholder="例：1) 品牌联名话题  2) KOL 种草  3) ..."></textarea></div>
+
+<h2>B. 数据口径</h2>
+<div class="q"><div class="t">5. 声量算哪种？</div>
+<div class="opts inline">
+<label><input type="radio" name="q5" value="仅主贴" checked> 仅主贴 <span class="rec">（建议）</span></label>
+<label><input type="radio" name="q5" value="主贴+评论"> 主贴 + 评论</label>
+</div></div>
+
+<div class="q"><div class="t">6. 要不要剔除「品牌广告投放」内容？</div>
+<div class="opts inline">
+<label><input type="radio" name="q6" value="不过滤" checked> 不过滤，看全量 <span class="rec">（建议）</span></label>
+<label><input type="radio" name="q6" value="过滤广告"> 过滤广告，只看自然声量</label>
+</div></div>
+
+<div class="q"><div class="t">7. 净情感度（口碑分）对外怎么说？</div>
+<div class="d">平台自带「总情感度」不含中性；分维度口碑分含中性。两个口径都会出现。</div>
+<div class="opts">
+<label><input type="radio" name="q7" value="报告里统一说明两种口径" checked> 报告里统一加一句说明 <span class="rec">（建议）</span></label>
+<label><input type="radio" name="q7" value="分别标注不特别说明"> 分别标注、不特别说明</label>
+</div></div>
+
+<h2>C. 报告内容取舍</h2>
+<div class="q"><div class="t">8. 要不要做竞品对比（市场声量份额）？</div>
+<div class="opts">
+<label><input type="radio" name="q8" value="不带竞品" checked> 不带竞品 <span class="rec">（建议）</span></label>
+<label><input type="radio" name="q8" value="带竞品" data-other="q8o"> 带竞品，竞品是：<input type="text" id="q8o" class="inline-in" placeholder="竞品名称"></label>
+</div></div>
+
+<div class="q"><div class="t">9. 词云要不要出「产品维度」？</div>
+<div class="opts">
+<label><input type="radio" name="q9" value="不出产品维度" checked> 不出</label>
+<label><input type="radio" name="q9" value="出产品维度" data-other="q9o"> 出，产品关键词：<input type="text" id="q9o" class="inline-in" placeholder="产品/关键词"></label>
+</div></div>
+
+<div class="q"><div class="t">10. 每个平台展示几条热门原文？</div>
+<input type="number" id="q10" placeholder="例：10" style="max-width:160px"></div>
+
+<div class="q"><div class="t">11. KOL 头部 / 腰部 / 尾部按什么分？</div>
+<div class="opts">
+<label><input type="radio" name="q11" value="用现有分层标准" checked> 用现有那套 <span class="rec">（建议）</span></label>
+<label><input type="radio" name="q11" value="另定" data-other="q11o"> 另定：<input type="text" id="q11o" class="inline-in" placeholder="如 头部≥50万粉..."></label>
+</div></div>
+
+<h2>D. 流程时限</h2>
+<div class="q"><div class="t">12. 用户终验催办时限沿用吗？</div>
+<div class="d">默认：超 2 个工作日催办，再超 1 个工作日上报。</div>
+<div class="opts">
+<label><input type="radio" name="q12" value="保留默认时限" checked> 保留 <span class="rec">（建议）</span></label>
+<label><input type="radio" name="q12" value="调整" data-other="q12o"> 调整：<input type="text" id="q12o" class="inline-in" placeholder="说明"></label>
+</div></div>
+
+<div id="out"><textarea id="outtext" readonly></textarea></div>
+</div>
+
+<div class="bar">
+<button class="b1" onclick="gen()">生成结果</button>
+<button class="b2" onclick="copyOut()">复制</button>
+<span id="msg" class="ok"></span>
+</div>
+
+<script>
+document.getElementById('q3all').addEventListener('change',function(e){
+  document.querySelectorAll('#q3box input[name=q3]').forEach(c=>c.checked=e.target.checked);
+});
+function rv(name){
+  var el=document.querySelector('input[name='+name+']:checked');
+  if(!el) return '（未填）';
+  var o=el.getAttribute('data-other');
+  if(o){var t=document.getElementById(o).value.trim();return el.value+(t?'：'+t:'');}
+  return el.value;
+}
+function tv(id){var v=document.getElementById(id).value.trim();return v||'（未填）';}
+function gen(){
+  var q3=[].slice.call(document.querySelectorAll('#q3box input[name=q3]:checked')).map(c=>c.value);
+  var s=document.getElementById('q1s').value, e=document.getElementById('q1e').value;
+  var L=[];
+  L.push('【瑞幸×多邻国复盘 · 业务确认回填】');
+  L.push('1. 活动期：'+((s||e)?(s+' ~ '+e):'（未填）'));
+  L.push('2. 基准期：'+rv('q2'));
+  L.push('3. 平台：'+(q3.length?q3.join('、'):'（未填）'));
+  L.push('4. 分析对象：'+tv('q4'));
+  L.push('5. 声量口径：'+rv('q5'));
+  L.push('6. 广告内容：'+rv('q6'));
+  L.push('7. 口碑分说明：'+rv('q7'));
+  L.push('8. 竞品对比：'+rv('q8'));
+  L.push('9. 产品维度词云：'+rv('q9'));
+  L.push('10. 每平台热门原文条数：'+tv('q10'));
+  L.push('11. KOL 分层：'+rv('q11'));
+  L.push('12. 终验时限：'+rv('q12'));
+  document.getElementById('outtext').value=L.join('\n');
+  document.getElementById('out').style.display='block';
+  document.getElementById('msg').textContent='已生成，点「复制」发回';
+  document.getElementById('out').scrollIntoView({behavior:'smooth'});
+}
+function copyOut(){
+  var t=document.getElementById('outtext');
+  if(!t.value){gen();}
+  t.select();
+  navigator.clipboard.writeText(t.value).then(
+    ()=>document.getElementById('msg').textContent='已复制到剪贴板',
+    ()=>{document.execCommand('copy');document.getElementById('msg').textContent='已复制（兼容模式）';}
+  );
+}
+</script>
+</body></html>

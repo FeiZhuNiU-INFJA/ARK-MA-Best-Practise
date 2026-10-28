@@ -278,7 +278,7 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 
 - full / skip_sampling 使用 `05_合并/wide_table_skip_sampling_r{N}.xlsx`
 - demo 使用 `05_合并/wide_table_demo_r{N}.xlsx`,并把 mode=demo 传给洞察脚本
-- 不再委派 4 个 `topic6-insighter` 子 Agent。`pipeline_e.py` 本身已实现 E1~E4
+- Phase E 不委派子 Agent。`pipeline_e.py` 本身已实现 E1~E4
   流式有限并发、断连重试和版块级 checkpoint；直接调用一次，避免重复运行 4 次
   `run_stats.py` 和四份子 Agent 编排开销:
   ```bash

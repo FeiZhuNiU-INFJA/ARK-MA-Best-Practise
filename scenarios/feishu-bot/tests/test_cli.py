@@ -70,7 +70,8 @@ def test_run_without_case_lists_options_and_exits(monkeypatch, tmp_path):
     assert code == 1
     text = out.getvalue()
     assert "可选 case:" in text
-    assert "topic6" in text and "digital-employee" in text
+    assert "topicx" in text and "digital-employee" in text
+    assert "topic5" not in text and "topic6" not in text
     assert "--case <name>" in err.getvalue()
 
 

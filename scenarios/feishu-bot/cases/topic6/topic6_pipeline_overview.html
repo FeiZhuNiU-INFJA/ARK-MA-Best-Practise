@@ -1705,7 +1705,7 @@ heat_score   : 87.4
       content: `
         <h3>为什么用单入口</h3>
         <p>客户原方案(Claude Code)就是扁平的:一个 Claude Code 会话自己 bash 一次 <code>pipeline_e.py</code>,脚本内 <code>asyncio.gather</code> 并发 E1~E4,没有子 Agent 层。<br>
-        MA 复刻中间版曾尝试 Coordinator → 4 个 Insighter 子 Agent,每个子 Agent 都要重复启动 <code>pipeline_e.py</code> 和 <code>run_stats.py</code>,冷启动 × 4、重复统计 × 4、回报开销 × 4,收益为负。<b>当前版本已回归客户原方案的脚本内并发</b>:Coordinator 只调用一次入口。保留 ${maLink('agents/insighter.json')} / ${maLink('agents/insighter.system.md')} 作为中间版的历史存档,运行时不加载。</p>
+        中间版的洞察子 Agent 会重复启动 <code>pipeline_e.py</code> 和 <code>run_stats.py</code>,冷启动、重复统计和回报开销收益为负。<b>当前版本已回归客户原方案的脚本内并发</b>:Coordinator 只调用一次入口，洞察子 Agent 资源已删除。</p>
         <h3>按模式输入</h3>
         <ul>
           <li>demo:<code>wide_table_demo_r{N}.xlsx</code>,HC1 通过后直接进入</li>
@@ -1726,7 +1726,7 @@ heat_score   : 87.4
         <h3>MA 复刻拓扑</h3>
         <div class="ma-block">
           <ul>
-            <li>Coordinator 一次执行 ${maLink('skills/topic6-insight/scripts/pipeline_e.py')},回归客户原方案的脚本单入口(中间版曾委派 4 个 Insighter,已废弃)</li>
+            <li>Coordinator 一次执行 ${maLink('skills/topic6-insight/scripts/pipeline_e.py')},保持脚本单入口</li>
             <li><code>run_stats.py</code> 只执行一次；E1~E4 由 <code>asyncio.gather</code> 并发</li>
             <li>demo 可在 HC1 后直接进入；full 必须完成全量和 HC2 后进入</li>
             <li>四个输出文件全部存在且脚本成功后,Coordinator 才进入 Phase F</li>

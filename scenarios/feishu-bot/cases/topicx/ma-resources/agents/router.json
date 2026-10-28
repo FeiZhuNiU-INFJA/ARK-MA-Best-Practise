@@ -1,0 +1,43 @@
+{
+  "name": "topicx-router",
+  "description": "统一飞书入口的轻量意图路由器，只区分 Topic5 复盘报告、Topic6 热点周报和不支持请求。",
+  "model": {
+    "id": "doubao-seed-2-1-lite-ultra-vision-260920"
+  },
+  "system_file": "router.system.md",
+  "tools": [
+    {
+      "type": "agent_toolset_20260916",
+      "default_config": {
+        "enabled": false,
+        "permission_policy": {
+          "type": "always_allow"
+        }
+      }
+    },
+    {
+      "type": "custom",
+      "name": "submit_business_intent",
+      "description": "提交唯一一次业务意图分类。必须调用，不得以自由文本替代。",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "intent": {
+            "type": "string",
+            "enum": ["topic5", "topic6", "unsupported"]
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["demo", "full", "skip_sampling"]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 100
+          }
+        },
+        "required": ["intent", "mode", "reason"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

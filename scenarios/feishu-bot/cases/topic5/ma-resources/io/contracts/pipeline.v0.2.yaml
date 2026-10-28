@@ -1,0 +1,446 @@
+# Topic5 营销活动复盘报告 — 统一流程规格 v0.2
+#
+# 合成来源：
+#   - pipeline.v0.1.yaml（治理契约：门/模块/数据授权/失败·发布策略）
+#   - pipeline_dag.yaml（可执行 DAG：节点级 handler/幂等/续跑，已本地跑通）
+# 设计：可执行节点层（nodes） + 治理层（governance）双层叠加。
+#   节点层保持 engine 可直接运行的扁平 schema；治理层为声明式约束/登记。
+# 相对 v0.1 的改进：补回方案确认门 G2、保留操作级 HC 与 QC 循环、
+#   补终验超时升级边、交付 draft→commit 分离、具体幂等键、本地可跑（Blueflare 未上线以 stub 执行 control_plane 节点）。
+# 口径修订 2026-10-21（源：飞书 wiki）：竞品 competitor_sov 下线、轮次二拆三任务+覆盖检查、
+#   缺 AI 情感直接报错不兜底、活动层分母=活动相关内容、词云缺平台不再合并。详见 knowledge/ 与 registry/node_status.v0.2.csv。
+
+version: "0.2"
+slug: marketing-activity-review
+topic: Topic5 营销活动复盘报告
+entry: n00_intake
+
+# ─── 治理层（声明式约束，engine 读 params；其余为契约/校验依据）──────────
+governance:
+  strategy: fixed-control-spine-with-parameterized-modules
+  control_plane: blueflare-ada        # 未上线：本地 runner 以 stub 执行 control_plane 节点，保留接入缝
+  agent_runtime: ma
+
+  release_gates:                       # 发布门（治理级，authority 决定放行主体）
+    - {id: G1, after: n01_hc_requirement, subject: RequirementSnapshot, authority: user}
+    - {id: G2, after: n03_hc_plan,        subject: ConfirmedPlan,       authority: user}
+    - {id: G3, after: n17_validate,       subject: ReportArtifact,      authority: validator, pass_policy: "p0_count==0"}
+    - {id: G4, after: n21_hc_user,        subject: DeliveryDraft,       authority: user}
+  operational_hcs: [n10_hc_opinion, n_hc7_escalate, n_user_escalate]   # n10 仅歧义时暂停；其余为异常升级
+
+  required_before_production:          # G2 之后、生产节点之前必须就绪
+    - confirmed_plan_artifact_id
+    - confirmed_plan_version
+    - activity_detail_checksum
+    - input_schema_validation
+
+  modules:                             # 参数化模块：口径 churn 推进模块启用，而非改骨架
+    core: [brand_context, activity_performance, evidence_summary]
+    conditional: [baseline_lift, product_funnel, sentiment_opinion, kol_effectiveness,
+                  ugc_participation, wordcloud_topics, top_content, multi_activity_compare]
+    # 口径修订 2026-10-21(源:飞书 wiki):competitor_sov 竞品分析下线,从条件模块移除
+    unregistered_request_policy: needs-capability-extension-before-G2
+
+  data_policy:
+    conflict_policy: stop-affected-metric-and-create-DataIssue   # 只降级受影响指标/模块，不整跑失败
+    sources:
+      activity_detail: {source: user-uploaded-excel,  authority: campaign-detail-analysis}
+      brand_period:    {source: controlled-stat-tool, authority: brand-period-analysis}
+      brand_baseline:  {source: controlled-stat-tool, authority: baseline-comparison, module: baseline_lift}
+      wordcloud:       {source: controlled-stat-tool, authority: topic-discovery-input, module: wordcloud_topics}
+      # 口径修订 2026-10-21:competitor 数据源随竞品分析下线移除
+
+  failure_policy:
+    checkpoint_source: blueflare-ada
+    external_unknown_state: reconcile-before-retry       # 外部回执 UNKNOWN 先对账再重试
+    side_effect_idempotency_required: true
+    partial_rerun: dependency-scoped                     # 只重跑受影响依赖子图
+    overwrite_artifact: false                            # 内容变更=新版本
+
+  release_policy:
+    p0_allowed: false
+    p1_allowed_with_disclosure: true
+    channels: [feishu-document]
+    post_publish_checks: [image-accessibility, document-layout, document-ownership,
+                          link-accessibility, source-artifact-revision-match]
+
+  roles:
+    ProjectAgent: {owns: [user-dialogue, project-facts, confirmations, exception-coordination, final-delivery]}
+    Topic5Agent:  {owns: [analysis-plan, execution-plan, module-selection, topic-execution, artifact-integration]}
+    Validator:    {independent: true, may_modify_source_artifact: false}
+
+# ─── 业务口径参数（真口径，模块引用；模块开关走 plan.selected_modules）────
+params:
+  annotation_routing_threshold: 1000
+  ugc_category_mode: fixed_four              # 默认 fixed_four 固定四类；dynamic 分支保留(handler 仍支持)
+  nsr_denominator_includes_neutral: true     # 默认含中性
+  report_chapters: five                      # 默认五部分
+  qc_max_rounds: 3
+  user_confirm_timeout_days: 2
+  validator_rules_version: topic5-validator-qc-v1.6
+
+# ─── 可执行节点层（engine 直接驱动；gate/module/control_plane 为治理标注）───
+nodes:
+  # ① 准备 + 需求确认门 G1
+  - id: n00_intake
+    name: 需求受理
+    owner: ProjectAgent
+    mode: code
+    handler: intake_check
+    inputs: []
+    outputs: [requirement_snapshot]
+    success: 生成 G1 需求问卷模板；必填字段与活动明细 Excel 在 G1 提交时校验
+    side_effect: none
+    retry: {max: 0, on_fail: pause}
+    checkpoint: true
+    next: n01_hc_requirement
+
+  - id: n01_hc_requirement
+    name: 需求确认（G1）
+    owner: user
+    mode: human
+    gate: G1
+    handler: human_gate
+    outputs: [requirement_confirmed]
+    success: 用户提交结构化需求问卷，且活动明细 Excel 已挂载到当前 Session
+    next: n02_plan
+
+  # 方案阶段 + 方案确认门 G2（v0.1 有、旧 DAG 缺，本版补回）
+  - id: n02_plan
+    name: 方案编制（分析方案/执行方案/模块选择）
+    owner: Topic5Agent
+    mode: agent
+    handler: plan_compile
+    inputs: [requirement_confirmed]
+    outputs: [analysis_plan, execution_plan, selected_modules]
+    success: 产出含 selected_modules；未登记需求按 unregistered_request_policy 先扩能力
+    side_effect: none
+    retry: {max: 1, on_fail: pause}
+    checkpoint: true
+    next: n03_hc_plan
+
+  - id: n03_hc_plan
+    name: 方案确认（G2）→ 冻结 ConfirmedPlan
+    owner: user
+    mode: human
+    gate: G2
+    handler: human_gate
+    outputs: [confirmed_plan]
+    success: 用户确认方案；冻结 confirmed_plan_artifact_id + version
+    next: n04_run_init
+
+  - id: n04_run_init
+    name: Run 初始化（资源锁/上下文快照）
+    owner: blueflare-ada
+    control_plane: blueflare-ada        # 未上线：本地 stub 执行
+    mode: code
+    handler: run_init
+    inputs: [confirmed_plan]
+    outputs: [run_record, resource_lock, context_snapshot]
+    success: 冻结资源版本与输入校验（required_before_production 全就绪）
+    side_effect: resource-lock
+    idempotency: "runinit:{task_id}:{confirmed_plan_version}"
+    retry: {max: 1, on_fail: pause}
+    checkpoint: true
+    next: [n05_brand_pull, n06_brand_baseline, n13_wordcloud_pull]   # fan-out：三路数说取数，均只依赖 confirmed_plan
+
+  # ② 数据获取
+  - id: n05_brand_pull
+    name: 品牌活动期声量拉取
+    owner: tool-gateway
+    mode: tool
+    handler: ssjh_pull
+    module: brand_context
+    inputs: [confirmed_plan]
+    outputs: [brand_stats]
+    success: 返回品牌活动期聚合（声量/互动/情感/词云/热门内容）
+    side_effect: external-stat-pull
+    idempotency: "ssjh:brand:{task_id}:{resource_lock}"
+    retry: {max: 2, on_fail: pause}
+    checkpoint: true
+    next: n07_clean
+
+  - id: n06_brand_baseline
+    name: 基准期声量拉取
+    owner: tool-gateway
+    mode: tool
+    handler: ssjh_pull
+    module: baseline_lift
+    inputs: [confirmed_plan]
+    outputs: [brand_stats_baseline]
+    success: 基准期=活动前30天不重叠；缺失按 conflict_policy 降级该指标并建 DataIssue
+    side_effect: external-stat-pull
+    idempotency: "ssjh:baseline:{task_id}:{resource_lock}"
+    retry: {max: 2, on_fail: exception_bypass}
+    next: n12_aggregate                      # 基准直接汇入聚合(join)，不串在清洗链上
+
+  - id: n07_clean
+    name: 活动数据清洗
+    owner: Topic5Agent
+    mode: code
+    handler: clean_campaign
+    inputs: [brand_stats]
+    outputs: [cleaned_data]
+    success: 优先清洗用户上传 activity_detail Excel；旧任务无上传文件时回退 SSJH articles
+    side_effect: none
+    retry: {max: 1, on_fail: pause}
+    checkpoint: true
+    next: [n08_ugc_discovery, n09_annotate_r1]   # fan-out：UGC 发现 ∥ 轮次一标注，都只吃 cleaned_data
+
+  # ③ AI 标注（含操作级 HC：观点确认）
+  - id: n08_ugc_discovery
+    name: UGC 参与方式发现
+    owner: DiscoverySubagent
+    mode: agent
+    handler: ugc_discovery
+    module: ugc_participation
+    inputs: [cleaned_data]
+    outputs: [ugc_category_list]
+    success: 动态发现类别（ugc_category_mode 参数控制）
+    retry: {max: 1, on_fail: pause}
+    next: n11_annotate_r2                     # ugc_category_list 汇入轮次二(join)
+
+  - id: n09_annotate_r1
+    name: 轮次一标注（情感+活动相关）
+    owner: tool-gateway
+    mode: tool
+    handler: annotate
+    inputs: [cleaned_data]
+    outputs: [annotated_round1]
+    success: 全量两基础标签；按 annotation_routing_threshold 路由小引擎/DataHub
+    # 口径修订 2026-10-21:情感以 AI 标注为准,缺 AI 情感直接报错,不再兜底
+    side_effect: annotation-batch
+    idempotency: "annot:r1:{task_id}:{resource_lock}"
+    retry: {max: 2, on_fail: pause}
+    checkpoint: true
+    next: n09b_opinion_candidates
+
+  - id: n09b_opinion_candidates
+    name: 观点候选生成（供 HC 确认）
+    owner: OpinionSubagent
+    mode: agent
+    handler: opinion_candidates
+    inputs: [annotated_round1]
+    outputs: [opinion_candidates]
+    success: 基于轮次一抽样聚类出观点候选，供用户确认后注入轮次二
+    side_effect: none
+    retry: {max: 1, on_fail: pause}
+    next: n10_hc_opinion
+
+  - id: n10_hc_opinion
+    name: 观点标签策略校验（无歧义自动，有歧义转人工）
+    owner: Validator
+    mode: agent
+    handler: opinion_policy_gate
+    pause_capable: true
+    inputs: [opinion_candidates]
+    outputs: [confirmed_opinion_labels]
+    success: 来源、样本、数量、唯一性与可标注性均通过则自动确认；动态或歧义标签暂停人工确认
+    next: n11_annotate_r2
+
+  - id: n11_annotate_r2
+    name: 轮次二标注（观点/UGC方式/讨论维度）
+    # 口径修订 2026-10-21:轮次二拆三任务(观点/UGC/维度)+覆盖检查;单节点暂承载三任务,
+    # 物理拆为三个节点 id 为后续工程项(见 registry/node_status.v0.2.csv 备注)。
+    # 多活动逐个处理 + 混合抽样;不适用情形不卡流程(跳过并标注,不阻断)。
+    owner: tool-gateway
+    mode: tool
+    handler: annotate
+    inputs: [confirmed_opinion_labels, ugc_category_list]
+    outputs: [annotated_data]
+    success: 三任务(观点/UGC方式/分维度)标注完成并经覆盖检查,缺口显式报错
+    side_effect: annotation-batch
+    idempotency: "annot:r2:{task_id}:{resource_lock}"
+    retry: {max: 2, on_fail: pause}
+    checkpoint: true
+    next: n12_aggregate
+
+  # ④ 统计聚合
+  - id: n12_aggregate
+    name: 分对象统计聚合
+    owner: Topic5Agent
+    mode: code
+    handler: aggregate
+    module: activity_performance
+    inputs: [annotated_data, brand_stats, brand_stats_baseline]
+    outputs: [stats_bundle]
+    success: 各活动独立统计（趋势/互动/情感/TopN/KOL效能/UGC分布/分维NSR）
+    # 口径修订 2026-10-21:活动层所有指标分母=活动相关内容条数;指标用条均互动量/品牌提及率/产品提及占比
+    side_effect: none
+    retry: {max: 1, on_fail: pause}
+    checkpoint: true
+    next: n14_charts                          # join: annotated_data + brand_stats + brand_stats_baseline 齐备后聚合
+
+  - id: n13_wordcloud_pull
+    name: 词云拉取                              # 口径修订 2026-10-21:竞品 SOV 下线
+    owner: tool-gateway
+    mode: tool
+    handler: ssjh_pull
+    module: wordcloud_topics
+    inputs: [confirmed_plan]
+    outputs: [wordcloud_data]
+    success: 逐活动拉整体/品牌/产品词云                # 竞品声量已下线;缺平台不再跨平台合并
+    side_effect: external-stat-pull
+    idempotency: "ssjh:wc:{task_id}:{resource_lock}"
+    retry: {max: 2, on_fail: exception_bypass}
+    next: [n14_charts, n15_wordcloud_insight]    # fan-out：词云数据供图表与解读两路
+
+  # ⑤ 图表封面
+  - id: n14_charts
+    name: 图表+封面生成（本地 PNG，交付时上传飞书 media）
+    owner: tool-gateway
+    mode: tool
+    handler: charts_render
+    inputs: [stats_bundle, wordcloud_data]
+    outputs: [chart_urls]
+    success: 按图表规范产全部图表+封面本地 PNG，交付节点上传飞书 media
+    side_effect: chart-render
+    idempotency: "chart-render:{task_id}:{resource_lock}"
+    retry: {max: 2, on_fail: pause}
+    checkpoint: true
+    next: n16_report                          # join: stats_bundle + wordcloud_data 齐备后生成图表
+
+  # ⑥ 报告撰写
+  - id: n15_wordcloud_insight
+    name: 词云三步解读
+    owner: InsightSubagent
+    mode: agent
+    handler: wordcloud_insight
+    inputs: [wordcloud_data]
+    outputs: [wordcloud_insight]
+    success: 逐词查帖→剔噪音→聚 3-5 议题，产出各平台各维议题
+    retry: {max: 1, on_fail: pause}
+    next: n16_report
+
+  - id: n16_report
+    name: 报告内容层撰写
+    owner: NarrativeSubagent
+    mode: agent
+    handler: write_report
+    module: evidence_summary
+    inputs: [stats_bundle, chart_urls, wordcloud_insight]
+    outputs: [report_md]
+    success: 内容层 MD（report_chapters 参数控制结构），不含飞书布局
+    retry: {max: 1, on_fail: pause}
+    checkpoint: true
+    next: n17_validate                        # join: stats_bundle + chart_urls + wordcloud_insight 齐备后撰写
+
+  # ⑦ 质检循环 + 独立验证门 G3
+  - id: n17_validate
+    name: 质检关卡（G3·独立 Validator 两段式审计）
+    owner: Validator
+    mode: agent
+    gate: G3
+    handler: validator_gate
+    pause_capable: true
+    inputs: [report_md, chart_urls, stats_bundle]
+    outputs: [qc_report]
+    success: 独立 Validator 自动产出并绑定 qc_report；p0_count==0 自动放行，不向用户发审核卡
+    checkpoint: true
+    next: n18_qc_gate
+
+  - id: n18_qc_gate
+    name: 质检路由
+    owner: engine
+    mode: decision
+    handler: qc_decision
+    routes:
+      no_p0: n20_delivery_draft
+      has_p0_retry: n19_fix
+      has_p0_maxed: n_hc7_escalate
+
+  - id: n19_fix
+    name: P0 修复（patch 递增）
+    owner: Topic5Agent
+    mode: agent
+    handler: fix_report
+    inputs: [qc_report, report_md]
+    outputs: [report_md]
+    success: 修复 P0 并版本递增后复检
+    retry: {max: 0, on_fail: pause}
+    next: n17_validate
+
+  - id: n_hc7_escalate
+    name: 质检超限人工介入（操作级 HC）
+    owner: ProjectAgent
+    mode: human
+    handler: human_gate
+    inputs: [qc_report]
+    outputs: [escalation_decision]
+    success: 超 qc_max_rounds 轮触发，防无限循环
+    next: n20_delivery_draft
+
+  # ⑧ 交付草稿 + 终验门 G4（draft→commit 分离）
+  - id: n20_delivery_draft
+    name: 交付草稿（飞书文档 draft）
+    owner: tool-gateway
+    mode: tool
+    gate: G4
+    handler: delivery_draft
+    inputs: [report_md, chart_urls]
+    outputs: [delivery_draft, external_receipts, feishu_doc]
+    success: 内容层→飞书布局层，创建文档并转移所有权；p0 禁发/p1 可披露放行
+    side_effect: feishu-doc-create
+    idempotency: "feishu:{task_id}:{resource_lock}:{report_version}"
+    retry: {max: 2, on_fail: pause}
+    checkpoint: true
+    next: n21_hc_user
+
+  - id: n21_hc_user
+    name: 用户终验（G4）
+    owner: user
+    mode: human
+    gate: G4
+    handler: human_gate
+    inputs: [delivery_draft]
+    outputs: [user_confirmation]
+    success: 用户对飞书文档终验；超时走催办/升级
+    timeout_days_param: user_confirm_timeout_days
+    next: n22_user_gate
+
+  - id: n22_user_gate
+    name: 终验路由（确认/返修/超时升级）
+    owner: engine
+    mode: decision
+    handler: user_decision
+    routes:
+      confirmed: n23_delivery_commit
+      issues: n20_delivery_draft
+      escalate: n_user_escalate
+
+  - id: n_user_escalate
+    name: 终验超时升级（操作级 HC）
+    owner: ProjectAgent
+    mode: human
+    handler: human_gate
+    inputs: [delivery_draft]
+    outputs: [escalation_decision]
+    success: 超 user_confirm_timeout_days 催办仍无响应则上报 Supervisor
+    next: n23_delivery_commit
+
+  # ⑨ 交付提交 + 闭环
+  - id: n23_delivery_commit
+    name: 交付提交（发布后检查）
+    owner: blueflare-ada
+    control_plane: blueflare-ada        # 未上线：本地 stub 执行
+    mode: code
+    handler: delivery_commit
+    inputs: [feishu_doc, user_confirmation]
+    outputs: [delivery_record, task_result]
+    success: 发布后检查全过（图片/布局/所有权/链接/版本一致）
+    side_effect: delivery-commit
+    idempotency: "commit:{task_id}:{resource_lock}"
+    retry: {max: 1, on_fail: pause}
+    checkpoint: true
+    next: n24_handoff
+
+  - id: n24_handoff
+    name: 交回 Supervisor 闭环
+    owner: ProjectAgent
+    mode: code
+    handler: handoff
+    inputs: [delivery_record, task_result]
+    outputs: [handoff]
+    success: 写 handoff 并校验
+    side_effect: none
+    next: null

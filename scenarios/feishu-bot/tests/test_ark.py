@@ -7,6 +7,7 @@ import respx
 
 from arkagent.ark import (
     ArkClient,
+    InterruptBoundary,
     _capture_ma_request_id,
     drain_event_buffer,
     event_custom_tool_call,
@@ -14,6 +15,7 @@ from arkagent.ark import (
     event_requires_action,
     event_text,
     event_user_authorization_required,
+    interrupt_result_from_events,
     remember_lark_cli_tool_domain,
     result_from_events,
 )
@@ -363,6 +365,114 @@ async def test_create_session_mounts_memory_store_resources():
     import json
     sent = json.loads(route.calls.last.request.content)
     assert sent["resources"][0]["memory_store_id"] == "mem-1"
+
+
+@respx.mock
+async def test_create_session_includes_title():
+    route = respx.post(f"{BASE}/sessions").mock(
+        return_value=httpx.Response(200, json={"id": "sesn-title"})
+    )
+    client = _client()
+    await client.create_session(
+        "agent-1", "env-1", title="topicx/task_123/router"
+    )
+    await client.aclose()
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["title"] == "topicx/task_123/router"
+
+
+@respx.mock
+async def test_get_and_list_sessions_normalize_response():
+    respx.get(f"{BASE}/sessions/sesn-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "sesn-1",
+                "status": "idle",
+                "agent": {"id": "agent-1", "version": 3},
+                "title": "topicx/task_123/router",
+                "stop_reason": {"type": "end_turn"},
+                "updated_at": "2026-10-25T10:00:00Z",
+            },
+        )
+    )
+    route = respx.get(
+        f"{BASE}/sessions", params={"agent_id": "agent-1", "limit": "20"}
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": "sesn-1",
+                        "status": "idle",
+                        "agent": {"id": "agent-1"},
+                        "title": "topicx/task_123/router",
+                    }
+                ]
+            },
+        )
+    )
+    client = _client()
+    session = await client.get_session("sesn-1")
+    sessions = await client.list_sessions("agent-1", limit=20)
+    await client.aclose()
+    assert session["agent"]["id"] == "agent-1"
+    assert session["stop_reason"]["type"] == "end_turn"
+    assert sessions[0]["title"] == "topicx/task_123/router"
+    assert route.called
+
+
+@respx.mock
+async def test_send_interrupt_records_boundary_and_posts_event():
+    respx.get(f"{BASE}/sessions/sesn-1/events").mock(
+        return_value=httpx.Response(
+            200, json={"data": [{"id": "old-idle", "type": "session.status_idle"}]}
+        )
+    )
+    route = respx.post(f"{BASE}/sessions/sesn-1/events").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    client = _client()
+    boundary = await client.send_interrupt("sesn-1")
+    await client.aclose()
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {"events": [{"type": "user.interrupt"}]}
+    assert boundary.prior_event_ids == frozenset({"old-idle"})
+
+
+def test_interrupt_result_requires_new_interrupt_then_new_idle():
+    boundary = InterruptBoundary(1000, frozenset({"old-idle"}))
+    assert (
+        interrupt_result_from_events(
+            [{"id": "old-idle", "type": "session.status_idle"}], boundary
+        )
+        is None
+    )
+    result = interrupt_result_from_events(
+        [
+            {"id": "old-idle", "type": "session.status_idle"},
+            {"id": "interrupt", "type": "user.interrupt"},
+            {"id": "new-idle", "type": "session.status_idle"},
+        ],
+        boundary,
+    )
+    assert result is not None
+    assert result.terminal == "stopped"
+    assert result.event_id == "new-idle"
+
+
+def test_interrupt_result_reports_terminated_after_interrupt():
+    result = interrupt_result_from_events(
+        [
+            {"id": "interrupt", "type": "user.interrupt"},
+            {"id": "terminated", "type": "session.status_terminated"},
+        ],
+        InterruptBoundary(1000, frozenset()),
+    )
+    assert result is not None
+    assert result.terminal == "failed"
+    assert result.error == "session_terminated"
 
 
 # ---- system.message (卡点 C) ----

@@ -1,0 +1,198 @@
+apiVersion: ada.bluefocus/v0alpha1
+kind: TopicPipelineContract
+metadata:
+  name: topic5-marketing-activity-review
+  version: 0.1.0
+  status: contract-baseline
+  executionStatus: inactive
+  updatedAt: 2026-10-21
+spec:
+  strategy: fixed-control-spine-with-parameterized-modules
+  controlPlane: blueflare-ada
+  agentRuntime: ma
+
+  fixedGates:
+    - id: G1
+      name: requirement-confirmation
+      subject: RequirementSnapshot
+      authority: user
+    - id: G2
+      name: plan-confirmation
+      subject: ConfirmedPlan
+      authority: user
+    - id: G3
+      name: independent-validation
+      subject: ReportArtifact
+      authority: Validator
+      passPolicy: p0_count == 0
+    - id: G4
+      name: final-delivery-confirmation
+      subject: DeliveryDraft
+      authority: user
+
+  requiredIntake:
+    - brand
+    - campaign_name
+    - campaign_period
+    - platforms
+    - brand_keywords
+    - activity_keywords
+    - business_questions
+    - delivery_expectation
+
+  requiredBeforeProduction:
+    - confirmed_plan_artifact_id
+    - confirmed_plan_version
+    - activity_detail_artifact_id
+    - activity_detail_checksum
+    - input_schema_validation
+
+  dataPolicy:
+    activityDetail:
+      source: user-uploaded-excel
+      authority: campaign-detail-analysis
+    brandPeriod:
+      source: controlled-stat-tool
+      authority: brand-period-analysis
+    brandBaseline:
+      source: controlled-stat-tool
+      authority: baseline-comparison
+    wordcloud:
+      source: controlled-stat-tool
+      authority: topic-discovery-input
+    competitor:
+      source: controlled-stat-tool
+      authority: competitor-comparison
+    conflictPolicy: stop-affected-metric-and-create-DataIssue
+
+  stages:
+    - id: T5-00
+      name: intake
+      owner: ProjectAgent
+      mode: agent-plus-code
+      output: RequirementDraft
+      gateAfter: G1
+    - id: T5-10
+      name: plan-compile
+      owner: Topic5Agent
+      mode: agent
+      output:
+        - AnalysisPlan
+        - ExecutionPlan
+      gateAfter: G2
+    - id: T5-20
+      name: run-initialize
+      owner: blueflare-ada
+      mode: code
+      output:
+        - RunRecord
+        - ResourceLock
+        - ContextSnapshot
+    - id: T5-30
+      name: input-and-acquisition
+      owner: tool-gateway
+      mode: tool-plus-upload
+      output:
+        - InputManifest
+        - RawInputArtifacts
+        - ToolReceipts
+    - id: T5-40
+      name: data-foundation
+      owner: Topic5Agent
+      mode: code
+      output:
+        - NormalizedDataset
+        - DataQualityReport
+    - id: T5-50
+      name: semantic-enrichment
+      owner: Topic5Agent
+      mode: parameterized-agent-or-batch-route
+      output:
+        - EnrichedDataset
+        - LabelEvidence
+    - id: T5-60
+      name: metric-computation
+      owner: Topic5Agent
+      mode: code
+      output:
+        - MetricsBundle
+        - ReconciliationReport
+    - id: T5-70
+      name: insight-and-report-assembly
+      owner: Topic5Agent
+      mode: agent-plus-code
+      output:
+        - PresentationBundle
+        - ReportArtifact
+      gateAfter: G3
+    - id: T5-80
+      name: delivery-draft
+      owner: tool-gateway
+      mode: tool
+      output:
+        - DeliveryDraft
+        - ExternalReceipts
+      gateAfter: G4
+    - id: T5-90
+      name: delivery-commit
+      owner: blueflare-ada
+      mode: code
+      output:
+        - DeliveryRecord
+        - TaskResult
+
+  modules:
+    core:
+      - brand_context
+      - activity_performance
+      - evidence_summary
+    conditional:
+      - baseline_lift
+      - product_funnel
+      - sentiment_opinion
+      - kol_effectiveness
+      - ugc_participation
+      - wordcloud_topics
+      - top_content
+      - competitor_sov
+      - multi_activity_compare
+    unregisteredRequestPolicy: needs-capability-extension-before-G2
+
+  roles:
+    ProjectAgent:
+      owns:
+        - user-dialogue
+        - project-facts
+        - confirmations
+        - exception-coordination
+        - final-delivery
+    Topic5Agent:
+      owns:
+        - analysis-plan
+        - execution-plan
+        - module-selection
+        - topic-execution
+        - artifact-integration
+    Validator:
+      independent: true
+      mayModifySourceArtifact: false
+
+  failurePolicy:
+    checkpointSource: blueflare-ada
+    retryRecord: Attempt
+    externalUnknownState: reconcile-before-retry
+    sideEffectIdempotencyRequired: true
+    partialRerun: dependency-scoped
+    overwriteArtifact: false
+
+  releasePolicy:
+    p0Allowed: false
+    p1AllowedWithDisclosure: true
+    channels:
+      - feishu-document
+    requirePostPublishChecks:
+      - image-accessibility
+      - document-layout
+      - document-ownership
+      - link-accessibility
+      - source-artifact-revision-match

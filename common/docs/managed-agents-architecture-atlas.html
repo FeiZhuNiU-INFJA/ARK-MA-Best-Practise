@@ -482,7 +482,7 @@
     <aside class="side-panel">
       <p class="section-kicker" id="view-kicker">系统模型</p>
       <h1 id="view-title">一个 Session，组装全部能力</h1>
-      <p class="view-summary" id="view-summary">Agent 定义怎么做，Environment 决定在哪跑，Session 把凭据、资源和任务组合成一次隔离运行。</p>
+      <p class="view-summary" id="view-summary">Agent 定义怎么做，Environment 决定运行模式与基础工具位置，Session 把凭据、资源和任务组合成一次隔离运行。</p>
       <section class="side-section" id="filter-section">
         <h2>关系筛选</h2>
         <div class="filter-list" id="relationship-filters"></div>
@@ -510,7 +510,7 @@
       </section>
       <section class="side-section baseline-section">
         <h2>内容基线</h2>
-        <p class="view-summary"><code>火山方舟_ManagedAgents_docs.md</code><br>校对日期：2026-10-19 · 19 页</p>
+        <p class="view-summary"><code>火山方舟_ManagedAgents_docs.md</code><br>校对日期：2026-10-25 · 19 页</p>
       </section>
     </aside>
 
@@ -593,17 +593,17 @@
 
     const COMPONENTS = {
       app: { name:"业务应用", kind:"你的系统", plane:"接入层", summary:"创建和管理资源，发送用户事件，消费 SSE，并处理确认、自定义工具与最终结果。", owner:"业务方", createdWhen:"部署应用时", boundWhen:"通过 API 调用 MA", mutable:"由业务方控制", scope:"应用级", retention:"由业务系统决定", facts:["HTTP 200 只代表事件已受理。","实时流中断后，应先重建流，再查询历史补齐空窗。"], pitfalls:["不要先发送消息再建立 SSE。"], sources:["events"] },
-      agent: { name:"Agent", kind:"版本化定义", plane:"控制面", summary:"定义模型、System Prompt、Skills、Tools、MCP 和多智能体关系，是多个 Session 复用的能力模板；也可在创建单个 Session 时形成覆写快照。", owner:"平台资源", createdWhen:"设计能力时", boundWhen:"创建 Session 时引用或覆写", mutable:"更新产生新版本；Session 覆写不改原 Agent", scope:"多个 Session 复用", retention:"独立于 Session", facts:["稳定 Agent ID 下维护递增版本，更新必须携带当前 version。","仅更新 display_name 不生成新版本；更新 advisors、system 等版本化字段即使值不变也生成新版本。","agent_with_overrides 可按 Session 覆写 system、model、tools、skills、mcp_servers 与 multiagent。","tools、skills、mcp_servers 在更新或覆写时都采用完整列表语义。"], pitfalls:["更新 Agent 不会自动改变已有 Session。","主 Agent 省略或清空 tools 会回退为启用全部内置工具；限制范围必须显式配置 Toolset。","覆写列表传 [] 表示清空，不表示继承；不修改时必须省略字段。"], sources:["agent","skills","tools","start"] },
+      agent: { name:"Agent", kind:"版本化定义", plane:"控制面", summary:"定义模型、System Prompt、Skills、Tools、MCP 和多智能体关系，是多个 Session 复用的能力模板；也可在创建单个 Session 时形成覆写快照。", owner:"平台资源", createdWhen:"设计能力时", boundWhen:"创建 Session 时引用或覆写", mutable:"更新产生新版本；Session 覆写不改原 Agent", scope:"多个 Session 复用", retention:"独立于 Session", facts:["稳定 Agent ID 下维护递增版本，更新必须携带当前 version；单账号最多创建 1000 个 Agent。","按任务类型选择通用 Agent 或 Seedance Managed Agent。","agent_with_overrides 可按 Session 覆写 system、model、tools、skills、mcp_servers 与 multiagent。","tools、skills、mcp_servers 在更新或覆写时都采用完整列表语义。"], pitfalls:["更新 Agent 不会自动改变已有 Session。","主 Agent 省略或清空 tools 会回退为启用全部内置工具；限制范围必须显式配置 Toolset。","覆写列表传 [] 表示清空，不表示继承；不修改时必须省略字段。"], sources:["agent","skills","tools","start"] },
       skills: { name:"Skills", kind:"能力包", plane:"控制面", summary:"为 Agent 提供可复用的领域知识、流程和最佳实践，运行时只读挂载到 /mnt/skills。", owner:"平台或团队", createdWhen:"沉淀方法时", boundWhen:"Agent 定义时引用", mutable:"自定义 Skill 可发新版本", scope:"随 Agent 配置", retention:"独立资源", facts:["支持 SkillHub 预置与自定义 Skill。","单个 Agent 最多配置 50 个 Skills。","挂载目录对 Agent 只读。"], pitfalls:["一次性任务应通过 Session 事件传入，不应写进 Skill。"], sources:["skills","sandbox"] },
-      tools: { name:"Tools", kind:"执行能力", plane:"控制面", summary:"让 Agent 操作文件、执行命令、访问网页、生成视觉内容或调用业务操作；工具范围、执行方与权限策略在 Agent 定义中配置。", owner:"方舟或业务方", createdWhen:"定义 Agent 时", boundWhen:"Session 使用 Agent 快照", mutable:"更新 Agent 后需新建或升级 Session", scope:"内置 / 多模态 / MCP / 自定义", retention:"随 Agent 版本", facts:["新建 Agent 使用基础工具集 agent_toolset_20260916；历史版本仅兼容已有配置。","云环境内置与 MCP 工具由方舟执行；自托管内置工具由 Worker 执行；自定义工具由业务应用执行。","多模态生成工具最多配置 10 个模型或推理接入点；配置多个时必须且只能有一个 default。","主 Agent 未配置内置 Toolset 时默认启用全部内置工具并 always_allow；子 Agent 不提供内置工具。"], pitfalls:["启用多模态 general_search 时必须关闭基础工具 web_search，否则创建配置会返回 InvalidParameter。","关闭 write/edit 不代表强隔离，bash、可读敏感文件与不受限网络仍可能绕过意图限制。","ViewMedia 与 record_search_quality 由平台自动提供，不能通过 configs 配置。"], sources:["tools","permissions"] },
-      environment: { name:"Environment", kind:"运行模板", plane:"控制面", summary:"选择云托管或自托管执行模式，并定义相应运行配置；多个 Session 可复用模板，但运行实例彼此隔离。", owner:"平台资源", createdWhen:"准备运行环境时", boundWhen:"创建 Session 时引用或覆写", mutable:"可更新，无内建版本", scope:"多个 Session 复用", retention:"独立于 Session", facts:["云环境由方舟启动独立 Session 沙箱。","自托管环境由企业 Worker 和 Sandbox 执行内置工具。","已有 Session 使用创建时冻结的配置快照。","environment_with_overrides 可按 Session 覆写 packages、env、setup_script 与产物存储；响应用 overridden_fields 回显实际覆写项。"], pitfalls:["setup_script 超限或非零退出不会回滚已完成操作，Session 仍可能创建并继续运行；应写标记文件并自行验收。","频繁更新时应在业务侧记录环境版本。","不要把 Environment 等同于一个正在运行的容器。"], sources:["environment","start","selfhosted"] },
+      tools: { name:"Tools", kind:"执行能力", plane:"控制面", summary:"让 Agent 操作文件、执行命令、访问网页、生成视觉内容或调用业务操作；工具范围、执行方与权限策略在 Agent 定义中配置。", owner:"方舟或业务方", createdWhen:"定义 Agent 时", boundWhen:"Session 使用 Agent 快照", mutable:"更新 Agent 后需新建或升级 Session", scope:"基础 / 多模态 / MCP / 自定义", retention:"随 Agent 版本", facts:["新建 Agent 使用基础工具集 agent_toolset_20260916；历史版本仅兼容已有配置。","自托管只把主 Agent 的 bash、read、write、edit、glob、grep 交给企业 Worker。","web_fetch、web_search、多模态与 MCP 在云和自托管环境都由方舟执行；自定义工具由业务应用执行。","Seedance Managed Agent 使用多模态工具集；自托管 Session 也可使用，但参数和媒体数据会进入方舟链路。"], pitfalls:["permission_policy 只决定是否需要业务确认，不改变工具执行方。","启用多模态 general_search 时必须关闭基础工具 web_search，否则创建配置会返回 InvalidParameter。","业务数据不能进入方舟多模态链路时，应关闭多模态工具集。"], sources:["tools","permissions","selfhosted"] },
+      environment: { name:"Environment", kind:"运行模板", plane:"控制面", summary:"选择云托管或自托管执行模式，并定义相应运行配置；多个 Session 可复用模板，但运行实例彼此隔离。", owner:"平台资源", createdWhen:"准备运行环境时", boundWhen:"创建 Session 时引用或覆写", mutable:"可更新，无内建版本", scope:"多个 Session 复用", retention:"独立于 Session", facts:["云环境由方舟启动独立 Session 沙箱。","自托管 Environment 只改变主 Agent 的 Bash 与文件工具执行位置，不改变 Web、多模态、MCP 和自定义工具的执行方。","已有 Session 使用创建时冻结的配置快照。","environment_with_overrides 可按 Session 覆写 packages、env、setup_script 与产物存储；响应用 overridden_fields 回显实际覆写项。"], pitfalls:["setup_script 超限或非零退出不会回滚已完成操作，Session 仍可能创建并继续运行；应写标记文件并自行验收。","频繁更新时应在业务侧记录环境版本。","不要把 Environment 等同于一个正在运行的容器。"], sources:["environment","start","selfhosted","tools"] },
       session: { name:"Session", kind:"运行实例", plane:"运行面", summary:"把 Agent、Environment、Vaults 与资源组合成一次隔离运行；创建时可形成 Agent 与 Environment 的任务级覆写快照。", owner:"平台资源", createdWhen:"每个任务或会话开始时", boundWhen:"创建即冻结配置快照", mutable:"可改标题/标签，可升级配置", scope:"单次隔离运行", retention:"空闲 14 天后终止", facts:["直接引用 ID/版本可复用模板；agent_with_overrides 与 environment_with_overrides 只影响当前 Session。","创建 Session 不会启动工作，发送 user.message 或 user.define_outcome 才开始。","正常轮次结束为 idle + end_turn。","可在 running 时继续排队发送消息。"], pitfalls:["idle 也可能是 requires_action 或 retries_exhausted，不能单看状态。","覆写对象中的列表或对象为空时通常表示清空，不是保持原值。"], sources:["start","session","events"], engineering:"生产接入通常需要在业务库维护“终端会话 → session_id”的映射，MA 不替业务方维护渠道会话关系。" },
       sandbox: { name:"Cloud Sandbox", kind:"方舟托管沙箱", plane:"运行面", summary:"cloud Environment 下，每个 Session 获得独立 Linux 实例，由方舟执行内置工具并维护沙箱状态。", owner:"方舟托管", createdWhen:"Session 初始化/恢复时", boundWhen:"Environment 类型为 cloud", mutable:"Session 内可读写允许目录", scope:"单个 Session", retention:"随 Session 快照与终止策略", facts:["/workspace 可读写，AGENTS.md 只读。","/mnt/memory、/mnt/skills、/mnt/session/uploads 只读。","/mnt/session/outputs 与 storage 可读写。"], pitfalls:["Environment 被复用不代表 Session 共享文件系统。","自托管模式不会由方舟代管企业 Sandbox。"], sources:["sandbox","session","selfhosted"] },
-      selfhosted: { name:"Self-hosted", kind:"Worker + 企业 Sandbox", plane:"企业运行面", summary:"自托管 Environment 把内置工具执行交给企业 Worker；Worker 领取 Work，在企业 Sandbox 执行并把结果回传给 Session。", owner:"业务方", createdWhen:"需要访问企业内网或自有算力时", boundWhen:"Environment 选择自托管", mutable:"Worker 与 Sandbox 独立部署升级", scope:"自托管 Environment", retention:"企业自行管理", facts:["Worker 负责 Poll / Ack Work。","Worker 建立专用 SSE，并用 Heartbeat 维持 Work 租约。","执行完成后通过 user.tool_result 关联 tool_use_id 回传。"], pitfalls:["业务应用不直接调用 Work API，领取任务是 Worker 的职责。","模型循环和 Session 状态仍由方舟托管，并非整套 MA 搬到企业侧。"], sources:["selfhosted","selfhostedConfig","tools"] },
+      selfhosted: { name:"Self-hosted", kind:"Worker + 企业 Sandbox", plane:"企业运行面", summary:"自托管 Environment 让企业 Worker 执行主 Agent 的 Bash 与文件工具；其他工具和 AgentLoop 仍按各自责任方运行。", owner:"业务方", createdWhen:"需要访问企业内网或自有算力时", boundWhen:"Environment 选择自托管", mutable:"Worker 与 Sandbox 独立部署升级", scope:"主 Agent 的六个企业侧工具", retention:"企业自行管理", facts:["Worker 只承接主 Agent 的 bash、read、write、edit、glob、grep。","Worker 负责 Poll / Ack Work，建立专用 SSE，并用 Heartbeat 维持租约。","执行完成后通过 user.tool_result 关联 tool_use_id 回传。","Web、多模态和 MCP 仍由方舟执行；自定义工具仍由业务应用执行。"], pitfalls:["子 Agent 不通过企业 Worker 执行这六个工具。","业务应用不直接调用 Work API，领取任务是 Worker 的职责。","模型循环、Session 状态及方舟侧工具仍在方舟，并非整套 MA 搬到企业侧。"], sources:["selfhosted","selfhostedConfig","tools","events"] },
       events: { name:"Events / SSE", kind:"通信与历史", plane:"运行面", summary:"应用与 Agent 之间的原子消息。SSE 负责实时推送，Events API 负责发送与历史补查。", owner:"Session", createdWhen:"任务交互时", boundWhen:"按 session_id 读写", mutable:"只增不删", scope:"Session 主线程/子线程", retention:"完整事件默认 6 个月", facts:["先建立 SSE 并等待 : ready，再发送事件。","event_deltas 支持重复参数或逗号分隔，目前可预览 agent.message 与 agent.thinking。","预览帧不进入历史，业务判断以完整事件为准。","事件域包括 user.*、agent.*、session.*、span.*。"], pitfalls:["参数必须写 event_deltas，不能写 event_deltas[]；未知参数或事件类型会被静默忽略且仍返回 HTTP 200。","agent.message 或 SSE 关闭都不是本轮结束判据。"], sources:["events"] },
       vault: { name:"Vault / Credential", kind:"凭据隔离", plane:"安全层", summary:"为终端用户保存并隔离 MCP 或环境变量凭据，通过 vault_ids 在 Session 级注入。", owner:"平台安全资源", createdWhen:"用户授权或配置密钥时", boundWhen:"创建 Session 时传 vault_ids", mutable:"密钥可轮换，匹配键与结构字段不可变", scope:"工作空间共享，业务侧映射用户", retention:"独立资源，删除不可恢复", facts:["Vault 与凭据在工作空间内共享，不按 API Key 隔离。","每个 Vault 最多 100 个凭据；多个 Vault 命中时第一个匹配项优先。","支持 mcp_oauth、static_bearer、mcp_static、environment_variable 与 env_oauth。","凭据在 Session 使用（读取）时重新解析，更新或删除后无需重启 Session。","mcp_oauth 与 env_oauth 配置 expires_at + refresh 后，读取时若进入过期前 5 分钟窗口会自动刷新令牌。"], pitfalls:["同一 Agent 服务不同用户时，应由业务系统维护用户到 vault_id 的映射。","环境变量凭据仅在沙箱出口替换；依赖密钥本地签名或格式校验的客户端不适用。"], sources:["vault","mcp"] },
-      memory: { name:"Memory Store", kind:"长期记忆", plane:"数据层", summary:"跨 Session 保留偏好、规范和经验；创建 Session 时通过 resources 挂载，并可指定只读或读写。", owner:"平台资源", createdWhen:"需要长期上下文时", boundWhen:"仅创建 Session 时挂载", mutable:"由 access 决定 read_only/read_write", scope:"用户/团队/项目 Store", retention:"独立于 Session", facts:["单 Session 最多挂载 10 个 Store。","单 Store 最多 2,000 条 Memory，单条 100 KiB。","read_write 修改会供后续 Session 继续使用。"], pitfalls:["Memory Store 不能在运行中的 Session 追加或移除。"], sources:["memory"] },
-      files: { name:"Files / TOS", kind:"输入与持久数据", plane:"数据层", summary:"Files API 输入挂到 uploads；TOS 目录挂到 storage；最终交付写到 outputs 并注册为 Session 文件。", owner:"用户与平台", createdWhen:"任务准备或运行中", boundWhen:"resources 或 Environment 存储配置", mutable:"Files 资源可在运行中追加和查询", scope:"文件、目录或 Session 产物", retention:"取决于默认/自有 TOS", facts:["单 Session 最多挂载 100 个文件，建议用 mount_path 提供稳定可读路径。","uploads 是只读副本；storage 与 outputs 可读写。","scope_id + purpose=agent 只查询 outputs 注册的产物，不包含 resources 挂载的输入副本。","download_url 有时效性；自有 TOS 产物不随 Session 删除。"], pitfalls:["查询挂载输入应使用 Session Resources API，不要依赖 Files API 的 scope_id。","产物存储 outputs 与输入资源 storage 用途不同。","Session 进入 idle 后产物可能暂时不可查询，下载端应短暂轮询。"], sources:["files","environment","sandbox"] },
+      memory: { name:"Memory Store", kind:"长期记忆", plane:"数据层", summary:"跨 Session 保留偏好、规范和经验；创建 Session 时通过 resources 挂载，并可指定只读或读写。", owner:"平台资源", createdWhen:"需要长期上下文时", boundWhen:"仅创建 Session 时挂载", mutable:"由 access 决定 read_only/read_write", scope:"用户/团队/项目 Store", retention:"独立于 Session", facts:["每条 Memory 用独立 path 标识，创建和维护不依赖 Session。","单 Session 最多挂载 10 个 Store；access 默认 read_write。","read_write 修改会供后续 Session 继续使用。"], pitfalls:["处理用户输入、网页或第三方工具输出时，写权限会放大 Prompt Injection 的持久化风险；共享规范和知识库优先 read_only。","Memory Store 不能在运行中的 Session 追加或移除。"], sources:["memory"] },
+      files: { name:"Files / TOS", kind:"输入与持久数据", plane:"数据层", summary:"Files API 输入挂到 uploads；TOS 目录挂到 storage；outputs 产物注册到 Files API，并按 config.tos 决定持久化位置。", owner:"用户与平台", createdWhen:"任务准备或运行中", boundWhen:"resources 或 Environment 存储配置", mutable:"Files 资源可在运行中追加和查询", scope:"文件、目录或 Session 产物", retention:"取决于默认/自有 TOS", facts:["uploads 是只读输入副本；storage 是 resources 中 TOS 的沙箱挂载；outputs 用于最终交付。","config.tos 控制 outputs 注册到 Files API 后的存储位置，不等于 storage 挂载。","scope_id 只查询已注册为 purpose=agent 的输出，不扫描 uploads 或 storage。","自有 TOS 最终对象路径以 Files API 响应中的 tos.object_key 为准。"], pitfalls:["查询挂载输入应使用 Session Resources API，不要依赖 Files API 的 scope_id。","不要根据文档中的前缀模板拼接最终对象路径。","Session 进入 idle 后产物可能暂时不可查询，下载端应短暂轮询。"], sources:["files","environment","sandbox"] },
       mcp: { name:"MCP Server", kind:"外部工具协议", plane:"外部系统", summary:"把业务系统能力标准化为工具。Server 在 Agent 定义层声明，Credential 在 Session 运行层匹配注入。", owner:"外部系统", createdWhen:"接入外部能力时", boundWhen:"Agent 声明 + Toolset 启用", mutable:"更新 Agent 配置", scope:"每个 MCP Server", retention:"外部服务独立管理", facts:["每个 mcp_toolset 必须引用已声明的 Server 名。","只声明 Server 而不添加 Toolset，不会启用其工具。","同一 Agent 内 mcp_servers.url 不能重复；name 冲突时服务端自动追加数字后缀。","MCP 凭据创建时会探测握手。"], pitfalls:["高风险 MCP 工具应收敛白名单并考虑 always_ask。"], sources:["mcp","tools","vault"], engineering:"调试 MCP 时应使用明确需要私有数据的测试任务；模型自身可回答的问题无法证明工具链路可用。" },
       multi: { name:"Multi Agent", kind:"角色协作", plane:"协作层", summary:"协调器把任务委派给拥有独立模型、提示词、Skills 和 Tools 的子 Agent，再汇总结果。", owner:"Agent 定义", createdWhen:"确需角色边界时", boundWhen:"协调器版本中固定子 Agent", mutable:"更新协调器版本", scope:"Session 子线程", retention:"事件随 Session", facts:["子线程有独立事件流。","主线程和子线程跨流到达顺序不能代表执行顺序。","成功还需确认没有子线程停留或终止。"], pitfalls:["固定步骤调用工具或复用说明时，优先使用 Tool 或 Skill，避免过度拆 Agent。"], sources:["multi"] },
       outcome: { name:"Outcome", kind:"任务验收闭环", plane:"运行面", summary:"在 Session 中定义任务目标与 Rubric，由独立 Grader 评估产出；未达标时 Agent 按反馈自动修订，直到通过、达到迭代上限或失败。", owner:"Session 事件", createdWhen:"发送 user.define_outcome 时", boundWhen:"当前 Session", mutable:"单次 Outcome 固定；结束后可定义下一个", scope:"每个 Session 同时一个", retention:"评估事件随 Session", facts:["user.define_outcome 会直接启动任务，无需再发 user.message。","max_iterations 取值 1–20，默认 3。","评估事件为 span.outcome_evaluation_start / ongoing / end。","结果包括 satisfied、needs_revision、max_iterations_reached、failed、interrupted。"], pitfalls:["该能力当前处于邀测。","max_iterations_reached 后 Agent 还会执行一次收尾；仍需等待 session.status_idle。","Rubric 应描述可验证的结果，而不是规定执行步骤。"], sources:["outcome","events","files"] },
@@ -620,7 +620,7 @@
       {id:"memory-session",from:"memory",to:"session",type:"data",label:"resources[]",detail:"Memory Store 只能在 Session 创建时挂载，并显式设置 read_only 或 read_write。"},
       {id:"files-session",from:"files",to:"session",type:"data",label:"resources[]",viaX:495,targetSide:"bottom",detail:"Files/TOS 作为 Session 输入或共享存储；文件资源可在运行中追加。"},
       {id:"session-sandbox",from:"session",to:"sandbox",type:"runtime",label:"独立实例",detail:"Session 初始化或恢复隔离沙箱，文件系统不与其他 Session 共享。"},
-      {id:"session-selfhosted",from:"session",to:"selfhosted",type:"runtime",label:"Work ⇄ tool_result",viaY:470,bidirectional:true,detail:"自托管时，Worker 主动领取并确认 Work；方舟通过 Worker SSE 下发调用，Worker 在企业 Sandbox 执行后用 user.tool_result 把结果交回 Session。"},
+      {id:"session-selfhosted",from:"session",to:"selfhosted",type:"runtime",label:"6 tools ⇄ result",viaY:470,bidirectional:true,detail:"自托管时，Worker 只领取主 Agent 的 bash/read/write/edit/glob/grep 调用，在企业 Sandbox 执行后用 user.tool_result 回传；Web、多模态和 MCP 不走该链路。"},
       {id:"session-events",from:"session",to:"events",type:"runtime",label:"append-only",detail:"状态、消息、工具调用和结果都通过事件流暴露并持久化完整事件。"},
       {id:"session-outcome",from:"session",to:"outcome",type:"runtime",label:"define / evaluate",detail:"业务应用向 Session 发送 user.define_outcome；Agent 执行后由独立 Grader 评估，needs_revision 时自动进入下一轮修订。"},
       {id:"agent-skills",from:"agent",to:"skills",type:"control",label:"skills[]",detail:"Skill 在 Agent 定义中引用，运行时以只读能力包挂载。"},
@@ -681,13 +681,13 @@
         ["终止评估循环","satisfied / max_iterations_reached / failed / interrupted","evaluation_end.result"],
         ["等待收尾并取产物","idle 后按 scope_id 查询 outputs","session.status_idle"]
       ]},
-      selfhosted: {label:"自托管工具执行", steps:[
+      selfhosted: {label:"自托管 Bash / 文件工具", steps:[
         ["业务应用订阅 Session","建立 Session SSE，等待服务端就绪","GET events/stream"],
         ["业务应用提交任务","发送 user.message，Session 进入运行","session.status_running"],
         ["Worker 领取工作","Poll 并 Acknowledge Work","Work API"],
         ["Worker 订阅与续租","建立 Worker SSE，持续发送 Heartbeat","Worker SSE / Heartbeat"],
-        ["方舟下发工具调用","Session 返回待执行的内置工具","agent.tool_use"],
-        ["企业 Sandbox 执行","Worker 在企业基础设施中运行本地操作","tool execution"],
+        ["方舟下发企业侧调用","仅主 Agent 的 Bash 与五个文件工具","agent.tool_use"],
+        ["企业 Sandbox 执行","Worker 运行 bash / read / write / edit / glob / grep","tool execution"],
         ["Worker 回传结果","按 tool_use_id 发送执行结果","user.tool_result"],
         ["Session 继续 AgentLoop","方舟消费工具结果并继续推理","session.status_running"],
         ["本轮结束","收到 idle 且 stop_reason 为 end_turn","session.status_idle"]
@@ -697,7 +697,7 @@
     const LIFECYCLES = [
       {id:"agent",name:"Agent",events:["创建稳定 ID / v1","更新配置 → v2","新 Session 取最新版或固定版","已有 Session 不自动切换","独立删除"]},
       {id:"environment",name:"Environment",events:["创建唯一名称","选择 cloud 或 self-hosted","多个 Session 复用模板","更新影响未来 Session","有 idle/running 引用时不可删"]},
-      {id:"selfhosted",name:"Self-hosted Worker",events:["部署并注册 Worker","Poll / Ack Work","建立 Worker SSE","Heartbeat 维持租约","执行并回传 user.tool_result"]},
+      {id:"selfhosted",name:"Self-hosted Worker",events:["部署并注册 Worker","领取主 Agent 六个企业侧工具","建立 Worker SSE","Heartbeat 维持租约","执行并回传 user.tool_result"]},
       {id:"session",name:"Session",events:["引用模板或创建覆写快照","initializing","idle ↔ running","rescheduling → running","idle → upgrading → idle","failed / terminated"]},
       {id:"vault",name:"Vault / 凭据",events:["创建 Vault","写入 Credential","Session 读取时重新解析","过期前自动刷新 / 轮换密钥值","硬删除且不可恢复"]},
       {id:"memory",name:"Memory Store",events:["创建 Store","预置 Memory","创建 Session 时挂载","按 access 读取或修改","跨 Session 保留"]},
@@ -708,16 +708,17 @@
     const FAQ_ITEMS = [
       ["Agent 和 Session 有什么区别？","Agent 是可版本化、可复用的能力定义；Session 是引用某个 Agent 与 Environment 后产生的一次隔离运行实例。","核心对象",["agent","session"]],
       ["Environment 是模板还是正在运行的沙箱？","是模板，不是容器。cloud 模式由方舟为每个 Session 提供独立沙箱；self-hosted 模式由企业 Worker 和 Sandbox 落实运行实例与隔离。","核心对象",["environment","sandbox","selfhosted"]],
-      ["云环境和自托管环境怎么选？","不需要维护执行基础设施时使用 cloud，由方舟提供每 Session 独立沙箱；需要访问企业内网、自有算力或受控运行环境时使用自托管，由企业 Worker 和 Sandbox 执行内置工具。","运行环境",["environment","sandbox","selfhosted"]],
-      ["自托管后哪些部分仍在方舟？","AgentLoop、模型调用、Session 状态和事件仍由方舟托管。企业侧 Worker 只负责领取 Work、在企业 Sandbox 执行内置工具，并通过 user.tool_result 回传结果。","运行环境",["session","selfhosted","events"]],
+      ["云环境和自托管环境怎么选？","cloud 由方舟提供每 Session 独立沙箱；需要让主 Agent 的 Bash 与文件操作访问企业内网、自有算力或受控环境时选择 self-hosted。Web、多模态和 MCP 不会迁移到企业 Worker。","运行环境",["environment","sandbox","selfhosted","tools"]],
+      ["自托管后哪些部分仍在方舟？","AgentLoop、模型调用、Session 状态与事件，以及 Web、多模态和 MCP 工具仍由方舟运行。企业 Worker 只执行主 Agent 的 bash、read、write、edit、glob、grep。","运行环境",["session","selfhosted","events","tools"]],
       ["Skill、Tool、MCP 应该怎么选？","Skill 沉淀知识与流程；Tool 提供执行动作；MCP 用标准协议接入一组外部系统工具。固定步骤且无需角色边界时，不必拆 Multi Agent。","能力",["skills","tools","mcp"]],
       ["为什么凭据不写在 Agent 里？","Agent 需要被复用，而终端用户凭据必须隔离。凭据存入 Vault，并在创建 Session 时通过 vault_ids 绑定当前用户。","安全",["vault","agent"]],
       ["同一个 Agent 如何代表不同用户？","为每个用户维护独立 Vault，创建用户 Session 时绑定对应 vault_id。MCP 或环境变量凭据在运行时按匹配规则注入。","安全",["vault","session"]],
       ["Session 会自动继承 Agent 新版本吗？","不会。已有 Session 保持创建时的配置快照；新建 Session 可使用最新版，也可固定版本。需要更新存量 Session 时使用升级会话能力。","生命周期",["agent","session"]],
       ["只想为一次任务修改 Agent 配置，需要发布新版本吗？","不需要。创建 Session 时使用 agent_with_overrides，可临时覆写 system、model、tools、skills、mcp_servers 或 multiagent。省略字段表示继承，空数组表示清空。","配置",["agent","session","tools"]],
       ["不同 Session 会共享文件吗？","Cloud Sandbox 的文件系统不跨 Session 共享；Self-hosted 是否共享取决于企业 Sandbox 的隔离设计。跨 Session 长期内容应显式使用 Memory Store 或 TOS 资源。","数据",["sandbox","selfhosted","memory","files"]],
-      ["Memory 和 Session 历史有什么区别？","Session 历史记录本次会话的事件和上下文；Memory Store 是可跨 Session 挂载的长期内容，并可按 access 设置只读或读写。","数据",["memory","events"]],
-      ["uploads、storage、outputs 有什么区别？","uploads 是 Files API 输入的只读副本；storage 是 TOS 资源的读写挂载；outputs 是最终交付目录，会注册为 Session 文件。","数据",["files","sandbox"]],
+      ["Memory 和 Session 历史有什么区别？","Session 历史记录本次会话的事件和上下文；Memory Store 是跨 Session 的长期内容。挂载 access 默认 read_write，处理不可信输入时应优先改为 read_only，避免恶意内容持久化。","数据",["memory","events"]],
+      ["uploads、storage、outputs 有什么区别？","uploads 是 Files API 输入的只读副本；storage 是 resources 中 TOS 的沙箱挂载；outputs 是最终交付目录。config.tos 只决定 outputs 注册后的持久化位置，不等于 storage。","数据",["files","sandbox","environment"]],
+      ["为什么共享 Memory Store 建议只读？","access 默认 read_write。若 Agent 处理用户输入、网页或第三方工具输出，Prompt Injection 可能把恶意内容写入 Store，并被后续 Session 当作可信记忆读取。","安全",["memory","tools"]],
       ["Session 进入 idle 就成功了吗？","不一定。只有 idle 且 stop_reason.type=end_turn 才是正常结束；requires_action 表示等待确认或外部结果。","运行",["session","events"]],
       ["什么时候用 Multi Agent？","当多个角色确实需要不同模型、提示词、工具或独立上下文时使用。单 Agent 固定步骤应优先用 Tool，复用操作说明优先用 Skill。","能力",["multi","tools","skills"]],
       ["Outcome 和普通 user.message 有什么区别？","user.message 发起普通对话轮次；user.define_outcome 同时声明任务、验收标准与迭代上限，会直接启动 Agent，并由独立 Grader 驱动自动评估和修订。","验收",["outcome","session","events"]],
@@ -729,17 +730,17 @@
     ];
 
     const VIEW_META = {
-      architecture:["系统模型","一个 Session，组装全部能力","Agent 定义怎么做，Environment 决定由方舟云沙箱还是企业 Self-hosted Worker 执行，Session 组装凭据、资源与任务。","MA 对象关系图","箭头指向被引用、创建或调用的一方；点击连线查看详情"],
+      architecture:["系统模型","一个 Session，组装全部能力","Agent 定义能力，Environment 决定运行模式及主 Agent 的 Bash/文件工具位置，Session 组装凭据、资源与任务。","MA 对象关系图","箭头指向被引用、创建或调用的一方；点击连线查看详情"],
       runtime:["运行轨迹","一次任务如何真正跑起来","创建 Session 只是完成装配；建立事件流并发送 user.message 后，AgentLoop 才开始工作。","Session 运行轨迹","切换分支，查看正常完成、确认、重调度与委派"],
       permissions:["安全边界","权限不是一个开关","工具范围、执行确认、文件与网络隔离、外部凭据四层共同决定 Agent 真正能做什么。","四层权限门禁","点击任一门禁查看配置边界与常见误区"],
       lifecycle:["资源时间线","每种资源活得不一样","定义、实例、凭据、记忆、事件和产物有不同的更新、保留与删除规则。","资源生命周期泳道","横向查看资源从创建、绑定到保留或删除"],
-      faq:["常见问题","新用户最常问的 20 个问题","从对象区别到配置、权限、事件、数据、验收和成本，用答案反查关联组件。","可搜索问答","输入关键词，或展开问题查看结论"]
+      faq:["常见问题","新用户最常问的 21 个问题","从对象区别到配置、权限、事件、数据、验收和成本，用答案反查关联组件。","可搜索问答","输入关键词，或展开问题查看结论"]
     };
 
     const TOUR = [
       ["为什么是 MA","Managed Agents 托管 AgentLoop、沙箱、工具执行、上下文和长程任务状态。你主要定义业务行为，并通过事件驱动它。","architecture","agent"],
       ["四个核心对象","Agent 是定义，Environment 是模板，Session 是实例，Events 是通信。先记住这四个对象，再看扩展能力。","architecture","session"],
-      ["两种执行环境","Cloud Sandbox 由方舟管理；Self-hosted 把内置工具执行交给企业 Worker 与 Sandbox，但 AgentLoop 和 Session 仍在方舟。","architecture","selfhosted"],
+      ["两种执行环境","Cloud Sandbox 由方舟管理；Self-hosted 仅把主 Agent 的 Bash 与文件工具交给企业 Worker，Web、多模态、MCP 和 AgentLoop 仍在方舟。","architecture","selfhosted"],
       ["Session 装配台","创建 Session 时，Agent、Environment、Vaults、Memory 与文件资源才被组合到一次运行中。","architecture","session"],
       ["能力与外部系统","Skills 提供方法，Tools 提供动作，MCP 把外部系统动作标准化，Multi Agent 提供角色协作。","architecture","tools"],
       ["Outcome 验收闭环","通过 user.define_outcome 定义可验证的完成标准，独立 Grader 会评估产出并驱动 Agent 自动修订。","runtime","outcome"],
@@ -914,13 +915,13 @@
     function renderPermissions() {
       const gates=[
         ["范围","暴露哪些工具","Agent Toolset 与单工具 configs","enabled / whitelist","tools"],
-        ["确认","服务端工具执行前是否确认","内置、多模态和 MCP 可自动执行或等待批准；自定义工具由业务应用控制","always_allow / always_ask","permissions"],
-        ["隔离","工具实际在哪里执行","Cloud Sandbox 看目录与网络策略；Self-hosted 看 Worker 和企业 Sandbox 边界","cloud / self-hosted","environment"],
+        ["确认","工具执行前是否确认","基础、多模态和 MCP 可自动执行或等待批准；策略不改变执行方","always_allow / always_ask","permissions"],
+        ["隔离","工具实际在哪里执行","Self-hosted 仅迁移主 Agent 的 Bash 与文件工具；其他工具保持原执行方","cloud / self-hosted","environment"],
         ["凭据","凭据能注入到哪里","Vault 按用户隔离，匹配 MCP URL 或 secret_name","vault_ids + allowed_hosts","vault"]
       ];
       $("permissions-view").innerHTML=`<div class="scenario-switch"><button class="scenario-button permission-example" data-example="readonly">只读文档 Agent</button><button class="scenario-button permission-example" data-example="mcp">可信 MCP 自动调用</button><button class="scenario-button permission-example" data-example="bash">高风险 Bash 需确认</button></div>
         <div class="permission-stack">${gates.map(g=>`<button class="gate" data-gate="${g[4]}"><span class="gate-index">${g[0]}</span><h3>${g[1]}</h3><p>${g[2]}</p><code>${g[3]}</code></button>`).join("")}</div>
-        <div class="warning-note"><b>强隔离需要组合控制。</b> 关闭 <code>write</code>、<code>edit</code> 或 Web 工具并不够；只要仍有 <code>bash</code>、可读敏感文件或不受限网络，就仍可能读取、修改或外发数据。<code>permission_policy</code> 只作用于服务端执行的内置、多模态和 MCP 工具。</div>`;
+        <div class="warning-note"><b>强隔离需要组合控制。</b> 关闭 <code>write</code>、<code>edit</code> 或 Web 工具并不够；只要仍有 <code>bash</code>、可读敏感文件或不受限网络，就仍可能读取、修改或外发数据。<code>permission_policy</code> 决定是否需要确认，不会改变工具执行方。</div>`;
       $("permissions-view").querySelectorAll("[data-gate]").forEach(b=>b.addEventListener("click",()=>selectComponent(b.dataset.gate,b)));
       $("permissions-view").querySelectorAll("[data-example]").forEach(b=>b.addEventListener("click",()=>showPermissionExample(b.dataset.example)));
     }

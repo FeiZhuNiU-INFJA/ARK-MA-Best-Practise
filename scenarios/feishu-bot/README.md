@@ -61,19 +61,19 @@ arkagent init
 arkagent doctor                                           # 检查配置
 
 # 3) 运行(必须显式指定 case)
-arkagent run --case topic6              # 或 --case digital-employee
+arkagent run --case topicx              # Topic5/Topic6 统一入口
 ```
 
 各案例可能需要先起自己的 MCP(如客户A案例的 mock)并暴露公网,再 `init`——以案例文档为准。
 
-> **配置按 case 隔离**:每个 case 有独立的 env/db 目录 `~/.arkagent/cases/{case}/`,不再共享单一 `~/.arkagent/config.env`。样板见各 case 的 `env.example`(如 [cases/topic6/env.example](cases/topic6/env.example))。同一飞书 App 只允许一个 gateway 进程,锁按 `FEISHU_APP_ID` 分粒度(`~/.arkagent/feishu.{app_id}.lock`),不同 case 用不同 Bot 时可并行运行。
+> **配置按 case 隔离**:Topic5/Topic6 统一入口使用 `~/.arkagent/cases/topicX/`；其他 case 使用 `~/.arkagent/cases/{case}/`。同一飞书 App 只允许一个 gateway 进程,锁按 `FEISHU_APP_ID` 分粒度。
 
 ## `arkagent` CLI
 
 | 命令 | 作用 |
 | --- | --- |
 | `arkagent init` | 首次初始化:掩码输入 API Key → 建 Agent(挂 `mcp_servers` + `mcp_toolset`)→ 扫码建飞书应用(仅 tenant 身份,无用户 OAuth)→ 建/复用 Vault + 凭据 → 建/复用 Environment → 写主 `~/.arkagent/config.env`(目录 `0700`、文件 `0600`;**仅旧客户 A demo 使用**,新 case 用 `--topic6` 或直接手写 `~/.arkagent/cases/{case}/config.env`)。 |
-| `arkagent init --topic6` | 轻量初始化:只扫码建飞书 Bot + 写 `~/.arkagent/cases/topic6/config.env`。 |
+| `arkagent init --case topicx` | 轻量初始化:只扫码建统一飞书 Bot + 写 `~/.arkagent/cases/topicX/config.env`。 |
 | `arkagent doctor` | 检查配置完整性。 |
 | `arkagent run --case <name>` | 启动指定 case 的 Gateway,连飞书 WebSocket 收发消息。不带 `--case` 时列出可选项并退出。 |
 | `arkagent update-agent` | **日常迭代**:改了 Agent 的 system prompt / 工具配置后,读主 `config.env` 里现有 `ARK_AGENT_ID`,用最新配置原地更新(方舟 Agent 是版本化资源,更新生成新版本,**Agent ID 不变、飞书 Bot 不动**)。**不需要**重跑 `init` 重新扫码。 |

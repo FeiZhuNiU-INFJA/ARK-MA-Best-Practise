@@ -12,18 +12,18 @@
 
 ### 0.1 Python 环境(首次)
 
-在仓库根目录创建 Topic6 独立的 Python 3.11 环境，并安装项目及开发依赖（下方命令在仓库根目录执行）：
+Topic5 与 Topic6 共用 `topicX` Python 环境。在仓库根目录首次创建并安装项目及开发依赖：
 
 ```bash
-conda create -n topic6 python=3.11 -y
-conda activate topic6
+conda create -n topicX python=3.11 -y
+conda activate topicX
 python -m pip install -e ".[dev]"
 ```
 
 后续每次打开新终端，先执行：
 
 ```bash
-conda activate topic6
+conda activate topicX
 ```
 
 ---
@@ -35,7 +35,7 @@ cd scenarios/feishu-bot
 python3 -m arkagent init --topic6
 ```
 
-topic6 专用轻量初始化:只问方舟 API Key + 扫码建飞书应用,写入 `~/.arkagent/cases/topic6/config.env`。产出:
+topic6 专用轻量初始化:只问方舟 API Key + 扫码建飞书应用,写入 `~/.arkagent/cases/topicX/config.env`。产出:
 
 - `ARK_API_KEY`
 - `FEISHU_APP_ID` / `FEISHU_APP_SECRET`
@@ -105,7 +105,7 @@ topic6 的 MA 资源统一由第 3 步的 `update_ma.sh` 创建和更新。
 
 ## 2. 环境变量清单(跑 update_ma.sh 前必须齐)
 
-**全部写到 `~/.arkagent/cases/topic6/config.env`**(该文件已在 §1 由 `init --topic6` 生成,追加即可,不会入库)。
+**全部写到 `~/.arkagent/cases/topicX/config.env`**(该文件已在 §1 由 `init --topic6` 生成,追加即可,不会入库)。
 
 ### 2.1 通用(方舟 + 飞书)
 
@@ -217,7 +217,7 @@ AUTHORIZED_OPEN_IDS=ou_xxx ou_yyy   # 空格或逗号分隔
 ### 手工执行子脚本时加载到 shell
 
 ```bash
-set -a; source ~/.arkagent/cases/topic6/config.env; set +a
+set -a; source ~/.arkagent/cases/topicX/config.env; set +a
 ```
 
 正常使用 `update_ma.sh` 时不需要执行这一步，脚本会自动读取配置。只有绕过统一入口、
@@ -231,7 +231,7 @@ set -a; source ~/.arkagent/cases/topic6/config.env; set +a
 
 ```bash
 ./cases/topic6/update_ma.sh
-python -m arkagent run --case topic6
+python -m arkagent run --case topicx
 ```
 
 `update_ma.sh` 已包含完整测试、Skill 打包上传、Environment 与 Memory 更新、Agent

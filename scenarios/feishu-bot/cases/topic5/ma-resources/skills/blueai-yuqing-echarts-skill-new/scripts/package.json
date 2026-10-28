@@ -1,0 +1,18 @@
+{
+  "name": "blueai-eCharts-renderer",
+  "version": "2.0.0",
+  "description": "BlueAI 舆情 ECharts SSR 渲染工具（零浏览器依赖）",
+  "scripts": {
+    "render": "node render_chart.js",
+    "render-from-spec": "node render_from_spec.js",
+    "validate-bundle": "node validate_chart_bundle.js",
+    "validate-quality": "node validate_chart_quality.js"
+  },
+  "dependencies": {
+    "echarts": "^5.5.0",
+    "@resvg/resvg-js": "^2.6.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

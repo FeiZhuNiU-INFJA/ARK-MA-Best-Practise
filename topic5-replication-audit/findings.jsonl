@@ -1,0 +1,21 @@
+{"id":"F1","severity":"P1","nodes":["n02_plan","n03_hc_plan"],"title":"未支持业务问题仍可进入 G2","status":"fixed","evidence":"objective_capability_map + NEEDS_CAPABILITY_EXTENSION + negative test"}
+{"id":"F2","severity":"P1","nodes":["n08_ugc_discovery","n10_hc_opinion","n11_annotate_r2"],"title":"PGC-only 仍执行 UGC 链","status":"fixed","evidence":"not_applicable/N/A/NOT_APPLICABLE round-trip test"}
+{"id":"F3","severity":"P1","nodes":["n04_run_init"],"title":"输入 schema 未验证互动量、分析对象、URL和范围","status":"fixed","evidence":"file-level XLSX schema, value-domain and reconciliation tests"}
+{"id":"F4","severity":"P1","nodes":["n04_run_init"],"title":"ResourceLock 未冻结完整运行资源","status":"fixed","evidence":"DAG/rules/agents/environment/skills/tools/model manifest + full negative test"}
+{"id":"F5","severity":"P2","nodes":["n01_hc_requirement"],"title":"G1 已确认快照漏显示三个合同字段","status":"fixed","evidence":"snapshot displays business_questions/delivery_expectation/allowed_actions"}
+{"id":"M1","severity":"P1","nodes":["n12_aggregate","n14_charts","n16_report"],"title":"完整品牌统计块被丢弃","status":"fixed","evidence":"stats_bundle.brand.source preserved and brand chart specs generated"}
+{"id":"M2","severity":"P1","nodes":["n13_wordcloud_pull"],"title":"多活动复用同一全局 query","status":"fixed","evidence":"campaign-local query/filter_words and distinct-query test"}
+{"id":"M3","severity":"P1","nodes":["n15_wordcloud_insight"],"title":"词云洞察接受伪造证据 ID 和无来源词","status":"fixed","evidence":"platform evidence ID and word traceability validation"}
+{"id":"M4","severity":"P1","nodes":["n17_validate"],"title":"Validator 结构检查过浅且输入/执行身份未完整绑定","status":"fixed","evidence":"1.1-1.4 and 2.N.1-2.N.5 checks; five input refs; validator/task/run/attempt refs"}
+{"id":"M5","severity":"P1","nodes":["n19_fix"],"title":"返修截断 8000 字并接受缩水报告","status":"fixed","evidence":"full document prompt, heading preservation and tail sentinel test"}
+{"id":"D1","severity":"P1","nodes":["n21_hc_user"],"title":"G4 reject 失效 dict ledger ref 时崩溃","status":"fixed","evidence":"legacy/current ledger ref compatibility test"}
+{"id":"D2","severity":"P1","nodes":["n23_delivery_commit","n24_handoff"],"title":"full 交付未强制 live revision、所有权和 delivery ref 一致","status":"fixed","evidence":"full ownership/stale-ref/revision-none fail-closed tests"}
+{"id":"D3","severity":"P1","nodes":["n24_handoff"],"title":"Gateway 可信任 Agent 自报终态或拼接不同 JSON","status":"fixed","evidence":"durable FINAL_RESULT prefix and same-envelope parser tests"}
+{"id":"D4","severity":"P1","nodes":["n00_intake","n01_hc_requirement"],"title":"task.accepted 在 T5 受理前提前写入","status":"fixed","evidence":"receipt emitted idempotently on first G1 payload; host behavior test"}
+{"id":"D5","severity":"P1","nodes":["n21_hc_user","n_user_escalate"],"title":"错过第 2 工作日扫描后跳过提醒直接升级","status":"fixed","evidence":"reminder-first order and escalation recomputed from actual reminder"}
+{"id":"D6","severity":"P1","nodes":["n01_hc_requirement","n03_hc_plan","n10_hc_opinion","n17_validate","n21_hc_user"],"title":"HC stale 校验与 resolve 非原子","status":"fixed","evidence":"BEGIN IMMEDIATE claim validates job/phase/latest/unresolved before resume"}
+{"id":"D7","severity":"P1","nodes":["n01_hc_requirement","n03_hc_plan","n10_hc_opinion","n17_validate","n21_hc_user"],"title":"同秒 HC latest 可能返回旧版本","status":"fixed","evidence":"ORDER BY created_at DESC, id DESC + regression test"}
+{"id":"D8","severity":"P1","nodes":["n05_brand_pull","n09_annotate_r1","n11_annotate_r2","n14_charts","n20_delivery_draft"],"title":"副作用成功后 ledger 保存前崩溃会重复执行","status":"fixed","evidence":"durable effect journal replay + post-return crash test"}
+{"id":"D9","severity":"P2","nodes":["test infrastructure"],"title":"标称 full 的测试 helper 强制改为 demo","status":"fixed","evidence":"explicit mode parameter, demo test rename and CLI full fail-closed run"}
+{"id":"D10","severity":"P1","nodes":["Gateway startup recovery"],"title":"单个历史 Job 恢复可能阻塞串行 Gateway 启动恢复","status":"fixed","evidence":"per-job asyncio.wait_for timeout + later-job continuation test"}
+{"id":"D11","severity":"P1","nodes":["G1","pipeline runtime","n14_charts","n20_delivery_draft"],"title":"demo 被错误用作全链路降级开关，且运行包残留 COS 上传器","status":"fixed","evidence":"demo 仅 G1 defaults；无 run_mode 条件分支；demo/full fail-closed parity test；COS 上传脚本/凭据/SDK/handler 已从打包产物移除"}

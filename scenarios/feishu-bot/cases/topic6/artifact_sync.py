@@ -12,7 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Callable, Optional
 
-from pipeline_store import STATUS_RUNNING, STATUS_WAIT_HC, PipelineJob
+try:
+    from .pipeline_store import STATUS_RUNNING, STATUS_WAIT_HC, PipelineJob
+except ImportError:  # pragma: no cover - standalone compatibility
+    from pipeline_store import STATUS_RUNNING, STATUS_WAIT_HC, PipelineJob
 
 log = logging.getLogger("arkagent.topic6.artifacts")
 ACTIVE_STATUSES = {STATUS_RUNNING, STATUS_WAIT_HC}

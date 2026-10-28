@@ -24,8 +24,12 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from pipeline_store import HcEvent, PipelineJob, PipelineStore
-from topic6_runner import Topic6CardSenderProtocol, Topic6Runner
+try:
+    from .pipeline_store import HcEvent, PipelineJob, PipelineStore
+    from .topic6_runner import Topic6CardSenderProtocol, Topic6Runner
+except ImportError:  # pragma: no cover - standalone compatibility
+    from pipeline_store import HcEvent, PipelineJob, PipelineStore
+    from topic6_runner import Topic6CardSenderProtocol, Topic6Runner
 
 log = logging.getLogger("arkagent.topic6.hitl")
 
@@ -199,6 +203,36 @@ def build_hc_card(job: PipelineJob, hc_kind: str, event_id: int, payload: dict) 
             ),
         }
     )
+    if job.task_id:
+        elements.extend(
+            [
+                {"tag": "hr"},
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "停止任务"},
+                    "type": "danger",
+                    "width": "fill",
+                    "confirm": {
+                        "title": {"tag": "plain_text", "content": "确认停止任务"},
+                        "text": {
+                            "tag": "plain_text",
+                            "content": "停止后当前审核按钮会失效。",
+                        },
+                    },
+                    "behaviors": [
+                        {
+                            "type": "callback",
+                            "value": {
+                                "action": "stop_task",
+                                "scenario": "topic6",
+                                "job_id": job.job_id,
+                                "card_version": 1,
+                            },
+                        }
+                    ],
+                },
+            ]
+        )
 
     return {
         "schema": "2.0",
@@ -333,12 +367,24 @@ class Topic6Hitl(Topic6CardSenderProtocol):
             message_id = await self._runner.patch_job_card(_job.job_id, card)
             if message_id is None:
                 loop = asyncio.get_event_loop()
-                message_id = await loop.run_in_executor(
-                    None,
-                    lambda: self._runner._feishu.send_interactive_card(  # noqa: SLF001 - 网关内包
-                        _job.chat_id, card
-                    ),
-                )
+                if _job.root_message_id:
+                    message_id, topic_thread_id = await loop.run_in_executor(
+                        None,
+                        lambda: self._runner._feishu.send_interactive_card_in_thread(  # noqa: SLF001
+                            _job.root_message_id, card
+                        ),
+                    )
+                    if topic_thread_id:
+                        self._store.set_topic_thread_id(
+                            _job.job_id, topic_thread_id
+                        )
+                else:
+                    message_id = await loop.run_in_executor(
+                        None,
+                        lambda: self._runner._feishu.send_interactive_card(  # noqa: SLF001 - 网关内包
+                            _job.chat_id, card
+                        ),
+                    )
                 if message_id:
                     self._store.set_progress_card_message_id(_job.job_id, message_id)
                     _job.progress_card_message_id = message_id
@@ -415,6 +461,9 @@ class Topic6Hitl(Topic6CardSenderProtocol):
         job = self._store.get_job(hc_event.job_id)
         if job is None:
             log.warning("topic6 handle_card_action: 找不到 job=%s", hc_event.job_id)
+            return
+        if job.status in ("stopping", "stopped"):
+            self._reply_sync(job.chat_id, "任务正在停止或已停止，审核按钮已失效。")
             return
 
         note = _extract_action_note(action) or ""

@@ -1,0 +1,25 @@
+{
+  "name": "topic5-coordinator",
+  "description": "topic5 营销活动复盘报告主协调器(薄 Agent)。触发后在沙箱内驱动确定性 durable 编排器(run_pipeline.py)推进 28 节点 DAG,遇人工关卡输出 HC JSON 结束 turn,HC 决策回注后续跑;终态输出飞书报告 URL。",
+  "model": {
+    "id": "doubao-seed-2-1-lite-ultra-vision-260920"
+  },
+  "system_file": "coordinator.system.md",
+  "skills": [
+    {"type": "custom", "skill_id": "${skill_id.pipeline-orchestrator}", "version": "${version.pipeline-orchestrator}"},
+    {"type": "custom", "skill_id": "${skill_id.SSJH-Social-Stat}", "version": "${version.SSJH-Social-Stat}"},
+    {"type": "custom", "skill_id": "${skill_id.blueai-datahub-skill}", "version": "${version.blueai-datahub-skill}"},
+    {"type": "custom", "skill_id": "${skill_id.blueai-yuqing-echarts-skill-new}", "version": "${version.blueai-yuqing-echarts-skill-new}"},
+    {"type": "custom", "skill_id": "${skill_id.report-cover-skill}", "version": "${version.report-cover-skill}"}
+  ],
+  "tools": [
+    {"type": "agent_toolset_20260701"}
+  ],
+  "multiagent": {
+    "type": "coordinator",
+    "agents": [
+      {"type": "agent", "id": "${agent_id.topic5-validator}"},
+      {"type": "self"}
+    ]
+  }
+}
