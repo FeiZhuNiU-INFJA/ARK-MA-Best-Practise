@@ -95,6 +95,25 @@ class TestIdempotencyRender(unittest.TestCase):
         key = self.st.render_idempotency({"idempotency": "runinit:{task_id}:{confirmed_plan_version}"})
         self.assertEqual(key, "runinit:T:7")
 
+    def test_report_artifact_sha_changes_when_payload_revision_changes(self):
+        node = {
+            "idempotency":
+                "feishu:{task_id}:{resource_lock}:{report_artifact_sha256}"
+        }
+        self.st.params["resource_lock"] = "LOCK9"
+        self.st.write_artifact(
+            "report_md", {"version": "0.2", "markdown": "first"}
+        )
+        first = self.st.render_idempotency(node)
+        self.st.write_artifact(
+            "report_md", {"version": "0.2", "markdown": "revised"}
+        )
+        second = self.st.render_idempotency(node)
+
+        self.assertNotEqual(first, second)
+        self.assertTrue(first.startswith("feishu:T:LOCK9:"))
+        self.assertTrue(second.startswith("feishu:T:LOCK9:"))
+
 
 class TestNodeRec(unittest.TestCase):
     def setUp(self):

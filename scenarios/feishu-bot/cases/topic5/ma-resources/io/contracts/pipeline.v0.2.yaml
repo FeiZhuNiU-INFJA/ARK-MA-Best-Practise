@@ -380,7 +380,7 @@ nodes:
     outputs: [delivery_draft, external_receipts, feishu_doc, qc_report]
     success: 内容层→飞书布局层，创建文档并转移所有权；发布后机器检查结果合并回 qc_report
     side_effect: feishu-doc-create
-    idempotency: "feishu:{task_id}:{resource_lock}:{report_version}"
+    idempotency: "feishu:{task_id}:{resource_lock}:{report_artifact_sha256}"
     retry: {max: 2, on_fail: pause}
     checkpoint: true
     next: n20_delivery_gate
