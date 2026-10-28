@@ -218,6 +218,60 @@ class TestBuildHumanOutputs(unittest.TestCase):
             hc_bridge.build_human_outputs(self.st, "escalate", "")["user_confirmation"]["status"],
             "escalate")
 
+    def test_post_publish_recovery_is_system_owned_and_routes_to_fix(self):
+        self.st.status = "awaiting_human"
+        self.st.human = {
+            "node": "n21_hc_user",
+            "expect": ["user_confirmation"],
+        }
+        self.st.write_artifact("qc_report", {
+            "has_p0": False,
+            "p0_count": 0,
+            "issues": [{"id": "P1-existing", "severity": "P1"}],
+        })
+        self.st.write_artifact("delivery_draft", {
+            "state": "needs_review",
+            "revision_id": 244,
+            "post_publish_validation": {
+                "has_p0": True,
+                "p0_count": 1,
+                "issues": [{
+                    "id": "P0-postpublish-images",
+                    "severity": "P0",
+                }],
+            },
+        })
+
+        out = hc_bridge.build_post_publish_recovery_outputs(self.st)
+
+        self.assertEqual(out["user_confirmation"]["authority"], "system")
+        self.assertEqual(out["user_confirmation"]["status"], "auto_rejected")
+        self.assertEqual(out["_control"]["next"], "n19_fix")
+        self.assertEqual(out["_control"]["gate_status"], "auto_rejected")
+        self.assertTrue(out["qc_report"]["has_p0"])
+        self.assertEqual(out["qc_report"]["p0_count"], 1)
+        self.assertIn(
+            "P0-postpublish-images",
+            [issue["id"] for issue in out["qc_report"]["issues"]],
+        )
+
+    def test_post_publish_recovery_rejects_ready_draft(self):
+        self.st.status = "awaiting_human"
+        self.st.human = {
+            "node": "n21_hc_user",
+            "expect": ["user_confirmation"],
+        }
+        self.st.write_artifact("delivery_draft", {
+            "state": "ready",
+            "post_publish_validation": {
+                "has_p0": False,
+                "p0_count": 0,
+                "issues": [],
+            },
+        })
+        with self.assertRaisesRegex(ValueError, "没有发布后 P0"):
+            hc_bridge.build_post_publish_recovery_outputs(self.st)
+
     def test_g1_structured_requirement_and_g2_inheritance(self):
         self.st.human = {
             "node": "n01_hc_requirement",

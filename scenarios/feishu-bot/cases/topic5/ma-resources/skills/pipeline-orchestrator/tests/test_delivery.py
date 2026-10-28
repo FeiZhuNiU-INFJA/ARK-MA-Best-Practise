@@ -49,7 +49,7 @@ _REPORT_MD = (
 
 def _clear_feishu_creds():
     for k in ("FEISHU_USER_ACCESS_TOKEN", "FEISHU_APP_ID", "FEISHU_APP_SECRET",
-              "FEISHU_DELIVERY_OWNER_OPEN_ID"):
+              "FEISHU_USER_OPEN_ID", "FEISHU_DELIVERY_OWNER_OPEN_ID"):
         os.environ.pop(k, None)
 
 
@@ -147,6 +147,60 @@ class TestFeishuAdapter(unittest.TestCase):
 
     def test_current_revision_none_without_creds(self):
         self.assertIsNone(feishu.current_revision("docx_stub_x"))
+
+    def test_delivery_owner_prefers_task_initiator(self):
+        seen = []
+
+        def fake_req(method, path, token, body=None, timeout=30):
+            if method == "POST" and path.endswith("/documents"):
+                return {"document": {"document_id": "doc_owner"}}
+            if "transfer_owner" in path:
+                seen.append(body["member_id"])
+            if method == "GET" and path.endswith("/documents/doc_owner"):
+                return {"document": {"revision_id": 1}}
+            if method == "GET" and "/blocks" in path:
+                return {"items": []}
+            return {}
+
+        with patch.dict(os.environ, {
+            "FEISHU_USER_OPEN_ID": "ou_initiator",
+            "FEISHU_DELIVERY_OWNER_OPEN_ID": "ou_fallback",
+        }, clear=False), \
+                patch("feishu._tenant_token", return_value="t-token"), \
+                patch("feishu._req", side_effect=fake_req):
+            result = feishu.create_delivery(
+                "", title="测试", task_id="t5", report_version="0.0"
+            )
+
+        self.assertEqual(seen, ["ou_initiator"])
+        self.assertTrue(result["ownership_transferred"])
+
+    def test_delivery_owner_falls_back_for_legacy_session(self):
+        seen = []
+
+        def fake_req(method, path, token, body=None, timeout=30):
+            if method == "POST" and path.endswith("/documents"):
+                return {"document": {"document_id": "doc_owner"}}
+            if "transfer_owner" in path:
+                seen.append(body["member_id"])
+            if method == "GET" and path.endswith("/documents/doc_owner"):
+                return {"document": {"revision_id": 1}}
+            if method == "GET" and "/blocks" in path:
+                return {"items": []}
+            return {}
+
+        with patch.dict(os.environ, {
+            "FEISHU_DELIVERY_OWNER_OPEN_ID": "ou_fallback",
+        }, clear=False), \
+                patch("feishu._tenant_token", return_value="t-token"), \
+                patch("feishu._req", side_effect=fake_req):
+            os.environ.pop("FEISHU_USER_OPEN_ID", None)
+            result = feishu.create_delivery(
+                "", title="测试", task_id="t5", report_version="0.0"
+            )
+
+        self.assertEqual(seen, ["ou_fallback"])
+        self.assertTrue(result["ownership_transferred"])
 
     def test_create_delivery_uploads_media_and_fills_image(self):
         """真路径（monkeypatch HTTP）：本地图 → 建 image block → 上传 media → PATCH 回填。
@@ -275,6 +329,78 @@ class TestDeliveryHandlers(unittest.TestCase):
             )
         self.assertEqual(second["artifacts"]["external_receipts"]["doc_token"], tok)
         self.assertEqual(create.call_args.kwargs["reused_doc_token"], tok)
+
+    def test_delivery_draft_merges_post_publish_p0_into_qc_report(self):
+        self.st.write_artifact("qc_report", {
+            "has_p0": False,
+            "p0_count": 0,
+            "issues": [{
+                "id": "P1-existing",
+                "severity": "P1",
+                "title": "已有披露项",
+            }, {
+                "id": "P0-postpublish-chapters",
+                "severity": "P0",
+                "title": "旧的同 ID 发布后问题",
+            }],
+        })
+        created = {
+            "doc_token": "doc_real",
+            "url": "https://www.feishu.cn/docx/doc_real",
+            "revision_id": 8,
+            "report_version": "0.0",
+            "ownership_transferred": False,
+            "readback": {
+                "ok": False,
+                "revision_id": 8,
+                "chapters_complete": False,
+                "missing_chapters": ["04 经验总结"],
+                "images_referenced": False,
+                "expected_images": 3,
+                "got_images": 2,
+            },
+            "degraded": False,
+        }
+        with patch("handlers.feishu.api_available", return_value=True), \
+                patch("handlers.feishu.create_delivery", return_value=created):
+            result = handlers.get("delivery_draft")(
+                _node("n20_delivery_draft", [
+                    "delivery_draft", "external_receipts", "feishu_doc",
+                    "qc_report",
+                ]),
+                self.st,
+                {},
+            )
+
+        qc = result["artifacts"]["qc_report"]
+        issue_ids = [issue["id"] for issue in qc["issues"]]
+        self.assertEqual(qc["p0_count"], 3)
+        self.assertTrue(qc["has_p0"])
+        self.assertEqual(len(issue_ids), len(set(issue_ids)))
+        self.assertIn("P1-existing", issue_ids)
+        self.assertIn("P0-postpublish-chapters", issue_ids)
+        self.assertIn("P0-postpublish-images", issue_ids)
+        self.assertIn("P0-postpublish-owner", issue_ids)
+
+    def test_delivery_gate_routes_p0_to_fix_before_g4(self):
+        self.st.write_artifact("delivery_draft", {
+            "state": "needs_review",
+            "post_publish_validation": {"has_p0": True, "p0_count": 1},
+        })
+        route = handlers.get("delivery_draft_decision")(
+            _node("n20_delivery_gate", []), self.st, {}
+        )
+        self.assertEqual(route, {"route": "has_p0_retry"})
+
+    def test_delivery_gate_routes_ready_to_g4(self):
+        self.st.write_artifact("delivery_draft", {
+            "state": "ready",
+            "post_publish_validation": {"has_p0": False, "p0_count": 0},
+        })
+        route = handlers.get("delivery_draft_decision")(
+            _node("n20_delivery_gate", []), self.st, {}
+        )
+        self.assertEqual(route, {"route": "ready"})
 
     def _seed_delivery(self):
         self._seed_full_delivery()

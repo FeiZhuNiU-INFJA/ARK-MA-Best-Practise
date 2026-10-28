@@ -1,6 +1,6 @@
 """端到端拓扑验收 harness（集成级，自制验收标准 A–H）。
 
-跑真实 pipeline.v0.2.yaml（28 节点）+ 几个微型 DAG，断言编排语义成立。
+跑真实 pipeline.v0.2.yaml（29 节点）+ 几个微型 DAG，断言编排语义成立。
 全离线：外部工具与语义节点注入非降级的合规服务夹具，不触网、不计费。
 用法：cd /mnt/skills/pipeline-orchestrator && python3 acceptance.py
 退出码 0=全过，1=有失败。

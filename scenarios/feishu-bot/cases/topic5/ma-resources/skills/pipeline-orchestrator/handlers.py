@@ -1837,6 +1837,22 @@ def qc_decision(node, state, ctx):
     return {"route": "has_p0_retry"}
 
 
+@handler("delivery_draft_decision")
+def delivery_draft_decision(node, state, ctx):
+    """Route post-publish validation through the same bounded QC repair loop."""
+    draft = state.read_artifact("delivery_draft") or {}
+    validation = draft.get("post_publish_validation") or {}
+    has_p0 = bool(validation.get("has_p0")) or draft.get("state") != "ready"
+    if not has_p0:
+        return {"route": "ready"}
+
+    max_rounds = state.params.get("qc_max_rounds", 3)
+    rounds = state.counters.get("qc_rounds", 0)
+    if rounds >= max_rounds:
+        return {"route": "has_p0_maxed"}
+    return {"route": "has_p0_retry"}
+
+
 # ── v0.2 新增：方案 / Run 初始化 / 交付 draft·commit / 终验路由 ──────────
 @handler("plan_compile")
 def plan_compile(node, state, ctx):
@@ -2482,6 +2498,34 @@ def delivery_draft(node, state, ctx):
             "5.6 callout 类型与视觉",
         ],
     }
+    prior_qc = state.read_artifact("qc_report") or {}
+    prior_issues = (
+        list(prior_qc.get("issues") or [])
+        if isinstance(prior_qc, dict) else []
+    )
+    merged_issues = []
+    seen_issue_ids = set()
+    for issue in prior_issues + post_publish_issues:
+        issue_id = (
+            str(issue.get("id") or "")
+            if isinstance(issue, dict) else str(issue)
+        )
+        if issue_id and issue_id in seen_issue_ids:
+            continue
+        if issue_id:
+            seen_issue_ids.add(issue_id)
+        merged_issues.append(issue)
+    merged_p0_count = sum(
+        1 for issue in merged_issues
+        if isinstance(issue, dict) and issue.get("severity") == "P0"
+    )
+    qc_report = {
+        **(prior_qc if isinstance(prior_qc, dict) else {}),
+        "issues": merged_issues,
+        "p0_count": merged_p0_count,
+        "has_p0": merged_p0_count > 0,
+        "post_publish_validation": post_publish_validation,
+    }
     # 发布后机器检查通过才进入 G4；原生 grid/callout 视觉仍由用户终验。
     draft_state = (
         "ready"
@@ -2513,6 +2557,7 @@ def delivery_draft(node, state, ctx):
         "delivery_draft": delivery_draft_art,
         "external_receipts": external_receipts,
         "feishu_doc": feishu_doc,
+        "qc_report": qc_report,
     }
     return {"artifacts": {k: base.get(k, _stub_payload(node, "delivery")) for k in out}}
 

@@ -533,7 +533,7 @@
       <div>
         <p class="eyebrow">Topicx business package / Topic 5</p>
         <h1>营销复盘的 Managed Agents 架构</h1>
-        <p class="hero-copy">Topicx 提供统一飞书入口与控制面；Topic5 以独立 Business Session 执行。Coordinator 保持轻薄，确定性编排器负责 28 节点 DAG、断点续跑和局部重试，独立 Validator 负责 G3 自动质检。</p>
+        <p class="hero-copy">Topicx 提供统一飞书入口与控制面；Topic5 以独立 Business Session 执行。Coordinator 保持轻薄，确定性编排器负责 29 节点 DAG、断点续跑和局部重试，独立 Validator 负责 G3 自动质检。</p>
       </div>
       <div class="facts" aria-label="架构摘要">
         <div class="fact"><strong>2</strong><span>实际注册的 MA Agent<br>Coordinator + Validator</span></div>
@@ -576,7 +576,7 @@
         <div class="lane">
           <div class="lane-label"><span class="lane-index">SANDBOX</span><strong>确定性数据面</strong></div>
           <div class="lane-content">
-            <button class="component workflow span-5" data-detail="orchestrator"><span class="type">Custom skill</span><span class="name">pipeline-orchestrator</span><span class="desc">28 节点 DAG、ledger、checkpoint、resume</span></button>
+            <button class="component workflow span-5" data-detail="orchestrator"><span class="type">Custom skill</span><span class="name">pipeline-orchestrator</span><span class="desc">29 节点 DAG、ledger、checkpoint、resume</span></button>
             <button class="component workflow span-3" data-detail="semantic"><span class="type">Handlers</span><span class="name">语义与确定性节点</span><span class="desc">清洗、聚合、撰写、返修</span></button>
             <button class="component agent span-4" data-detail="validator"><span class="type">Independent MA agent</span><span class="name">topic5-validator</span><span class="desc">G3 机器全检 + 全文语义检查</span></button>
           </div>
@@ -621,7 +621,7 @@
 
     <section class="section" id="pipeline">
       <div class="section-head">
-        <div><p class="kicker">03 / Durable workflow</p><h2>28 节点运行链</h2></div>
+        <div><p class="kicker">03 / Durable workflow</p><h2>29 节点运行链</h2></div>
         <p class="section-intro">DAG 由 Skill 内的确定性引擎推进。节点产物、ledger 与 checkpoint 位于任务工程目录，Host SQLite 只负责跨 Session 的 Job 与 HC 状态。</p>
       </div>
       <div class="pipeline" id="pipelineMap"></div>
@@ -700,7 +700,7 @@
       coordinator: {kind:"MA agent", title:"topic5-coordinator", role:"薄 Agent 只做启动、处理暂停、续跑与输出终态。它调用 pipeline-orchestrator，并在 G3 委派独立 Validator。", boundary:["不计算指标","不撰写报告","不决定业务 pass/fail","G3 原始控制信号不得发给 Gateway"], code:"scenarios/feishu-bot/cases/topic5/ma-resources/agents/coordinator.system.md"},
       hitl: {kind:"Human loop", title:"Topic5Hitl", role:"把可见人工门渲染为飞书卡片，校验操作者权限与决定格式，再通过 Runner 注入原 Business Session。", boundary:["固定门 G1 / G2 / G4","条件门 N10 / HC7 / USER_ESCALATE","G3 永不渲染人工卡片"], code:"scenarios/feishu-bot/cases/topic5/topic5_hitl.py"},
       store: {kind:"Host state", title:"PipelineStore", role:"独立 SQLite 保存 pipeline_jobs、pipeline_hc_events 和 pipeline_receipts，支持 Gateway 重启后的恢复与幂等回调。", boundary:["与 Memory Store 分离","与沙箱 Artifact 分离","同一话题最多一个活跃 Job"], code:"scenarios/feishu-bot/cases/topic5/pipeline_store.py"},
-      orchestrator: {kind:"Custom skill", title:"pipeline-orchestrator", role:"确定性 DAG 引擎负责拓扑调度、Artifact、ledger、checkpoint、HumanPause、局部重试和冷进程续跑。", boundary:["28 节点由 handlers 实现","副作用执行前后对账","核心依赖失败时 fail-closed"], code:"scenarios/feishu-bot/cases/topic5/ma-resources/skills/pipeline-orchestrator/"},
+      orchestrator: {kind:"Custom skill", title:"pipeline-orchestrator", role:"确定性 DAG 引擎负责拓扑调度、Artifact、ledger、checkpoint、HumanPause、局部重试和冷进程续跑。", boundary:["29 节点由 handlers 实现","副作用执行前后对账","核心依赖失败时 fail-closed"], code:"scenarios/feishu-bot/cases/topic5/ma-resources/skills/pipeline-orchestrator/"},
       semantic: {kind:"Handlers", title:"语义与确定性节点", role:"Discovery、Opinion、Insight、Narrative 等名称是逻辑职责，不是额外 MA Agent。语义节点经统一模型接口执行，清洗、聚合、门禁和交付由确定性代码约束。", boundary:["减少子 Agent 冷启动与 IPC","指标口径由代码和参数锁定","语义结果必须通过结构校验"]},
       validator: {kind:"Independent MA agent", title:"topic5-validator", role:"G3 由独立身份执行 scan_report.py 机器全检与 Agent 全文语义检查，产出绑定当前 ReportArtifact 的 qc_report。", boundary:["只读报告与证据","不修改正文、不写飞书","p0_count == 0 才能放行","最多 3 轮后进入 HC7"], code:"scenarios/feishu-bot/cases/topic5/ma-resources/agents/validator.system.md"},
       ssjh: {kind:"External data", title:"SSJH Social Stat", role:"n05、n06、n13 分别获取活动期品牌统计、30 天不重叠基准期和各平台词云。", boundary:["与 Excel 逐帖明细来源不同","502 / timeout 时主链阻断","禁止模拟数据降级"]},
@@ -716,7 +716,7 @@
       {id:"F-H", name:"发现与标注", nodes:[["n08","UGC 发现"],["n09","标注一"],["n09b","观点候选"],["N10","标签策略","gate"],["n11","标注二"]]},
       {id:"I-J", name:"聚合与撰写", nodes:[["n12","指标聚合"],["n13","词云取数"],["n14","图表渲染"],["n15","词云解读"],["n16","报告撰写"]]},
       {id:"K", name:"自动质检循环", nodes:[["G3","Validator 自动门","auto"],["n18","QC 判定"],["n19","报告返修"],["HC7","超限升级","gate"]]},
-      {id:"L-M", name:"交付与落定", nodes:[["n20","飞书草稿"],["G4","用户终验","gate"],["n22","终验判定"],["USER_ESCALATE","终验升级","gate"],["n23","交付提交"],["n24","Handoff"]]}
+      {id:"L-M", name:"交付与落定", nodes:[["n20","飞书草稿"],["n20g","发布后质检","auto"],["G4","用户终验","gate"],["n22","终验判定"],["USER_ESCALATE","终验升级","gate"],["n23","交付提交"],["n24","Handoff"]]}
     ];
 
     const pipelineDetails = {
@@ -743,6 +743,7 @@
       n19:["报告返修","逐项消费 qc_report.issues 修复，并在写入前用同规则预检。"],
       HC7:["HC7 · 质检超限","自动返修超过上限后升级人工，但不能直接豁免 P0。"],
       n20:["飞书交付草稿","发布原生飞书文档，上传图片、转移 owner、回读并记录 revision。"],
+      n20g:["发布后质检路由","回读、图片或所有权存在 P0 时自动回到 n19 返修；通过后才进入 G4。"],
       G4:["G4 · 用户终验","用户确认绑定 revision 的最终飞书报告。"],
       n22:["终验判定","通过则落定，拒绝则回到交付修订，异常走 USER_ESCALATE。"],
       USER_ESCALATE:["USER_ESCALATE · 终验升级","用户终验超时或异常时升级人工处理，不能替代用户对具体 revision 的确认。"],

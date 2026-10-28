@@ -6,7 +6,7 @@ description: Run the Topic5 durable report pipeline. Use for starting, resuming 
 # pipeline-orchestrator
 
 Topic5 复盘报告流水线的确定性执行引擎。读取包内 `contracts/pipeline.v0.2.yaml`
-（28 节点 + 治理层），按节点 `handler` 驱动执行、在人工关卡暂停、支持续跑与状态查看。
+（29 节点 + 治理层），按节点 `handler` 驱动执行、在人工关卡暂停、支持续跑与状态查看。
 该文件由打包脚本从源码树唯一权威契约注入。归属 **Topic5 专属**，由 coordinator 身份持有。
 
 ## 文件

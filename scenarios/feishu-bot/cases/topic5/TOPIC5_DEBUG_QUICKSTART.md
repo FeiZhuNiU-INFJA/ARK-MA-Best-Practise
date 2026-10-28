@@ -154,7 +154,8 @@ ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 ### 2.3 飞书交付所有权转移（L 阶段必需）
 
 ```env
-# n20 交付后把文档所有权转给的目标 open_id（报告发起人）
+# n20 默认使用 Session 注入的 FEISHU_USER_OPEN_ID，把所有权转给任务发起人。
+# 仅供旧 Session 或非 Gateway 调试时兜底：
 FEISHU_DELIVERY_OWNER_OPEN_ID=ou_xxx
 FEISHU_OPENAPI_BASE=https://open.feishu.cn
 # 可选：企业自定义飞书域名；未配置时使用 https://www.feishu.cn

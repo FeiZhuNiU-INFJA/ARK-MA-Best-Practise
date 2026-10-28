@@ -73,7 +73,10 @@ def _print_state(st: RunState) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["start", "resume", "retry", "status"])
+    ap.add_argument(
+        "cmd",
+        choices=["start", "resume", "retry", "status", "recover-post-publish"],
+    )
     ap.add_argument("--dag")
     ap.add_argument("--workspace", required=True)
     ap.add_argument("--task", required=True)
@@ -112,6 +115,16 @@ def main() -> None:
     if args.cmd == "retry":
         dag = Dag.load(Path(args.dag))
         st = retry_failed(dag, st)
+        if st.status == "awaiting_human":
+            _on_pause(st)
+        _print_state(st)
+        return
+
+    if args.cmd == "recover-post-publish":
+        dag = Dag.load(Path(args.dag))
+        outs = hc_bridge.build_post_publish_recovery_outputs(st)
+        hc_bridge.clear_hc_pending(rd)
+        st = resume(dag, st, human_outputs=outs)
         if st.status == "awaiting_human":
             _on_pause(st)
         _print_state(st)

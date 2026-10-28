@@ -123,6 +123,69 @@ def clear_hc_pending(run_dir: Path) -> None:
         p.unlink()
 
 
+def build_post_publish_recovery_outputs(st) -> dict:
+    """System-reject an invalid G4 draft without impersonating a user decision."""
+    human = st.human or {}
+    if st.status != "awaiting_human" or human.get("node") != "n21_hc_user":
+        raise ValueError("发布后恢复仅允许用于当前暂停在 G4 的 run")
+    draft = st.read_artifact("delivery_draft") or {}
+    validation = (
+        draft.get("post_publish_validation")
+        if isinstance(draft, dict) else {}
+    ) or {}
+    post_issues = list(validation.get("issues") or [])
+    if not validation.get("has_p0") or not post_issues:
+        raise ValueError("G4 草稿没有发布后 P0，不允许系统自动打回")
+
+    prior_qc = st.read_artifact("qc_report") or {}
+    prior_issues = (
+        list(prior_qc.get("issues") or [])
+        if isinstance(prior_qc, dict) else []
+    )
+    merged = []
+    seen = set()
+    for issue in prior_issues + post_issues:
+        issue_id = (
+            str(issue.get("id") or "")
+            if isinstance(issue, dict) else str(issue)
+        )
+        if issue_id and issue_id in seen:
+            continue
+        if issue_id:
+            seen.add(issue_id)
+        merged.append(issue)
+    p0_count = sum(
+        1 for issue in merged
+        if isinstance(issue, dict) and issue.get("severity") == "P0"
+    )
+    qc_report = {
+        **(prior_qc if isinstance(prior_qc, dict) else {}),
+        "issues": merged,
+        "p0_count": p0_count,
+        "has_p0": p0_count > 0,
+        "post_publish_validation": validation,
+    }
+    return {
+        "user_confirmation": {
+            "status": "auto_rejected",
+            "authority": "system",
+            "reason": "post_publish_p0",
+            "report_ref": st.artifact_ref("report_md"),
+            "delivery_ref": st.artifact_ref("delivery_draft"),
+            "revision_id": draft.get("revision_id"),
+        },
+        "qc_report": qc_report,
+        "_control": {
+            "next": "n19_fix",
+            "gate_status": "auto_rejected",
+            "invalidate_artifacts": [
+                "delivery_draft", "external_receipts", "feishu_doc",
+                "delivery_record", "task_result", "handoff",
+            ],
+        },
+    }
+
+
 def _parse_requirement(note: str) -> dict:
     """解析并校验 G1 表单 JSON，防止跨 Host/Agent 边界时字段丢失。"""
     raw = note or ""

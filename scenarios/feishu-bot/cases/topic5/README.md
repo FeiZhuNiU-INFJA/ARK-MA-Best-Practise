@@ -2,7 +2,7 @@
 
 Topic 5 是一个运行在火山方舟 Managed Agents（MA）上的飞书 Bot 场景。用户在飞书中发送触发词后，系统会自动完成多平台社媒数据取数、清洗、AI 标注、指标聚合、图表渲染、报告撰写、质检和飞书文档交付。
 
-架构采用**薄 Agent + Durable Workflow**：飞书前台 Agent 只负责「启动 / 抛人工关卡 / 续跑 / 交终态」四件事，所有业务编排与 LLM 语义调用都沉淀到沙箱内的确定性编排器（`pipeline-orchestrator`），由它驱动 28 节点 DAG，天然支持幂等重放、局部重试和冷进程续跑。
+架构采用**薄 Agent + Durable Workflow**：飞书前台 Agent 只负责「启动 / 抛人工关卡 / 续跑 / 交终态」四件事，所有业务编排与 LLM 语义调用都沉淀到沙箱内的确定性编排器（`pipeline-orchestrator`），由它驱动 29 节点 DAG，天然支持幂等重放、局部重试和冷进程续跑。
 
 ## 文档导航
 
@@ -76,7 +76,7 @@ Topic 5 只注册 **2 个 MA Agent**（遵循「避免过度拆分子 Agent」�
 | `report-cover-skill`               | n14 报告封面生成                                                |
 | `topic5-validator`                 | n17 自动质检（scan_report.py 机器全检 + Agent 全文语义检查）    |
 
-## 28 节点 DAG 与人工关卡
+## 29 节点 DAG 与人工关卡
 
 ```
 A 意图    n00_intake → [G1] n01_hc_requirement

@@ -375,16 +375,25 @@ nodes:
     name: 交付草稿（飞书文档 draft）
     owner: tool-gateway
     mode: tool
-    gate: G4
     handler: delivery_draft
     inputs: [report_md, chart_urls]
-    outputs: [delivery_draft, external_receipts, feishu_doc]
-    success: 内容层→飞书布局层，创建文档并转移所有权；p0 禁发/p1 可披露放行
+    outputs: [delivery_draft, external_receipts, feishu_doc, qc_report]
+    success: 内容层→飞书布局层，创建文档并转移所有权；发布后机器检查结果合并回 qc_report
     side_effect: feishu-doc-create
     idempotency: "feishu:{task_id}:{resource_lock}:{report_version}"
     retry: {max: 2, on_fail: pause}
     checkpoint: true
-    next: n21_hc_user
+    next: n20_delivery_gate
+
+  - id: n20_delivery_gate
+    name: 发布后质检路由
+    owner: engine
+    mode: decision
+    handler: delivery_draft_decision
+    routes:
+      ready: n21_hc_user
+      has_p0_retry: n19_fix
+      has_p0_maxed: n_hc7_escalate
 
   - id: n21_hc_user
     name: 用户终验（G4）

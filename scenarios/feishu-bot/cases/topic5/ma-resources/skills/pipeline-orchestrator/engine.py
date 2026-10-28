@@ -102,6 +102,30 @@ def _save_effect_journal(
     tmp.replace(path)
 
 
+def _artifact_keys(refs: list) -> set[str]:
+    keys = set()
+    for ref in refs:
+        if isinstance(ref, str):
+            key = ref.split("@", 1)[0]
+            if key:
+                keys.add(key)
+            continue
+        if not isinstance(ref, dict):
+            continue
+        key = str(ref.get("key") or "")
+        if not key:
+            key = str(ref.get("artifact_id") or "").split("@", 1)[0]
+        if key:
+            keys.add(key)
+    return keys
+
+
+def _result_has_declared_outputs(node: dict, result: dict) -> bool:
+    declared = set(node.get("outputs") or [])
+    actual = set((result.get("artifacts") or {}).keys())
+    return declared.issubset(actual)
+
+
 def run(dag: Dag, st: RunState, ctx: dict[str, Any] | None = None) -> RunState:
     """排空就绪前沿(frontier)，直到完成、失败或遇人工关卡暂停。
 
@@ -138,11 +162,24 @@ def run(dag: Dag, st: RunState, ctx: dict[str, Any] | None = None) -> RunState:
         idem_key = (st.render_idempotency(node)
                     if node.get("side_effect", "none") != "none" else None)
         if idem_key and idem_key in st.ledger:
-            rec["status"] = "completed"
-            st.event(node["id"], "idempotent_replay", idem_key)
-            _advance(st, node.get("next"))
-            st.save()
-            continue
+            ledger_refs = (st.ledger.get(idem_key) or {}).get("artifacts") or []
+            ledger_outputs = _artifact_keys(ledger_refs)
+            declared_outputs = set(node.get("outputs") or [])
+            # Legacy/reconciled ledgers may intentionally omit artifact refs.
+            # Only a non-empty, explicit ref list can prove an output-contract
+            # mismatch after a DAG upgrade.
+            if not ledger_refs or declared_outputs.issubset(ledger_outputs):
+                rec["status"] = "completed"
+                st.event(node["id"], "idempotent_replay", idem_key)
+                _advance(st, node.get("next"))
+                st.save()
+                continue
+            st.event(
+                node["id"],
+                "stale_idempotency_contract",
+                f"missing_outputs={sorted(declared_outputs - ledger_outputs)}",
+            )
+            st.ledger.pop(idem_key, None)
 
         rec["status"] = "in_progress"
         rec["attempts"] += 1
@@ -157,6 +194,20 @@ def run(dag: Dag, st: RunState, ctx: dict[str, Any] | None = None) -> RunState:
                 _load_effect_journal(st, node["id"], idem_key)
                 if idem_key else None
             )
+            if (
+                recovered_result is not None
+                and not _result_has_declared_outputs(node, recovered_result)
+            ):
+                missing = sorted(
+                    set(node.get("outputs") or [])
+                    - set((recovered_result.get("artifacts") or {}).keys())
+                )
+                st.event(
+                    node["id"],
+                    "stale_effect_journal_contract",
+                    f"missing_outputs={missing}",
+                )
+                recovered_result = None
             if recovered_result is not None:
                 result = recovered_result
                 st.event(node["id"], "effect_journal_replay", idem_key)

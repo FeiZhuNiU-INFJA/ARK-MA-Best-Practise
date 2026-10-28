@@ -20,7 +20,8 @@
 
 凭据只从环境变量读（生产由 MA Vault 注入）：
   FEISHU_APP_ID / FEISHU_APP_SECRET（tenant token），或 FEISHU_USER_ACCESS_TOKEN（用户态）。
-  FEISHU_DELIVERY_OWNER_OPEN_ID（可选，转移所有权目标）。
+  FEISHU_USER_OPEN_ID（任务发起人，所有权转移首选目标）。
+  FEISHU_DELIVERY_OWNER_OPEN_ID（可选，旧环境兜底目标）。
   FEISHU_WEB_BASE（可选，用户访问域名；默认 https://www.feishu.cn）。
 """
 from __future__ import annotations
@@ -422,7 +423,10 @@ def create_delivery(report_md: str, *, title: str, task_id: str,
         images_filled = _fill_images(token, doc_token, blocks, created)
 
     # 转移所有权（可选）。full_access 只是协作者权限，不能作为所有权转移回执。
-    owner = os.environ.get("FEISHU_DELIVERY_OWNER_OPEN_ID")
+    owner = (
+        os.environ.get("FEISHU_USER_OPEN_ID")
+        or os.environ.get("FEISHU_DELIVERY_OWNER_OPEN_ID")
+    )
     ownership_transferred = False
     if owner:
         try:
