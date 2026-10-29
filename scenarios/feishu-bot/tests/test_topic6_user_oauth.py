@@ -375,6 +375,49 @@ async def test_gateway_passes_scanned_users_vault_to_runner():
     assert artifact_calls == [("job-1", None)]
 
 
+async def test_gateway_skip_oauth_starts_without_user_vault():
+    calls = []
+    keepalive_calls = []
+    job = SimpleNamespace(job_id="job-1")
+
+    class Store:
+        def complete_event(self, *_args):
+            pass
+
+    class Runner:
+        async def start_job(self, **kwargs):
+            calls.append(kwargs)
+            return job
+
+    class UserAuth:
+        async def vault_id(self, _open_id):
+            raise AssertionError("skip 模式不应读取用户 Vault")
+
+    async def reply(_chat_id, _text):
+        pass
+
+    gateway = Topic6Gateway(
+        SimpleNamespace(
+            authorized_open_ids=(),
+            skip_miaoda_oauth=True,
+        ),
+        Store(),
+        Runner(),
+        SimpleNamespace(),
+        UserAuth(),
+        reply,
+        None,
+    )
+    gateway._start_token_keepalive = (  # type: ignore[method-assign]
+        lambda *_args: keepalive_calls.append(True)
+    )
+
+    await gateway._process(_message())
+
+    assert calls[0]["user_vault_id"] == ""
+    assert keepalive_calls == []
+
+
 async def test_continue_command_passes_trailing_text_to_runner():
     calls = []
     replies = []

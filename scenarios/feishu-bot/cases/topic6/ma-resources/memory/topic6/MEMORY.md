@@ -1,7 +1,8 @@
 # Topic6 热点报告 · Agent 长期记忆索引
 
 > 每次启动前必读本文件,再按索引决定是否读其他记忆文件。
-> 本文件由 gateway 侧 Memory Store API 维护,Agent 只读挂载在 `/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/` 下(memstore id 由 gateway 通过 env 注入,读 memory 一律走 `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/xxx.md"`)。
+> 本文件由 gateway 侧 Memory Store API 维护。Agent 通过 Session 自动提供的 Memory 工具
+> 按 `/topic6/...` path 只读访问；Memory Store 不是沙箱文件系统，禁止用 bash 路径读取。
 
 ---
 
@@ -9,8 +10,8 @@
 
 | 文件 | 何时读 | 说明 |
 |---|---|---|
-| `/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/错误案例库.md` | **每次启动** | 历史错误 + 修正,防止重蹈覆辙 |
-| `/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md` | **每次启动** | 八任务(C0/R1~R5/C2/C3)当前活跃 Prompt 版本 |
+| `/topic6/错误案例库.md` | **每次启动** | 历史错误 + 修正,防止重蹈覆辙 |
+| `/topic6/_版本状态.md` | **每次启动** | 八任务(C0/R1~R5/C2/C3)当前活跃 Prompt 版本镜像 |
 
 > `lm/执行日志.md`(项目级临时状态)不进 memory;
 > 执行状态由 gateway `pipeline_jobs` 表 + 沙箱内
@@ -44,7 +45,7 @@
 
 ## 架构要点
 
-1. **路径基准**:所有 skill 相对路径走沙箱挂载 `/mnt/skills/topic6-xxx/`;记忆文件走 `/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/`(memstore id 由 gateway env 注入);项目运行工作区走 `/workspace/Projects/{PROJECT_DIR}/`;节点完成后仅用 `publish_node_artifacts.py` 把稳定产物复制到 `/mnt/session/outputs/{PROJECT_DIR}/` 并更新 manifest,禁止复制日志、PID、checkpoint 和临时分块。
+1. **路径基准**:所有 skill 相对路径走沙箱挂载 `/mnt/skills/topic6-xxx/`;记忆通过 Memory 工具按 `/topic6/...` path 读取;项目运行工作区走 `/workspace/Projects/{PROJECT_DIR}/`;节点完成后仅用 `publish_node_artifacts.py` 把稳定产物复制到 `/mnt/session/outputs/{PROJECT_DIR}/` 并更新 manifest,禁止复制日志、PID、checkpoint 和临时分块。
 2. **工具依赖**:
    - 消息与卡片:gateway 侧 `FeishuSender`(卡片渲染与消息推送)
    - 数据接入:MA MCP 挂载(`datahub-cli` / `hot-topics-mcp`)

@@ -11,6 +11,30 @@
 
 ---
 
+## 2026-10-29
+
+### C2 流式 Chat 请求增加整体截止时间
+
+- **触发现象**：C2 批次使用 SSE 读取模型响应时，socket `timeout` 只约束单次阻塞读取；
+  对端持续发送零碎数据或半开连接时，单次调用可能超过配置时限且长期占住并发槽。
+- **根因**：`urllib` 的 socket 超时不是请求整体时限，原实现没有独立 watchdog 主动关闭
+  响应流。
+- **修复**：每次流式请求启动整体时限 watchdog；到期后主动 shutdown/close 底层
+  SSL socket 与响应对象，把阻塞读取转换为 `TimeoutError` 并进入既有有限重试。
+- **协调器等待**：C2 运行期间只允许 90 秒内的同步等待并直接读取 `c2_status.json`；
+  禁止超过沙箱后台阈值的 sleep 和 `task_get`/`.bash_bg` 轮询，避免产生无业务价值的
+  后台等待任务。
+
+### 标注 Prompt 版本契约改为显式且 fail-closed
+
+- **触发现象**：`job_fe89f760ce50` 的 R1 子 Agent 未收到 `prompt_version`，误把 System
+  Prompt 示例中的 `v4` 当作实际版本；挂载 Skill 只有 R1 v1/v2，worker 首次启动失败。
+- **根因**：Coordinator 把 Memory Store 当作 `/mnt/memory/$STORE_ID/...` 文件系统读取，
+  未取得版本镜像后仍继续；Annotator 输入契约也没有对缺失版本和文件存在性 fail-closed。
+- **修复**：Memory 改为使用 Session Memory 工具按 path 读取；版本始终从已挂载
+  `topic6-annotation/SKILL.md` 权威表解析并预检文件。所有 Annotator 委派必须携带显式
+  `prompt_version`，缺失、格式非法或文件不存在时禁止猜测和启动 worker。
+
 ## 2026-10-28
 
 ### 清理临时恢复与旧客户端兼容
@@ -19,8 +43,8 @@
   合法 HC JSON 时按契约 fail-closed，不再以正则推断业务状态。
 - 删除整库清空本地任务/HC 的 `reset_pipeline_state.py`。正常中断统一由 Gateway 启动
   恢复、SSE 重连、`/continue` 和 `/new` 处理，不再留下远端 Session 与本地状态脱节的入口。
-- 删除 `TOPIC6_SKIP_MIAODA_OAUTH` 临时旁路；所有模式均按任务发起人完成 OAuth 与 Vault
-  注入，避免流程启动后在 Phase H 预期失败。
+- `TOPIC6_SKIP_MIAODA_OAUTH` 保留为显式测试开关且默认关闭；开启后跳过扫码与用户 Vault
+  注入，允许前序流程测试，Phase H 缺凭据失败视为预期结果。
 - 删除废弃的 `test/小样本/试跑` 显式模式别名和历史备注卡片回调，仅保留当前
   `demo/full/skip_sampling` 与 `pass/reject` 契约。
 

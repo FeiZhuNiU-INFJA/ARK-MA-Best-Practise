@@ -171,6 +171,15 @@ refresh token 仅保存在权限为 `0600` 的 Topic6 SQLite 数据库中，不�
 `running` 和 `wait_hc`，不会改变 Session ID、Vault ID 或 Credential ID。未授权用户
 会在任务启动前收到提示。
 
+仅测试 Phase H 之前的流程时，可临时设置：
+
+```env
+TOPIC6_SKIP_MIAODA_OAUTH=true
+```
+
+该开关默认关闭。开启后 Gateway 不要求扫码，也不会向 Session 挂载用户 Vault；
+Phase H 因缺少妙搭用户凭据失败属于预期结果。测试结束后删除该配置或设为 `false`。
+
 ### 2.4 网络中断与继续执行
 
 Gateway 与方舟 MA 的 SSE 事件流短暂断开时，会以约 `1 / 2 / 4 / 8 / 16` 秒的退避间隔
