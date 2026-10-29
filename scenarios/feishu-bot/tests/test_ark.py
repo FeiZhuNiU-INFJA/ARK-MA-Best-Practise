@@ -441,6 +441,17 @@ async def test_send_interrupt_records_boundary_and_posts_event():
     assert boundary.prior_event_ids == frozenset({"old-idle"})
 
 
+@respx.mock
+async def test_delete_session_uses_irreversible_session_endpoint():
+    route = respx.delete(f"{BASE}/sessions/sesn-1").mock(
+        return_value=httpx.Response(204)
+    )
+    client = _client()
+    await client.delete_session("sesn-1")
+    await client.aclose()
+    assert route.called
+
+
 def test_interrupt_result_requires_new_interrupt_then_new_idle():
     boundary = InterruptBoundary(1000, frozenset({"old-idle"}))
     assert (

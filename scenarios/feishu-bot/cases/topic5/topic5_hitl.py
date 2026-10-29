@@ -729,21 +729,21 @@ def build_hc_card(
                 {"tag": "hr"},
                 {
                     "tag": "button",
-                    "text": {"tag": "plain_text", "content": "停止任务"},
+                    "text": {"tag": "plain_text", "content": "暂停任务"},
                     "type": "danger",
                     "width": "fill",
                     "confirm": {
-                        "title": {"tag": "plain_text", "content": "确认停止任务"},
+                        "title": {"tag": "plain_text", "content": "确认暂停任务"},
                         "text": {
                             "tag": "plain_text",
-                            "content": "停止后当前审核按钮会失效。",
+                            "content": "暂停后当前审核按钮会失效；继续任务后将恢复流程。",
                         },
                     },
                     "behaviors": [
                         {
                             "type": "callback",
                             "value": {
-                                "action": "stop_task",
+                                "action": "pause_task",
                                 "scenario": "topic5",
                                 "job_id": job.job_id,
                                 "card_version": 1,

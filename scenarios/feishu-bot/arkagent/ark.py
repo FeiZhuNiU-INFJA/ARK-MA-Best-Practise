@@ -539,6 +539,12 @@ class ArkClient:
         )
         return _normalize_session(_unwrap(payload))
 
+    async def delete_session(self, session_id: str) -> None:
+        """Permanently delete an idle or terminated Session."""
+        await self._request(
+            "DELETE", f"/sessions/{quote(session_id, safe='')}"
+        )
+
     async def list_sessions(self, agent_id: str, limit: int = 100) -> list[dict]:
         query = urlencode(
             {"agent_id": agent_id, "limit": str(max(1, min(limit, 100)))}

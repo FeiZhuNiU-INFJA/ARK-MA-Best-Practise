@@ -1,6 +1,7 @@
 """topic5 pipeline 长任务映射库(飞书 ↔ 方舟 MA Session)。
 
-用途:把飞书三元组会话键 ``(chat_id, thread_id, user_open_id)`` 映射到方舟 MA Session,
+用途:把飞书会话映射到方舟 MA Session；非空话题按 ``(chat_id, thread_id)`` 共享，
+主时间线仍按 ``(chat_id, user_open_id)`` 隔离，
 并记录当前 pipeline 所在 phase、mode、project_dir、HC 卡点历史。用于:
 
   - HC 卡片回调时,反查 ``ma_session_id`` 以调 ``POST /sessions/{id}/events`` 续跑
@@ -40,6 +41,7 @@ STATUS_RUNNING = "running"
 STATUS_WAIT_HC = "wait_hc"
 STATUS_WAIT_INPUT = "wait_input"
 STATUS_STOPPING = "stopping"
+STATUS_PAUSED = "paused"
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
 STATUS_STOPPED = "stopped"
@@ -419,27 +421,30 @@ class PipelineStore:
     def get_active_job_by_session_key(
         self, chat_id: str, thread_id: str, user_open_id: str
     ) -> Optional[PipelineJob]:
-        """会话键唯一活跃任务;同时识别 Bot 创建后的 topic_thread_id。"""
+        """定位活跃任务。
+
+        非空话题是共享协作边界，不限制消息发送人；主时间线仍按发起人隔离。
+        """
         thread = thread_id or ""
         with self._lock:
             if thread:
                 row = self._conn.execute(
                     """
                     SELECT * FROM pipeline_jobs
-                    WHERE chat_id = ? AND user_open_id = ?
+                    WHERE chat_id = ?
                       AND (thread_id = ? OR topic_thread_id = ?)
-                      AND status IN (?, ?, ?, ?)
+                      AND status IN (?, ?, ?, ?, ?)
                     ORDER BY started_at DESC LIMIT 1
                     """,
                     (
                         chat_id,
-                        user_open_id,
                         thread,
                         thread,
                         STATUS_RUNNING,
                         STATUS_WAIT_HC,
                         STATUS_WAIT_INPUT,
                         STATUS_STOPPING,
+                        STATUS_PAUSED,
                     ),
                 ).fetchone()
             else:
@@ -450,7 +455,7 @@ class PipelineStore:
                     SELECT * FROM pipeline_jobs
                     WHERE chat_id = ? AND user_open_id = ?
                       AND thread_id = '' AND topic_thread_id = ''
-                      AND status IN (?, ?, ?, ?)
+                      AND status IN (?, ?, ?, ?, ?)
                     ORDER BY started_at DESC LIMIT 1
                     """,
                     (
@@ -460,6 +465,7 @@ class PipelineStore:
                         STATUS_WAIT_HC,
                         STATUS_WAIT_INPUT,
                         STATUS_STOPPING,
+                        STATUS_PAUSED,
                     ),
                 ).fetchone()
         return self._row_to_job(row) if row else None
@@ -477,7 +483,7 @@ class PipelineStore:
                 SELECT * FROM pipeline_jobs
                 WHERE chat_id = ?
                   AND (thread_id = ? OR topic_thread_id = ?)
-                  AND status IN (?, ?, ?, ?)
+                  AND status IN (?, ?, ?, ?, ?)
                 ORDER BY started_at DESC LIMIT 1
                 """,
                 (
@@ -488,6 +494,7 @@ class PipelineStore:
                     STATUS_WAIT_HC,
                     STATUS_WAIT_INPUT,
                     STATUS_STOPPING,
+                    STATUS_PAUSED,
                 ),
             ).fetchone()
         return self._row_to_job(row) if row else None
@@ -497,8 +504,9 @@ class PipelineStore:
     ) -> Optional[PipelineJob]:
         """会话键上最近一个“可续跑”的 job(供 /continue 用)。
 
-        running/wait_hc/wait_input/failed 都纳入候选,以便把被本地误判为死的 Session 捞回。
+        running/wait_hc/wait_input/failed/paused 都纳入候选。
         完成态(done)不返回:已出报告的任务没有续跑语义。
+        非空话题允许任意协作者续跑；主时间线仍按发起人隔离。
         """
         thread = thread_id or ""
         with self._lock:
@@ -506,20 +514,20 @@ class PipelineStore:
                 row = self._conn.execute(
                     """
                     SELECT * FROM pipeline_jobs
-                    WHERE chat_id = ? AND user_open_id = ?
+                    WHERE chat_id = ?
                       AND (thread_id = ? OR topic_thread_id = ?)
-                      AND status IN (?, ?, ?, ?)
+                      AND status IN (?, ?, ?, ?, ?)
                     ORDER BY updated_at DESC LIMIT 1
                     """,
                     (
                         chat_id,
-                        user_open_id,
                         thread,
                         thread,
                         STATUS_RUNNING,
                         STATUS_WAIT_HC,
                         STATUS_WAIT_INPUT,
                         STATUS_FAILED,
+                        STATUS_PAUSED,
                     ),
                 ).fetchone()
             else:
@@ -528,7 +536,7 @@ class PipelineStore:
                     SELECT * FROM pipeline_jobs
                     WHERE chat_id = ? AND user_open_id = ?
                       AND thread_id = '' AND topic_thread_id = ''
-                      AND status IN (?, ?, ?, ?)
+                      AND status IN (?, ?, ?, ?, ?)
                     ORDER BY updated_at DESC LIMIT 1
                     """,
                     (
@@ -538,6 +546,7 @@ class PipelineStore:
                         STATUS_WAIT_HC,
                         STATUS_WAIT_INPUT,
                         STATUS_FAILED,
+                        STATUS_PAUSED,
                     ),
                 ).fetchone()
         return self._row_to_job(row) if row else None
@@ -548,7 +557,7 @@ class PipelineStore:
             row = self._conn.execute(
                 """
                 SELECT * FROM pipeline_jobs
-                WHERE status IN (?, ?, ?, ?)
+                WHERE status IN (?, ?, ?, ?, ?)
                 ORDER BY started_at DESC LIMIT 1
                 """,
                 (
@@ -556,6 +565,7 @@ class PipelineStore:
                     STATUS_WAIT_HC,
                     STATUS_WAIT_INPUT,
                     STATUS_STOPPING,
+                    STATUS_PAUSED,
                 ),
             ).fetchone()
         return self._row_to_job(row) if row else None
@@ -575,6 +585,16 @@ class PipelineStore:
                     STATUS_WAIT_INPUT,
                     STATUS_STOPPING,
                 ),
+            ).fetchall()
+        return [self._row_to_job(row) for row in rows]
+
+    def list_paused_jobs(self) -> list[PipelineJob]:
+        """返回暂停任务；启动时只重绘卡片，不恢复 SSE。"""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM pipeline_jobs WHERE status = ? "
+                "ORDER BY started_at ASC",
+                (STATUS_PAUSED,),
             ).fetchall()
         return [self._row_to_job(row) for row in rows]
 
@@ -645,6 +665,18 @@ class PipelineStore:
                 (STATUS_RUNNING, next_phase, _now(), job_id),
             )
         self._notify_status(job_id, STATUS_RUNNING)
+
+    def claim_paused_resume(self, job_id: str) -> bool:
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE pipeline_jobs SET status = ?, finished_at = NULL, "
+                "updated_at = ?, last_error = '' "
+                "WHERE job_id = ? AND status = ?",
+                (STATUS_RUNNING, _now(), job_id, STATUS_PAUSED),
+            )
+        if cursor.rowcount:
+            self._notify_status(job_id, STATUS_RUNNING)
+        return cursor.rowcount == 1
 
     def mark_done(self, job_id: str, online_url: str = "") -> None:
         now = _now()
@@ -722,7 +754,7 @@ class PipelineStore:
                 UPDATE pipeline_jobs
                 SET status = ?, stop_requested_at = ?, stop_requested_by = ?,
                     updated_at = ?
-                WHERE job_id = ? AND status IN (?, ?)
+                WHERE job_id = ? AND status IN (?, ?, ?)
                 """,
                 (
                     STATUS_STOPPING,
@@ -732,6 +764,7 @@ class PipelineStore:
                     job_id,
                     STATUS_RUNNING,
                     STATUS_WAIT_HC,
+                    STATUS_WAIT_INPUT,
                 ),
             )
         if cursor.rowcount:
@@ -747,6 +780,16 @@ class PipelineStore:
                 (STATUS_STOPPED, now, now, reason, job_id),
             )
         self._notify_status(job_id, STATUS_STOPPED)
+
+    def mark_paused(self, job_id: str, reason: str = "user_interrupt") -> None:
+        now = _now()
+        with self._lock:
+            self._conn.execute(
+                "UPDATE pipeline_jobs SET status = ?, finished_at = NULL, "
+                "updated_at = ?, last_error = ? WHERE job_id = ?",
+                (STATUS_PAUSED, now, reason, job_id),
+            )
+        self._notify_status(job_id, STATUS_PAUSED)
 
     def set_progress_card_message_id(self, job_id: str, message_id: str) -> None:
         with self._lock:

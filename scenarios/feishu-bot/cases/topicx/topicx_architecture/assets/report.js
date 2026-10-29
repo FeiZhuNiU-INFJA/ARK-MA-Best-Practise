@@ -12,9 +12,34 @@
     accent2: rootStyle.getPropertyValue("--accent2").trim()
   };
 
-  if (window.mermaid) {
+  var MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js";
+
+  // 不依赖 startOnLoad：预览器可能在 window.load 之后才注入页面，或拦截本地 _shared 脚本。
+  function renderMermaid() {
+    if (!window.mermaid) return;
+    initMermaid();
+    window.mermaid.run({ querySelector: "pre.mermaid:not([data-processed])" }).catch(function (err) {
+      console.error("mermaid render failed", err);
+    });
+  }
+
+  function ensureMermaid() {
+    if (window.mermaid) {
+      renderMermaid();
+      return;
+    }
+    var script = document.createElement("script");
+    script.src = MERMAID_CDN;
+    script.onload = renderMermaid;
+    script.onerror = function () {
+      console.error("mermaid failed to load from local and CDN");
+    };
+    document.head.appendChild(script);
+  }
+
+  function initMermaid() {
     window.mermaid.initialize({
-      startOnLoad: true,
+      startOnLoad: false,
       securityLevel: "loose",
       theme: "base",
       themeVariables: {
@@ -195,4 +220,6 @@
     }, { rootMargin: "-20% 0px -70% 0px", threshold: 0 });
     sections.forEach(function (section) { observer.observe(section); });
   }
+
+  ensureMermaid();
 })();

@@ -470,12 +470,21 @@ class TopicxRunner:
                 self._pending_authorizations.pop(task.user_open_id, None)
 
     async def handle_followup(self, message: IncomingMessage, task: TaskRun) -> None:
-        if message.user_open_id != task.user_open_id:
+        if (
+            task.scenario != "topic5"
+            and message.user_open_id != task.user_open_id
+        ):
             await self.reply(task, "只有任务发起人可以继续操作该任务。")
             return
         text = message.text.strip()
         if text.lower() in ("/new", "/continue", "/resume", "/stop"):
             await self.reply(task, "请使用任务卡片上的操作按钮。")
+            return
+        if task.status == "paused" and task.scenario == "topic5":
+            if not text and not message.resources:
+                await self.reply(task, "任务已暂停；请发送文字消息或点击“继续任务”。")
+                return
+            await self.resume_topic5_job(task, self._topic5_job(task), text or "继续")
             return
         if task.status in ("stopping", "stopped", "done", "failed", "busy"):
             await self.reply(task, "该任务当前不可继续操作。")
@@ -499,6 +508,56 @@ class TopicxRunner:
                 return
         if task.business_session_id and text:
             await self._ark.send_message(task.business_session_id, text)
+
+    def _topic5_job(self, task: TaskRun):
+        job = self._topic5_runner.get_job(task.business_job_id)
+        if job is None:
+            raise RuntimeError("未找到对应 Topic5 业务任务")
+        return job
+
+    async def resume_topic5_job(
+        self, task: TaskRun, job, message: str = "继续"
+    ) -> None:
+        if not self._topic5_runner.claim_paused_resume(job.job_id):
+            raise RuntimeError("任务状态已变化，请刷新卡片")
+        if not self._control.transition(
+            task.task_id, ("paused",), "running", event_type="pause.resumed"
+        ):
+            self._topic5_runner.restore_paused(
+                job.job_id, "resume_control_claim_failed"
+            )
+            raise RuntimeError("任务状态已变化，请刷新卡片")
+        try:
+            resumed = await self._topic5_runner.continue_job(
+                chat_id=job.chat_id,
+                thread_id=job.topic_thread_id or job.thread_id,
+                user_open_id=job.user_open_id,
+                message=message,
+            )
+            if resumed is None:
+                raise RuntimeError("未找到暂停的 Topic5 任务")
+        except Exception:
+            current = self._topic5_runner.get_job(job.job_id)
+            next_status = (
+                "failed"
+                if current is not None and current.status == "failed"
+                else "paused"
+            )
+            if next_status == "paused":
+                self._topic5_runner.restore_paused(
+                    job.job_id, "resume_failed"
+                )
+            self._control.transition(
+                task.task_id, ("running",), next_status,
+                last_error=(
+                    current.last_error
+                    if current is not None and current.status == "failed"
+                    else ""
+                ),
+                event_type="pause.resume_failed",
+            )
+            raise
+        await self.reply(task, "任务已继续执行。")
 
     async def retry_topic5_job(self, task: TaskRun, job) -> None:
         resumed = await self._topic5_runner.continue_job(
