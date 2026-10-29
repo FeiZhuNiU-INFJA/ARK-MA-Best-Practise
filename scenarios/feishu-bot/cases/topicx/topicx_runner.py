@@ -497,14 +497,6 @@ class TopicxRunner:
                 text=text,
             ):
                 return
-        elif task.scenario == "topic6":
-            if await self._topic6_hitl.handle_remark_message(
-                chat_id=message.chat_id,
-                thread_id=message.thread_id,
-                user_open_id=message.user_open_id,
-                text=text,
-            ):
-                return
         if task.business_session_id and text:
             await self._ark.send_message(task.business_session_id, text)
 

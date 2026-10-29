@@ -16,17 +16,17 @@
 轨迹。只允许用 `[ -n "${VAR:-}" ]` 判断变量是否存在，传递凭证时只在命令参数中引用
 变量名，禁止打印变量值，禁止开启 `set -x`。
 
-**Memory 挂载点**:方舟把当前 session 的 memory_store 挂在 `/mnt/memory/$TOPIC6_MEMORY_STORE_ID/` 下(gateway 已通过环境变量注入 memstore id)。**不要**用 `read` 工具带死路径读 memory,一律走 `bash cat` 展开变量,例如:
-
-```bash
-cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"
-```
-
 按顺序执行:
 
-1. `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/MEMORY.md"` → 决定后续还读哪些 memory 文件
-2. `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/错误案例库.md"` → 历史踩坑,防重蹈覆辙
-3. `bash cat "/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md"` → 确认 C0 / R1~R5 / C2 / C3 各任务当前活跃 Prompt 版本
+1. 使用 Session 挂载后自动提供的 **Memory 工具**按 path 读取
+   `/topic6/MEMORY.md`、`/topic6/错误案例库.md`、`/topic6/_版本状态.md`。
+   Memory Store 不是沙箱文件系统,禁止用 `bash`、`read` 或 `/mnt/memory/...` 路径读取。
+   Memory 工具暂时不可用时记录 warning 后继续,不得据此猜测 Prompt 版本。
+2. `bash cat /mnt/skills/topic6-annotation/SKILL.md`，解析「Prompt 版本」段得到
+   C0 / R1~R5 / C3 的活跃版本映射。Skill 是版本权威源,Memory 中的版本表只是镜像；
+   两者冲突时以 Skill 为准。
+3. 对解析出的每个 Prompt 绝对路径执行 `[ -f "$path" ]` 预检。任一路版本缺失或文件
+   不存在都必须停止并明确报错,禁止扫描目录猜最新版、使用示例版本或自行降级。
 4. 解析用户消息,确定运行参数(周次、mode=demo|full|skip_sampling),并严格按
    `/mnt/skills/topic6-annotation/prompts/run_config契约.md` 生成 `{PROJECT_DIR}`
 5. 将本轮唯一项目绝对路径设为
@@ -94,6 +94,8 @@ python /mnt/skills/topic6-annotation/scripts/publish_node_artifacts.py \
 
 - 委派子 Agent `topic6-annotator` 执行 C0 基础事实层,input=`03_抽样/sample_500.xlsx`(full/demo) 或 `02_标准化/hot_topics_normalized.xlsx`(skip_sampling),task="c0"
 - 委派子 Agent `topic6-annotator` 执行 C3 节点标注,同上 input,task="c3"
+- 每条委派消息必须是输入契约 JSON，并显式携带从 Skill 权威源解析且已通过文件预检的
+  `prompt_version`；禁止省略该字段或仅用自然语言描述任务
 - `datahub_annotate.py` 的 `--run-id` 必须传整数轮次(如 `1`),不得传流水线字符串 ID
 - 每个 Annotator 只负责用 `datahub_annotate.py --launch-background` 幂等启动一个
   worker，收到 `submitted|running|done` 后立即 `end_turn`；不得在子线程里等待或轮询
@@ -131,7 +133,9 @@ python /mnt/skills/topic6-annotation/scripts/publish_node_artifacts.py \
 Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启动 C2；禁止等 R1~R5
 返回后才启动 C2。
 
-- `topic6-annotator` × 5 (task=r1..r5),input=`04_标注/_可用子集/usable_subset_{mode}_r{N}.xlsx`
+- `topic6-annotator` × 5 (task=r1..r5),input=`04_标注/_可用子集/usable_subset_{mode}_r{N}.xlsx`。
+  每条委派消息必须是输入契约 JSON，并显式携带该 task 从 Skill 权威源解析且已通过文件
+  预检的 `prompt_version`
 - 五个 Annotator 都返回 `submitted|running|done` 后，由 Coordinator 用同一个短时检查器
   统一等待 R1~R5；`running` 时原参数重调，`failed` 时停止，`complete` 后继续：
   ```bash
@@ -180,6 +184,10 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 - 等待 R1~R5 的同一时期可读取 `04_标注/C2_事件归档/c2_run/c2_status.json`
   查看 C2 进度。若状态为 `running`，只读取状态，禁止重复启动；若 Session 恢复，
   可再次调用同一入口，它会按 `completed_stages` 续跑。
+- R1~R5 已完成但 C2 仍在运行时，每轮等待最多使用一次 `sleep 90` 后读取上述
+  `c2_status.json`，bash 工具调用必须设置 `timeout=105`。状态仍为 `running` 时重复
+  同一短时等待；禁止使用 `sleep >= 120`、`task_get`、`.bash_bg` 或另起后台等待任务，
+  避免等待命令被沙箱强制转后台并污染 Session 轨迹。
 - 入口完成后直接产出 `04_标注/C2_事件归档/c2_event_result_r{N}.xlsx`，供 `merge_annotations.py` 消费。
 - 禁止把 `00_seed_from_registry.py` 当成 C2 起点；它只用于有上一窗口 Registry 的跨窗口增量场景。禁止四个平台各自跑完 05~08 后再拼接，那会漏掉跨平台事件合并。
 
@@ -374,7 +382,7 @@ Coordinator 后台执行完整 C2。必须先发出 5 个委派，再立刻启�
 | R02 | full 走 HC1→HC2→HC3；demo 走 HC1→HC3、明确跳过全量与 HC2；skip_sampling 走 HC2→HC3 |
 | R03 | 每个 LLM 任务完成后立即调 cost_tracker |
 | R04 | 所有路径基于 `/workspace` / `/mnt/*`,不硬编码绝对路径外的固定盘符 |
-| R05 | 每次启动必读 `/mnt/memory/$TOPIC6_MEMORY_STORE_ID/topic6/_版本状态.md`(走 bash cat),不沿用上次会话记忆 |
+| R05 | 每次启动用 Memory 工具读 `/topic6/_版本状态.md` 镜像，并用 `/mnt/skills/topic6-annotation/SKILL.md` 权威表解析和预检 Prompt 版本；不沿用上次会话记忆 |
 | R06 | Prompt 只增不改(由 skill 版本管理落实) |
 | R07 | 报告所有数字来自宽表,不得估算 |
 | R08 | 阶段内并发、跨阶段串行(本 Prompt 已定义拓扑) |

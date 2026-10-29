@@ -84,6 +84,77 @@ async def test_topic5_file_followup_attaches_and_resumes_production():
 
 
 @pytest.mark.asyncio
+async def test_topic6_authorization_always_resolves_initiator_vault():
+    runner = object.__new__(TopicxRunner)
+    calls = []
+    runner._config = SimpleNamespace(
+        topic6=SimpleNamespace(skip_miaoda_oauth=False)
+    )
+
+    class UserAuthorization:
+        @staticmethod
+        async def vault_id(open_id):
+            calls.append(open_id)
+            return "vault-user"
+
+    runner._user_authorization = UserAuthorization()
+    task = SimpleNamespace(user_open_id="ou-owner")
+
+    vault_id = await runner._ensure_user_authorized(task)
+
+    assert vault_id == "vault-user"
+    assert calls == ["ou-owner"]
+
+
+@pytest.mark.asyncio
+async def test_topic6_authorization_skip_does_not_read_user_vault():
+    runner = object.__new__(TopicxRunner)
+    runner._config = SimpleNamespace(
+        topic6=SimpleNamespace(skip_miaoda_oauth=True)
+    )
+
+    class UserAuthorization:
+        @staticmethod
+        async def vault_id(_open_id):
+            raise AssertionError("skip 模式不应读取用户 Vault")
+
+    runner._user_authorization = UserAuthorization()
+
+    vault_id = await runner._ensure_user_authorized(
+        SimpleNamespace(user_open_id="ou-owner")
+    )
+
+    assert vault_id == ""
+
+
+@pytest.mark.asyncio
+async def test_topic6_followup_uses_business_session_without_legacy_hitl():
+    runner = object.__new__(TopicxRunner)
+    calls = []
+
+    class Ark:
+        @staticmethod
+        async def send_message(session_id, text):
+            calls.append((session_id, text))
+
+    runner._ark = Ark()
+    message = SimpleNamespace(
+        user_open_id="ou-owner",
+        text="补充本周重点",
+    )
+    task = SimpleNamespace(
+        user_open_id="ou-owner",
+        status="running",
+        scenario="topic6",
+        business_session_id="session-1",
+    )
+
+    await runner.handle_followup(message, task)
+
+    assert calls == [("session-1", "补充本周重点")]
+
+
+@pytest.mark.asyncio
 async def test_router_tool_commits_and_schedules_without_identity_fields(tmp_path):
     store = ControlStore(str(tmp_path / "control.db"))
     task, _ = store.create_or_get_task(

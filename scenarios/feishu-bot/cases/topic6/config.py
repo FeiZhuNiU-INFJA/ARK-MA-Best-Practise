@@ -30,6 +30,7 @@ class Topic6Config:
     artifact_poll_interval_sec: float
     vault_id: str
     authorized_open_ids: tuple[str, ...]
+    skip_miaoda_oauth: bool
 
 
 def load_case_config(env: Optional[Mapping[str, str]] = None) -> Topic6Config:
@@ -61,4 +62,7 @@ def load_case_config(env: Optional[Mapping[str, str]] = None) -> Topic6Config:
         artifact_poll_interval_sec=poll_interval,
         vault_id=(environ.get("ARK_VAULT_ID") or "").strip(),
         authorized_open_ids=open_ids,
+        skip_miaoda_oauth=(
+            environ.get("TOPIC6_SKIP_MIAODA_OAUTH") or ""
+        ).strip().lower() in ("1", "true", "yes"),
     )

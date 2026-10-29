@@ -238,6 +238,27 @@ class _FakeStreamingHttpResponse:
         return iter(self._lines)
 
 
+class _BlockingStreamingHttpResponse:
+    def __init__(self):
+        self._closed = threading.Event()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        self.close()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self._closed.wait(5)
+        raise StopIteration
+
+    def close(self):
+        self._closed.set()
+
+
 def test_relay_appends_resource_to_versioned_ark_base_url(monkeypatch):
     module = _load_relay_module()
     requested_urls = []
@@ -271,6 +292,22 @@ def test_relay_appends_resource_to_versioned_ark_base_url(monkeypatch):
     assert requested_urls == ["https://ark.example/api/v3/chat/completions"]
     assert requested_bodies[0]["stream"] is True
     assert requested_bodies[0]["stream_options"] == {"include_usage": True}
+
+
+def test_relay_enforces_overall_stream_deadline(monkeypatch):
+    module = _load_relay_module()
+    response = _BlockingStreamingHttpResponse()
+
+    monkeypatch.setenv("ARK_BASE_URL", "https://ark.example/api/v3")
+    monkeypatch.setenv("ARK_API_KEY", "test-key")
+    monkeypatch.setattr(
+        module.urllib.request, "urlopen", lambda *_args, **_kwargs: response
+    )
+
+    with pytest.raises(TimeoutError, match="整体时限"):
+        module.Relay(
+            "test-model", 10, "system", timeout=0.05, retries=1
+        ).call("hello")
 
 
 def test_vision_embedder_uses_multimodal_protocol_one_text_per_request(monkeypatch):
@@ -551,6 +588,28 @@ def test_agent_prompts_use_canonical_model_id_and_allow_one_retry():
     assert "最多重试 1 次" in annotator
     assert "`Doubao-pro-32k`" not in coordinator
     assert "--model-id Doubao-pro-32k" not in annotator
+
+
+def test_annotation_prompt_version_is_explicit_and_fail_closed():
+    coordinator = COORDINATOR_PROMPT.read_text(encoding="utf-8")
+    annotator = ANNOTATOR_PROMPT.read_text(encoding="utf-8")
+
+    assert "/mnt/skills/topic6-annotation/SKILL.md" in coordinator
+    assert "每条委派消息必须是输入契约 JSON" in coordinator
+    assert "`prompt_version`" in coordinator
+    assert "禁止扫描目录猜最新版" in coordinator
+    assert '"prompt_version": "{required_prompt_version}"' in annotator
+    assert "^v[1-9][0-9]*$" in annotator
+    assert "预检失败不得启动 worker" in annotator
+    assert '"prompt_version": "v4"' not in annotator
+
+
+def test_coordinator_uses_memory_tools_not_filesystem_paths():
+    coordinator = COORDINATOR_PROMPT.read_text(encoding="utf-8")
+
+    assert "Memory Store 不是沙箱文件系统" in coordinator
+    assert "/topic6/_版本状态.md" in coordinator
+    assert "/mnt/memory/$TOPIC6_MEMORY_STORE_ID" not in coordinator
 
 
 def test_c2_runner_uses_platform_00_then_merged_remaining_stages(tmp_path):
@@ -1561,6 +1620,8 @@ def test_coordinator_uses_demo_fast_paths_and_single_insight_entry():
     assert "run_demo_routes.py" in coordinator
     assert "--mode demo --run-id {N} --demo-fast" in coordinator
     assert "C2_事件归档/c2_run/c2_status.json" in coordinator
+    assert "每轮等待最多使用一次 `sleep 90`" in coordinator
+    assert "禁止使用 `sleep >= 120`、`task_get`、`.bash_bg`" in coordinator
     assert "Phase E 不委派子 Agent" in coordinator
     assert "--publish-date \"{publish_date}\" --version {N}" in coordinator
     assert "最多重跑一次同一正式入口" in coordinator

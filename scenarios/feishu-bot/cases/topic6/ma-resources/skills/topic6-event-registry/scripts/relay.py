@@ -22,6 +22,7 @@ import hashlib
 import json
 import os
 import re
+import socket
 import sys
 import threading
 import time
@@ -55,6 +56,30 @@ def price_of(model: str) -> tuple[float, float]:
         if model.startswith(key) or key in model:
             return value
     return (0.0, 0.0)
+
+
+def _interrupt_response(response: object) -> None:
+    """Interrupt a blocking urllib SSL/SSE read from a watchdog thread."""
+    candidates = [response]
+    current = response
+    for attr in ("fp", "raw", "_sock"):
+        current = getattr(current, attr, None)
+        if current is None:
+            break
+        candidates.append(current)
+    for candidate in reversed(candidates):
+        shutdown = getattr(candidate, "shutdown", None)
+        if callable(shutdown):
+            try:
+                shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        close = getattr(candidate, "close", None)
+        if callable(close):
+            try:
+                close()
+            except OSError:
+                pass
 
 
 class Relay:
@@ -102,6 +127,7 @@ class Relay:
         finish_reason = ""
         for attempt in range(self.retries):
             try:
+                request_started = time.monotonic()
                 req = urllib.request.Request(
                     api_url(self.base, "chat/completions"),
                     data=body,
@@ -115,33 +141,65 @@ class Relay:
                 usage = {}
                 finish_reason = ""
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    for raw_line in resp:
-                        line = raw_line.decode("utf-8").strip()
-                        if not line or line.startswith(":"):
-                            continue
-                        if not line.startswith("data:"):
-                            continue
-                        data = line[5:].strip()
-                        if data == "[DONE]":
-                            break
-                        chunk = json.loads(data)
-                        if chunk.get("error"):
-                            raise RuntimeError(
-                                f"方舟流式响应错误: {chunk['error']!r}"
+                    deadline_expired = threading.Event()
+                    remaining = self.timeout - (time.monotonic() - request_started)
+
+                    def abort_at_deadline() -> None:
+                        deadline_expired.set()
+                        _interrupt_response(resp)
+
+                    if remaining <= 0:
+                        abort_at_deadline()
+                        raise TimeoutError(
+                            f"方舟流式响应超过整体时限 {self.timeout}s"
+                        )
+                    watchdog = threading.Timer(remaining, abort_at_deadline)
+                    watchdog.daemon = True
+                    watchdog.start()
+                    try:
+                        for raw_line in resp:
+                            if deadline_expired.is_set():
+                                raise TimeoutError(
+                                    f"方舟流式响应超过整体时限 {self.timeout}s"
+                                )
+                            line = raw_line.decode("utf-8").strip()
+                            if not line or line.startswith(":"):
+                                continue
+                            if not line.startswith("data:"):
+                                continue
+                            data = line[5:].strip()
+                            if data == "[DONE]":
+                                break
+                            chunk = json.loads(data)
+                            if chunk.get("error"):
+                                raise RuntimeError(
+                                    f"方舟流式响应错误: {chunk['error']!r}"
+                                )
+                            chunk_usage = chunk.get("usage")
+                            if isinstance(chunk_usage, dict):
+                                usage = chunk_usage
+                            choices = chunk.get("choices") or []
+                            if not choices:
+                                continue
+                            choice = choices[0]
+                            if choice.get("finish_reason"):
+                                finish_reason = str(choice["finish_reason"])
+                            delta = choice.get("delta") or {}
+                            content = delta.get("content")
+                            if isinstance(content, str):
+                                content_parts.append(content)
+                        if deadline_expired.is_set():
+                            raise TimeoutError(
+                                f"方舟流式响应超过整体时限 {self.timeout}s"
                             )
-                        chunk_usage = chunk.get("usage")
-                        if isinstance(chunk_usage, dict):
-                            usage = chunk_usage
-                        choices = chunk.get("choices") or []
-                        if not choices:
-                            continue
-                        choice = choices[0]
-                        if choice.get("finish_reason"):
-                            finish_reason = str(choice["finish_reason"])
-                        delta = choice.get("delta") or {}
-                        content = delta.get("content")
-                        if isinstance(content, str):
-                            content_parts.append(content)
+                    except (OSError, ValueError):
+                        if deadline_expired.is_set():
+                            raise TimeoutError(
+                                f"方舟流式响应超过整体时限 {self.timeout}s"
+                            )
+                        raise
+                    finally:
+                        watchdog.cancel()
                 break
             except (
                 urllib.error.URLError,

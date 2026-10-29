@@ -130,6 +130,8 @@ class Topic6Gateway:
                 continue
             if self._artifact_sync is not None:
                 self._artifact_sync.start(current, self._loop)
+            if getattr(self._config, "skip_miaoda_oauth", False):
+                continue
             try:
                 vault_id = await self._user_authorization.vault_id(current.user_open_id)
                 self._start_token_keepalive(current, vault_id)
@@ -186,9 +188,10 @@ class Topic6Gateway:
             if continue_match:
                 continuation_message = (continue_match.group(1) or "").strip() or "继续"
                 user_vault_id = ""
-                user_vault_id = await self._ensure_user_authorized(
-                    message.chat_id, message.user_open_id
-                )
+                if not getattr(self._config, "skip_miaoda_oauth", False):
+                    user_vault_id = await self._ensure_user_authorized(
+                        message.chat_id, message.user_open_id
+                    )
                 resumed = await self._runner.continue_job(
                     chat_id=message.chat_id,
                     thread_id=message.thread_id,
@@ -227,9 +230,11 @@ class Topic6Gateway:
                 return
 
             try:
-                user_vault_id = await self._ensure_user_authorized(
-                    message.chat_id, message.user_open_id
-                )
+                user_vault_id = ""
+                if not getattr(self._config, "skip_miaoda_oauth", False):
+                    user_vault_id = await self._ensure_user_authorized(
+                        message.chat_id, message.user_open_id
+                    )
                 job = await self._runner.start_job(
                     chat_id=message.chat_id,
                     thread_id=message.thread_id,

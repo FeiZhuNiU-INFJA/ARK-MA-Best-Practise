@@ -45,6 +45,13 @@ def test_artifact_sync_settings_are_configurable():
     assert config.artifact_poll_interval_sec == 2.5
 
 
+def test_miaoda_oauth_skip_is_explicit_and_defaults_off():
+    assert config_module.load_case_config(_env()).skip_miaoda_oauth is False
+    assert config_module.load_case_config(
+        _env(TOPIC6_SKIP_MIAODA_OAUTH="true")
+    ).skip_miaoda_oauth is True
+
+
 def test_artifact_poll_interval_must_be_positive():
     with pytest.raises(RuntimeError, match="必须大于 0"):
         config_module.load_case_config(
