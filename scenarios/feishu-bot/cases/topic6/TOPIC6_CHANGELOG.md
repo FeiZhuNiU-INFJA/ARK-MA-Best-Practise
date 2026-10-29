@@ -13,6 +13,14 @@
 
 ## 2026-10-29
 
+### 停止任务改为不可逆删除 Topic6 Session
+
+- `user.interrupt` 只中断当前执行轮并让 Session 回到 `idle`，语义是暂停，不是终止。
+- Topic6 停止按钮现在执行 `interrupt → 等待新 idle → DELETE Session`；删除成功或确认
+  Session 已不存在后，才把任务记为 `stopped` 并释放 Topic6 lease。
+- 删除失败或超时保持 `stopping`，禁止显示“已停止”；`stopped` 不再允许 `/continue`。
+- Topic5 仍只使用 interrupt，不删除 Session。
+
 ### C2 流式 Chat 请求增加整体截止时间
 
 - **触发现象**：C2 批次使用 SSE 读取模型响应时，socket `timeout` 只约束单次阻塞读取；

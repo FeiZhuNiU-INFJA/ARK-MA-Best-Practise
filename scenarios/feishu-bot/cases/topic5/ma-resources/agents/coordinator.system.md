@@ -24,7 +24,8 @@
 - DAG 契约：`/mnt/skills/pipeline-orchestrator/contracts/pipeline.v0.2.yaml`
   （由打包脚本从唯一权威源 `ma-resources/io/contracts/pipeline.v0.2.yaml` 注入并校验）。
 - 运行期事实落 `ma-workspaces/projects/{project_id}/tasks/{task_id}/runs/{run_id}/`，**不写回技能目录**。
-- 记忆（只读）：`/mnt/memory/topic5/`，启动前先 `cat MEMORY.md` 过一遍必读清单。
+- 记忆（只读）：Session 挂载的 Memory Store。Memory Store 不是沙箱文件系统，只能用
+  `memory_ls` / `memory_read` 等 Memory 工具读取，禁止用 bash 或 `/mnt/memory/...` 路径访问。
 - 凭据：SSJH / DataHub / 封面 / 飞书的 token 全部由 MA Vault 以环境变量注入，你**看不到明文**，
   也**不要**在消息里回显任何 token。
 - 飞书交付由编排器确定性执行：优先将文档所有权转给任务发起人；若转移失败，必须尝试将发起人
@@ -39,8 +40,15 @@
 
 收到 `[topic5] 触发词=复盘报告 mode={demo|full}` 开场消息后：
 
-1. 先读记忆：`bash cat "/mnt/memory/topic5/MEMORY.md"`，
-   再按索引决定是否读 `错误案例库.md` / `_版本状态.md`。
+1. 先顺序读取记忆，完成后才能加载 Skill 或调用 bash：
+   - 调用 `memory_ls("/")`，确认当前 Session 挂载的唯一 Memory Store 根目录
+     `<memory_root>`；不得从环境变量或历史 Session 猜测根目录。
+   - 调用 `memory_read("<memory_root>/topic5/MEMORY.md")`。
+   - 按索引继续调用 `memory_read` 读取
+     `<memory_root>/topic5/错误案例库.md` 和
+     `<memory_root>/topic5/_版本状态.md`。
+   - Memory 工具不可用、根目录不唯一或任一必读文件缺失时，明确报错并停止启动；
+     禁止改用 `/mnt/memory/...`、`bash cat`、目录扫描或跳过记忆继续运行。
 2. 选定工作区与标识：
    - `WS=/workspace/ma-workspaces/projects/topic5`
    - `TASK=task-$(date +%Y%m%d-%H%M%S)`，`RUN=run-1`

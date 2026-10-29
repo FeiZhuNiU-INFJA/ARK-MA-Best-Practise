@@ -411,8 +411,8 @@ def test_final_online_url_rejects_non_runtime_feishu_urls():
     ) == ""
 
 
-def test_get_resumable_job_includes_failed_and_stopped(tmp_path):
-    """get_resumable_job_by_session_key 必须能捞到 failed/stopped(供 /continue 用)。
+def test_get_resumable_job_includes_failed_but_excludes_stopped(tmp_path):
+    """get_resumable_job_by_session_key 只捞可恢复失败，不恢复用户停止的任务。
 
     get_active_job_by_session_key 只认 running/wait_hc,拿不到本地收口成 failed 的 job;
     /continue 的主场景正是“卡片已失败但 Session 可能还 idle”,故需要更宽的查询。
@@ -435,6 +435,9 @@ def test_get_resumable_job_includes_failed_and_stopped(tmp_path):
     assert resumable is not None
     assert resumable.job_id == job.job_id
     assert resumable.status == STATUS_FAILED
+
+    store.mark_stopped(job.job_id, "stopped_by:user")
+    assert store.get_resumable_job_by_session_key("c1", "", "u1") is None
 
     # done 不算可续跑
     store.mark_done(job.job_id, "https://topic6-demo.aiforce.cloud/report")

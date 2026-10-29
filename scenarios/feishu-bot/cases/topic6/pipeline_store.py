@@ -433,9 +433,10 @@ class PipelineStore:
         """会话键上最近一个“可续跑”的 job(供 /continue 用)。
 
         与 get_active_job_by_session_key 的区别:后者只认 running/wait_hc,拿不到
-        已被本地收口成 failed/stopped 的 job。而 /continue 的主场景恰恰是“卡片已失败,
+        已被本地收口成 failed 的 job。而 /continue 的主场景恰恰是“卡片已失败,
         但 MA Session 其实还 idle”(SSE 断线/HC 契约错/reject/cancel)——这些 job 已落到
-        failed/stopped,必须把它们也纳入候选,才能把误判为死的任务捞回来重订 SSE。
+        failed,必须把它们纳入候选,才能把误判为死的任务捞回来重订 SSE。stopped
+        表示用户请求的不可逆停止，不得恢复。
 
         完成态(done)不返回:已出报告的任务没有续跑语义。
         """

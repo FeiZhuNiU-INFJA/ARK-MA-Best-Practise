@@ -1,9 +1,10 @@
 # Topic5 营销活动复盘报告 · Agent 长期记忆索引
 
 > 每次启动前必读本文件,再按索引决定是否读其他记忆文件。
-> 本文件由 gateway 侧 Memory Store API 维护,Agent 只读挂载在 `/mnt/memory/topic5/` 下。
-> Memory Store ID 属于控制面资源标识,不进入沙箱挂载路径;读 memory 一律走
-> `bash cat "/mnt/memory/topic5/xxx.md"`。
+> 本文件由 gateway 侧 Memory Store API 维护,Agent 通过 Session Memory 工具只读访问。
+> Memory Store 不是沙箱文件系统。启动时先用 `memory_ls("/")` 发现当前挂载的
+> `<memory_root>`,再用 `memory_read` 读取 `<memory_root>/topic5/...`;禁止使用 bash、
+> `/mnt/memory/...` 路径或硬编码 Memory Store ID。
 
 ---
 
@@ -11,8 +12,8 @@
 
 | 文件 | 何时读 | 说明 |
 |---|---|---|
-| `/mnt/memory/topic5/错误案例库.md` | **每次启动** | 历史错误 + 修正,防止重蹈覆辙 |
-| `/mnt/memory/topic5/_版本状态.md` | **每次启动** | 各节点接真状态 + 口径红线快照 |
+| `<memory_root>/topic5/错误案例库.md` | **每次启动** | 历史错误 + 修正,防止重蹈覆辙 |
+| `<memory_root>/topic5/_版本状态.md` | **每次启动** | 各节点接真状态 + 口径红线快照 |
 
 > 执行期状态不进 memory:由 gateway `pipeline_jobs` 表 + 沙箱内
 > `ma-workspaces/projects/{pid}/tasks/{task}/runs/{run}/run.json`(编排器 checkpoint)承接。
@@ -56,7 +57,7 @@
    由确定性编排器 handler 实现,**不**各建独立 MA Agent。仅注册 **2 个 MA Agent**:
    `topic5-coordinator`(薄前台)+ `topic5-validator`(独立质检)。
 3. **路径基准**:skill 走 `/mnt/skills/<skill>/`(平铺同级,编排器按 `../<skill>/` 相对定位);
-   记忆走 `/mnt/memory/topic5/`;运行期事实走
+   记忆走 Session Memory 工具的 `<memory_root>/topic5/`;运行期事实走
    `ma-workspaces/projects/{pid}/tasks/{task}/runs/{run}/`,**不写回技能目录**。
 4. **凭据**:SSJH / DataHub / 封面 / 飞书 token 由 MA Vault 以环境变量注入,Agent 看不到明文。
 5. **模式**:`demo` 只预填 G1 表单;进入流水线后与 `full` 同标准,核心能力降级必须阻断。

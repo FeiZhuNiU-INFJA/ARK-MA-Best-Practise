@@ -45,6 +45,7 @@ try:
         RETRY_STRATEGY_NODE,
         STATUS_DONE,
         STATUS_FAILED,
+        STATUS_PAUSED,
         STATUS_RUNNING,
         STATUS_STOPPING,
         STATUS_STOPPED,
@@ -67,6 +68,7 @@ except ImportError:  # pragma: no cover - standalone compatibility
         RETRY_STRATEGY_NODE,
         STATUS_DONE,
         STATUS_FAILED,
+        STATUS_PAUSED,
         STATUS_RUNNING,
         STATUS_STOPPING,
         STATUS_STOPPED,
@@ -436,6 +438,15 @@ class Topic5Runner:
 
     def bind_card_sender(self, sender: "Topic5CardSenderProtocol") -> None:
         self._card_sender = sender
+
+    def get_job(self, job_id: str) -> Optional[PipelineJob]:
+        return self._store.get_job(job_id)
+
+    def claim_paused_resume(self, job_id: str) -> bool:
+        return self._store.claim_paused_resume(job_id)
+
+    def restore_paused(self, job_id: str, reason: str) -> None:
+        self._store.mark_paused(job_id, reason)
 
     # ---- 入口 --------------------------------------------------------------
 
@@ -886,8 +897,13 @@ class Topic5Runner:
         return job
 
     async def recover_active_jobs(self) -> dict[str, str]:
-        """Gateway 重启后对账所有活跃任务,并恢复必要的 SSE 订阅(不发 user.message)。"""
+        """恢复运行态任务的 SSE；paused 不在 list_active_jobs 中，不自动恢复。"""
         results: dict[str, str] = {}
+        for job in self._store.list_paused_jobs():
+            await self._render_and_patch(
+                job.job_id, status=STATUS_PAUSED, force=True
+            )
+            results[job.job_id] = STATUS_PAUSED
         for job in self._store.list_active_jobs():
             try:
                 results[job.job_id] = await asyncio.wait_for(
@@ -1122,6 +1138,13 @@ class Topic5Runner:
         job = self._store.get_job(job_id)
         if not job:
             log.warning("topic5 handle_idle 找不到 job=%s", job_id)
+            return
+        if job.status in (STATUS_STOPPING, STATUS_PAUSED):
+            log.info(
+                "topic5 ignores stale idle while pausing job=%s status=%s",
+                job_id,
+                job.status,
+            )
             return
         last = collected[-1] if collected else ""
         envelope = next(

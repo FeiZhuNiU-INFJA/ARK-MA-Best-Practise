@@ -207,6 +207,7 @@ cd ../.. && python -m arkagent run --case topicx
 - Skill 和 Prompt 不会热更新到已有 Session；Gateway 启动后需从飞书新建任务验证。
 - Environment / Memory Store 按名称原地更新，ID 不变；Skills 和 2 个 Agent 重建，ID 会变。
 - 单个 Gateway 可并发维护多个 Topic5 Job；隔离键是飞书话题。同一话题最多一个活跃 Job，不同话题互不阻塞。这里与“同一飞书 App 只能启动一个 Gateway 进程”是两层不同约束。
+- Topic5 话题是共享协作边界：同一话题内通过系统全局白名单的成员均可补充对话、上传活动明细、提交备注、操作审核卡片、停止或重试任务。任务发起人的 `open_id` 仍作为审计身份和最终飞书文档所有权目标；Topic6 的个人 OAuth 与发起人权限不随此规则放开。
 
 ---
 

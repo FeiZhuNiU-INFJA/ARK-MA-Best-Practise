@@ -24,6 +24,14 @@ Topic 5 是一个运行在火山方舟 Managed Agents（MA）上的飞书 Bot �
 - `demo` 抽样会把总体量、样本量和抽样方法写入 `clean_record`，报告必须披露“仅供参考、不代表全量结论”。
 - Topic5 以飞书话题为任务隔离边界：不同话题可并发运行独立 MA Session；同一话题最多一个活跃 Job。主时间线每条新触发消息都会创建独立话题，不受其他任务影响。
 
+## 暂停与继续
+
+- “暂停任务”发送 `user.interrupt`；Session 回到 `idle` 后状态记为 `paused`，不删除
+  Session、轨迹或产物。
+- `paused` 任务仍占用原话题，但 Gateway 重启时不会自动恢复执行。
+- 同一话题成员可点击“继续任务”，或发送一条普通消息，恢复同一 MA Session。
+- Topic6 的“停止任务”是独立的不可逆删除语义，不复用 Topic5 暂停状态。
+
 ## 开始使用
 
 首次部署、环境变量、飞书权限、资源上传、Gateway 启动和故障排查统一维护在[快速调试与完整配置](./TOPIC5_DEBUG_QUICKSTART.md)，本文件不重复展开。

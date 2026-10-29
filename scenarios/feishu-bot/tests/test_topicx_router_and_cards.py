@@ -29,7 +29,7 @@ def _runner_for_tool(store: ControlStore):
 
 
 @pytest.mark.asyncio
-async def test_followup_rejects_non_owner_before_session_side_effects():
+async def test_topic6_followup_rejects_non_owner_before_session_side_effects():
     runner = object.__new__(TopicxRunner)
     replies = []
 
@@ -38,11 +38,47 @@ async def test_followup_rejects_non_owner_before_session_side_effects():
 
     runner.reply = reply
     message = SimpleNamespace(user_open_id="ou-other")
-    task = SimpleNamespace(user_open_id="ou-owner")
+    task = SimpleNamespace(user_open_id="ou-owner", scenario="topic6")
 
     await runner.handle_followup(message, task)
 
     assert replies == ["只有任务发起人可以继续操作该任务。"]
+
+
+@pytest.mark.asyncio
+async def test_topic5_followup_allows_other_topic_member_to_chat():
+    runner = object.__new__(TopicxRunner)
+    calls = []
+
+    class Ark:
+        @staticmethod
+        async def send_message(session_id, text):
+            calls.append((session_id, text))
+
+    class Hitl:
+        @staticmethod
+        async def handle_remark_message(**_kwargs):
+            return False
+
+    runner._ark = Ark()
+    runner._topic5_hitl = Hitl()
+    message = SimpleNamespace(
+        user_open_id="ou-collaborator",
+        chat_id="chat",
+        thread_id="thread",
+        text="补充活动背景",
+        resources=[],
+    )
+    task = SimpleNamespace(
+        user_open_id="ou-owner",
+        status="running",
+        scenario="topic5",
+        business_session_id="session-1",
+    )
+
+    await runner.handle_followup(message, task)
+
+    assert calls == [("session-1", "补充活动背景")]
 
 
 @pytest.mark.asyncio
@@ -63,7 +99,7 @@ async def test_topic5_file_followup_attaches_and_resumes_production():
 
     runner._topic5_runner = Topic5Runner()
     message = SimpleNamespace(
-        user_open_id="ou-owner",
+        user_open_id="ou-collaborator",
         chat_id="chat",
         thread_id="thread",
         text="",
@@ -81,6 +117,37 @@ async def test_topic5_file_followup_attaches_and_resumes_production():
         ("attach", "xlsx-resource"),
         ("resume", job),
     ]
+
+
+@pytest.mark.asyncio
+async def test_topic5_paused_followup_resumes_same_job_with_message():
+    runner = object.__new__(TopicxRunner)
+    calls = []
+    job = SimpleNamespace(job_id="job-1")
+
+    runner._topic5_job = lambda _task: job
+
+    async def resume(task, resumed_job, message):
+        calls.append((task.task_id, resumed_job.job_id, message))
+
+    runner.resume_topic5_job = resume
+    message = SimpleNamespace(
+        user_open_id="ou-collaborator",
+        chat_id="chat",
+        thread_id="thread",
+        text="补充信息后继续",
+        resources=[],
+    )
+    task = SimpleNamespace(
+        task_id="task-1",
+        user_open_id="ou-owner",
+        status="paused",
+        scenario="topic5",
+    )
+
+    await runner.handle_followup(message, task)
+
+    assert calls == [("task-1", "job-1", "补充信息后继续")]
 
 
 @pytest.mark.asyncio
@@ -206,7 +273,7 @@ def _stop_values(card: dict):
     for element in card["body"]["elements"]:
         for behavior in element.get("behaviors", []):
             value = behavior.get("value", {})
-            if value.get("action") == "stop_task":
+            if value.get("action") in {"stop_task", "pause_task"}:
                 values.append((value, element))
     return values
 
@@ -217,6 +284,16 @@ def _retry_values(card: dict):
         for behavior in element.get("behaviors", []):
             value = behavior.get("value", {})
             if value.get("action") == "retry_task":
+                values.append((value, element))
+    return values
+
+
+def _resume_values(card: dict):
+    values = []
+    for element in card["body"]["elements"]:
+        for behavior in element.get("behaviors", []):
+            value = behavior.get("value", {})
+            if value.get("action") == "resume_task":
                 values.append((value, element))
     return values
 
@@ -265,7 +342,21 @@ def test_running_cards_have_confirmed_stop_button(builder, job, scenario):
     values = _stop_values(card)
     assert values[0][0]["scenario"] == scenario
     assert values[0][0]["job_id"] == job.job_id
-    assert values[0][1]["confirm"]["title"]["content"] == "确认停止任务"
+    expected = "确认暂停任务" if scenario == "topic5" else "确认停止任务"
+    assert values[0][1]["confirm"]["title"]["content"] == expected
+
+
+def test_topic5_paused_card_has_resume_button():
+    job = Topic5Job(
+        "job5", "c", "", "u", "s", "full", "", task_id="task"
+    )
+    card = topic5_card(
+        job=job, status="paused", elapsed_sec=1, tool_lines=[]
+    )
+    values = _resume_values(card)
+    assert values[0][0]["action"] == "resume_task"
+    assert values[0][1]["text"]["content"] == "继续任务"
+    assert _stop_values(card) == []
 
 
 @pytest.mark.parametrize(
@@ -358,11 +449,16 @@ def test_session_terminal_failed_card_has_no_retry_button(builder, job):
 
 class _StopArk:
     def __init__(
-        self, terminal: str = "stopped", session_status: str = "running"
+        self,
+        terminal: str = "stopped",
+        session_status: str = "running",
+        delete_error: Exception | None = None,
     ):
         self.terminal = terminal
         self.session_status = session_status
+        self.delete_error = delete_error
         self.sessions = []
+        self.deleted_sessions = []
 
     async def get_session(self, session_id):
         return {"id": session_id, "status": self.session_status}
@@ -374,12 +470,24 @@ class _StopArk:
     async def wait_for_interrupt(self, session_id, boundary, timeout_ms):
         return InterruptResult(terminal=self.terminal)
 
+    async def delete_session(self, session_id):
+        if self.delete_error is not None:
+            raise self.delete_error
+        self.deleted_sessions.append(session_id)
+
+
+async def _wait_stop_background(handler, task_id):
+    task = handler._stop_tasks.get(task_id)
+    if task is not None:
+        await task
+
 
 class _StopRunner:
     def __init__(self):
         self.replies = []
         self.stopped_jobs = []
         self.retried = []
+        self.resumed = []
 
     async def reply(self, task, text):
         self.replies.append(text)
@@ -392,6 +500,9 @@ class _StopRunner:
 
     async def retry_topic6_job(self, task, job):
         self.retried.append(("topic6", task.task_id, job.job_id))
+
+    async def resume_topic5_job(self, task, job, message="继续"):
+        self.resumed.append((task.task_id, job.job_id, message))
 
 
 class _NoopFeishu:
@@ -456,6 +567,20 @@ def _retry_action(scenario, job_id, operator):
             "value": {
                 "action": "retry_task",
                 "scenario": scenario,
+                "job_id": job_id,
+                "card_version": 1,
+            }
+        },
+        "operator": {"open_id": operator},
+    }
+
+
+def _resume_action(job_id, operator):
+    return {
+        "action": {
+            "value": {
+                "action": "resume_task",
+                "scenario": "topic5",
                 "job_id": job_id,
                 "card_version": 1,
             }
@@ -532,6 +657,121 @@ async def test_stop_rejects_non_owner_and_non_admin(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_topic5_stop_allows_other_topic_member(tmp_path):
+    control, topic5, topic6, task, job = _stop_fixture(
+        tmp_path, scenario="topic5"
+    )
+    ark = _StopArk()
+    runner = _StopRunner()
+    handler = StopHandler(
+        control=control,
+        topic5_store=topic5,
+        topic6_store=topic6,
+        ark=ark,
+        feishu=_NoopFeishu(),
+        admin_open_ids=(),
+        runner=runner,
+        loop=asyncio.get_running_loop(),
+    )
+
+    assert await handler.handle(
+        _stop_action("topic5", job.job_id, "ou-collaborator")
+    )
+    await _wait_stop_background(handler, task.task_id)
+    assert control.get_task(task.task_id).status == "paused"
+    assert topic5.get_job(job.job_id).status == "paused"
+    assert ark.sessions == ["business-session"]
+    assert ark.deleted_sessions == []
+
+
+@pytest.mark.asyncio
+async def test_topic5_pause_callback_does_not_wait_for_ma_interrupt(tmp_path):
+    control, topic5, topic6, task, job = _stop_fixture(
+        tmp_path, scenario="topic5"
+    )
+    release = asyncio.Event()
+
+    class BlockingArk(_StopArk):
+        async def wait_for_interrupt(self, session_id, boundary, timeout_ms):
+            await release.wait()
+            return InterruptResult(terminal="stopped")
+
+    handler = StopHandler(
+        control=control,
+        topic5_store=topic5,
+        topic6_store=topic6,
+        ark=BlockingArk(),
+        feishu=_NoopFeishu(),
+        admin_open_ids=(),
+        runner=_StopRunner(),
+        loop=asyncio.get_running_loop(),
+    )
+
+    assert await asyncio.wait_for(
+        handler.handle(
+            _stop_action("topic5", job.job_id, "ou-collaborator")
+        ),
+        timeout=0.1,
+    )
+    assert control.get_task(task.task_id).status == "stopping"
+    assert handler._runner.stopped_jobs == [job.job_id]
+    release.set()
+    await _wait_stop_background(handler, task.task_id)
+    assert control.get_task(task.task_id).status == "paused"
+
+
+@pytest.mark.asyncio
+async def test_topic5_resume_button_allows_other_topic_member(tmp_path):
+    control, topic5, topic6, task, job = _stop_fixture(
+        tmp_path, scenario="topic5"
+    )
+    control.transition(task.task_id, ("running",), "paused")
+    topic5.mark_paused(job.job_id)
+    runner = _StopRunner()
+    handler = StopHandler(
+        control=control,
+        topic5_store=topic5,
+        topic6_store=topic6,
+        ark=_StopArk(),
+        feishu=_NoopFeishu(),
+        admin_open_ids=(),
+        runner=runner,
+        loop=asyncio.get_running_loop(),
+    )
+
+    assert await handler.handle(
+        _resume_action(job.job_id, "ou-collaborator")
+    )
+    assert runner.resumed == [(task.task_id, job.job_id, "继续")]
+
+
+@pytest.mark.asyncio
+async def test_topic5_retry_allows_other_topic_member(tmp_path):
+    control, topic5, topic6, task, job = _stop_fixture(
+        tmp_path, scenario="topic5"
+    )
+    topic5.mark_failed(
+        job.job_id, "node failed", failure_scope="recoverable"
+    )
+    runner = _StopRunner()
+    handler = StopHandler(
+        control=control,
+        topic5_store=topic5,
+        topic6_store=topic6,
+        ark=_StopArk(),
+        feishu=_NoopFeishu(),
+        admin_open_ids=(),
+        runner=runner,
+        loop=asyncio.get_running_loop(),
+    )
+
+    assert await handler.handle(
+        _retry_action("topic5", job.job_id, "ou-collaborator")
+    )
+    assert runner.retried == [("topic5", task.task_id, job.job_id)]
+
+
+@pytest.mark.asyncio
 async def test_stop_timeout_keeps_topic6_lease_and_stopping_state(tmp_path):
     control, topic5, topic6, task, job = _stop_fixture(tmp_path)
     ark = _StopArk("timeout")
@@ -550,6 +790,7 @@ async def test_stop_timeout_keeps_topic6_lease_and_stopping_state(tmp_path):
     assert await handler.handle(
         _stop_action("topic6", job.job_id, "ou-admin-1")
     )
+    await _wait_stop_background(handler, task.task_id)
     assert control.get_task(task.task_id).status == "stopping"
     assert topic6.get_job(job.job_id).status == "stopping"
     assert control.get_topic6_lease()["state"] == "stopping"
@@ -574,10 +815,40 @@ async def test_owner_stop_confirms_new_idle_result_and_releases_lease(tmp_path):
     assert await handler.handle(
         _stop_action("topic6", job.job_id, "ou-owner")
     )
+    await _wait_stop_background(handler, task.task_id)
     assert control.get_task(task.task_id).status == "stopped"
     assert topic6.get_job(job.job_id).status == "stopped"
     assert control.get_topic6_lease() is None
     assert ark.sessions == ["business-session"]
+    assert ark.deleted_sessions == ["business-session"]
+
+
+@pytest.mark.asyncio
+async def test_topic6_delete_failure_keeps_stopping_and_lease(tmp_path):
+    control, topic5, topic6, task, job = _stop_fixture(tmp_path)
+    ark = _StopArk(
+        "stopped", delete_error=RuntimeError("delete unavailable")
+    )
+    runner = _StopRunner()
+    handler = StopHandler(
+        control=control,
+        topic5_store=topic5,
+        topic6_store=topic6,
+        ark=ark,
+        feishu=_NoopFeishu(),
+        admin_open_ids=(),
+        runner=runner,
+        loop=asyncio.get_running_loop(),
+    )
+
+    assert await handler.handle(
+        _stop_action("topic6", job.job_id, "ou-owner")
+    )
+    await _wait_stop_background(handler, task.task_id)
+    assert control.get_task(task.task_id).status == "stopping"
+    assert topic6.get_job(job.job_id).status == "stopping"
+    assert control.get_topic6_lease() is not None
+    assert "永久删除 Session 失败" in runner.replies[-1]
 
 
 @pytest.mark.asyncio
@@ -605,11 +876,41 @@ async def test_recover_stop_finalizes_already_idle_session_without_retry(
 
     await handler.recover_stopping(task)
 
-    assert control.get_task(task.task_id).status == "stopped"
-    assert topic5.get_job(job.job_id).status == "stopped"
+    assert control.get_task(task.task_id).status == "paused"
+    assert topic5.get_job(job.job_id).status == "paused"
     assert ark.sessions == []
     assert runner.replies == []
     assert runner.stopped_jobs == [job.job_id]
+
+
+@pytest.mark.asyncio
+async def test_recover_topic6_idle_stop_deletes_session_before_finalize(
+    tmp_path,
+):
+    control, topic5, topic6, task, job = _stop_fixture(tmp_path)
+    assert control.begin_stop(task.task_id, "ou-owner")
+    assert topic6.mark_stopping(job.job_id, "ou-owner")
+    task = control.get_task(task.task_id)
+    ark = _StopArk("timeout", session_status="idle")
+    runner = _StopRunner()
+    handler = StopHandler(
+        control=control,
+        topic5_store=topic5,
+        topic6_store=topic6,
+        ark=ark,
+        feishu=_NoopFeishu(),
+        admin_open_ids=(),
+        runner=runner,
+        loop=asyncio.get_running_loop(),
+    )
+
+    await handler.recover_stopping(task)
+
+    assert control.get_task(task.task_id).status == "stopped"
+    assert topic6.get_job(job.job_id).status == "stopped"
+    assert ark.sessions == []
+    assert ark.deleted_sessions == ["business-session"]
+    assert control.get_topic6_lease() is None
 
 
 @pytest.mark.asyncio
@@ -662,8 +963,9 @@ async def test_topic5_stop_timeout_does_not_claim_to_hold_topic6_lock(tmp_path):
     assert await handler.handle(
         _stop_action("topic5", job.job_id, "ou-owner")
     )
+    await _wait_stop_background(handler, task.task_id)
     assert "任务锁" not in runner.replies[-1]
-    assert "正在停止状态" in runner.replies[-1]
+    assert "正在暂停状态" in runner.replies[-1]
 
 
 class _CreateArk:

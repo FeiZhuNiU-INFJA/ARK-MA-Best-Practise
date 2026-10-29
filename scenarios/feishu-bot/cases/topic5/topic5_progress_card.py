@@ -26,6 +26,7 @@ try:
         RETRY_STRATEGY_NODE,
         STATUS_DONE,
         STATUS_FAILED,
+        STATUS_PAUSED,
         STATUS_RUNNING,
         STATUS_STOPPING,
         STATUS_STOPPED,
@@ -41,6 +42,7 @@ except ImportError:  # pragma: no cover - standalone compatibility
         RETRY_STRATEGY_NODE,
         STATUS_DONE,
         STATUS_FAILED,
+        STATUS_PAUSED,
         STATUS_RUNNING,
         STATUS_STOPPING,
         STATUS_STOPPED,
@@ -84,6 +86,8 @@ def _header(status: str, phase: str, failure_scope: str = "") -> dict:
         title, template = "✅ Topic5 复盘报告 · 已完成", "green"
     elif status == STATUS_STOPPED:
         title, template = "⏹️ Topic5 复盘报告 · 已停止", "grey"
+    elif status == STATUS_PAUSED:
+        title, template = "⏸️ Topic5 复盘报告 · 已暂停", "grey"
     elif status == STATUS_FAILED:
         if failure_scope in ("", FAILURE_SCOPE_RECOVERABLE):
             title, template = "⚠️ Topic5 复盘报告 · 执行失败，可重试", "orange"
@@ -94,7 +98,7 @@ def _header(status: str, phase: str, failure_scope: str = "") -> dict:
     elif status == STATUS_WAIT_INPUT:
         title, template = "⏸️ Topic5 复盘报告 · 等待活动明细", "turquoise"
     elif status == STATUS_STOPPING:
-        title, template = "Topic5 复盘报告 · 正在停止", "grey"
+        title, template = "Topic5 复盘报告 · 正在暂停", "grey"
     else:
         title, template = "🚀 Topic5 复盘报告 · 运行中", "blue"
     return {"title": {"tag": "plain_text", "content": title}, "template": template}
@@ -357,7 +361,33 @@ def build_progress_card(
             }
         )
     elif status == STATUS_STOPPING:
-        elements.append({"tag": "markdown", "content": "正在中断业务 Session，请稍候。"})
+        elements.append({"tag": "markdown", "content": "正在暂停业务 Session，请稍候。"})
+    elif status == STATUS_PAUSED:
+        elements.extend(
+            [
+                {
+                    "tag": "markdown",
+                    "content": "任务已暂停。点击继续，或在当前话题发送新消息即可恢复。",
+                },
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "继续任务"},
+                    "type": "primary_filled",
+                    "width": "fill",
+                    "behaviors": [
+                        {
+                            "type": "callback",
+                            "value": {
+                                "action": "resume_task",
+                                "scenario": "topic5",
+                                "job_id": job.job_id,
+                                "card_version": 1,
+                            },
+                        }
+                    ],
+                },
+            ]
+        )
     elif status in (STATUS_FAILED, STATUS_STOPPED) and error:
         elements.append(
             {
@@ -432,21 +462,21 @@ def build_progress_card(
                 {"tag": "hr"},
                 {
                     "tag": "button",
-                    "text": {"tag": "plain_text", "content": "停止任务"},
+                    "text": {"tag": "plain_text", "content": "暂停任务"},
                     "type": "danger",
                     "width": "fill",
                     "confirm": {
-                        "title": {"tag": "plain_text", "content": "确认停止任务"},
+                        "title": {"tag": "plain_text", "content": "确认暂停任务"},
                         "text": {
                             "tag": "plain_text",
-                            "content": "只中断当前业务任务，已产生的轨迹仍会保留。",
+                            "content": "暂停后保留 Session、轨迹和产物，可随时继续。",
                         },
                     },
                     "behaviors": [
                         {
                             "type": "callback",
                             "value": {
-                                "action": "stop_task",
+                                "action": "pause_task",
                                 "scenario": "topic5",
                                 "job_id": job.job_id,
                                 "card_version": 1,

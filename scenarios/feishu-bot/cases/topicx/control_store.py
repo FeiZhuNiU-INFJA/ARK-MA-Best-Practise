@@ -19,6 +19,7 @@ ACTIVE_TASK_STATUSES = (
     "starting",
     "running",
     "wait_hc",
+    "paused",
     "stopping",
     "reconcile_required",
 )
@@ -444,7 +445,7 @@ class ControlStore:
                     UPDATE task_runs
                     SET status = 'stopping', stop_requested_at = ?,
                         stop_requested_by = ?, updated_at = ?
-                    WHERE task_id = ? AND status IN ('running', 'wait_hc')
+                    WHERE task_id = ? AND status IN ('running', 'wait_hc', 'wait_input')
                     """,
                     (now, operator_open_id, now, task_id),
                 )

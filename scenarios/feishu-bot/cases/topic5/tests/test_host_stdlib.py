@@ -158,6 +158,14 @@ class PipelineStoreTest(unittest.TestCase):
             "chat_1", "omt_thread_1", "ou_user"
         )
         self.assertEqual(active.job_id, job.job_id)
+        collaborator_active = self.store.get_active_job_by_session_key(
+            "chat_1", "omt_thread_1", "ou_collaborator"
+        )
+        self.assertEqual(collaborator_active.job_id, job.job_id)
+        collaborator_resumable = self.store.get_resumable_job_by_session_key(
+            "chat_1", "omt_thread_1", "ou_collaborator"
+        )
+        self.assertEqual(collaborator_resumable.job_id, job.job_id)
         self.assertIsNone(
             self.store.get_active_job_by_session_key(
                 "chat_1", "", "ou_user"
@@ -221,6 +229,27 @@ class PipelineStoreTest(unittest.TestCase):
             job.job_id,
         )
         self.assertIn(job.job_id, {item.job_id for item in self.store.list_active_jobs()})
+
+    def test_paused_job_occupies_topic_but_is_not_startup_recovered(self) -> None:
+        job = self.store.create_job("c", "thread", "u", "s", "full", "d")
+        self.store.mark_paused(job.job_id, "paused_by:user")
+        self.assertEqual(self.store.get_job(job.job_id).status, ps.STATUS_PAUSED)
+        self.assertEqual(
+            self.store.get_active_job_by_topic("c", "thread").job_id,
+            job.job_id,
+        )
+        self.assertEqual(
+            self.store.get_resumable_job_by_session_key(
+                "c", "thread", "other-user"
+            ).job_id,
+            job.job_id,
+        )
+        self.assertNotIn(
+            job.job_id, {item.job_id for item in self.store.list_active_jobs()}
+        )
+        self.assertIn(
+            job.job_id, {item.job_id for item in self.store.list_paused_jobs()}
+        )
 
     def test_old_db_alter_adds_thread_columns(self) -> None:
         # 老库(无话题字段)重开后应自动补列,读回默认空串而非抛错。
@@ -764,8 +793,16 @@ class RuntimeResourcePathTest(unittest.TestCase):
         for name in ("MEMORY.md", "错误案例库.md", "_版本状态.md"):
             self.assertTrue((memory_root / name).is_file())
         memory_index = (memory_root / "MEMORY.md").read_text(encoding="utf-8")
+        coordinator = (
+            _CASE_DIR / "ma-resources/agents/coordinator.system.md"
+        ).read_text(encoding="utf-8")
         self.assertNotIn("TOPIC5_MEMORY_STORE_ID", memory_index)
-        self.assertIn("/mnt/memory/topic5/", memory_index)
+        self.assertNotIn('cat "/mnt/memory', memory_index)
+        self.assertIn('memory_ls("/")', memory_index)
+        self.assertIn("<memory_root>/topic5/", memory_index)
+        self.assertNotIn('cat "/mnt/memory', coordinator)
+        self.assertIn('memory_ls("/")', coordinator)
+        self.assertIn('memory_read("<memory_root>/topic5/MEMORY.md")', coordinator)
 
     def test_pack_script_injects_canonical_dag(self) -> None:
         script = (_CASE_DIR / "tools/pack_skills.sh").read_text(encoding="utf-8")
@@ -1125,6 +1162,28 @@ class RunnerFinalResultParsingTest(unittest.TestCase):
             self.assertEqual(failed.current_phase, "n11_annotate_r2")
             self.assertEqual(failed.retry_strategy, ps.RETRY_STRATEGY_NODE)
             self.assertIn("覆盖检查存在缺口", failed.last_error)
+            store.close()
+
+    def test_stale_idle_cannot_overwrite_paused_job(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ps.PipelineStore(str(Path(temp_dir) / "runner.db"))
+            job = store.create_job("c", "", "u", "session-1", "demo", "")
+            store.mark_paused(job.job_id, "paused_by:collaborator")
+            runner = self.runner.Topic5Runner(
+                object(),
+                object(),
+                store,
+                self.runner.Topic5Config("agent", "env"),
+            )
+
+            async def fail_render(*_args, **_kwargs):
+                raise AssertionError("stale idle must not render a terminal card")
+
+            runner._render_and_patch = fail_render
+            asyncio.run(runner._handle_idle(job.job_id, []))
+            current = store.get_job(job.job_id)
+            self.assertEqual(current.status, ps.STATUS_PAUSED)
+            self.assertEqual(current.last_error, "paused_by:collaborator")
             store.close()
 
     def test_nonstructured_failure_requires_explicit_failed_node(self) -> None:

@@ -468,8 +468,9 @@ class Topic6Runner:
         """/continue 续跑:把一条 user.message 注入最近一个可续跑的 Session,重订 SSE。
 
         - 无可续跑 job → 返回 None(调用方给“没有可续跑任务”的提示)。
-        - 命中(running/wait_hc/failed/stopped)→ 复用 resume_job 注入 message 并重新
+        - 命中(running/wait_hc/failed)→ 复用 resume_job 注入 message 并重新
           订阅 SSE,返回该 job。
+        - stopped 是用户确认的不可逆停止，不允许通过 /continue 恢复。
 
         主场景:卡片已显示“执行失败，可重试”,但 MA Session 仍是 idle/running。
         真正 failed/terminated 的 Session 不允许继续。
