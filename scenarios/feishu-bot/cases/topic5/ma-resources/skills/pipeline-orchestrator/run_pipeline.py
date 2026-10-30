@@ -10,6 +10,9 @@
   python run_pipeline.py start  --dag <dag.yaml> --workspace <ws> --task <task_id> [--run <run_id>]
   python run_pipeline.py resume --dag <dag.yaml> --workspace <ws> --task <task_id> --run <run_id> \
          --hc G3 --decision pass [--note "看起来没问题"]
+  python run_pipeline.py replace-source --workspace <ws> --task <task_id> --run <run_id> \
+         --source-name <display.xlsx> --source-mount <mounted-basename.xlsx>
+  python run_pipeline.py retry  --dag <dag.yaml> --workspace <ws> --task <task_id> --run <run_id>
   python run_pipeline.py status --workspace <ws> --task <task_id> --run <run_id>
 
 remark 无内容时只记录、不续跑（等待用户后续消息指令，project_memory 硬约束）。
@@ -21,7 +24,14 @@ import json
 from pathlib import Path
 
 import hc_bridge
-from engine import Dag, create_run, resume, retry_failed, run
+from engine import (
+    Dag,
+    create_run,
+    replace_failed_source,
+    resume,
+    retry_failed,
+    run,
+)
 from state import RunState, register_run_dir
 
 
@@ -75,7 +85,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "cmd",
-        choices=["start", "resume", "retry", "status"],
+        choices=["start", "resume", "retry", "replace-source", "status"],
     )
     ap.add_argument("--dag")
     ap.add_argument("--workspace", required=True)
@@ -87,6 +97,8 @@ def main() -> None:
     ap.add_argument("--decision", choices=["pass", "reject", "remark"],
                     help="resume：用户决定")
     ap.add_argument("--note", default="", help="resume：附注（remark 必带内容才续跑）")
+    ap.add_argument("--source-name", help="replace-source：新源文件展示名")
+    ap.add_argument("--source-mount", help="replace-source：新源文件挂载 basename")
     args = ap.parse_args()
 
     ws = Path(args.workspace)
@@ -109,6 +121,17 @@ def main() -> None:
     if args.cmd == "status":
         if st.status == "awaiting_human":
             _on_pause(st)
+        _print_state(st)
+        return
+
+    if args.cmd == "replace-source":
+        if not args.source_mount:
+            ap.error("replace-source requires --source-mount")
+        st = replace_failed_source(
+            st,
+            source_name=args.source_name or args.source_mount,
+            source_mount_path=args.source_mount,
+        )
         _print_state(st)
         return
 

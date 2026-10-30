@@ -51,12 +51,12 @@
 
 方舟 Managed Agents 围绕以下四个概念构建：
 
-| 概念            | 描述                                                                                                                                                            |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 概念                  | 描述                                                                                                                                                              |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Agent**       | 可版本化、可复用的智能体配置资产，定义了一个智能体的角色、能力、行为边界和运行规则，是所有任务运行的模板和基准。创建一次，通过 `agent_id` 在多个 Session 中复用 |
 | **Environment** | Session 运行的环境配置，包含网络、预装依赖包、环境变量与产物存储。通过 `environment_id` 引用                                                                    |
-| **Session**     | 在 Environment 中运行的 Agent 实例，用于执行一次具体任务。上下文、文件、状态相互隔离，同一 Agent 可发起多个并行 Session                                         |
-| **Events**      | 应用与 Agent 之间交换的原子消息，涵盖用户消息、思考、工具调用、工具结果与状态更新。以只增不删的方式在服务端持久化，支持实时订阅或事后回放                       |
+| **Session**     | 在 Environment 中运行的 Agent 实例，用于执行一次具体任务。上下文、文件、状态相互隔离，同一 Agent 可发起多个并行 Session                                           |
+| **Events**      | 应用与 Agent 之间交换的原子消息，涵盖用户消息、思考、工具调用、工具结果与状态更新。以只增不删的方式在服务端持久化，支持实时订阅或事后回放                         |
 
 ## 核心优势
 
@@ -66,23 +66,20 @@
 
 #### 不再需要自行实现的部分
 
-| 之前（模型 API + 自建循环）                                                       | 之后（方舟 Managed Agents）                                                   |
-| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| 维护对话历史数组，每一轮将完整历史传回模型                                        | Session 由服务端持久化历史，仅需发送 / 订阅事件                               |
-| 手动循环调用：模型返回后解析 `tool_use`，执行工具并追加 `tool_result`，再调用模型 | 平台内置 AgentLoop 自动驱动整个循环；Agent 结束时发出 `session.status_idle`   |
-| 自建沙箱以执行 Agent 生成的代码，机器、容器、扩缩容与清理均需自行管理             | Session 自带沙箱，代码执行、文件读写、Bash 命令由平台代为承载，任务结束即释放 |
-| 自研上下文压缩策略以避免超出上下文窗口                                            | 上下文自动压缩，Event API 全量留存，不丢失内容                                |
-| 自研长程任务的状态保存与恢复机制                                                  | 自动保存沙箱状态，长程任务原生支持断点续跑                                    |
-| 自研 IAM、密钥注入与执行环境隔离                                                  | 基于火山 IAM + 零信任凭证隔离，密钥不会进入沙箱进程                           |
+| 之前（模型 API + 自建循环）                                                           | 之后（方舟 Managed Agents）                                                   |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| 维护对话历史数组，每一轮将完整历史传回模型                                            | Session 由服务端持久化历史，仅需发送 / 订阅事件                               |
+| 手动循环调用：模型返回后解析 `tool_use`，执行工具并追加 `tool_result`，再调用模型 | 平台内置 AgentLoop 自动驱动整个循环；Agent 结束时发出 `session.status_idle` |
+| 自建沙箱以执行 Agent 生成的代码，机器、容器、扩缩容与清理均需自行管理                 | Session 自带沙箱，代码执行、文件读写、Bash 命令由平台代为承载，任务结束即释放 |
+| 自研上下文压缩策略以避免超出上下文窗口                                                | 上下文自动压缩，Event API 全量留存，不丢失内容                                |
+| 自研长程任务的状态保存与恢复机制                                                      | 自动保存沙箱状态，长程任务原生支持断点续跑                                    |
+| 自研 IAM、密钥注入与执行环境隔离                                                      | 基于火山 IAM + 零信任凭证隔离，密钥不会进入沙箱进程                           |
 
 #### 仍由你掌控的部分
 
 - **模型与系统提示词**：字段保持不变，仅位置调整至 Agent 定义中。
-
 - **自定义工具**：仍以 JSON Schema 声明 `input_schema`；执行方式调整为：由用户客户端订阅 `agent.custom_tool_use` 事件后自行执行。
-
 - **上下文注入**：仍可通过系统提示词、Skills、上传文件等方式注入。
-
 - **中断与引导**：可随时向 Session 发送额外用户事件以调整方向，或直接中断本轮执行。
 
 #### 何时仍应选择模型 API
@@ -93,32 +90,28 @@
 
 主流开源 Agent Runtime（LangChain、OpenCode 等）解决了「能够运行」的问题，但要实现「稳定、高效、具备业务价值」的运行仍需大量投入。方舟并非「在开源框架之上叠加一层豆包适配」，而是 **自底向上自研 AgentLoop 调度内核，并与豆包大模型的原生能力进行深度双向优化**：相当于为模型配备一套量身定制的操作系统，而非在通用硬件上粗放运行。
 
-| 对比维度         | 方舟 Managed Agents（原生 AgentLoop）        | 开源 Agent Runtime                           |
-| ---------------- | -------------------------------------------- | -------------------------------------------- |
+| 对比维度               | 方舟 Managed Agents（原生 AgentLoop）        | 开源 Agent Runtime                           |
+| ---------------------- | -------------------------------------------- | -------------------------------------------- |
 | **模型适配方式** | 与豆包全系列原生双向优化                     | 通用 prompt 模板适配所有模型                 |
 | **推理完成率**   | 思维链原生拆解、断点续跑、上下文自动压缩     | 长任务易偏离预期、中断后无法续跑、上下文丢失 |
 | **工具调用**     | 协议级对齐，自动校验 / 重试 / 并行           | 通用 JSON 解析                               |
 | **长程任务**     | 原生支持长程任务运行，自动生成快照、按需拉起 | 固定模板适配所有场景，需自建沙箱调度         |
-| **接入成本**     | 开箱即用，零适配成本                         | 需 4–8 周自研适配，踩坑周期较长              |
+| **接入成本**     | 开箱即用，零适配成本                         | 需 4–8 周自研适配，踩坑周期较长             |
 
 ## 适用场景
 
 方舟 Managed Agents 最适合具备以下特征的工作负载：
 
 - **长时间运行**：单次任务需运行数分钟至数小时，涉及多次工具调用与迭代思考。
-
 - **有状态**：跨多轮交互持久保存文件系统、对话历史与执行状态，支持断点续跑。
-
 - **异步执行**：任务发起后由 Agent 自主推进，客户端仅需订阅事件流即可获取结果。
-
 - **最少的基础设施**：无需自建 Agent 循环、沙箱与工具执行层。
-
 - **弹性调用**：调用量波峰波谷显著，期望按用量计费而非常驻资源。
 
 在上述特征之上，以下为已验证 PMF 的典型业务场景：
 
-| 场景                   | 重复度 | 风险 | 说明                                                                       |
-| ---------------------- | ------ | ---- | -------------------------------------------------------------------------- |
+| 场景                         | 重复度 | 风险 | 说明                                                                       |
+| ---------------------------- | ------ | ---- | -------------------------------------------------------------------------- |
 | **IT 工单处理**        | 高     | 低   | 结构化强、模板化程度高，Agent 处理准确率高                                 |
 | **报表自动生成**       | 高     | 低   | 数据抓取与汇总逻辑固定，易于 Agent 化                                      |
 | **供应商邮件处理**     | 中     | 低   | 分类与回复流程明确，适合规则化自动化                                       |
@@ -133,19 +126,14 @@
 方舟 Managed Agents 从创建到接入业务，通常经历以下 5 个步骤：
 
 1. **创建 Agent**：在控制台或通过 API 定义模型、系统提示词与 Skills / Tools / MCPs，获得稳定的 `agent_id`，可在多个 Session 中通过 ID 复用。
-
 2. **创建 Environment**：定义沙箱运行环境（网络、预装包、环境变量和产物存储），获得稳定的 `environment_id`。
-
 3. **启动 Session**：基于 `agent_id` 与 `environment_id` 创建一次会话（Session）。
-
 4. **发送事件并流式接收响应**：将用户消息作为事件发送至 Session，Agent 自主执行工具并通过 SSE（server\-sent events）流式返回结果，事件历史由服务端持久化保存，支持完整获取。
-
 5. **引导或中断**：Agent 执行过程中，可随时发送额外用户事件以引导其调整方向，或直接中断本轮执行。
 
 上手方式提供以下两种路径：
 
 - 如需以 **可视化方式** 快速完成原型验证，参见 [快速入门（控制台）](https://ark.volcengine.com/region:cn-beijing/docs/quick-start-console)。
-
 - 如需直接以 **代码 / API** 完成端到端接入，参见 [快速入门（代码）](https://ark.volcengine.com/region:cn-beijing/docs/quick-start-code)。
 
 ## 计费说明
@@ -167,7 +155,6 @@ Managed Agents 按照 Agent 运行过程中实际消耗的 Tokens、Agent 运行
 ### 1. 获取并配置 API Key
 
 1. **获取 API Key**：访问 [API Key 管理](https://ark.volcengine.com/region:cn-beijing/apiKey)，创建你的 API Key。
-
 2. **配置环境变量**：在终端中运行下面命令（替换 `your_api_key_here` 为你的方舟 API Key），配置 API Key 到环境变量。
 
 配置持久化环境变量方法参见 [环境变量配置指南](https://ark.volcengine.com/region:cn-beijing/docs/environment-variable-configuration-guide)。
@@ -217,7 +204,7 @@ agent=$(
 {
   "name": "Quick Start Agent",
   "model": {"id": "doubao-seed-2-1-pro-260628"},
-  "system": "你是一个高效的编程助手，擅长代码编写和问题排查。",
+  "syarstem": "你是一个高效的编程助手，擅长代码编写和问题排查。",
   "tools": [
     {"type": "agent_toolset_20260916"}
   ]
@@ -375,7 +362,7 @@ trap - EXIT
 
 **示例输出：**
 
-```Plain Text
+```Plain
 [Using tool: write]
 
 [Using tool: bash]
@@ -396,9 +383,7 @@ Agent finished.
 **用法：**
 
 1. 将下面代码保存为 `quickstart.sh`。
-
 2. 确保已按「准备工作」配置好 `ARK_API_KEY` 环境变量，并已安装 `curl` 与 `jq`。
-
 3. **执行**：
 
    ```Bash
@@ -859,13 +844,9 @@ public class ManagedAgentsQuickStart {
 当您发送用户事件时，方舟托管 Agent 会：
 
 1. **配置沙箱**：您的环境配置决定了沙箱的构建方式。
-
 2. **运行Agent循环**：方舟根据您的消息确定要使用哪些工具。
-
 3. **执行工具**：启动沙箱，在沙箱内运行文件写入、bash 命令和其他工具调用。
-
 4. **流式传输事件**：您会在Agent工作时收到实时更新。
-
 5. **进入空闲状态**：当Agent没有更多任务要执行时，会发出 `session.status_idle` 事件。
 
 ## 设计建议
@@ -873,7 +854,6 @@ public class ManagedAgentsQuickStart {
 配置 Agent 和 Session 时，按照配置的生命周期区分长期能力与单次任务：
 
 - **长期能力写入 Agent 定义**：通过 `Agents_create` 或 `Agents_update` 配置系统提示词、Skills、Tools 和 MCP Server，供多个 Session 复用。
-
 - **单次任务通过 Session 事件传入**：通过 `SessionEvents_send` 发送 `user.message` 事件，不要将本次任务写入 Agent 的 `system` 字段。
 
 将单次任务写入 `system` 会降低 Agent 定义的复用性；将长期规则放入 Session 事件则需要重复传输，也容易造成不同 Session 的配置不一致。
@@ -933,15 +913,10 @@ Agent 是可版本化、可复用的智能体配置资产，定义角色、能�
 访问 [火山方舟控制台](https://ark.volcengine.com/region:cn-beijing/managed-agents/agents?projectName=default)，进入 **Managed Agents** 模块。在 **Agents** 页面单击 **创建 Agent**，跟随界面引导填写：
 
 - **Agent 版本**：根据任务类型选择通用 Agent 或 Seedance Managed Agent。
-
 - **模型和系统提示词**：选择一个 **模型**，并编写 **系统提示词**，为 Agent 设定角色、做事风格与工作原则。
-
 - **Skills**：从 **火山 SkillHub** 中挂载预置 **Skill**，或本地上传自定义 **Skill**，扩展 Agent 的领域能力。
-
 - **Tools**：勾选内置的 **Agent Toolset**（如 `bash`、`edit`、`read`、`write` 等基础工具），让 Agent 能够读写文件、执行命令。
-
 - **MCPs**：以 URL 形式接入远程 **MCP Server**，把外部系统能力接入 Agent。
-
 - **Multi Agents**：将多个 Agent 组合成协同工作流，一个 Agent 可以调用另一个 Agent 完成子任务。
 
 保存后，控制台会为该 Agent 生成一个稳定的 `agent_id`。每次修改配置都会自动生成新版本，支持版本对比、回滚和灰度发布。
@@ -953,11 +928,8 @@ Agent 是可版本化、可复用的智能体配置资产，定义角色、能�
 在 [Environments 页面](https://ark.volcengine.com/region:cn-beijing/managed-agents/environments?projectName=default) 单击 **创建 Environment**，跟随界面引导填写：
 
 - **类型**：当前仅支持 **云托管**：沙箱由方舟按需拉起、自动休眠。
-
 - **预装包**：按需添加 `pip`、`apt` 依赖（如 `numpy`、`pandas`），沙箱首次启动时安装。
-
 - **环境变量**：以键值对形式注入到沙箱进程，沙箱启动时自动加载，供 Agent 执行的代码和命令直接读取。常用于配置业务侧的非敏感参数，例如设置时区 `TZ=Asia/Shanghai`。
-
 - **产物存储**：可选。需要长期保留 Agent 写入 `/mnt/session/outputs/` 的最终产物时，选择已授权的自有 TOS 目录；不选择时使用方舟公共 TOS，你需要在平台 TTL 到期前下载所需文件。
 
 保存后得到一个稳定的 `environment_id`。
@@ -973,13 +945,10 @@ Agent 是可版本化、可复用的智能体配置资产，定义角色、能�
 Session 是一次独立的 Agent 任务运行会话，包含从发起、执行到结束的完整生命周期：
 
 1. 在 [Sessions 页面](https://ark.volcengine.com/region:cn-beijing/managed-agents/sessions?projectName=default) 单击 **创建 Session**，选择要绑定的 **Agent** 和 **Environment**。Session 默认继承该 Environment 的产物存储配置。
-
 2. 在 **Session 详情** 页面调试会话：
 
    - **发起**：在 **会话面板** 输入自然语言指令，或上传附件（表格、文档、代码、图片等）作为任务输入。
-
    - **观察**：**事件时间轴（Trace）** 实时呈现 Agent 的思考过程、工具调用、代码执行、错误重试等全链路节点。
-
    - **验证**：Session 结束后可查看 **最终交付产物**、**总耗时**、**Token 消耗**、**工具调用次数** 等运行统计，判断 Agent 行为是否符合预期。
 
 反复调整 **系统提示词**、**Tools**、**Skills**，直到 Session 试跑结果符合预期。
@@ -991,9 +960,7 @@ Agent 配置验证通过后，把它接入到业务代码中只需两步。
 ### 1. 从控制台复制 ID
 
 - 从 **Agent 详情页** 复制 `agent_id`。
-
 - 从 **Environment 详情页** 复制 `environment_id`。
-
 - 前往 [API Key 管理](https://ark.volcengine.com/region:cn-beijing/apiKey) 单击 **创建 API Key**，作为访问密钥。
 
 ### 2. 在代码中引用它们创建 Session
@@ -1028,7 +995,6 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 创建 Agent 时，先根据任务选择 Agent 版本：
 
 - **通用 Agent**：适用于代码执行、内容检索和文档处理等通用任务。
-
 - **Seedance Managed Agent**：适用于图片生成、视频生成、视觉搜索和视频合成等任务。
 
 ## Agent 定义字段
@@ -1040,7 +1006,6 @@ Agent 的完整字段定义（包括名称、模型、System Prompt、Skills、T
 1. 获取 API Key。API Key 是调用方舟平台模型和服务的鉴权信息。
 
    访问 [API Key 管理](https://ark.volcengine.com/region:cn-beijing/apiKey) 页面，创建你的 API Key。
-
 2. 安装 `curl` 和 `jq`，并配置环境变量。API Key 是敏感信息，一旦意外泄露，可能会造成资金损失或安全风险，因此不要在代码中明文写入 API Key，应将其配置到环境变量中。
 
    将以下命令中的 `your_api_key_here` 替换为你的 API Key，并在终端中运行命令，即可将 API Key 配置到环境变量中。详见[环境变量配置指南](https://ark.volcengine.com/region:cn-beijing/docs/environment-variable-configuration-guide)。
@@ -1072,7 +1037,6 @@ Agent 的完整字段定义（包括名称、模型、System Prompt、Skills、T
 3. 开通 Managed Agents 服务。
 
    访问 [Managed Agents 开通页面](https://ark.volcengine.com/region:cn-beijing/openManagement?advancedActiveKey=manageAgent) 开通服务。
-
 4. 开通模型服务。
 
    访问 [开通管理](https://ark.volcengine.com/region:cn-beijing/openManagement) 页面，开通模型服务。
@@ -1127,7 +1091,7 @@ printf 'Agent ID: %s\nAgent version: %s\n' "$AGENT_ID" "$AGENT_VERSION"
 
 示例响应如下：
 
-```Plain Text
+```Plain
 {
   "id": "agent-20260812081435-*****",
   "type": "agent",
@@ -1205,7 +1169,7 @@ printf 'Updated Agent version: %s\n' "$AGENT_VERSION"
 
 示例响应如下：
 
-```Plain Text
+```Plain
 {
   "id": "agent-20260812081435-*****",
   "type": "agent",
@@ -1246,22 +1210,17 @@ printf 'Updated Agent version: %s\n' "$AGENT_VERSION"
 更新 Agent 时，建议关注以下规则：
 
 - 更新请求必须带当前 `version`。
-
 - 修改配置后会生成新的 Agent 版本。
-
 - 更新接口返回 HTTP 400 `InvalidParameter` 且错误信息包含 `version: conflict` 时，说明其他请求已经更新了该 Agent。重新查询 Agent，合并最新配置后再提交，不要只递增本地版本号。
-
 - 如果某些字段保持不变，可以只传需要修改的字段；例如只更新 `system` 时，不需要重复传 `tools`。
-
 - `mcp_servers`、`tools` 和 `skills` 都使用整体替换逻辑。请求体一旦传入其中一个数组，服务端会用该数组整体覆盖对应的当前配置，不会在原有基础上追加。
-
 - 如果只想新增或调整其中一项，先查询 Agent 的最新配置，在本地合并需要保留的条目，再把完整数组与当前 `version` 一起写回。
 
-| 取值          | `mcp_servers`、`tools` 和 `skills` 的处理方式 | 适用场景                              |
-| ------------- | --------------------------------------------- | ------------------------------------- |
-| 省略或 `null` | 保留对应字段的当前配置。                      | 只更新其他字段。                      |
-| 空数组 `[]`   | 清空对应字段的已保存配置。                    | 明确移除全部 MCP Server、工具或技能。 |
-| 非空数组      | 使用请求中的数组整体替换当前配置。            | 先读取并合并所有需要保留的条目。      |
+| 取值            | `mcp_servers`、`tools` 和 `skills` 的处理方式 | 适用场景                              |
+| --------------- | --------------------------------------------------- | ------------------------------------- |
+| 省略或 `null` | 保留对应字段的当前配置。                            | 只更新其他字段。                      |
+| 空数组 `[]`   | 清空对应字段的已保存配置。                          | 明确移除全部 MCP Server、工具或技能。 |
+| 非空数组        | 使用请求中的数组整体替换当前配置。                  | 先读取并合并所有需要保留的条目。      |
 
 > **注意**
 
@@ -1270,11 +1229,8 @@ printf 'Updated Agent version: %s\n' "$AGENT_VERSION"
 ## 设计建议
 
 - 把稳定能力放进 Agent，把一次性任务放进 Session 事件。
-
 - `system` 只定义角色、约束和长期规则，不要把当前任务直接写进 `system`。
-
 - 需要外部系统能力时，优先使用 MCP。
-
 - 需要复用领域知识或执行规范时，优先挂载 Skills，而不是把大段操作手册直接塞进 `system`。
 
 ## 相关文档
@@ -1310,7 +1266,6 @@ Skills 是可复用的能力包，用于给 Agent 补充领域知识、操作流
 方舟 Managed Agents 支持两类 Skills 来源：
 
 - **预置 Skills**：从 SkillHub 选择。
-
 - **自定义 Skills**：通过 `CreateSkill` 接口上传本地 Skills。
 
 ### 方式 1：从 SkillHub 选择预置 Skills
@@ -1328,7 +1283,6 @@ Skills 是可复用的能力包，用于给 Agent 补充领域知识、操作流
 当前支持两种上传方式：
 
 - **按文件上传**：逐个上传同一个 Skill 目录中的文件，并保留目录结构。
-
 - **ZIP 上传**：将一个完整 Skill 目录打包成 ZIP 文件后上传。
 
 > **说明**
@@ -1340,11 +1294,8 @@ Skills 是可复用的能力包，用于给 Agent 补充领域知识、操作流
 按以下约束组织自定义 Skills：
 
 - 每次请求上传的原始文件总大小不超过 **30 MiB**。
-
 - 单个版本最多包含 **500** 个文件。
-
 - ZIP 解压后单个文件不超过 **30 MiB**，全部文件总大小不超过 **120 MiB**。
-
 - 所有文件必须位于同一个顶层目录，且该目录下必须直接包含且仅包含 **1 个** `SKILL.md`。
 
 ZIP 包推荐使用统一顶层目录，`SKILL.md` 放在顶层目录的直接子级：
@@ -1371,13 +1322,9 @@ curl https://ark.cn-beijing.volces.com/api/v3/skills \
 其中：
 
 - `files[]` 是按文件上传使用的字段名。
-
 - `@` 后面是本地真实路径。
-
 - `filename=` 指定文件上传后在 Skill 中的路径，例如 `basic_math/SKILL.md`。
-
 - 所有 `filename=` 必须使用同一个顶层目录，例如 `basic_math/`。
-
 - `type=` 是 MIME 类型，可以省略。
 
 #### ZIP 上传
@@ -1413,7 +1360,6 @@ curl https://ark.cn-beijing.volces.com/api/v3/skills \
 获取 Skills 后，你需要在 `CreateAgent` 或 `UpdateAgent` 的 `skills` 字段中引用 Skill。
 
 - **预置 Skills**：从 SkillHub 选择后，把对应 Skill ID 写入 `skills`。
-
 - **自定义 Skills**：先调用 `CreateSkill` 上传，拿到 `skill_id` 后再写入 `skills`。如果需要指定自定义 Skill 的版本，请显式传入 `version`，否则通常使用默认版本。
 
 > **说明**
@@ -1454,17 +1400,13 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 其中：
 
 - `s-yepozmp9tsf2adf*****` 表示你从 [SkillHub 页面](https://console.volcengine.com/skillhub) 查到的预置 Skill ID。
-
 - `skill-20260812080348-****` 表示 `CreateSkill` 返回的自定义 Skill ID。
 
 ## 使用建议
 
 - 对稳定、通用的能力，优先选择 SkillHub 中的预置 Skills。
-
 - 对团队私有流程、内部规范或自定义操作手册，使用自定义 Skills。
-
 - 不要把一次性任务描述写进 Skill；Skill 负责定义能力，具体任务应通过 Session 事件传入。
-
 - 上传前建议在本地先确认 `SKILL.md`、脚本和依赖文件路径关系，避免上传后引用失败。
 
 ## 相关文档
@@ -1498,7 +1440,6 @@ MCP（Model Context Protocol）用于把第三方系统的工具与数据源接�
 在方舟 Managed Agents 中，MCP 配置分成两层：
 
 - **Agent 定义层**：声明要连接哪些 MCP Server。
-
 - **Session 运行层**：通过 Vaults 注入对应凭据，完成鉴权。
 
 这种拆分让 Agent 定义保持可复用，同时避免把终端用户密钥固定地写在 Agent 资源里。
@@ -1507,11 +1448,11 @@ MCP（Model Context Protocol）用于把第三方系统的工具与数据源接�
 
 创建 Agent 时，通过 `mcp_servers` 数组声明 MCP Server。每个 Server 需要三个字段：
 
-| 字段   | 说明                                                                                                                                                                                                                                                                    |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type` | MCP Server 的声明方式。当前统一使用 URL 方式声明，值为 `url`。                                                                                                                                                                                                          |
+| 字段     | 说明                                                                                                                                                                                                                                                                        |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type` | MCP Server 的声明方式。当前统一使用 URL 方式声明，值为 `url`。                                                                                                                                                                                                            |
 | `name` | MCP Server 名称，最长 255 个字符。省略名称或名称不符合命名规则时，服务端会根据 `url` 生成名称；多个名称冲突时，服务端会为后续名称添加数字后缀，调用方无需保证名称唯一。为保证后续引用稳定，建议主动填写归一化后仍唯一的 `[a-z0-9_-]{1,64}` 小写名称，不依赖服务端生成。 |
-| `url`  | MCP Server 的访问地址。同一 Agent 中不能配置重复的地址。                                                                                                                                                                                                                |
+| `url`  | MCP Server 的访问地址。同一 Agent 中不能配置重复的地址。                                                                                                                                                                                                                    |
 
 每个 `mcp_toolset` 都必须通过 `mcp_server_name` 引用一个已声明的 MCP Server。你也可以只声明 MCP Server，暂不添加对应的 `mcp_toolset`；此时该 Server 的工具不会启用。
 
@@ -1626,11 +1567,8 @@ Vaults 的创建方法、`mcp_oauth` / `static_bearer` 等凭据类型，以及�
 ## 约束与建议
 
 - 同一个 Agent 中，`mcp_servers.url` 不能重复；`mcp_servers.name` 冲突时，服务端会自动追加数字后缀。
-
 - 每个 `mcp_toolset` 必须引用一个已声明的 MCP Server；只声明 MCP Server 不会启用其工具。
-
 - 不要把终端用户 token 直接写进 Agent 定义；应通过 Vaults 在 Session 级注入。
-
 - **高风险工具**：对高风险 MCP 工具，建议配合 [工具权限策略](https://ark.volcengine.com/region:cn-beijing/docs/tool-permission-policy) 使用 `always_ask`。
 
 ## 相关文档
@@ -1666,11 +1604,8 @@ Tools 决定 Agent 在 Session 中能主动调用哪些执行能力。
 根据任务需要访问的资源和工具执行方，选择对应的工具类型。
 
 - 任务需要操作文件、执行命令或获取网页信息时，使用基础工具集。自托管环境只改变其中部分工具的执行位置。
-
 - 任务需要生成图片、视频或组合视觉素材时，使用多模态工具。
-
 - 任务需要访问已经接入 MCP Server 的外部系统时，使用 MCP 工具。
-
 - 任务只需调用少量自有业务操作，且由业务应用执行时，使用自定义工具。
 
 ### 使用内置工具
@@ -1679,8 +1614,8 @@ Tools 决定 Agent 在 Session 中能主动调用哪些执行能力。
 
 把 `agent_toolset_20260916` 加到 Agent 后，以下工具默认全部启用。
 
-| 工具       | 配置名       | 说明                     |
-| ---------- | ------------ | ------------------------ |
+| 工具       | 配置名         | 说明                     |
+| ---------- | -------------- | ------------------------ |
 | Bash       | `bash`       | 在沙箱中执行 Bash 命令。 |
 | Read       | `read`       | 读取沙箱内文件。         |
 | Write      | `write`      | 写入或覆盖沙箱内文件。   |
@@ -1702,13 +1637,13 @@ Seedance Managed Agent 使用 `agent_toolset_multimodal_20260825` 提供图片�
 
 自托管 Session 也可以使用多模态工具集。Environment 类型不会改变多模态工具的执行位置；方舟侧负责执行多模态工具，并将结果写入 Session 事件流。
 
-| 配置名           | 事件中的工具名  | 是否必须启用     | 说明                                                                                                                   |
-| ---------------- | --------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `image_generate` | `GenImage`      | 是               | 生成图片。通过 `configs[].models` 绑定已开通的图片生成模型。                                                           |
-| `video_generate` | `GenVideo`      | 否               | 生成视频。启用时，通过 `configs[].models` 绑定已开通的视频生成模型。                                                   |
-| `visual_search`  | `VisualSearch`  | 是               | 检索与创作任务相关的视觉素材。                                                                                         |
-| `general_search` | `GeneralSearch` | 是               | 检索创作任务需要的通用信息。                                                                                           |
-| `compose_video`  | `ComposeVideo`  | 是               | 将视频、图片和音频素材合成为视频。                                                                                     |
+| 配置名             | 事件中的工具名    | 是否必须启用     | 说明                                                                                                                         |
+| ------------------ | ----------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `image_generate` | `GenImage`      | 是               | 生成图片。通过 `configs[].models` 绑定已开通的图片生成模型。                                                               |
+| `video_generate` | `GenVideo`      | 否               | 生成视频。启用时，通过 `configs[].models` 绑定已开通的视频生成模型。                                                       |
+| `visual_search`  | `VisualSearch`  | 是               | 检索与创作任务相关的视觉素材。                                                                                               |
+| `general_search` | `GeneralSearch` | 是               | 检索创作任务需要的通用信息。                                                                                                 |
+| `compose_video`  | `ComposeVideo`  | 是               | 将视频、图片和音频素材合成为视频。                                                                                           |
 | `todo_write`     | `TodoWrite`     | 默认启用，可关闭 | 为复杂、长耗时任务维护待办和进度。将 `default_config.enabled` 设置为 `false` 时，需要在 `configs[]` 中显式启用该工具。 |
 
 事件流还可能出现 `ViewMedia` 和 `record_search_quality`。这两个工具由平台自动提供，不能通过 `configs[]` 配置。工具调用的顺序和次数由任务内容决定。
@@ -1935,11 +1870,8 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 创建或更新 Agent 后，按以下顺序验证配置是否生效：
 
 1. **查询 Agent 配置**：调用 [查询智能体详情](https://ark.volcengine.com/region:cn-beijing/docs/get-agent-api)，检查响应中的 `tools` 是否符合预期；使用 MCP 工具时，同时检查 `mcp_servers`。
-
 2. **刷新 Session 配置**：创建新 Session，或调用 [升级会话](https://ark.volcengine.com/region:cn-beijing/docs/upgrade-session-api) 升级现有 Session。已创建的 Session 不会自动使用 Agent 的新版本。
-
 3. **触发工具调用**：发送一条能够触发目标工具的测试任务。
-
 4. **检查事件闭环**：检查 Session 事件，确认工具调用、执行结果和最终回复已经形成闭环。
 
 以下以查询订单状态并整理结果为例说明主要事件流。具体事件取决于工具的执行方和权限策略。
@@ -1955,7 +1887,6 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 使用 `always_allow` 时，平台直接执行工具并返回结果：
 
 - **内置工具**：调用事件为 `agent.tool_use`，结果事件为 `agent.tool_result`。
-
 - **MCP 工具**：调用事件为 `agent.mcp_tool_use`，结果事件为 `agent.mcp_tool_result`。
 
 同一轮可能调用多个工具。使用 `tool_use_id` 或 `mcp_tool_use_id` 将每个结果与对应调用配对，不要只依赖事件到达顺序。
@@ -1965,11 +1896,8 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 内置工具或 MCP 工具使用 `always_ask` 时，Session 会暂停并等待业务应用审批：
 
 1. Session 返回 `agent.tool_use` 或 `agent.mcp_tool_use`。
-
 2. Session 返回 `session.status_idle`，其中 `stop_reason.type=requires_action`，`stop_reason.event_ids` 列出需要处理的调用事件。
-
 3. 客户端发送 `user.tool_confirmation`，通过 `tool_use_id` 指定调用事件，并将 `result` 设置为 `allow` 或 `deny`。
-
 4. 所有需要处理的确认事件处理完成后，Session 返回 `session.status_running`。批准的工具继续执行，拒绝结果交给 Agent 调整后续处理。
 
 > **处理确认结果**
@@ -1982,13 +1910,13 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 
 自托管环境按工具类型分配执行方：
 
-| 工具类型                                                    | 执行方                 | 结果处理                                          |
-| ----------------------------------------------------------- | ---------------------- | ------------------------------------------------- |
-| 主 Agent 的 `bash`、`read`、`write`、`edit`、`glob`、`grep` | 企业 Worker 和 Sandbox | Worker 通过 `user.tool_result` 回传结果           |
-| `web_fetch`、`web_search`                                   | 方舟侧                 | 方舟将结果写入 Session 事件流                     |
-| 多模态工具                                                  | 方舟侧                 | 方舟将图片、视频或其他工具结果写入 Session 事件流 |
-| MCP 工具                                                    | 方舟侧                 | 方舟通过 `agent.mcp_tool_result` 返回结果         |
-| 自定义工具                                                  | 业务应用               | 业务应用通过 `user.custom_tool_result` 回传结果   |
+| 工具类型                                                                | 执行方                 | 结果处理                                          |
+| ----------------------------------------------------------------------- | ---------------------- | ------------------------------------------------- |
+| 主 Agent 的 `bash`、`read`、`write`、`edit`、`glob`、`grep` | 企业 Worker 和 Sandbox | Worker 通过 `user.tool_result` 回传结果         |
+| `web_fetch`、`web_search`                                           | 方舟侧                 | 方舟将结果写入 Session 事件流                     |
+| 多模态工具                                                              | 方舟侧                 | 方舟将图片、视频或其他工具结果写入 Session 事件流 |
+| MCP 工具                                                                | 方舟侧                 | 方舟通过 `agent.mcp_tool_result` 返回结果       |
+| 自定义工具                                                              | 业务应用               | 业务应用通过 `user.custom_tool_result` 回传结果 |
 
 上述六个企业侧工具只支持主 Agent。子 Agent 不会通过企业 Worker 执行这些工具。
 
@@ -1997,13 +1925,9 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 ![图片](https://arkdocs.tos-cn-beijing.volces.com/flowcharts/managed-agent/self-hosted-tool-event-sequence.svg)
 
 1. Session 返回 `agent.tool_use`，下发 Bash 或文件工具调用。
-
 2. Session 返回 `session.status_idle`，其中 `stop_reason.type=requires_action`。
-
 3. Worker 获取对应的 Work，并在企业 Sandbox 中执行工具。
-
 4. Worker 通过 `user.tool_result` 回传结果。`tool_use_id` 必须填写对应的 `agent.tool_use.id`；工具执行失败时，将 `is_error` 设为 `true`，并在 `content` 中返回失败说明。
-
 5. 所有待处理结果回传后，Session 返回 `session.status_running`，Agent 根据工具结果继续处理任务。
 
 Worker 执行期间持续调用 Heartbeat 维持 Work 租约；完整的 Poll、Acknowledge、Heartbeat 和执行环境配置流程请参见 [配置并运行自托管环境](https://ark.volcengine.com/region:cn-beijing/docs/configure-self-hosted-environment)。
@@ -2015,13 +1939,9 @@ Worker 执行期间持续调用 Heartbeat 维持 Work 租约；完整的 Poll、
 ![图片](https://arkdocs.tos-cn-beijing.volces.com/flowcharts/managed-agent/custom-tool-event-sequence.svg)
 
 1. Session 返回 `agent.custom_tool_use`，其中包含工具名称、输入参数和调用事件 ID。
-
 2. Session 返回 `session.status_idle`，其中 `stop_reason.type=requires_action`，`stop_reason.event_ids` 列出待处理的调用事件。
-
 3. 业务应用根据工具名称和输入参数执行对应操作。
-
 4. 业务应用发送 `user.custom_tool_result`，并将调用事件 ID 原样填入 `custom_tool_use_id`。如果同一轮存在多个待处理调用，需要分别回传结果。
-
 5. 所有待处理结果回传后，Session 返回 `session.status_running`，Agent 根据工具结果继续处理任务。
 
 完整接入示例请参见 [[基础] Custom Tool 使用教程](https://ark.volcengine.com/region:cn-beijing/docs/managed-agent-custom-tool-tutorial)。所有工具事件的字段结构请参见 [会话事件结构参考](https://ark.volcengine.com/region:cn-beijing/docs/sessions-events-reference-v2)。
@@ -2031,35 +1951,27 @@ Worker 执行期间持续调用 Heartbeat 维持 Work 租约；完整的 Poll、
 更新 Agent 可以使用的工具时，`tools` 使用整体替换语义。为避免误取消其他可用工具，按照以下步骤读取、合并并写回完整 `tools` 数组：
 
 1. **读取当前配置**：调用 [查询智能体详情](https://ark.volcengine.com/region:cn-beijing/docs/get-agent-api)，获取最新 `version` 和完整 `tools` 数组。
-
 2. **合并工具数组**：在本地副本中保留不需要修改的工具，只调整目标工具。
-
 3. **提交更新**：调用 [更新智能体](https://ark.volcengine.com/region:cn-beijing/docs/update-agent-api)，同时提交当前 `version` 和合并后的完整 `tools` 数组。
-
 4. **核对结果**：再次查询 Agent，确认版本号和工具配置已经更新。
-
 5. **验证调用**：创建新 Session，或升级现有 Session 后验证工具调用。
 
 更新请求中 `tools` 的取值语义如下：
 
-| 取值          | 配置结果                                                                                                                     | 使用建议                               |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| 省略或 `null` | 保留当前 `tools` 配置。                                                                                                      | 只修改其他 Agent 字段时使用。          |
+| 取值            | 配置结果                                                                                                                         | 使用建议                               |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| 省略或 `null` | 保留当前 `tools` 配置。                                                                                                        | 只修改其他 Agent 字段时使用。          |
 | 空数组 `[]`   | 只清空已保存的 `tools` 配置，不会关闭主 Agent 的内置工具。主 Agent 运行时仍会回退为启用全部内置工具，并使用 `always_allow`。 | 如需限制内置工具，改用显式工具集配置。 |
-| 非空数组      | 使用请求中的数组整体替换当前配置。                                                                                           | 先读取并合并所有需要保留的工具。       |
+| 非空数组        | 使用请求中的数组整体替换当前配置。                                                                                               | 先读取并合并所有需要保留的工具。       |
 
 ## 排查工具问题
 
 先根据 Session 事件流定位中断点，再执行对应检查：
 
 - **未出现目标工具的调用事件**：核对 Agent 配置、Session 版本和任务触发条件。
-
 - **出现 ** **`stop_reason.type=requires_action`**：根据阻塞事件类型回传确认或工具结果。
-
 - **工具结果包含错误**：根据调用 ID 定位输入、权限或执行环境。
-
 - **出现 ** **`session.error`**：根据错误类型和重试状态决定等待、修正后重试或创建新 Session。
-
 - **工具可以执行但权限范围过大**：核对文件、网络和凭据隔离边界。
 
 ### 核对配置、版本和触发条件
@@ -2067,18 +1979,15 @@ Worker 执行期间持续调用 Heartbeat 维持 Work 租约；完整的 Poll、
 如果事件流中没有出现 `agent.tool_use`、`agent.mcp_tool_use` 或 `agent.custom_tool_use`，按以下顺序检查：
 
 1. 查询 Agent，确认目标工具或工具集已经保存。MCP 工具还需要检查 `mcp_servers`。
-
 2. 确认当前 Session 使用的 Agent 版本；Agent 更新不会自动影响已创建的 Session。
-
 3. 按工具类型核对配置与触发条件。
-
 4. 使用相同的明确测试任务比较新旧 Session，避免把任务差异误判为版本问题。
 
-| 工具类型   | 配置检查                                                                                                                   | 任务触发条件                                                                                                     |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 内置工具   | `tools` 中包含 `type: "agent_toolset_20260916"`；根据 `default_config.enabled` 和 `configs` 的覆盖结果确认目标工具已启用。 | 测试任务明确要求读取实际文件、执行命令或访问网页，并提供文件路径、命令目标或检索主题。纯文本问答不要求调用工具。 |
-| MCP 工具   | `mcp_servers[].name` 与 `tools[].mcp_server_name` 一致；根据 `default_config` 和 `configs` 确认目标 MCP 工具已启用。       | 测试任务明确要求访问对应外部系统，并提供项目、记录或其他业务标识。                                               |
-| 自定义工具 | `tools` 中包含 `type: "custom"`，并保存了正确的 `name`、`description` 和 `input_schema`。`description` 需要说明适用条件。  | 测试任务明确要求执行该业务操作，并提供 `input_schema` 中的必需信息。                                             |
+| 工具类型   | 配置检查                                                                                                                              | 任务触发条件                                                                                                     |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 内置工具   | `tools` 中包含 `type: "agent_toolset_20260916"`；根据 `default_config.enabled` 和 `configs` 的覆盖结果确认目标工具已启用。    | 测试任务明确要求读取实际文件、执行命令或访问网页，并提供文件路径、命令目标或检索主题。纯文本问答不要求调用工具。 |
+| MCP 工具   | `mcp_servers[].name` 与 `tools[].mcp_server_name` 一致；根据 `default_config` 和 `configs` 确认目标 MCP 工具已启用。          | 测试任务明确要求访问对应外部系统，并提供项目、记录或其他业务标识。                                               |
+| 自定义工具 | `tools` 中包含 `type: "custom"`，并保存了正确的 `name`、`description` 和 `input_schema`。`description` 需要说明适用条件。 | 测试任务明确要求执行该业务操作，并提供 `input_schema` 中的必需信息。                                           |
 
 Agent 会根据任务内容和工具说明判断是否调用工具。单次未调用不能直接证明配置无效；应先使用明确要求目标能力的测试任务复现。
 
@@ -2086,11 +1995,11 @@ Agent 会根据任务内容和工具说明判断是否调用工具。单次未�
 
 主 Agent 与子 Agent 在未配置内置工具集时采用不同的运行时行为：
 
-| 配置                                                 | 主 Agent                                            | 子 Agent                                                   | 建议                                 |
-| ---------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------ |
+| 配置                                                     | 主 Agent                                              | 子 Agent                                                   | 建议                                 |
+| -------------------------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------ |
 | 省略 `tools`、传 `[]`，或只配置其他工具类型          | 回退为启用全部内置工具，权限策略为 `always_allow`。 | 不提供内置工具；Session 启用的 Memory 工具不受此规则影响。 | 不依赖省略行为，显式配置内置工具集。 |
-| 配置 `agent_toolset_20260916`，省略 `default_config` | 服务端保存 `enabled=true` 和 `always_allow`。       | 按相同配置提供内置工具。                                   | 在请求中显式写出启用状态和权限策略。 |
-| 配置 `default_config.enabled=false`，再逐项启用      | 只提供 `configs` 中显式启用的工具。                 | 只提供 `configs` 中显式启用的工具。                        | 需要最小工具集时使用。               |
+| 配置 `agent_toolset_20260916`，省略 `default_config` | 服务端保存 `enabled=true` 和 `always_allow`。     | 按相同配置提供内置工具。                                   | 在请求中显式写出启用状态和权限策略。 |
+| 配置 `default_config.enabled=false`，再逐项启用        | 只提供 `configs` 中显式启用的工具。                 | 只提供 `configs` 中显式启用的工具。                      | 需要最小工具集时使用。               |
 
 判断子 Agent 是否实际执行工具时，以子线程中的 `agent.tool_use` 和 `agent.tool_result` 为准。System Prompt 或最终回复中声称已执行工具，不代表运行环境实际提供或执行了该工具。
 
@@ -2098,21 +2007,21 @@ Agent 会根据任务内容和工具说明判断是否调用工具。单次未�
 
 权限策略存在以下默认分支：
 
-| 配置                                                | 内置工具                                    | MCP 工具                                    |
-| --------------------------------------------------- | ------------------------------------------- | ------------------------------------------- |
-| 整个 `default_config` 省略                          | 服务端保存 `always_allow`。                 | 服务端保存 `always_allow`。                 |
-| 已提供 `default_config`，但省略 `permission_policy` | 运行时使用 `always_allow`。                 | 运行时使用 `always_ask`。                   |
-| 显式配置 `permission_policy`                        | 使用配置的 `always_allow` 或 `always_ask`。 | 使用配置的 `always_allow` 或 `always_ask`。 |
+| 配置                                                    | 内置工具                                        | MCP 工具                                        |
+| ------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------- |
+| 整个 `default_config` 省略                            | 服务端保存 `always_allow`。                   | 服务端保存 `always_allow`。                   |
+| 已提供 `default_config`，但省略 `permission_policy` | 运行时使用 `always_allow`。                   | 运行时使用 `always_ask`。                     |
+| 显式配置 `permission_policy`                          | 使用配置的 `always_allow` 或 `always_ask`。 | 使用配置的 `always_allow` 或 `always_ask`。 |
 
 ### 处理 requires_action
 
 Session 返回 `stop_reason.type=requires_action` 时，先读取 `stop_reason.event_ids`，再根据每个阻塞事件的类型执行对应操作：
 
-| 阻塞事件                                 | 场景                                                                                     | 处理方式                                                                                                                                                                               |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent.tool_use` 或 `agent.mcp_tool_use` | 云环境中的工具使用 `always_ask`。                                                        | 发送 `user.tool_confirmation`，将阻塞事件 ID 填入 `tool_use_id`，并设置 `allow` 或 `deny`。确认 MCP 调用时也使用 `tool_use_id`；`mcp_tool_use_id` 仅用于关联 `agent.mcp_tool_result`。 |
-| `agent.tool_use`                         | 自托管 Environment 中的主 Agent 调用 `bash`、`read`、`write`、`edit`、`glob` 或 `grep`。 | Worker 完成执行后发送 `user.tool_result`，使用 `tool_use_id` 关联调用；失败时设置 `is_error: true` 并返回错误说明。                                                                    |
-| `agent.custom_tool_use`                  | 业务应用执行自定义工具。                                                                 | 发送 `user.custom_tool_result`，使用 `custom_tool_use_id` 关联调用；失败时设置 `is_error: true` 并返回错误说明。                                                                       |
+| 阻塞事件                                     | 场景                                                                                                 | 处理方式                                                                                                                                                                                             |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent.tool_use` 或 `agent.mcp_tool_use` | 云环境中的工具使用 `always_ask`。                                                                  | 发送 `user.tool_confirmation`，将阻塞事件 ID 填入 `tool_use_id`，并设置 `allow` 或 `deny`。确认 MCP 调用时也使用 `tool_use_id`；`mcp_tool_use_id` 仅用于关联 `agent.mcp_tool_result`。 |
+| `agent.tool_use`                           | 自托管 Environment 中的主 Agent 调用 `bash`、`read`、`write`、`edit`、`glob` 或 `grep`。 | Worker 完成执行后发送 `user.tool_result`，使用 `tool_use_id` 关联调用；失败时设置 `is_error: true` 并返回错误说明。                                                                            |
+| `agent.custom_tool_use`                    | 业务应用执行自定义工具。                                                                             | 发送 `user.custom_tool_result`，使用 `custom_tool_use_id` 关联调用；失败时设置 `is_error: true` 并返回错误说明。                                                                               |
 
 同一轮可能包含多个阻塞事件。处理 `stop_reason.event_ids` 中的全部事件后，Session 才会恢复运行。不要用新的 `user.message` 代替确认或工具结果。
 
@@ -2121,9 +2030,7 @@ Session 返回 `stop_reason.type=requires_action` 时，先读取 `stop_reason.e
 工具结果包含错误时，先关联对应的调用事件，再定位执行方：
 
 - **`agent.tool_result`**：通过 `tool_use_id` 检查原始工具输入，再核对文件路径、Environment 权限、网络策略和执行日志。
-
 - **`agent.mcp_tool_result`**：通过 `mcp_tool_use_id` 检查原始工具输入，再核对 MCP 工具启用状态、凭据和 Server 返回信息。
-
 - `user.tool_result` 或 `user.custom_tool_result`：检查业务应用或 Worker 的执行日志，确认 `is_error`、`content` 和调用 ID 与实际结果一致。
 
 工具结果尚未处理完成时，不要重复发送原始任务，否则同一工具可能重复执行。
@@ -2132,16 +2039,15 @@ Session 返回 `stop_reason.type=requires_action` 时，先读取 `stop_reason.e
 
 `session.error` 不一定由工具配置引起。先读取 `error.type`、`error.message` 和 `error.retry_status.type`，并结合错误前的最后一个事件定位问题。
 
-| 重试状态    | 处理方式                                                                           |
-| ----------- | ---------------------------------------------------------------------------------- |
-| `retrying`  | 服务端正在自动重试。继续消费事件，不要重复发送任务。                               |
+| 重试状态      | 处理方式                                                                             |
+| ------------- | ------------------------------------------------------------------------------------ |
+| `retrying`  | 服务端正在自动重试。继续消费事件，不要重复发送任务。                                 |
 | `exhausted` | 当前轮次的重试次数已用尽。等待 Session 恢复为 `idle`，修正输入或配置后再发送任务。 |
 | `terminal`  | Session 将进入 `terminated`，不能继续发送事件。修正配置后创建新 Session。          |
 
 如果错误发生在 MCP 调用阶段，按错误类型继续检查：
 
 - `mcp_authentication_failed_error`：检查 MCP Server 的鉴权配置、Session 引用的 Vaults 和凭据有效性。
-
 - **`mcp_connection_failed_error`**：检查 MCP Server URL、网络连通性和服务状态。
 
 修正 MCP 配置后，更新 Agent，并创建新 Session 或升级现有 Session。如果 `error.type` 不是 MCP 相关类型，且错误前没有工具调用事件，优先排查模型调用或 Session 运行问题，不要把所有 `session.error` 都归因于工具。事件字段和其他错误类型请参见 [会话事件结构参考](https://ark.volcengine.com/region:cn-beijing/docs/sessions-events-reference-v2)。
@@ -2183,25 +2089,23 @@ MCP（Model Context Protocol）用于把第三方系统的工具与数据源接�
 当前权限策略只作用于服务端执行的工具：
 
 - 内置工具集 `agent_toolset_20260916`
-
 - 多模态工具集 `agent_toolset_multimodal_20260825`
-
 - MCP 工具集 `mcp_toolset`
 
 ## 权限策略类型
 
-| 策略           | 说明                                       |
-| -------------- | ------------------------------------------ |
+| 策略             | 说明                                       |
+| ---------------- | ------------------------------------------ |
 | `always_allow` | 工具调用自动执行，不需要人工确认。         |
 | `always_ask`   | 工具调用前暂停，等待业务应用确认后再继续。 |
 
 权限策略的默认值取决于是否提供整个 `default_config`：
 
-| 配置                                              | 内置工具集                                    | MCP 工具集                                    |
-| ------------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
-| 省略整个 `default_config`                         | 服务端保存 `enabled=true` 和 `always_allow`。 | 服务端保存 `enabled=true` 和 `always_allow`。 |
-| 提供 `default_config`，但省略 `permission_policy` | 运行时使用 `always_allow`。                   | 运行时使用 `always_ask`。                     |
-| 显式配置 `permission_policy`                      | 使用配置的策略。                              | 使用配置的策略。                              |
+| 配置                                                  | 内置工具集                                        | MCP 工具集                                        |
+| ----------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------- |
+| 省略整个 `default_config`                           | 服务端保存 `enabled=true` 和 `always_allow`。 | 服务端保存 `enabled=true` 和 `always_allow`。 |
+| 提供 `default_config`，但省略 `permission_policy` | 运行时使用 `always_allow`。                     | 运行时使用 `always_ask`。                       |
+| 显式配置 `permission_policy`                        | 使用配置的策略。                                  | 使用配置的策略。                                  |
 
 为了让 Agent 回显和运行时行为可直接核对，建议始终显式配置 `default_config.enabled` 和 `default_config.permission_policy`。
 
@@ -2333,9 +2237,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 ## 使用建议
 
 - 对只读工具，可以优先考虑 `always_allow`。
-
 - 对会修改文件、执行命令或访问外部系统的工具，建议优先考虑 `always_ask`。
-
 - 对 MCP 工具，建议先按最小权限原则收敛 `configs`，再决定是否自动放行。
 
 工具集配置以及 `user.tool_confirmation` 对应的运行时事件流，详见 [Tools](https://ark.volcengine.com/region:cn-beijing/docs/tools)。如果你要管理 MCP Server 及其工具，详情请参见 [MCP](https://ark.volcengine.com/region:cn-beijing/docs/mcp)。
@@ -2379,13 +2281,9 @@ Managed Agents 同时支持云环境和自托管环境。本页只介绍由方�
 在控制台单击 **创建 Environment**，按需配置以下内容：
 
 - **类型**：选择云托管环境。
-
 - **预装包**：配置沙箱启动前安装的系统包和语言依赖。
-
 - **环境变量**：配置注入沙箱进程的非敏感键值对。
-
 - **初始化脚本**：配置沙箱启动阶段执行的脚本。
-
 - **产物存储**：可选。需要长期保留 Agent 产物时，选择自己的 TOS 目录；不选择时使用方舟公共 TOS。
 
 > **说明**
@@ -2428,51 +2326,38 @@ echo "Environment ID: $ENVIRONMENT_ID"
 主要配置项：
 
 - **`name`**：Environment 名称，在当前项目内需要唯一。
-
 - **`description`**：Environment 的说明信息。
-
 - **`config.type`**：运行环境类型，云托管环境取值为 `cloud`。
-
 - **`config.networking.type`**：沙箱的出站网络访问策略。`unrestricted` 允许完整出站网络访问，但仍受通用安全拦截列表限制。
-
 - **`config.packages`**：沙箱启动前预安装的依赖包。依赖会在使用同一 Environment 的 Session 之间缓存。若同时配置多个包管理器，系统按 `apt`、`cargo`、`gem`、`go`、`npm`、`pip` 的顺序执行。依赖版本可以显式锁定，未指定版本时安装最新版本。
-
-  | 字段    | 包管理器           | 示例                                        |
-  | ------- | ------------------ | ------------------------------------------- |
+  | 字段      | 包管理器           | 示例                                          |
+  | --------- | ------------------ | --------------------------------------------- |
   | `apt`   | 系统包（apt\-get） | `"ffmpeg"`                                  |
   | `cargo` | Rust（cargo）      | `"ripgrep@14.0.0"`                          |
   | `gem`   | Ruby（gem）        | `"rails:7.1.0"`                             |
   | `go`    | Go modules         | `"golang.org/x/tools/cmd/goimports@latest"` |
   | `npm`   | Node.js（npm）     | `"express@4.18.0"`                          |
   | `pip`   | Python（pip）      | `"pandas==2.2.0"`                           |
-
 - **`config.env`**：注入沙箱进程的环境变量。需要让 Agent 读取非敏感业务参数时配置，例如时区或服务地址。
-
 - **`config.setup_script`**：沙箱启动阶段执行的初始化脚本。需要在每次启动沙箱时准备目录、下载资源或执行自定义初始化命令时配置。
-
 - **`config.tos`**：Agent 最终产物的 TOS 存储位置。需要长期保留 Agent 生成的报告、文件或代码时配置；不配置时产物使用方舟公共 TOS。
 
 ## 配置产物存储
 
 需要将产物长期保存在自己的 TOS Bucket 时，为 Environment 配置 `config.tos`；继续使用方舟公共 TOS 时，省略该字段。`config.tos` 控制平台将 outputs 产物注册到 Files API 时使用的持久化位置，不等同于 `resources` 中 `type: tos` 的沙箱挂载目录。
 
-| 你的配置            | 产物位置                                                                                                                                                    | 你需要做什么                                                                     |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| 不配置 `config.tos` | 方舟公共 TOS                                                                                                                                                | 在平台 TTL 到期前下载所需文件。删除 Session 时，平台会清理默认存储中的关联产物。 |
+| 你的配置              | 产物位置                                                                                                                                                        | 你需要做什么                                                                     |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 不配置 `config.tos` | 方舟公共 TOS                                                                                                                                                    | 在平台 TTL 到期前下载所需文件。删除 Session 时，平台会清理默认存储中的关联产物。 |
 | 配置 `config.tos`   | 你的 TOS Bucket。平台从 outputs 目录注册产物时，Files API 写入前缀为 `{prefix}outputs/{env-id}/{session-id}/`；最终对象路径以响应中的 `tos.object_key` 为准 | 在 TOS 中管理对象生命周期。删除 Session 不会删除 Bucket 中的对象。               |
 
 将产物写入自己的 TOS Bucket 时，需要满足以下条件：
 
 - 目标 Bucket 已在方舟项目中完成授权，详情请参见 [用户对象存储（TOS）授权](https://ark.volcengine.com/region:cn-beijing/docs/project-configuration#4eb1b277)。
-
 - Bucket 与 Managed Agents 服务须部署在同一地域，跨地域 Bucket 会在预检查阶段被拒绝。
-
 - `bucket` 和 `prefix` 必须同时提供，不能只配置其中一个字段。
-
 - `prefix` 使用相对路径，例如 `ark-files/`。
-
 - 平台从 outputs 目录注册产物时，会在该前缀后追加 `outputs/{env-id}/{session-id}/` 作为 Files API 写入前缀。最终对象路径以响应中的 `tos.object_key` 为准，通常还会包含 `ark_processed/{file_id}/{file_type}/{filename}`。
-
 - 直接调用 Files API 并传入 `tos[prefix]` 时，不会追加 Environment ID 或 Session ID，但 Files API 仍会在该前缀下生成服务侧处理目录。
 
 以下示例演示创建带产物存储的 Environment、更新存储位置，以及清空配置，使后续 Session 改用方舟公共 TOS：
@@ -2580,11 +2465,8 @@ echo "Session ID: $SESSION_ID"
 ## 环境生命周期
 
 - 多个 Session 可以引用同一个环境，但每个 Session 都会获得独立的沙箱实例。
-
 - Session 之间不共享文件系统状态。
-
 - 环境本身不做版本化管理。如果你频繁更新环境配置，建议在业务侧记录变更，以便追溯某个 Session 使用的是哪一版环境。
-
 - Environment 被 `idle` 或 `running` 状态的 Session 引用时不能删除。删除前，先终止或删除这些 Session；其他状态的 Session 不会阻止删除 Environment。
 
 ## 管理环境
@@ -2659,14 +2541,13 @@ curl -sS --fail-with-body -X DELETE \
 
 默认提供轻量数据库和数据库客户端，适合本地数据处理，或连接外部数据库/实例。
 
-| 数据库            | 描述                                    |
-| ----------------- | --------------------------------------- |
-| SQLite            | 已预安装，可立即使用                    |
+| 数据库            | 描述                                      |
+| ----------------- | ----------------------------------------- |
+| SQLite            | 已预安装，可立即使用                      |
 | PostgreSQL 客户端 | 用于连接外部数据库的 `psql` 客户端。    |
 | Redis 客户端      | 用于连接外部 Redis 实例的 `redis-cli`。 |
 
 - SQLite 可在本地使用。
-
 - 数据库服务器，例如 PostgreSQL 和 Redis，默认不在沙箱环境中运行。沙箱提供用于连接的客户端工具。
 
 ## Utilities 工具
@@ -2675,31 +2556,31 @@ curl -sS --fail-with-body -X DELETE \
 
 ### 系统工具
 
-| 工具                  | 描述                                     |
-| --------------------- | ---------------------------------------- |
-| `git`                 | 版本控制。                               |
-| `curl`, `wget`        | HTTP 客户端。                            |
-| `jq`                  | JSON 处理。                              |
+| 工具                        | 描述                                     |
+| --------------------------- | ---------------------------------------- |
+| `git`                     | 版本控制。                               |
+| `curl`, `wget`          | HTTP 客户端。                            |
+| `jq`                      | JSON 处理。                              |
 | `tar`, `zip`, `unzip` | 归档、压缩与解压工具。                   |
-| `ssh`, `scp`          | 远程访问与文件传输工具（需要启用网络）。 |
-| `tmux`, `screen`      | 终端多路复用工具。                       |
+| `ssh`, `scp`            | 远程访问与文件传输工具（需要启用网络）。 |
+| `tmux`, `screen`        | 终端多路复用工具。                       |
 
 ### 开发工具
 
-| 工具             | 描述             |
-| ---------------- | ---------------- |
+| 工具                 | 描述             |
+| -------------------- | ---------------- |
 | `make`, `cmake`  | 构建系统。       |
 | `ripgrep` (`rg`) | 快速文件搜索。   |
-| `tree`           | 目录结构可视化。 |
-| `htop`           | 进程监控。       |
+| `tree`             | 目录结构可视化。 |
+| `htop`             | 进程监控。       |
 
 ### 文本处理
 
-| 工具                 | 描述                 |
-| -------------------- | -------------------- |
+| 工具                       | 描述                 |
+| -------------------------- | -------------------- |
 | `sed`, `awk`, `grep` | 流式文本处理工具。   |
-| `vim`, `nano`        | 文本编辑器。         |
-| `diff`, `patch`      | 文件比较与补丁工具。 |
+| `vim`, `nano`          | 文本编辑器。         |
+| `diff`, `patch`        | 文件比较与补丁工具。 |
 
 ## 沙箱规格
 
@@ -2735,25 +2616,25 @@ curl -sS --fail-with-body -X DELETE \
 
 ### 目录权限
 
-| 目录                   | 用途                                                                                                                               | Agent 读权限 | Agent 写权限 |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------ | ------------ |
-| `$HOME`                | 用户 Home                                                                                                                          | ✓            | ✓            |
-| `/workspace`           | 工作区，Agent 的主要工作目录<br><br>**注意**：`/workspace/AGENTS.md`（System Prompt）为 read\-only 权限。                          | ✓            | ✓            |
-| `/mnt`                 | 挂载目录                                                                                                                           | ✓            | ✓            |
-| `/mnt/memory`          | Agent Memory 目录，参见 [Memory](https://ark.volcengine.com/region:cn-beijing/docs/persistent-memory)                              | ✓            | ✗            |
-| `/mnt/skills`          | Agent Skills 目录，参见 [Skills](https://ark.volcengine.com/region:cn-beijing/docs/skills)                                         | ✓            | ✗            |
-| `/mnt/session/uploads` | Files API 上传文件挂载目录，参见 [上传并挂载文件](https://ark.volcengine.com/region:cn-beijing/docs/upload-and-mount-files)        | ✓            | ✗            |
-| `/mnt/session/outputs` | Agent 产出目录。写入这里的文件会注册到 Files API；需要将产物写入自己的 TOS Bucket 时，为 Environment 配置 `config.tos`             | ✓            | ✓            |
-| `/mnt/session/storage` | Session 的 TOS 资源挂载目录，详情请参见 [上传并挂载文件](https://ark.volcengine.com/region:cn-beijing/docs/upload-and-mount-files) | ✓            | ✓            |
-| `/tmp`                 | 临时目录                                                                                                                           | ✓            | ✓            |
-| 其它任意路径           | \-                                                                                                                                 | ✗            | ✗            |
+| 目录                     | 用途                                                                                                                              | Agent 读权限 | Agent 写权限 |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------ | ------------ |
+| `$HOME`                | 用户 Home                                                                                                                         | ✓           | ✓           |
+| `/workspace`           | 工作区，Agent 的主要工作目录**注意**：`/workspace/AGENTS.md`（System Prompt）为 read\-only 权限。                         | ✓           | ✓           |
+| `/mnt`                 | 挂载目录                                                                                                                          | ✓           | ✓           |
+| `/mnt/memory`          | Agent Memory 目录，参见 [Memory](https://ark.volcengine.com/region:cn-beijing/docs/persistent-memory)                              | ✓           | ✗           |
+| `/mnt/skills`          | Agent Skills 目录，参见 [Skills](https://ark.volcengine.com/region:cn-beijing/docs/skills)                                         | ✓           | ✗           |
+| `/mnt/session/uploads` | Files API 上传文件挂载目录，参见 [上传并挂载文件](https://ark.volcengine.com/region:cn-beijing/docs/upload-and-mount-files)        | ✓           | ✗           |
+| `/mnt/session/outputs` | Agent 产出目录。写入这里的文件会注册到 Files API；需要将产物写入自己的 TOS Bucket 时，为 Environment 配置 `config.tos`          | ✓           | ✓           |
+| `/mnt/session/storage` | Session 的 TOS 资源挂载目录，详情请参见 [上传并挂载文件](https://ark.volcengine.com/region:cn-beijing/docs/upload-and-mount-files) | ✓           | ✓           |
+| `/tmp`                 | 临时目录                                                                                                                          | ✓           | ✓           |
+| 其它任意路径             | \-                                                                                                                                | ✗           | ✗           |
 
 ### 区分产物存储与 TOS 资源挂载
 
 `/mnt/session/outputs` 和 `/mnt/session/storage` 都可能关联 TOS，但用途不同：
 
-| 能力                 | 沙箱路径               | 用途                                                                                                                             |
-| -------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| 能力                 | 沙箱路径                 | 用途                                                                                                                               |
+| -------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 | Environment 产物存储 | `/mnt/session/outputs` | Agent 写入最终交付物。不配置 `config.tos` 时使用方舟公共 TOS；需要写入自己的 TOS Bucket 时配置该字段。Agent 使用的沙箱路径不变。 |
 | Session TOS 资源     | `/mnt/session/storage` | 将已有 TOS 对象作为 Session 输入或共享数据挂载到沙箱，通过 `resources` 配置。                                                    |
 
@@ -2764,17 +2645,11 @@ Environment 产物存储的配置方法，详情请参见 [配置云环境](http
 Agent 在沙箱中读写文件时应遵循以下规则，避免误改只读资源或将中间产物遗留到用户可见目录：
 
 - **主要工作目录**：使用 `/workspace` 存放项目文件、中间构建产物、脚本执行结果等 Agent 的主要工作内容。
-
 - **读取用户输入**：从 `/mnt/session/uploads` 读取用户通过 Files API 上传的文件；该目录只读，如需修改，请在 `/workspace` 或 `/mnt/session/outputs` 下创建派生文件。
-
 - **写入最终产物**：将需要回传给用户的最终交付物写入 `/mnt/session/outputs`；写入此目录的文件会注册到 Files API，并按 Environment 或 Session 覆写指定的位置存储。
-
 - **跨 Session 复用数据**：需要让多个 Session 读写同一批业务文件时，通过 Session `resources` 将 TOS 目录挂载到 `/mnt/session/storage`。
-
 - **临时文件**：使用 `/tmp` 存放临时缓存和命令中间结果；生命周期随 Session。
-
 - **只读挂载**：不要修改 `/mnt/memory`、`/mnt/skills`、`/mnt/session/uploads`；这些目录承载 Agent 的记忆、能力和用户输入资源。
-
 - **产物路径回报**：如生成了最终交付文件，在最终响应中告知用户对应的文件路径。
 
 <a id="doc-2553723"></a>
@@ -2790,7 +2665,6 @@ Session 是托管 Agent 在某个 Environment 中跑某个 Agent 的一次实例
 启动一个 Session 分两步：
 
 1. **创建 Session**：配置沙箱、绑定 Agent 与 Environment，此时 Agent **不**开始任何工作。
-
 2. **发送首个事件**：通过 `user.message` 事件把任务交给 Agent，Session 进入 `running` 状态开始执行。
 
 ## 准备工作
@@ -2798,9 +2672,7 @@ Session 是托管 Agent 在某个 Environment 中跑某个 Agent 的一次实例
 开始前你需要：
 
 - 已创建的 API Key：配置为环境变量 `ARK_API_KEY`，详情请参见 [API Key 管理](https://ark.volcengine.com/region:cn-beijing/apiKey)。
-
 - 已创建的 Agent：详情请参见 [定义 Agent](https://ark.volcengine.com/region:cn-beijing/docs/define-agent)。
-
 - 已创建的 Environment：详情请参见 [配置云环境](https://ark.volcengine.com/region:cn-beijing/docs/configure-cloud-environment)。
 
 本章节示例的 Base URL 与鉴权方式详情请参见 [Base URL 及鉴权](https://ark.volcengine.com/region:cn-beijing/docs/base-url-and-authentication)。
@@ -2810,7 +2682,6 @@ Session 是托管 Agent 在某个 Environment 中跑某个 Agent 的一次实例
 创建 Session 必需两个上游资源 ID：
 
 - **Agent ID**：由 [定义 Agent](https://ark.volcengine.com/region:cn-beijing/docs/define-agent) 创建后获得，形如 `agent-20260701120000-xxxxx`。
-
 - **Environment ID**：由 [配置云环境](https://ark.volcengine.com/region:cn-beijing/docs/configure-cloud-environment) 创建后获得，形如 `env-20260701120000-xxxxx`。
 
 ### 使用 Agent 最新版本（推荐入门）
@@ -2929,21 +2800,13 @@ echo "Session ID: $SESSION_ID"
 Agent 覆写遵循以下规则：
 
 - `agent.id` 指向基础 Agent；通过可选的 `agent.version` 指定基础版本，省略时使用最新版本。
-
 - 省略的字段沿用基础 Agent 的配置。`model` 中省略的子字段也沿用基础 Agent 的对应配置。
-
 - `system` 和 `model` 只修改当前 Session 的智能体快照，不创建 Agent 新版本，也不影响其他 Session。
-
 - **工具与资源列表**：字段 `tools`、`mcp_servers` 和 `skills` 是完整列表覆写。传入非空数组时整体替换，传入 `[]` 时清空，省略时才沿用基础 Agent 的列表。
-
 - **上下文管理策略**：字段 `context_management` 是完整列表覆写。省略或传 `null` 时沿用基础 Agent 版本的策略，传入一项时整体替换，传入 `[]` 时清除自定义策略并改用运行时默认行为。Session 响应可能展示平台当前默认压缩策略或默认阈值，当前默认阈值为 `192000` token；该展示值不写回 Session 快照。需要固定阈值时，在创建 Session 时显式传入 `compact_threshold`。
-
 - **Multi Agent 配置**：字段 `multiagent` 是完整对象覆写。省略时沿用基础 Agent 的配置；提供时，`type` 固定为 `coordinator`，`agents` 最多包含 20 项，传入 `[]` 时清空子智能体列表。
-
 - `multiagent.agents[].type` 为 `agent` 时，填写当前账号和项目中的子 Agent ID，可通过 `version` 固定版本，省略版本时使用最新版本；设为 `self` 时复用当前主 Agent 的配置。
-
 - 创建成功后，检查响应中的 `agent` 对象，确认本次 Session 实际保存的配置快照。
-
 - 多智能体配置生效后，主 Agent 可把任务委派给子 Agent；平台为子 Agent 创建独立线程，并将子 Agent 的结果返回主线程。
 
 > **注意**
@@ -2951,8 +2814,9 @@ Agent 覆写遵循以下规则：
 > 覆写列表时，省略和清空含义不同：
 
 - > 不要为了表示“不修改”而给 `tools`、`mcp_servers`、`skills` 或 `multiagent.agents` 传 `[]`。空数组会清空基础 Agent 的对应列表；不需要覆写时应省略该字段。
-
+  >
 - > `context_management: []` 也不是关闭自动压缩，只会清除当前 Session 继承的自定义压缩策略，改用平台默认压缩策略。需要配置阈值和摘要指令时，详情请参见 [配置上下文压缩](https://ark.volcengine.com/region:cn-beijing/docs/context-compaction)。
+  >
 
 ## 覆写 Environment 配置（可选）
 
@@ -2961,11 +2825,8 @@ Agent 覆写遵循以下规则：
 Environment 覆写遵循以下规则：
 
 - `environment.id` 指向作为基础配置的 Environment。
-
 - `environment.config.type` 必须与基础 Environment 的类型相同。
-
 - `environment_id` 与 `environment` 允许同时提供，但同时提供时，`environment.id` 必须与 `environment_id` 相同，否则请求会被拒绝。
-
 - 省略的 `config` 子字段沿用基础 Environment 的配置。提供的子字段只写入当前 Session 的环境快照，不修改原 Environment，也不影响之后创建的其他 Session。
 
 ### 覆写依赖包、环境变量和初始化脚本
@@ -3006,9 +2867,7 @@ echo "Session ID: $SESSION_ID"
 ```
 
 - **`config.packages`**：配置当前 Session 启动时预装的 `pip`、`apt`、`npm`、`cargo`、`gem` 或 `go` 依赖。传入对象时整体替换基础 Environment 的依赖包配置；传入空对象 `{}` 时清空全部依赖。
-
 - **`config.env`**：以字符串键值对配置当前 Session 的环境变量。传入对象时整体替换基础 Environment 的环境变量；传入空对象 `{}` 时清空全部环境变量。
-
 - **`config.setup_script`**：配置当前 Session 启动时执行的 Bash 初始化脚本。传入非空字符串时替换基础 Environment 的脚本；传入空字符串 `""` 时清空。脚本在 `/workspace` 目录中运行，内容不能超过 256 KiB（262144 字节）。
 
 > **注意**
@@ -3026,7 +2885,6 @@ echo "Session ID: $SESSION_ID"
 需要沿用 Environment 的产物存储配置时，在创建 Session 时传入 `environment_id`：
 
 - Environment 未配置 `config.tos`：产物使用方舟公共 TOS。你需要在平台 TTL 到期前下载所需文件。
-
 - Environment 已配置 `config.tos`：平台从 outputs 目录注册到 Files API 的产物，会写入你配置的 TOS Bucket。Files API 写入前缀为 `{prefix}outputs/{env-id}/{session-id}/`，最终对象路径以响应中的 `tos.object_key` 为准。
 
 只有当前任务需要使用不同的 Bucket 或 `prefix` 时，改用 `environment` 对象创建 Session，并通过 `environment_with_overrides` 临时覆写 `config.tos`：
@@ -3064,7 +2922,6 @@ echo "Session ID: $SESSION_ID"
 产物存储覆写遵循以下规则：
 
 - `config.tos` 是原子配置。传非空对象时，`bucket` 和 `prefix` 必须同时提供。
-
 - 省略 `config.tos` 时，产物使用 Environment 中配置的存储位置；传空对象 `{}` 时，本次 Session 的产物存入方舟公共 TOS。
 
 > **注意**
@@ -3101,11 +2958,8 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 这种解耦设计让客户端可以先注入 Vaults 凭据、检查沙箱环境，再发送首个事件启动 Agent。需要实时接收本轮事件时，按以下顺序执行：
 
 1. 打开 `GET /sessions/{session_id}/events/stream` 事件流。
-
 2. 等待服务端返回 `: ready`，确认订阅已经建立。
-
 3. 向 `POST /sessions/{session_id}/events` 提交一条 `user.message`。
-
 4. 继续读取同一条事件流，直到收到 `session.status_idle` 或 `session.status_terminated`。
 
 > **注意**
@@ -3460,17 +3314,15 @@ Session 创建后，你可以查询状态、列出 Session、更新标题和标�
 开始前你需要：
 
 - 已创建的 API Key：配置为环境变量 `ARK_API_KEY`，详情请参见 [API Key 管理](https://ark.volcengine.com/region:cn-beijing/apiKey)。
-
 - 已创建的 Agent：详情请参见 [定义 Agent](https://ark.volcengine.com/region:cn-beijing/docs/define-agent)。
-
 - 已创建的 Environment：详情请参见 [配置云环境](https://ark.volcengine.com/region:cn-beijing/docs/configure-cloud-environment)。
 
 本章节示例的 Base URL 与鉴权方式详情请参见 [Base URL 及鉴权](https://ark.volcengine.com/region:cn-beijing/docs/base-url-and-authentication)。
 
 ## Session 状态机
 
-| 状态           | 说明                                                                        |
-| -------------- | --------------------------------------------------------------------------- |
+| 状态             | 说明                                                                        |
+| ---------------- | --------------------------------------------------------------------------- |
 | `idle`         | Agent 正在等待输入，例如用户消息或工具确认。普通新建的 Session 以该状态启动 |
 | `running`      | Agent 正在执行任务                                                          |
 | `terminated`   | Session 已终止，不再接收新事件                                              |
@@ -3486,17 +3338,11 @@ Session 创建后，你可以查询状态、列出 Session、更新标题和标�
 状态迁移规律：
 
 - Session 初始化或资源恢复完成后，状态从 `initializing` 变为 `idle`。
-
 - Session 初始化或资源恢复失败后，状态从 `initializing` 变为 `failed`。
-
 - 收到 `user.message` 或 `user.tool_confirmation` 等用户事件后，状态从 `idle` 变为 `running`。
-
 - Agent 一轮工作结束（`end_turn`）或需要等用户输入时，状态从 `running` 变为 `idle`（`requires_action`，详情请参见 [Session 事件流](https://ark.volcengine.com/region:cn-beijing/docs/session-event-stream)）。
-
 - Session 运行期间出现暂时性错误时，状态从 `running` 变为 `rescheduling`。方舟会自动恢复并重新调度 Session。恢复完成后，状态变回 `running`，你无需介入。
-
 - 服务端受理运行配置升级后，状态从 `idle` 变为 `upgrading`。升级完成或回滚后，状态恢复为 `idle`。
-
 - Session 可以从任意状态变为 `terminated`。终止后不再接收事件，但记录与事件历史保留。
 
 > **说明**
@@ -3507,11 +3353,11 @@ Session 创建后，你可以查询状态、列出 Session、更新标题和标�
 
 Session 详情接口只返回资源的最新状态、用量统计和配置快照。实时回复和历史事件由 Session Events API 承载：
 
-| 需要获取的内容                              | 使用接口                                   | 返回内容和限制                                                                                                |
-| ------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| 需要获取的内容                              | 使用接口                                     | 返回内容和限制                                                                                                  |
+| ------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | 实时接收 Agent 回复和状态；按需接收累计用量 | `GET /sessions/{session_id}/events/stream` | 通过 SSE（Server\-Sent Events）协议订阅会话主线程收到的实时事件。请建立 SSE 并等待 `: ready` 后，再发送事件。 |
-| 已持久化的完整事件                          | `GET /sessions/{session_id}/events`        | 用于查询会话主线程中已经产生的事件，主要用于历史事件查询和断线补查，返回信息不包含预览帧。                    |
-| 最新状态、累计用量和配置快照                | `GET /sessions/{session_id}`               | 查询指定会话的详细信息，包括智能体、会话运行环境、资源、状态和标签等，不返回 Agent 回复或完整事件历史         |
+| 已持久化的完整事件                          | `GET /sessions/{session_id}/events`        | 用于查询会话主线程中已经产生的事件，主要用于历史事件查询和断线补查，返回信息不包含预览帧。                      |
+| 最新状态、累计用量和配置快照                | `GET /sessions/{session_id}`               | 查询指定会话的详细信息，包括智能体、会话运行环境、资源、状态和标签等，不返回 Agent 回复或完整事件历史           |
 
 正常交互时，通过 SSE 实时接收 Agent 回复和状态；如需展示用量或记账，可读取 `session.usage` 累计用量快照。`GET /sessions/{session_id}/events` 仅用于历史事件查询和断线补查。不要只根据 `status=idle` 判断本轮成功。发送任务、接收回复和判断 `stop_reason` 的完整流程，详情请参见 [Session 事件流](https://ark.volcengine.com/region:cn-beijing/docs/session-event-stream)。
 
@@ -3559,25 +3405,17 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 响应主要字段：
 
 - **`id`**：Session ID。
-
 - **`status`**：当前状态（见上表）。
-
 - **`usage`**：Session 运行期间累计的运行时长、模型 token 和服务端搜索请求次数（详情请参见 [Session 事件流 § 跟踪用量](https://ark.volcengine.com/region:cn-beijing/docs/session-event-stream)）。
 
   - `active_seconds` 表示 Session 至少有一个线程处于 `running` 状态的累计时长。
-
   - `cache_read_input_tokens`、`input_tokens` 和 `output_tokens` 分别记录缓存读取、未缓存输入和输出 token。
-
   - `server_tool_use` 记录服务端托管工具累计发起的请求次数，具体字段请参见 [查询会话详情](https://ark.volcengine.com/region:cn-beijing/docs/get-session-api) 。
-
 - **`stats`**：Session 的累计运行时长和从创建到当前或终止时的总时长。
 
   - `active_seconds` 表示 Session 至少有一个线程处于 `running` 状态的累计时长，单位为秒。
-
   - `duration_seconds` 表示从创建到查询时刻的总时长；Session 终止后，该值固定为从创建到终止的时长。
-
 - **`agent`**：绑定的 Agent 对象，内含 `id`、`version` 等字段。
-
 - **`environment_id`**：绑定的云环境。
 
 需要查看某个线程的时长和累计用量时，调用 [查询线程详情](https://ark.volcengine.com/region:cn-beijing/docs/get-thread-api) 并读取该线程的 `stats` 和 `usage`。
@@ -3595,9 +3433,9 @@ curl "https://ark.cn-beijing.volces.com/api/v3/sessions?agent_id=agent-202607011
 
 ## 更新与升级 Session
 
-| 需求                               | 接口                                                                                            | 状态变化                                          |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| 修改标题或标签                     | [更新 Session 标题和标签](https://ark.volcengine.com/region:cn-beijing/docs/update-session-api) | 不改变 Session 的运行状态                         |
+| 需求                               | 接口                                                                                           | 状态变化                                                |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| 修改标题或标签                     | [更新 Session 标题和标签](https://ark.volcengine.com/region:cn-beijing/docs/update-session-api) | 不改变 Session 的运行状态                               |
 | 修改 Agent 或 Environment 运行配置 | [升级会话](https://ark.volcengine.com/region:cn-beijing/docs/upgrade-session-api)               | 先从 `idle` 变为 `upgrading`，结束后恢复为 `idle` |
 
 升级接口保持原 `session_id` 不变，也不支持换绑其他 Agent 或 Environment。发起升级前，Session 必须处于 `idle`，并且上一轮任务以 `end_turn` 结束。接口返回 `upgrading` 后，轮询 `GET /sessions/{session_id}`；状态恢复为 `idle` 表示升级流程已结束。
@@ -3624,20 +3462,21 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 
 Session 资源记录、完整事件、沙箱状态和 Agent 产物使用独立的保留策略：
 
-| 对象             | 默认保留与恢复规则                                                                                                                        | 删除 Session 后                                              |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| Session 资源记录 | 除非显式删除，否则持续保留                                                                                                                | 资源记录不可再查询                                           |
-| Session 事件历史 | 每条已持久化的完整事件默认保留 6 个月；`event_start` 和 `event_delta` 预览帧不写入历史                                                    | 该 Session 的事件全部删除                                    |
+| 对象             | 默认保留与恢复规则                                                                                                                              | 删除 Session 后                                              |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Session 资源记录 | 除非显式删除，否则持续保留                                                                                                                      | 资源记录不可再查询                                           |
+| Session 事件历史 | 每条已持久化的完整事件默认保留 6 个月；`event_start` 和 `event_delta` 预览帧不写入历史                                                      | 该 Session 的事件全部删除                                    |
 | 沙箱状态         | Session 处于 `idle` 且尚未终止时，可以恢复文件系统、已安装软件包和沙箱中的临时文件。Session 连续处于 `idle` 达到 14 天后进入 `terminated` | 关联沙箱及其中的临时状态被清理                               |
-| Agent 产物       | 方舟默认存储只用于临时保存关联产物；写入自有 TOS Bucket 的对象遵循你配置的 Bucket 生命周期                                                | 默认存储中的关联产物被清理；自有 TOS Bucket 中的对象不受影响 |
+| Agent 产物       | 方舟默认存储只用于临时保存关联产物；写入自有 TOS Bucket 的对象遵循你配置的 Bucket 生命周期                                                      | 默认存储中的关联产物被清理；自有 TOS Bucket 中的对象不受影响 |
 
 > **数据保留提示**
 
 - > **独立资源不受 Session 删除影响**：删除 Session 时，方舟不会删除 Agent、Environment、Memory、Vaults、技能，也不会删除通过 Files API 独立上传的输入文件。这些对象是独立资源，需要按各自的生命周期管理。
-
+  >
 - > **长期保存 Agent 产物**：如果需要长期保留 Agent 产物，在方舟默认存储中的关联产物被清理前，将产物写入自有 TOS Bucket；如果还需要保留事件记录，也要在事件到期前保存到自己的存储。产物存储的配置方法，详情请参见 [配置产物存储](https://ark.volcengine.com/region:cn-beijing/docs/configure-cloud-environment#configure-output-storage)。
-
+  >
 - > **延长沙箱状态保留期**：如果需要继续保留沙箱状态，在当前 14 天保留期到期前发送一条 `content` 非空的 `user.message`。Session 完成本轮任务并再次进入 `idle` 后，平台重新计算 14 天保留期。省略 `content` 或传入空数组不会刷新保留期。
+  >
 
 <a id="doc-2553725"></a>
 
@@ -3654,9 +3493,7 @@ Session 资源记录、完整事件、沙箱状态和 Agent 产物使用独立�
 开始前你需要：
 
 - 已创建的 API Key：配置为环境变量 `ARK_API_KEY`，详情请参见 [API Key 管理](https://ark.volcengine.com/region:cn-beijing/apiKey)。
-
 - 已创建的 Agent：详情请参见 [定义 Agent](https://ark.volcengine.com/region:cn-beijing/docs/define-agent)。
-
 - 已创建的 Environment：详情请参见 [配置云环境](https://ark.volcengine.com/region:cn-beijing/docs/configure-cloud-environment)。
 
 本章节示例的 Base URL 与鉴权方式详情请参见 [Base URL 及鉴权](https://ark.volcengine.com/region:cn-beijing/docs/base-url-and-authentication)。
@@ -3668,13 +3505,9 @@ Session 资源记录、完整事件、沙箱状态和 Agent 产物使用独立�
 以下流程适用于云端环境和自托管环境中的业务应用：
 
 1. 通过 `GET /sessions/{session_id}/events/stream` 建立 SSE。
-
 2. 等待服务端返回 `: ready`。
-
 3. 通过 `POST /sessions/{session_id}/events` 发送 `user.message`。
-
 4. 持续接收 `agent.*`、`session.*` 和 `span.*` 事件。
-
 5. 仅在收到后续 `session.status_idle` 且 `stop_reason.type=end_turn` 时，将本轮判定为正常结束。
 
 如需展示用量或记账，读取 `session.status_idle` 前返回的 `session.usage` 累计用量快照。`session.usage` 不是本轮完成判断条件。
@@ -3688,11 +3521,8 @@ Session 资源记录、完整事件、沙箱状态和 Agent 产物使用独立�
 ![图片](https://arkdocs.tos-cn-beijing.volces.com/flowcharts/managed-agent/session-turn-event-sequence.svg)
 
 - 客户端先建立 SSE 并等待 `: ready`，再发送 `user.message`，避免漏掉连接建立前已经产生的事件。
-
 - `session.status_running` 表示 Agent 已开始处理任务；`span.*` 和 `agent.thinking` 按任务执行过程产生，完整回复由 `agent.message` 返回。
-
 - 本轮收尾时，服务端依次返回最后一个 `session.thread_status_idle`、`session.usage` 和 `session.status_idle`。无论 `stop_reason` 是什么，Session 进入 `idle` 前都会返回 `session.usage`。
-
 - 收到 `agent.message` 或 `session.usage` 都不代表本轮结束。客户端继续读取事件，只有 `session.status_idle` 且 `stop_reason.type=end_turn` 表示正常结束。
 
 如需直接复用完整实现，请参见 [运行完整示例](https://ark.volcengine.com/region:cn-beijing/docs/session-event-stream#complete-example) 。
@@ -3703,23 +3533,23 @@ Session 资源记录、完整事件、沙箱状态和 Agent 产物使用独立�
 
 根据不同用途选择对应接口：
 
-| 接口                                       | 客户端动作                                         | 返回内容和限制                                               |
-| ------------------------------------------ | -------------------------------------------------- | ------------------------------------------------------------ |
-| `GET /sessions/{session_id}/events/stream` | 建立 SSE 并等待 `: ready`，实时接收事件            | 只推送连接建立后产生的事件，不回放历史事件                   |
-| `POST /sessions/{session_id}/events`       | 发送 `user.*` 或 `system.message` 事件             | HTTP 200 只表示事件已受理，不表示 Agent 已处理或本轮已结束   |
+| 接口                                         | 客户端动作                                         | 返回内容和限制                                                   |
+| -------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------- |
+| `GET /sessions/{session_id}/events/stream` | 建立 SSE 并等待 `: ready`，实时接收事件          | 只推送连接建立后产生的事件，不回放历史事件                       |
+| `POST /sessions/{session_id}/events`       | 发送 `user.*` 或 `system.message` 事件         | HTTP 200 只表示事件已受理，不表示 Agent 已处理或本轮已结束       |
 | `GET /sessions/{session_id}/events`        | 分页查询已持久化的完整事件，用于历史查看和断线补查 | 不包含 `event_start`、`event_delta` 预览帧，也不提供实时推送 |
-| `GET /sessions/{session_id}`               | 查询 Session 最新状态、累计用量和配置快照          | 不返回完整事件历史或 Agent 回复内容                          |
+| `GET /sessions/{session_id}`               | 查询 Session 最新状态、累计用量和配置快照          | 不返回完整事件历史或 Agent 回复内容                              |
 
 ### 事件模型
 
 事件类型遵循 `{domain}.{action}` 命名约定。先根据事件域判断方向和职责，再根据完整的 `type` 读取对应结构。
 
-| 事件域                     | 方向                 | 说明                                                                |
-| -------------------------- | -------------------- | ------------------------------------------------------------------- |
+| 事件域                         | 方向                 | 说明                                                                |
+| ------------------------------ | -------------------- | ------------------------------------------------------------------- |
 | `user.*`、`system.message` | 客户端发送至 Session | 提交用户消息、动态系统提示词、中断、工具确认或工具结果              |
-| `agent.*`                  | Session 发送至客户端 | 返回消息、思考过程、工具调用和主子线程通信事件                      |
-| `session.*`                | Session 发送至客户端 | 返回 Session 或子线程的运行、等待、重调度、终止、错误状态和累计用量 |
-| `span.*`                   | Session 发送至客户端 | 返回模型调用的过程和结果                                            |
+| `agent.*`                    | Session 发送至客户端 | 返回消息、思考过程、工具调用和主子线程通信事件                      |
+| `session.*`                  | Session 发送至客户端 | 返回 Session 或子线程的运行、等待、重调度、终止、错误状态和累计用量 |
+| `span.*`                     | Session 发送至客户端 | 返回模型调用的过程和结果                                            |
 
 每个完整事件都包含 `id`、`type` 和 `processed_at`。`processed_at` 为 `null` 时，表示事件已进入队列但尚未完成处理。完整事件类型、字段、取值和嵌套结构，详情请参见 [会话事件结构参考](https://ark.volcengine.com/region:cn-beijing/docs/sessions-events-reference-v2)。
 
@@ -3727,14 +3557,14 @@ Session 资源记录、完整事件、沙箱状态和 Agent 产物使用独立�
 
 两种环境中的业务应用共用 Session Events API。Environment 类型只改变主 Agent 的 Bash 和文件工具的执行位置，不改变其他工具的执行方：
 
-| 对比项                                                      | 云端环境                                          | 自托管环境                                                    |
-| ----------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------- |
-| Session 事件                                                | 业务应用建立 Session SSE 并发送事件               | 业务应用建立 Session SSE 并发送事件                           |
+| 对比项                                                                  | 云端环境                                            | 自托管环境                                                      |
+| ----------------------------------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------- |
+| Session 事件                                                            | 业务应用建立 Session SSE 并发送事件                 | 业务应用建立 Session SSE 并发送事件                             |
 | 主 Agent 的 `bash`、`read`、`write`、`edit`、`glob`、`grep` | 方舟云沙箱执行，通过 `agent.tool_result` 返回结果 | 企业 Worker 和 Sandbox 执行，通过 `user.tool_result` 回传结果 |
-| `web_fetch`、`web_search` 和多模态工具                      | 方舟侧执行                                        | 方舟侧执行                                                    |
-| MCP 工具                                                    | 方舟侧执行                                        | 方舟侧执行                                                    |
-| 自定义工具                                                  | 业务应用执行                                      | 业务应用执行                                                  |
-| 额外链路                                                    | 无                                                | Worker Poll/Ack Work、建立 Worker SSE 并维持 Heartbeat        |
+| `web_fetch`、`web_search` 和多模态工具                              | 方舟侧执行                                          | 方舟侧执行                                                      |
+| MCP 工具                                                                | 方舟侧执行                                          | 方舟侧执行                                                      |
+| 自定义工具                                                              | 业务应用执行                                        | 业务应用执行                                                    |
+| 额外链路                                                                | 无                                                  | Worker Poll/Ack Work、建立 Worker SSE 并维持 Heartbeat          |
 
 自托管环境中，业务应用不直接调用 Work API。Worker 的部署与运行机制，详情请参见 [配置并运行自托管环境](https://ark.volcengine.com/region:cn-beijing/docs/configure-self-hosted-environment)。
 
@@ -3743,13 +3573,9 @@ Session 资源记录、完整事件、沙箱状态和 Agent 产物使用独立�
 客户端通过 `POST /sessions/{session_id}/events` 向 Session 发送 `user.message` 事件，`content` 是一个块数组，可混合文本（`text`）、图片（`image`）、文档（`document`）、视频（`video`）四类块。
 
 - 图片 `image` 的 `source.type` 支持三种：`base64`（内联 base64，需带 `media_type`）、`url`（公网可访问 URL）、`file`（已上传文件 ID，字段为 `file_id`）。
-
 - 文档 `document` 的 `source.type` 支持四种：`file`（已上传文件 ID）、`url`（公网可访问 URL）、`base64`（内联 base64，需带 `media_type`）、`text`（直接内联纯文本，`media_type: text/plain` + `data` 字段）；可选 `title` 与 `context` 字段为文档附加标题与背景说明。
-
 - 视频 `video` 的 `source.type` 支持三种：`base64`（内联 Base64，需带 `media_type` 和 `data`）、`url`（公网可访问 URL）、`file`（已上传视频文件 ID，字段为 `file_id`）。三种来源均可通过 `fps` 设置抽帧频率，取值范围为 0.2～5。
-
 - 同一请求的 `content` 数组可混合多个图片、文档或视频块。
-
 - 如需为当前轮次动态追加系统提示词，可在 `events` 数组里 `user.message` 后紧跟一个 `system.message`，详情请参见 [动态系统提示词](https://ark.volcengine.com/region:cn-beijing/docs/session-event-stream#dynamic-system-prompt)。
 
 ### 常见内容组合示例
@@ -3915,33 +3741,30 @@ Session 处于 `running` 状态时，你仍可以继续发送 `user.message`。�
 这种设计适合连续对话、实时追加约束、长任务中补充材料等场景。客户端不需要为了发送下一条消息轮询等待 `idle`，但仍需要通过 SSE 观察事件处理进度：
 
 - HTTP 响应成功只表示事件已被服务端接收，不表示 Agent 已经处理完这条消息。
-
 - 返回事件的 `processed_at` 为 `null` 时，表示该事件仍在队列中，等待前序事件处理完成。
-
 - 多条排队消息可能在后续一次模型请求中合并处理，Agent 不一定为每条消息生成一条独立回复。
-
 - 如果待处理队列已满，接口会返回 HTTP 409。此时不要快速重试，应等待 Agent 消费队列，或按业务需要发送 `user.interrupt` 中断当前执行。
 
 ### 动态系统提示词
 
 除了在 [定义 Agent](https://ark.volcengine.com/region:cn-beijing/docs/define-agent) 时配置的固定系统提示词，客户端还可以在发送 `user.message` 的同一请求末尾追加一个 `system.message`，为当前轮次动态注入额外指令；固定系统提示词、运行时 `system.message` 与用户消息拼接后一起送入模型。
 
-| 对比项 | Agent 定义的系统提示词                           | 运行时 `system.message` 事件              |
+| 对比项 | Agent 定义的系统提示词                           | 运行时 `system.message` 事件            |
 | ------ | ------------------------------------------------ | ----------------------------------------- |
 | 位置   | 创建 Agent 时设置                                | 发 Events 时传入                          |
 | 生效   | 创建 Session 时拼入，整个 Session 生命周期内固定 | 每次发送后追加到 Session 的系统角色上下文 |
 
 同一请求需要区分 API 提交顺序和模型上下文顺序：
 
-| 阶段                       | 顺序                                                                                        | 说明                                                                      |
-| -------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| API 请求中的 `events` 数组 | 先发送 `user.message`，再发送 `system.message`                                              | `system.message` 必须紧跟在 `user.message` 后面，并且是数组的最后一个元素 |
-| 进入模型前的上下文         | 依次为 Agent 系统提示词、历史 `system.message`、本轮 `system.message` 和本轮 `user.message` | 服务端先将本轮 `system.message` 追加到系统角色上下文，再发起本轮模型调用  |
+| 阶段                         | 顺序                                                                                              | 说明                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| API 请求中的 `events` 数组 | 先发送 `user.message`，再发送 `system.message`                                                | `system.message` 必须紧跟在 `user.message` 后面，并且是数组的最后一个元素 |
+| 进入模型前的上下文           | 依次为 Agent 系统提示词、历史 `system.message`、本轮 `system.message` 和本轮 `user.message` | 服务端先将本轮 `system.message` 追加到系统角色上下文，再发起本轮模型调用    |
 
 模型上下文实际展开如下，省略普通会话历史。
 
-| 轮次 | 上下文展开                                                                           |
-| ---- | ------------------------------------------------------------------------------------ |
+| 轮次 | 上下文展开                                                                             |
+| ---- | -------------------------------------------------------------------------------------- |
 | 首轮 | `[Agent 系统提示词] [首轮 system.message] [首轮 user.message]`                       |
 | 次轮 | `[Agent 系统提示词] [首轮 system.message] [次轮 system.message] [次轮 user.message]` |
 
@@ -3982,11 +3805,8 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 ![图片](https://arkdocs.tos-cn-beijing.volces.com/flowcharts/managed-agent/event-preview-assembly-sequence.svg)
 
 - **预览开始**：事件 `event_start` 标识一个预览事件开始，并给出完整事件将使用的 ID。
-
 - **预览增量**：事件 `event_delta` 按 `event_id` 和内容块 `index` 追加增量内容，同一事件可以返回多次。
-
 - **预览帧标识**：每个预览帧的顶层 `id` 和 `processed_at` 标识该帧自身；使用 `event_start.event.id` 或 `event_delta.event_id` 关联最终完整事件。
-
 - **完整事件**：事件 `agent.message` 或 `agent.thinking` 返回最终完整内容。
 
 预览帧不写入事件历史，也可能在连接中断时不完整。界面可以使用预览帧实时更新，持久化和业务判断应以完整事件为准。参数写法和响应格式，详情请参见 [流式获取会话事件](https://ark.volcengine.com/region:cn-beijing/docs/stream-events-api)。
@@ -3997,21 +3817,19 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 
 Session 即将进入 `idle` 时，服务端会先返回 `session.usage`，再返回 `session.status_idle`。`session.usage` 只提供最新累计用量，不提供本轮处理结果；无论 `stop_reason` 为 `end_turn`、`requires_action` 还是 `retries_exhausted`，都应继续读取后续状态事件。
 
-| 状态事件                     | 停止原因            | 客户端动作                                            |
-| ---------------------------- | ------------------- | ----------------------------------------------------- |
-| `session.status_idle`        | `end_turn`          | 本轮正常结束，可以发送下一条消息                      |
+| 状态事件                       | 停止原因              | 客户端动作                                              |
+| ------------------------------ | --------------------- | ------------------------------------------------------- |
+| `session.status_idle`        | `end_turn`          | 本轮正常结束，可以发送下一条消息                        |
 | `session.status_idle`        | `requires_action`   | 本轮尚未结束，根据 `event_ids` 回传工具确认或工具结果 |
-| `session.status_idle`        | `retries_exhausted` | 当前轮次重试次数已用尽；本轮结束，但仍可发送新的输入  |
-| `session.status_rescheduled` | 不适用              | 方舟正在自动恢复，继续监听，不要重复发送原事件        |
-| `session.status_terminated`  | 不适用              | Session 已进入终态，停止发送事件                      |
-| `session.deleted`            | 不适用              | Session 已被删除，结束事件流，不要重连或发送事件      |
+| `session.status_idle`        | `retries_exhausted` | 当前轮次重试次数已用尽；本轮结束，但仍可发送新的输入    |
+| `session.status_rescheduled` | 不适用                | 方舟正在自动恢复，继续监听，不要重复发送原事件          |
+| `session.status_terminated`  | 不适用                | Session 已进入终态，停止发送事件                        |
+| `session.deleted`            | 不适用                | Session 已被删除，结束事件流，不要重连或发送事件        |
 
 收到 `session.error` 时，还需要检查 `error.retry_status.type`：
 
 - **`retrying`**：服务端正在自动重试，继续监听。
-
 - **`exhausted`**：当前轮次重试耗尽，等待对应的 `session.status_idle`。
-
 - **`terminal`**：Session 将进入终止状态，停止发送新事件。
 
 完整状态迁移，详情请参见 [管理 Session](https://ark.volcengine.com/region:cn-beijing/docs/manage-session)。
@@ -4021,11 +3839,8 @@ Session 即将进入 `idle` 时，服务端会先返回 `session.usage`，再返
 当工具权限策略要求执行前确认时，按以下步骤解除 `requires_action`：
 
 1. 接收 `agent.tool_use` 或 `agent.mcp_tool_use` 事件。
-
 2. 接收 `session.status_idle`，确认 `stop_reason.type=requires_action`。
-
 3. 遍历 `stop_reason.event_ids`，为每个待处理事件发送一条 `user.tool_confirmation`。将事件 ID 原样填入 `tool_use_id`，并将 `result` 设置为 `allow` 或 `deny`。
-
 4. 所有需要处理的确认事件处理完成后，Session 返回 `session.status_running` 并继续当前任务。
 
 拒绝工具调用时，可以通过 `deny_message` 返回具体原因。Agent 会据此选择其他工具、降级处理，或说明无法继续执行。此阶段不要发送新的 `user.message` 替代确认。
@@ -4037,11 +3852,8 @@ Session 即将进入 `idle` 时，服务端会先返回 `session.usage`，再返
 SSE 接口不支持从断点自动续传。要补齐中断期间产生的事件，按以下顺序处理：
 
 1. 调用 `GET /sessions/{session_id}/events/stream` 打开新的事件流，并等待 `: ready`。
-
 2. 调用 `GET /sessions/{session_id}/events` 查询历史事件。首次请求省略 `page`。
-
 3. 响应包含 `next_page` 时，将该值原样作为下一次请求的 `page`，直到不再返回 `next_page`。
-
 4. 按事件 ID 合并历史事件和新事件流中的实时事件，跳过已经处理的事件。
 
 收到 `session.deleted` 表示 Session 已被删除，不属于可恢复的连接中断。此时结束事件流，不要重连或补查历史。
@@ -4382,11 +4194,11 @@ run_session_turn \
 
 | 状态码 | 结果                                                 | 处理方式                                 |
 | ------ | ---------------------------------------------------- | ---------------------------------------- |
-| `0`    | `end_turn`，且已收到 `agent.message`                 | 本轮正常结束                             |
-| `2`    | `requires_action`                                    | 根据输出的事件 ID 回传工具确认或工具结果 |
-| `3`    | `retries_exhausted`                                  | 当前轮次失败，可以修正输入后重新发送     |
-| `4`    | Session 终止、被删除或发生不可恢复错误               | 停止向当前 Session 发送事件              |
-| `5`    | 状态事件缺少有效停止原因，或正常结束前未收到完整回复 | 查询历史事件和错误信息后再决定是否重试   |
+| `0`  | `end_turn`，且已收到 `agent.message`             | 本轮正常结束                             |
+| `2`  | `requires_action`                                  | 根据输出的事件 ID 回传工具确认或工具结果 |
+| `3`  | `retries_exhausted`                                | 当前轮次失败，可以修正输入后重新发送     |
+| `4`  | Session 终止、被删除或发生不可恢复错误               | 停止向当前 Session 发送事件              |
+| `5`  | 状态事件缺少有效停止原因，或正常结束前未收到完整回复 | 查询历史事件和错误信息后再决定是否重试   |
 
 ## 中断和继续使用 Session
 
@@ -4412,7 +4224,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
   -d '{
     "events": [{
       "type": "user.message",
-      "content": [{"type": "text", "text": "Instead, focus on fixing the bug in line 42."}]
+      "content": [{"type": "text", "text": "Inrstead, focus on fixing the bug in line 42."}]
     }]
   }'
 ```
@@ -4432,7 +4244,6 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 根据统计范围选择对应事件：
 
 - **Session 累计用量**：读取 `session.usage` 事件的 `usage`。该事件在 Session 每次进入 `idle` 前返回最新累计快照；如需计算本轮增量，将本次快照减去上一次 `session.usage` 快照。
-
 - **单次模型请求用量**：读取 `span.model_request_end` 事件的 `model_usage`，用于分析某次模型调用的 token 消耗和推理速度。
 
 以下 `session.usage` 示例包含会话累计运行时长、模型 token 和服务端搜索请求次数：
@@ -4487,13 +4298,9 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 `model_usage` 字段含义：
 
 - **`input_tokens`**：未缓存输入 token。
-
 - **`output_tokens`**：全部输出 token。
-
 - **`cache_creation_input_tokens`**：本次请求写入提示词缓存的输入 token 数。
-
 - **`cache_read_input_tokens`**：本次请求从提示词缓存读取的输入 token 数。
-
 - **`speed`**：本次请求速度档位。
 
 ### 控制台可观测性
@@ -4501,25 +4308,19 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 控制台 [Managed Agents](https://ark.volcengine.com/region:cn-beijing/managedAgents) 提供 Session 的可视化时间线视图：
 
 - **Session 列表**：全部 Session 及其状态、创建时间、模型。
-
 - **追踪视图**：Session 内事件按时间排序展示，仅对开发者与管理员可见。
-
 - **工具执行**：每次工具调用及其结果。
 
 ### 调试技巧
 
 - **关注 ** **`session.error`**：根据 `error.retry_status.type` 判断服务端会重试、结束当前轮次还是终止 Session。
-
 - **检查工具结果**：失败的工具调用通常解释了 Agent 异常行为的原因。
-
 - **跟踪 token 用量**：监控消耗以优化提示并降低成本。
 
 ## 相关文档
 
 - 配置内置工具、MCP 工具和自定义工具，详情请参见 [Tools](https://ark.volcengine.com/region:cn-beijing/docs/tools)。
-
 - 观察主线程与子线程之间的任务委派，详情请参见 [编排 Multi Agent](https://ark.volcengine.com/region:cn-beijing/docs/multi-agent)。
-
 - 查询、更新、升级或删除 Session，详情请参见 [管理 Session](https://ark.volcengine.com/region:cn-beijing/docs/manage-session)。
 
 <a id="doc-2553726"></a>
@@ -4543,9 +4344,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 开始前你需要：
 
 - 已创建的 API Key：配置为环境变量 `ARK_API_KEY`，详情请参见 [API Key 管理](https://ark.volcengine.com/region:cn-beijing/apiKey)。
-
 - 已创建的 Agent：详情请参见 [定义 Agent](https://ark.volcengine.com/region:cn-beijing/docs/define-agent)。
-
 - 已创建的 Environment：详情请参见 [配置云环境](https://ark.volcengine.com/region:cn-beijing/docs/configure-cloud-environment)。
 
 本章节示例的 Base URL 与鉴权方式详情请参见 [Base URL 及鉴权](https://ark.volcengine.com/region:cn-beijing/docs/base-url-and-authentication)。
@@ -4585,13 +4384,13 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults \
 
 ## 添加凭据
 
-| 类型                   | 适用场景                                                           | 注入方式                                                                            |
-| ---------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| 类型                     | 适用场景                                                           | 注入方式                                                                            |
+| ------------------------ | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
 | `mcp_oauth`            | MCP 服务器用 OAuth 2.0                                             | Session 连接 MCP URL 时注入访问令牌；启用自动刷新后，平台在令牌临近过期时换取新令牌 |
 | `static_bearer`        | MCP 用固定 Bearer token（API Key、个人访问令牌）                   | 无刷新流程，直接注入                                                                |
-| `mcp_static`           | MCP 使用固定密钥，需要以 Bearer、自定义 Header 或 URL 查询参数注入 | 通过 `injection_type` 选择注入位置                                                  |
-| `environment_variable` | 通过环境变量鉴权的命令行、SDK、直接 API 调用                       | 沙箱内是不透明占位符，**出口处**替换为真实值，Agent 永远看不到密钥                  |
-| `env_oauth`            | CLI 或 SDK 使用短效 OAuth 访问令牌                                 | 按 `secret_name` 注入；启用自动刷新后，在 Session 使用凭据时换取新令牌              |
+| `mcp_static`           | MCP 使用固定密钥，需要以 Bearer、自定义 Header 或 URL 查询参数注入 | 通过 `injection_type` 选择注入位置                                                |
+| `environment_variable` | 通过环境变量鉴权的命令行、SDK、直接 API 调用                       | 沙箱内是不透明占位符，**出口处**替换为真实值，Agent 永远看不到密钥            |
+| `env_oauth`            | CLI 或 SDK 使用短效 OAuth 访问令牌                                 | 按 `secret_name` 注入；启用自动刷新后，在 Session 使用凭据时换取新令牌            |
 
 你提供的实际密钥（`token`、`access_token`、`refresh_token`、`client_secret`、`secret_value`）是敏感的**只写**字段，API 响应不会返回这些字段。
 
@@ -4599,8 +4398,8 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults \
 
 使用方舟发起 OAuth 授权流程时，根据凭据类型配置回调地址：
 
-| 凭据类型                  | 回调地址                                                                              |
-| ------------------------- | ------------------------------------------------------------------------------------- |
+| 凭据类型                    | 回调地址                                                                                |
+| --------------------------- | --------------------------------------------------------------------------------------- |
 | MCP OAuth（`mcp_oauth`）  | `https://console.volcengine.com/api/top/ark/cn-beijing/2024-01-01/VaultOAuthCallback` |
 | 环境 OAuth（`env_oauth`） | `https://ark-agent.cn-beijing.volces.com/api/v3/vault_env_oauth_callback`             |
 
@@ -4609,8 +4408,9 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults \
 > **回调地址边界**
 
 - > 在第三方 OAuth 应用中精确登记表格中的完整 URL，不要通配整个控制台或 `ark-agent` 域名。
-
+  >
 - > MCP OAuth 和环境 OAuth 使用不同的回调地址，不能互相替代。
+  >
 
 ### MCP OAuth 凭据
 
@@ -4621,9 +4421,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults \
 `refresh.token_endpoint_auth.type` 三选一：
 
 - **`none`**：公共客户端，不提供 `client_secret`。
-
 - **`client_secret_basic`**：使用 `client_secret` 的 HTTP Basic 鉴权，同时提供 `client_secret`。
-
 - **`client_secret_post`**：把 `client_secret` 放在 POST 请求体里，同时提供 `client_secret`。
 
 **Curl**
@@ -4678,9 +4476,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 当 MCP 服务器使用固定密钥，但不一定采用 Bearer 鉴权时，使用 `mcp_static`。通过 `injection_type` 选择注入方式：
 
 - **`bearer`**：以 `Authorization: Bearer <token>` 请求头注入。不要传 `injection_name`，`token` 中也不要包含 `Bearer` 前缀。
-
 - **`header`**：以自定义请求头注入，必须通过 `injection_name` 指定请求头名称。
-
 - **`query`**：以 URL 查询参数注入，必须通过 `injection_name` 指定参数名。
 
 以下示例将密钥注入 `X-API-Key` 请求头：
@@ -4708,7 +4504,6 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 `networking.allowed_hosts` 控制密钥可以被替换到哪些出站主机：
 
 - `"type": "limited"` + 显式主机列表（**推荐**）。
-
 - `"type": "unrestricted"`（仅当调用方访问的域名无法提前枚举时使用）。
 
 **Curl**
@@ -4742,11 +4537,8 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 对于会过期的访问令牌，可以启用自动刷新。创建或更新凭据时，提供以下信息：
 
 - **刷新时机**：通过 `expires_at` 提供当前访问令牌的过期时间。
-
 - **令牌端点**：通过 `refresh.token_endpoint` 提供第三方 OAuth 服务的令牌端点。
-
 - **刷新令牌**：通过 `refresh.refresh_token` 提供换取新访问令牌的凭据。
-
 - **客户端身份**：通过 `refresh.client_id` 和 `refresh.token_endpoint_auth` 提供 OAuth 客户端身份及鉴权方式。鉴权方式需要客户端密钥时，还需提供 `refresh.token_endpoint_auth.client_secret`。
 
 Session 访问 `networking` 允许的目标主机时，平台读取该凭据。访问令牌进入 `expires_at` 前 5 分钟刷新窗口时，平台调用 `refresh.token_endpoint` 获取新令牌、更新凭据，再把新令牌注入出站请求。该机制由读取操作触发，不在后台定时刷新。
@@ -4784,24 +4576,25 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 > **注意**
 
 - > **启用自动刷新时，同时提供****`expires_at`****和完整的****`refresh`****对象。** 缺少 `expires_at` 时，平台无法判断刷新时机；缺少 `refresh` 时，平台不会调用 OAuth 令牌端点。
-
+  >
 - > **OAuth 令牌端点必须返回 JSON。** `access_token` 必须是字符串；如果返回 `expires_in`，该字段必须是整数秒数。`expires_in` 返回 `"3600"` 等字符串值时，刷新失败。平台会保留当前访问令牌，本次出站请求可能因令牌过期返回 401。检查 `refresh.token_endpoint` 返回字段的类型和 `refresh.token_endpoint_auth` 配置；刷新令牌失效时，重新授权并更新凭据。
-
+  >
 - > **替换发生在沙箱出口处，不在沙箱内。** 沙箱里的进程看到的是不透明占位符，而不是真实值。具体影响如下：
+  >
+
   - > 启动时校验凭据格式的客户端可能拒绝占位符。
-
+    >
   - > 用密钥做请求签名的客户端（例如 AWS SigV4）会生成无效签名。
-
+    >
   - > 环境变量注入只适合把密钥值原样写入出站请求头的客户端。
-
+    >
 - > **通过凭据限制注入目标。** 在凭据的 `networking` 中设置 `type: limited`，并通过 `allowed_hosts` 显式列出允许注入的出站主机。
+  >
 
 ### 凭据约束
 
 - **每个 Vault 内的匹配键必须唯一。** `mcp_server_url`（`mcp_oauth`、`static_bearer`、`mcp_static`）和 `secret_name`（`environment_variable`、`env_oauth`）在同一 Vault 的有效凭据中不能重复。重复创建返回 409。
-
 - **匹配键不可变。** 要修改 `mcp_server_url` 或 `secret_name`，需要删除旧凭据，再创建新凭据。
-
 - **每个 Vault 最多包含 100 个凭据。** 超出限制时返回 409。
 
 MCP 类型凭据（`mcp_oauth`、`static_bearer`、`mcp_static`）在创建时会立即连接目标 MCP 服务器探测握手。无法完成握手时，创建请求返回 4xx 错误。`environment_variable` 和 `env_oauth` 不在创建时验证密钥或访问令牌是否有效；无效值会在 Session 访问对应主机时表现为鉴权错误或下游服务错误，但不会阻止 Session 继续运行。
@@ -4827,9 +4620,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 **运行时行为**：
 
 - 当 Agent 连接到某 MCP URL，且**没有任何凭据匹配** `mcp_server_url` 时，Agent 尝试匿名连接；若服务器要求鉴权则报错。
-
 - **多个 Vaults 都包含匹配凭据时，使用第一个匹配的 Vaults**。
-
 - **Multi Agent 凭据生效范围**：在 [多 Agent](https://ark.volcengine.com/region:cn-beijing/docs/multi-agent) 中，Vaults 凭据**按线程**生效；若某 Agent 自身定义里声明了匹配的 MCP 服务器，该 Agent 用这些凭据鉴权。
 
 ## 轮换凭据
@@ -4856,7 +4647,6 @@ curl https://ark.cn-beijing.volces.com/api/v3/vaults/vlt-20260701120000-pqrst/cr
 OAuth 凭据的自动刷新信息可按以下方式更新：
 
 - **启用自动刷新**：在 `auth` 中同时提供 `expires_at` 和完整的 `refresh` 对象。`token_endpoint_auth.type` 为 `client_secret_basic` 或 `client_secret_post` 时，同时提供 `client_secret`；为 `none` 时，省略 `client_secret`。
-
 - **更新自动刷新信息**：只提供需要变更的字段，未提供的字段保留原值。可以更新 `refresh_token`、`token_endpoint_auth`、`resource` 和 `scope`，不能修改 `token_endpoint` 和 `client_id`。
 
 ## 凭据生命周期
@@ -4868,7 +4658,6 @@ Session 运行期间，平台在使用凭据时重新解析当前值。更新或
 ## 其他操作
 
 - **列出 Vault、凭据**：调用 `GET /vaults` 或 `GET /vaults/{vault_id}/credentials`；分页返回，按最新优先排序。
-
 - 如需停用单个凭据，删除对应凭据；如需停用某个终端用户的全部凭据，删除对应 Vault。删除操作不可恢复。
 
 <a id="doc-2553727"></a>
@@ -4896,8 +4685,10 @@ Managed Agents 支持挂载通过 [文件输入(Files API)](https://ark.volcengi
   先将本地文件上传到 Files API。上传成功后，平台会返回 `file_id`，后续创建 Session 或向运行中的 Session 追加文件资源时都需要使用该 ID。
 
   > **说明**
+  >
 
   > 设置 `purpose=agent`，指定该文件供 Agent 使用。
+  >
 
   ```Bash
   file=$(
@@ -4911,7 +4702,6 @@ Managed Agents 支持挂载通过 [文件输入(Files API)](https://ark.volcengi
 
   echo "File ID: $FILE_ID"
   ```
-
 - **使用 TOS 上传**：
 
   以下示例使用 TOS Python SDK 上传本地文件，更多使用方式，请参考 [TOS 官方文档](https://www.volcengine.com/docs/6349/74820?lang=zh) 。
@@ -5035,8 +4825,9 @@ echo "Session ID: $SESSION_ID"
 > **说明**
 
 - > `tos_key` 需为 TOS 桶中的一个目录，且必须以 `/` 结尾。例如 `project-resources/`。
-
+  >
 - > 文件将被挂载至云端沙箱的 `/mnt/session/storage/` 目录中。
+  >
 
 ## 挂载多个文件
 
@@ -5093,9 +4884,7 @@ curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/sessions/$SE
 Agent 将需要交付的文件写入 `/mnt/session/outputs/` 后，平台会将这些文件注册为当前 Session 下 `purpose=agent` 的文件。需要在你的服务中展示或下载报告、图片、视频、文档或代码等产物时，通过 Files API 获取：
 
 1. 调用 `GET /files?scope_id=<session_id>&purpose=agent`，分页查询该 Session 的 Agent 产物。
-
 2. 从列表响应中获取文件 ID、文件名、文件大小、MIME 类型和 `download_url`。
-
 3. 使用 `download_url` 下载文件内容。
 
 Seedance Managed Agent 生成的图片和视频也遵循相同规则。生成工具会将最终产物写入 `/mnt/session/outputs/` 并注册到 Files API，业务系统通过 Session ID 查询和下载产物。
@@ -5115,9 +4904,9 @@ curl -sS --fail-with-body \
 
 创建 Session 前，按产物的保留要求选择存储方式：
 
-| 你的配置                                          | 产物位置                                                                                                                                                    | 你需要做什么                                                                     |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| 不配置 `config.tos`                               | 方舟公共 TOS                                                                                                                                                | 在平台 TTL 到期前下载所需文件。删除 Session 时，平台会清理默认存储中的关联产物。 |
+| 你的配置                                            | 产物位置                                                                                                                                                        | 你需要做什么                                                                     |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 不配置 `config.tos`                               | 方舟公共 TOS                                                                                                                                                    | 在平台 TTL 到期前下载所需文件。删除 Session 时，平台会清理默认存储中的关联产物。 |
 | 在 Environment 或 Session 覆写中配置 `config.tos` | 你的 TOS Bucket。平台从 outputs 目录注册产物时，Files API 写入前缀为 `{prefix}outputs/{env-id}/{session-id}/`；最终对象路径以响应中的 `tos.object_key` 为准 | 在 TOS 中管理对象生命周期。删除 Session 不会删除 Bucket 中的对象。               |
 
 配置 Environment 产物存储及按 Session 临时覆写的方法，详情请参见 [配置产物存储](https://ark.volcengine.com/region:cn-beijing/docs/configure-cloud-environment#configure-output-storage) 和 [覆写产物存储](https://ark.volcengine.com/region:cn-beijing/docs/start-session#override-output-storage)。
@@ -5131,23 +4920,16 @@ curl -sS --fail-with-body \
 Agent 可以处理多种文件类型。常见类型包括：
 
 - 源代码文件，例如 `.py`、`.js`、`.ts`、`.go`、`.rs` 等。
-
 - 数据文件，例如 `.csv`、`.json`、`.xml`、`.yaml`。
-
 - 文本文档，例如 `.txt`、`.md`。
-
 - 归档文件，例如 `.zip`、`.tar.gz`；Agent 可以在沙箱中使用 bash 解压后处理。
-
 - 二进制文件；是否能正确处理取决于沙箱内是否具备相应工具。
 
 ## 使用建议
 
 - 挂载到沙箱中的文件是只读副本。Agent 可以读取这些文件，但不能直接修改原始上传文件。
-
 - 如果任务需要产出修改后的版本，应将结果写入沙箱中的新路径。
-
 - 需要回传的输出文件，应在任务说明中要求 Agent 写入 `/mnt/session/outputs/`。需要长期保存时，为 Environment 配置自己的 TOS Bucket，并在 TOS 中管理对象生命周期。
-
 - 如果运行中的 Session 不再需要某个大文件，及时移除对应资源，减少后续工具调用的上下文干扰。
 
 <a id="doc-2553728"></a>
@@ -5199,7 +4981,6 @@ echo "Memory Store ID: $STORE_ID"
 根据写入数量选择接口：
 
 - **写入单条 Memory**：调用 [创建记忆](https://ark.volcengine.com/region:cn-beijing/docs/create-memory-api)，适合补充零散内容。
-
 - **批量写入 Memory**：调用 [批量创建记忆](https://ark.volcengine.com/region:cn-beijing/docs/batch-create-memories-api)，适合初始化术语表、用户偏好或输出模板。
 
 ```Bash
@@ -5254,9 +5035,7 @@ SESSION_ID=$(jq -er '.id' <<<"$session")
 ## Agent 如何访问 Memory
 
 - **`read_only`**：Agent 可以浏览、读取和搜索 Memory，但不能修改内容。
-
 - **`read_write`**：Agent 除了读取 Memory，还可以创建、更新、删除或移动内容。修改会保存在挂载的 Memory Store 中，供后续 Session 继续使用。
-
 - Agent 对 Memory 的读取会作为普通工具调用出现在 Session 事件流中，例如 `agent.tool_use` 和 `agent.tool_result`。
 
 ## 查看和编辑 Memory
@@ -5345,7 +5124,6 @@ curl -sS --fail-with-body -X DELETE "https://ark.cn-beijing.volces.com/api/v3/me
 当 Store 达到 2,000 条 Memory 上限后，新 Memory 写入会失败。已有 Memory 仍可读取和更新。建议按以下方式管理长期记忆：
 
 - **按用途拆分 Store**：不要把所有内容放进一个通用 Store。可以按用户、团队共享知识、项目上下文分别建 Store。
-
 - **在接近上限前整理内容**：定期删除过期或重复 Memory，或将碎片化内容整理成更稳定的摘要 Store。
 
 <a id="doc-2553729"></a>
@@ -5421,9 +5199,7 @@ configs.**enabled** `boolean` `选填`
 开始前你需要：
 
 - 已创建的 API Key：配置为环境变量 `ARK_API_KEY`，详情请参见 [API Key 管理](https://ark.volcengine.com/region:cn-beijing/apiKey)。
-
 - 已创建的 Agent：详情请参见 [定义 Agent](https://ark.volcengine.com/region:cn-beijing/docs/define-agent)。
-
 - 已创建的 Environment：详情请参见 [配置云环境](https://ark.volcengine.com/region:cn-beijing/docs/configure-cloud-environment)。
 
 本章节示例的 Base URL 与鉴权方式详情请参见 [Base URL 及鉴权](https://ark.volcengine.com/region:cn-beijing/docs/base-url-and-authentication)。
@@ -5433,11 +5209,8 @@ configs.**enabled** `boolean` `选填`
 ### 控制台方式
 
 1. 进入 [Agent 管理页面](https://ark.volcengine.com/region:cn-beijing/managed-agent/agents) 。
-
 2. 点击「创建 Agent」，或在已有 Agent 卡片上点击「编辑」。
-
 3. 在「05 高级参数」区域，找到「Advisor」开关，打开即可。
-
 4. 点击「保存」。
 
 开启后，该 Agent 的所有新 Session 都会自动启用 Advisor 能力。
@@ -5479,7 +5252,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 
 示例响应如下：
 
-```Plain Text
+```Plain
 {
   "id": "agent-20260702070355-xxxxx",
   "type": "agent",
@@ -5552,11 +5325,8 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents/{agent_id} \
 开启 Advisor 后，Agent 在 Session 中执行任务时，遇到以下情况会自动唤起顾问模型：
 
 - Agent 多次执行失败，无法通过自身能力解决
-
 - 当前模型返回工具调用异常、输出格式错误
-
 - 反复卡在同一问题无法推进
-
 - 系统提示词中引导的关键决策节点
 
 顾问模型会接收完整的任务上下文，给出指导建议后，Agent 继续执行。整个过程无需人工干预。
@@ -5568,7 +5338,6 @@ Advisor 的调用过程可以通过控制台 Debug 模式观测。当前公开�
 查看方式：
 
 - **控制台 Debug 模式**：在 Agent 调试页面切换到 Debug 模式，可直观看到 Advisor 调用的时间点和内容。
-
 - **事件流 API**：通过 Session Events 接口获取完整事件流，编程方式处理会话执行事件。
 
 事件流的使用方式详见 [Session 事件流](https://ark.volcengine.com/region:cn-beijing/docs/session-event-stream)。
@@ -5640,11 +5409,8 @@ Multi Agent 适合需要角色分工或并行处理的复杂任务。如果任�
 开始前，完成以下准备：
 
 - 创建 API Key，并配置为 `ARK_API_KEY`。详情请参见 [API Key 管理](https://ark.volcengine.com/region:cn-beijing/apiKey) 。
-
 - 创建两个子智能体，并记录 Agent ID 和版本号。详情请参见 [Agent](https://ark.volcengine.com/region:cn-beijing/docs/define-agent)。
-
 - 创建或复用云环境，并记录 Environment ID。详情请参见 [配置云环境](https://ark.volcengine.com/region:cn-beijing/docs/configure-cloud-environment)。
-
 - 选择协调器模型，并确认本地已安装 `curl` 和 `jq`。
 
 配置环境变量：
@@ -5746,11 +5512,8 @@ printf 'Coordinator Agent version: %s\n' "$COORDINATOR_AGENT_VERSION"
 也可以通过控制台配置：
 
 1. 进入 [Agent 管理页面](https://ark.volcengine.com/region:cn-beijing/managed-agent/agents) 。
-
 2. 创建或编辑 Agent，在 **04 能力扩展** 区域添加 **Multi Agents**。
-
 3. 选择子智能体，填写前面的系统提示词并保存。
-
 4. 记录协调器 Agent ID 和版本号。
 
 ## 运行任务
@@ -5876,7 +5639,6 @@ curl -sS --fail-with-body \
 只在需要实时观察子智能体时执行以下步骤：
 
 1. 终端 A 收到 `session.thread_created` 后，记录 `session_thread_id`。
-
 2. 在终端 C 配置鉴权信息、Session ID 和子线程 ID：
 
    ```Bash
@@ -5885,7 +5647,6 @@ curl -sS --fail-with-body \
    export SESSION_ID="<SESSION_ID>"
    export SESSION_THREAD_ID="<SESSION_THREAD_ID>"
    ```
-
 3. **建立子线程事件流**：
 
    **cURL**
@@ -5903,7 +5664,6 @@ curl -sS --fail-with-body \
 ```
 
 4. 终端 C 输出 `: ready` 后，在终端 B 按“验证结果”中的方式补查该子线程历史。
-
 5. 按事件 `id` 合并实时和历史事件，忽略重复 ID。
 
 每个子线程使用独立事件流。出现多个 `session_thread_id` 时，分别重复以上步骤。
@@ -5923,9 +5683,7 @@ session.status_idle
 收到 `session.status_idle` 后检查 `stop_reason.type`：
 
 - **`end_turn`**：本轮执行结束，按下一节验证结果。
-
 - **`requires_action`**：保持连接，处理全部待操作事件后继续观察。
-
 - **`retries_exhausted`**：调整输入后可以发送新任务；如果修改 Agent 配置，请创建新 Session。
 
 ## 验证结果
@@ -6006,11 +5764,8 @@ printf 'Next page: %s\n' "$THREAD_EVENTS_PAGE"
 只有同时满足以下条件，本轮任务才成功：
 
 - 主线程产生最终 `agent.message`。
-
 - Session 以 `stop_reason.type=end_turn` 进入 `idle`。
-
 - 没有子线程停留在 `running` 或 `rescheduling`。
-
 - 本轮没有出现 `session.thread_status_terminated`。
 
 > **注意**
@@ -6019,14 +5774,14 @@ printf 'Next page: %s\n' "$THREAD_EVENTS_PAGE"
 
 ## 处理异常状态
 
-| 信号                                | 含义                       | 处理动作                                        |
-| ----------------------------------- | -------------------------- | ----------------------------------------------- |
-| SSE 连接中断                        | 中断期间的事件不会自动回放 | 先重建连接，再查询历史并按事件 ID 去重          |
-| `requires_action`                   | 等待工具确认或外部工具结果 | 处理全部 `stop_reason.event_ids`                |
-| `session.thread_status_rescheduled` | 子线程正在自动重新调度     | 保持监听，不要并行手动重试                      |
-| `session.thread_status_terminated`  | 子线程已终止               | 查询历史和错误事件，Session 空闲后重新分配任务  |
-| 子线程长时间保持 `running`          | 子任务未结束               | 携带 `session_thread_id` 发送 `user.interrupt`  |
-| `retries_exhausted`                 | 当前轮次重试次数已用尽     | 调整输入后重试；修改 Agent 配置后创建新 Session |
+| 信号                                  | 含义                       | 处理动作                                           |
+| ------------------------------------- | -------------------------- | -------------------------------------------------- |
+| SSE 连接中断                          | 中断期间的事件不会自动回放 | 先重建连接，再查询历史并按事件 ID 去重             |
+| `requires_action`                   | 等待工具确认或外部工具结果 | 处理全部 `stop_reason.event_ids`                 |
+| `session.thread_status_rescheduled` | 子线程正在自动重新调度     | 保持监听，不要并行手动重试                         |
+| `session.thread_status_terminated`  | 子线程已终止               | 查询历史和错误事件，Session 空闲后重新分配任务     |
+| 子线程长时间保持 `running`          | 子任务未结束               | 携带 `session_thread_id` 发送 `user.interrupt` |
+| `retries_exhausted`                 | 当前轮次重试次数已用尽     | 调整输入后重试；修改 Agent 配置后创建新 Session    |
 
 ### 处理等待操作
 
@@ -6073,7 +5828,6 @@ printf 'Next page: %s\n' "$THREAD_EVENTS_PAGE"
 ```
 
 2. 从 `session.thread_status_idle` 中记录 `session_thread_id` 和全部 `stop_reason.event_ids`。按“验证结果”中的方式补查子线程，并逐一找到这些事件。
-
 3. 对 `agent.tool_use` 或 `agent.mcp_tool_use`，配置关联 ID 并发送确认：
 
    ```Bash
@@ -6112,7 +5866,6 @@ printf 'Next page: %s\n' "$THREAD_EVENTS_PAGE"
 ```
 
 4. 对 `agent.custom_tool_use`，执行自定义工具并发送 `user.custom_tool_result`。请求需要携带当前 `session_thread_id` 和 `custom_tool_use_id`。详情请参见 [Tools](https://ark.volcengine.com/region:cn-beijing/docs/tools)。
-
 5. 处理全部 `event_ids` 后继续观察。任务可能再次进入 `requires_action`；只有 Session 最终以 `end_turn` 结束，本轮任务才完成。
 
 本页主流程使用云环境，不覆盖自托管 Environment 的 `user.tool_result` 流程。自托管流程请参见 [Tools](https://ark.volcengine.com/region:cn-beijing/docs/tools)。
@@ -6303,11 +6056,8 @@ fi
 ## 使用限制
 
 - **子智能体数量**：单个协调器最多配置 20 个子智能体，详情请参见 [创建智能体](https://ark.volcengine.com/region:cn-beijing/docs/create-agent-api)。
-
 - **委派层级**：Multi Agent 只展开一层。`multiagent.agents[].type` 为 `self` 时复用协调器配置创建子线程，但不会继续复用协调器的 `multiagent` 列表。
-
 - **版本快照**：更新协调器不会修改已有 Session 的 Agent 快照。
-
 - **资源消耗**：协调器和子智能体分别产生模型与运行资源用量，详情请参见 [Managed Agents 计费说明](https://ark.volcengine.com/region:cn-beijing/docs/model-pricing#ma_billing)。
 
 ## 清理资源
@@ -6358,11 +6108,8 @@ fi
 ## 相关文档
 
 - **定义 Agent**：[Agent](https://ark.volcengine.com/region:cn-beijing/docs/define-agent)
-
 - **Session 事件流**：[Session 事件流](https://ark.volcengine.com/region:cn-beijing/docs/session-event-stream)
-
 - **Tools**：[Tools](https://ark.volcengine.com/region:cn-beijing/docs/tools)
-
 - **管理 Session**：[管理 Session](https://ark.volcengine.com/region:cn-beijing/docs/manage-session)
 
 <a id="doc-2553731"></a>
@@ -6386,9 +6133,7 @@ Outcome 将 Session 从「对话」提升为「工作」：你只需要定义「
 开始前你需要：
 
 - 已创建的 API Key：配置为环境变量 `ARK_API_KEY`，详情请参见 [API Key 管理](https://ark.volcengine.com/region:cn-beijing/apiKey)。
-
 - 已创建的 Agent：详情请参见 [定义 Agent](https://ark.volcengine.com/region:cn-beijing/docs/define-agent)。
-
 - 已创建的 Environment：详情请参见 [配置云环境](https://ark.volcengine.com/region:cn-beijing/docs/configure-cloud-environment)。
 
 本章节示例的 Base URL 与鉴权方式详情请参见 [Base URL 及鉴权](https://ark.volcengine.com/region:cn-beijing/docs/base-url-and-authentication)。
@@ -6396,7 +6141,6 @@ Outcome 将 Session 从「对话」提升为「工作」：你只需要定义「
 在使用 Outcome 之前，你需要：
 
 1. 已经创建好 Agent 和 Environment，并能正常启动 Session。
-
 2. 明确任务的验收标准。
 
 Outcome 通过 Session 事件定义，无需创建专用 Agent。可以直接使用已有 Agent 的 `agent_id` 创建 Session。
@@ -6408,11 +6152,8 @@ Outcome 通过 Session 事件定义，无需创建专用 Agent。可以直接使
 按照以下顺序创建任务并观察评估结果：
 
 1. **创建 Session**：通过 [创建会话](https://ark.volcengine.com/region:cn-beijing/docs/create-session-api) 创建绑定 Agent 和 Environment 的 Session。
-
 2. **订阅事件流**：通过 [流式获取会话事件](https://ark.volcengine.com/region:cn-beijing/docs/stream-events-api) 订阅 Session 事件流，并等待服务端返回 `: ready`。
-
 3. **发送 Outcome 事件**：通过 [发送会话事件](https://ark.volcengine.com/region:cn-beijing/docs/send-event-api) 发送 `user.define_outcome` 事件，定义任务和验收标准。
-
 4. **接收评估结果**：通过 SSE 持续接收 `span.outcome_evaluation_start`、`span.outcome_evaluation_ongoing` 和 `span.outcome_evaluation_end` 事件。
 
 Agent 收到 `user.define_outcome` 事件后会立即开始工作，无需额外发送 `user.message`。
@@ -6459,13 +6200,9 @@ curl "https://ark.cn-beijing.volces.com/api/v3/sessions/$SESSION_ID/events" \
 ![图片](https://arkdocs.tos-cn-beijing.volces.com/flowcharts/managed-agent/outcome-execution-evaluation-revision.svg)
 
 1. 客户端发送 `user.define_outcome` 后，Session 返回 `session.status_running`，Agent 开始执行任务。
-
 2. Agent 生成本轮产出后，Session 返回 `span.outcome_evaluation_start`。评估期间可能多次返回 `span.outcome_evaluation_ongoing`，该事件只表示评估仍在进行。
-
 3. Session 通过 `span.outcome_evaluation_end` 返回本轮评估结果。
-
 4. 如果 `result=needs_revision`，Agent 根据评估反馈修订产出，然后进入下一轮评估；`iteration` 随评估轮次递增。
-
 5. 如果返回其他结果，继续监听至 `session.status_idle`。`max_iterations_reached` 返回后，Agent 还会执行一次收尾。
 
 如何建立和恢复 SSE 连接，请参见 [Session 事件流](https://ark.volcengine.com/region:cn-beijing/docs/session-event-stream)。各事件的字段、取值和关联 ID，请参见 [会话事件结构参考](https://ark.volcengine.com/region:cn-beijing/docs/sessions-events-reference-v2)。
@@ -6474,10 +6211,10 @@ curl "https://ark.cn-beijing.volces.com/api/v3/sessions/$SESSION_ID/events" \
 
 `span.outcome_evaluation_end` 事件中的 `result` 字段表示本轮评估的结论：
 
-| result                   | 含义                             | 后续行为                                                                                         |
-| ------------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------ |
+| result                     | 含义                             | 后续行为                                                                                           |
+| -------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `satisfied`              | 产出物满足所有验收标准           | 继续监听至 `session.status_idle`，然后下载并验证交付物                                           |
-| `needs_revision`         | 产出物未达标，需要修改           | 无需发送新事件；继续监听 Agent 修订和下一轮评估                                                  |
+| `needs_revision`         | 产出物未达标，需要修改           | 无需发送新事件；继续监听 Agent 修订和下一轮评估                                                    |
 | `max_iterations_reached` | 已达到最大迭代次数               | 等待 Agent 完成收尾并进入 `idle`；如产物仍未达标，调整目标、验收标准或迭代次数后启动新的 Outcome |
 | `failed`                 | 任务无法有效评估或存在根本性问题 | 查看 `explanation`，修正任务目标、验收标准或相关依赖后启动新的 Outcome                           |
 | `interrupted`            | 任务被中断                       | 等待 Session 进入 `idle` 后，再决定是否启动新的 Outcome                                          |
@@ -6531,11 +6268,8 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260702070355-xxxxx
 这对于多阶段工作流非常有用，例如：
 
 1. **阶段一**：需求分析
-
 2. **阶段二**：方案设计
-
 3. **阶段三**：编码实现
-
 4. **阶段四**：测试验证
 
 ## 编写验收标准
@@ -6606,11 +6340,8 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260702070355-xxxxx
 Agent 将输出文件写入沙箱内的 `/mnt/session/outputs/` 目录。Session 进入 `idle` 后，产物可能暂时无法通过 Files API 查询。下面的示例从已完成的 `$SESSION_ID` 出发，完成以下操作：
 
 1. 分页查询 `purpose=agent` 的文件。
-
 2. 按文件名选择 `costco_dcf.xlsx`；尚未查询到目标文件时，每 2 秒重试一次，最多重试 10 次。
-
 3. 从文件对象中提取 `download_url` 并下载。
-
 4. 校验服务端返回的文件名与目标名称一致，并确认下载文件非空；任一条件不满足时返回非零状态。
 
 需要将交付物长期保存在自己的 TOS Bucket 时，在创建 Environment 时配置 `config.tos`。未配置时，平台将产物存入方舟公共 TOS，请在平台 TTL 到期前下载所需文件。
@@ -6707,9 +6438,7 @@ printf 'Downloaded %s (%s bytes)\n' "$OUTPUT_PATH" "$(wc -c <"$OUTPUT_PATH")"
 Outcome 的费用包含以下部分：
 
 - **Agent 执行费用**：Agent 每轮迭代产生的模型 Token 费用，按 Agent 配置的模型价格计费。
-
 - **评分器费用**：每轮评估产生的模型 Token 费用，评分器使用独立模型，按对应价格计费。
-
 - **沙箱费用**：Session 运行期间的沙箱资源费用。
 
 具体计费规则请参见 [Managed Agents 计费说明](https://ark.volcengine.com/region:cn-beijing/docs/model-pricing#ma_billing)。

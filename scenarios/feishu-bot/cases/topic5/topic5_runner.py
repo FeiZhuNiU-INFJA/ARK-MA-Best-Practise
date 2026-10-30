@@ -26,6 +26,7 @@ import json
 import logging
 import random
 import re
+import shlex
 import time
 import uuid
 from collections import deque
@@ -108,6 +109,17 @@ _G3_REQUIRED_INPUT_KEYS = {
     "chart_urls",
     "validator_rules",
 }
+
+
+def is_source_repairable_failure(job: PipelineJob) -> bool:
+    """Only n04 Excel-source validation failures may accept a new source."""
+    return (
+        job.status == STATUS_FAILED
+        and job.current_phase == "n04_run_init"
+        and job.failure_scope in ("", "recoverable")
+        and job.retry_strategy == RETRY_STRATEGY_NODE
+        and "excel_source:" in (job.last_error or "")
+    )
 
 
 def _event_contract_text(event: dict) -> str:
@@ -666,6 +678,40 @@ class Topic5Runner:
         """文件挂载完成后，把引用注入 G2 ConfirmedPlan 并自动续跑。"""
         if not job.source_file_id or not job.source_file_mount_path:
             raise Topic5RunnerError("活动明细文件尚未完成挂载")
+        source_replacement = (
+            job.status == STATUS_RUNNING
+            and job.current_phase == "n04_run_init"
+            and job.retry_strategy == RETRY_STRATEGY_NODE
+            and "excel_source:" in (job.last_error or "")
+        )
+        if source_replacement:
+            await self.reply_for_job(
+                job,
+                f"修正版数据文件已挂载：`{job.source_file_name}`。"
+                "正在更新源文件引用并重试校验节点。",
+            )
+            try:
+                resumed = await self.continue_job(
+                    chat_id=job.chat_id,
+                    thread_id=job.topic_thread_id or job.thread_id,
+                    user_open_id=job.user_open_id,
+                )
+                if resumed is None:
+                    raise Topic5RunnerError("未找到待重试的源文件校验任务")
+            except Exception:
+                self._store.mark_failed(
+                    job.job_id,
+                    job.last_error or "excel_source: 修正版启动重试失败",
+                    retry_strategy=RETRY_STRATEGY_NODE,
+                )
+                await self._render_and_patch(
+                    job.job_id,
+                    status=STATUS_FAILED,
+                    error=job.last_error,
+                    force=True,
+                )
+                raise
+            return
         source_note = json.dumps(
             {
                 "source_file": {
@@ -692,15 +738,23 @@ class Topic5Runner:
     ) -> PipelineJob:
         """下载飞书话题里的活动明细 Excel，并挂到对应 MA Session。
 
-        只允许 G2 确认后的 input 阶段上传；同一任务可重传，最后一次成功挂载的
-        唯一 mount_path 会写入 pipeline_jobs，并注入 ConfirmedPlan。
+        允许 G2 确认后的 input 阶段上传；也允许 n04 源 Excel 校验失败后上传
+        修正版。其他失败节点不能换源。同一阶段最后一次成功认领的唯一 mount_path
+        会写入 pipeline_jobs，并注入 ConfirmedPlan。
         """
         job = self._store.get_active_job_by_session_key(
             chat_id, thread_id, user_open_id
         )
         if job is None:
-            raise Topic5RunnerError("当前话题没有可接收数据文件的活跃任务")
-        if job.status != STATUS_WAIT_INPUT:
+            candidate = self._store.get_resumable_job_by_session_key(
+                chat_id, thread_id, user_open_id
+            )
+            if candidate is not None and is_source_repairable_failure(candidate):
+                job = candidate
+        if job is None:
+            raise Topic5RunnerError("当前话题没有可接收数据文件的任务")
+        source_replacement = is_source_repairable_failure(job)
+        if job.status != STATUS_WAIT_INPUT and not source_replacement:
             raise Topic5RunnerError("请先完成 G1 需求确认和 G2 方案确认，再上传活动明细")
         file_name = (resource.file_name or "").strip()
         if not file_name.lower().endswith(".xlsx"):
@@ -750,9 +804,16 @@ class Topic5Runner:
                 file_name,
             )
             raise Topic5RunnerError("Excel 挂载到任务环境失败，请稍后重试") from error
-        self._store.set_source_file(
-            job.job_id, ark_file_id, file_name, mount_path
-        )
+        if source_replacement:
+            claimed = self._store.claim_source_replacement(
+                job.job_id, ark_file_id, file_name, mount_path
+            )
+            if not claimed:
+                raise Topic5RunnerError("任务状态已变化，修正版未触发重试")
+        else:
+            self._store.set_source_file(
+                job.job_id, ark_file_id, file_name, mount_path
+            )
         refreshed = self._store.get_job(job.job_id)
         if refreshed is None:
             raise Topic5RunnerError("文件已挂载，但任务状态读取失败")
@@ -851,6 +912,19 @@ class Topic5Runner:
             if not match:
                 raise Topic5RunnerError("任务缺少可恢复的 durable run 路径")
             task_id, run_id = match.groups()
+            replace_source = ""
+            if (
+                job.current_phase == "n04_run_init"
+                and "excel_source:" in (job.last_error or "")
+                and job.source_file_mount_path
+            ):
+                replace_source = (
+                    "python3 run_pipeline.py replace-source "
+                    "--workspace /workspace/ma-workspaces/projects/topic5 "
+                    f"--task {shlex.quote(task_id)} --run {shlex.quote(run_id)} "
+                    f"--source-name {shlex.quote(job.source_file_name)} "
+                    f"--source-mount {shlex.quote(job.source_file_mount_path)} && "
+                )
             message = (
                 f"[topic5-control] retry_failed node={job.current_phase}\n"
                 "使用下面已验证的恢复包，只重试 durable run 当前失败节点；"
@@ -862,10 +936,11 @@ class Topic5Runner:
                 "rm -rf \"$TARGET\" && mkdir -p \"$TARGET\" && "
                 "unzip -q \"$BUNDLE\" -d \"$TARGET\"\n"
                 "cd \"$TARGET/pipeline-orchestrator\" && "
+                f"{replace_source}"
                 "nohup python3 run_pipeline.py retry "
                 "--dag contracts/pipeline.v0.2.yaml "
                 "--workspace /workspace/ma-workspaces/projects/topic5 "
-                f"--task {task_id} --run {run_id} "
+                f"--task {shlex.quote(task_id)} --run {shlex.quote(run_id)} "
                 f"> /workspace/ma-workspaces/projects/topic5/tasks/{task_id}/"
                 f"runs/{run_id}/retry.log 2>&1 &\n"
                 "校验失败不得执行。"

@@ -290,7 +290,13 @@ def format_review_lines(events: Iterable[HcEvent]) -> list[str]:
             f"{event.hc_kind} · {emoji} {label} · "
             f"{operator} · {resolved_at}"
         )
-        if event.hc_kind == "G1" and event.user_decision == "pass":
+        if event.user_decision in {"reject", "remark"} and event.user_note:
+            note = re.sub(r"\s+", " ", event.user_note).strip()
+            if note:
+                if len(note) > 300:
+                    note = note[:297] + "..."
+                line += f"\n  ↳ **原因**：{note}"
+        elif event.hc_kind == "G1" and event.user_decision == "pass":
             try:
                 requirement = json.loads(event.user_note)
             except (TypeError, ValueError):

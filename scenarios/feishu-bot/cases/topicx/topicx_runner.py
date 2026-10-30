@@ -486,6 +486,19 @@ class TopicxRunner:
                 return
             await self.resume_topic5_job(task, self._topic5_job(task), text or "继续")
             return
+        if (
+            task.status == "failed"
+            and task.scenario == "topic5"
+            and message.resources
+        ):
+            job = await self._topic5_runner.attach_activity_file(
+                chat_id=message.chat_id,
+                thread_id=message.thread_id,
+                user_open_id=message.user_open_id,
+                resource=message.resources[0],
+            )
+            await self._topic5_runner.resume_after_activity_file(job)
+            return
         if task.status in ("stopping", "stopped", "done", "failed", "busy"):
             await self.reply(task, "该任务当前不可继续操作。")
             return

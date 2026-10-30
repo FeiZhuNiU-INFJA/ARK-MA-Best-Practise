@@ -181,6 +181,12 @@ nohup python3 run_pipeline.py retry \
 轮询规则与 start/resume 相同。只有 `run.json.status=failed` 且 `current_node` 对应节点为
 failed 时允许执行；其他状态必须明确拒绝，不得猜测或从头启动。
 
+若该控制消息给出的命令在 `retry` 前包含 `run_pipeline.py replace-source`，说明
+`n04_run_init` 因 `excel_source` 校验失败后用户上传了修正版。必须严格按消息中的命令顺序执行：
+先用新 `source_file` 生成不可变的新版本 `confirmed_plan`，成功后再 retry。不得省略
+`replace-source`，也不得把新文件用于其他失败节点。`replace-source` 自身会再次校验
+`failed + n04_run_init + excel_source`，任一条件不满足都必须停止。
+
 ---
 
 ## 交终态（completed）
