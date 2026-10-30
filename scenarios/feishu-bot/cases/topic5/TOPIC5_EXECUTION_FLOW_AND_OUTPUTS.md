@@ -4,6 +4,8 @@
 > 适用范围：当前 MA 版 Topic5 营销活动复盘报告  
 > 事实源：`ma-resources/io/contracts/pipeline.v0.2.yaml`、`pipeline-orchestrator/handlers.py`、
 > `topic5_runner.py`。若本文与历史方案或客户原始资源包不一致，以当前代码和 DAG 为准。
+>
+> 交互式节点视图：[`topic5_pipeline_overview.html`](./topic5_pipeline_overview.html)
 
 ## 1. 先说明容易产生“出入”的地方
 

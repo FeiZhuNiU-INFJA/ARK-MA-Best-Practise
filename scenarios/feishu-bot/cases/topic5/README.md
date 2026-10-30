@@ -7,6 +7,7 @@ Topic 5 是一个运行在火山方舟 Managed Agents（MA）上的飞书 Bot �
 ## 文档导航
 
 - [当前执行流程与阶段输出（客户核对版）](./TOPIC5_EXECUTION_FLOW_AND_OUTPUTS.md)
+- [Pipeline 交互式全景（节点点击查看输入输出）](./topic5_pipeline_overview.html)
 - [快速调试与完整配置](./TOPIC5_DEBUG_QUICKSTART.md)
 - [客户文件迁移映射](./CUSTOMER_TO_MA_FILE_MAPPING.md)
 - [架构说明（交互式）](./topic5_ma_architecture.html)
