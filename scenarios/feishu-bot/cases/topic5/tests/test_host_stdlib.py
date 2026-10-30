@@ -216,6 +216,41 @@ class PipelineStoreTest(unittest.TestCase):
             got.source_file_mount_path, "topic5_activity_detail_job_1.xlsx"
         )
 
+    def test_source_replacement_claim_is_atomic_and_restricted(self) -> None:
+        job = self.store.create_job(
+            "c", "thread", "u", "s", "full",
+            "/workspace/tasks/task-1/runs/run-1",
+        )
+        self.store.update_phase(job.job_id, "n04_run_init")
+        self.store.mark_failed(
+            job.job_id,
+            "excel_source: 缺少必要列: url",
+            retry_strategy=ps.RETRY_STRATEGY_NODE,
+        )
+        self.assertTrue(self.store.claim_source_replacement(
+            job.job_id, "file-new", "fixed.xlsx", "fixed-123.xlsx"
+        ))
+        self.assertFalse(self.store.claim_source_replacement(
+            job.job_id, "file-loser", "loser.xlsx", "loser-456.xlsx"
+        ))
+        current = self.store.get_job(job.job_id)
+        self.assertEqual(current.status, ps.STATUS_RUNNING)
+        self.assertEqual(current.source_file_id, "file-new")
+        self.assertEqual(current.source_file_mount_path, "fixed-123.xlsx")
+        self.assertEqual(current.retry_strategy, ps.RETRY_STRATEGY_NODE)
+        self.assertIn("excel_source:", current.last_error)
+
+        other = self.store.create_job("c2", "", "u", "s2", "full", "d")
+        self.store.update_phase(other.job_id, "n11_annotate_r2")
+        self.store.mark_failed(
+            other.job_id,
+            "excel_source: synthetic",
+            retry_strategy=ps.RETRY_STRATEGY_NODE,
+        )
+        self.assertFalse(self.store.claim_source_replacement(
+            other.job_id, "file", "fixed.xlsx", "fixed.xlsx"
+        ))
+
     def test_wait_input_job_remains_active_across_lookup_paths(self) -> None:
         job = self.store.create_job("c", "thread", "u", "s", "full", "d")
         self.store.mark_wait_input(job.job_id)
@@ -644,6 +679,24 @@ class ProgressCardTest(unittest.TestCase):
         self.assertIn("v1 · `abcdef123456`", text)
         self.assertNotIn("hidden.xlsx", text)
 
+    def test_rejected_review_displays_user_reason(self) -> None:
+        event = ps.HcEvent(
+            id=3,
+            job_id="job_x",
+            hc_kind="G2",
+            payload={},
+            user_decision="reject",
+            user_note="没有活动明细\n基于当前有限的信息输入进行处理",
+            operator_label="赵修源",
+            resolved_at=1,
+        )
+        text = "\n".join(card.format_review_lines([event]))
+        self.assertIn("G2 · ❌ 打回 · 赵修源", text)
+        self.assertIn(
+            "**原因**：没有活动明细 基于当前有限的信息输入进行处理",
+            text,
+        )
+
     def test_review_limit_preserves_g1(self) -> None:
         lines = ["G1 · snapshot", *[f"G3 · round {i}" for i in range(8)]]
         c = card.build_progress_card(
@@ -957,6 +1010,101 @@ class RunnerFinalResultParsingTest(unittest.TestCase):
         self.assertEqual(
             payload["review_context"]["analysis_plan"]["revision"], 1
         )
+
+    def test_source_repairable_failure_is_strict(self) -> None:
+        base = dict(
+            job_id="job-x",
+            chat_id="c",
+            thread_id="thread",
+            user_open_id="u",
+            ma_session_id="s",
+            mode="full",
+            project_dir="d",
+            status=ps.STATUS_FAILED,
+            current_phase="n04_run_init",
+            failure_scope=ps.FAILURE_SCOPE_RECOVERABLE,
+            retry_strategy=ps.RETRY_STRATEGY_NODE,
+            last_error="excel_source: 缺少必要列: url",
+        )
+        self.assertTrue(
+            self.runner.is_source_repairable_failure(ps.PipelineJob(**base))
+        )
+        self.assertFalse(self.runner.is_source_repairable_failure(
+            ps.PipelineJob(**{**base, "current_phase": "n11_annotate_r2"})
+        ))
+        self.assertFalse(self.runner.is_source_repairable_failure(
+            ps.PipelineJob(**{**base, "last_error": "semantic timeout"})
+        ))
+
+    def test_continue_source_repair_replaces_plan_before_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ps.PipelineStore(str(Path(temp_dir) / "runner.db"))
+            job = store.create_job(
+                "c",
+                "thread",
+                "u",
+                "session-1",
+                "full",
+                "/workspace/ma-workspaces/projects/topic5/tasks/"
+                "task-1/runs/run-1",
+            )
+            store.update_phase(job.job_id, "n04_run_init")
+            store.mark_failed(
+                job.job_id,
+                "excel_source: 缺少必要列: url",
+                retry_strategy=ps.RETRY_STRATEGY_NODE,
+            )
+            self.assertTrue(store.claim_source_replacement(
+                job.job_id,
+                "file-new",
+                "修正版 activity.xlsx",
+                "topic5_activity_detail_fixed.xlsx",
+            ))
+            sent = []
+
+            class Ark:
+                async def get_session(self, _session_id):
+                    return {"status": "idle"}
+
+                async def upload_file(self, name, content_type, data):
+                    self.upload = (name, content_type, len(data))
+                    return "bundle-file"
+
+                async def add_session_file(self, session_id, file_id, mount):
+                    self.mount = (session_id, file_id, mount)
+
+            runner = self.runner.Topic5Runner(
+                Ark(),
+                object(),
+                store,
+                self.runner.Topic5Config("agent", "env"),
+            )
+
+            async def capture_resume(_job, message):
+                sent.append(message)
+
+            runner.resume_job = capture_resume
+            old_resumable = self.runner.is_session_resumable
+            self.runner.is_session_resumable = lambda _status: True
+            try:
+                asyncio.run(runner.continue_job("c", "thread", "u"))
+            finally:
+                self.runner.is_session_resumable = old_resumable
+                store.close()
+
+            self.assertEqual(len(sent), 1)
+            command = sent[0]
+            replace_index = command.index("run_pipeline.py replace-source")
+            retry_index = command.index("run_pipeline.py retry")
+            self.assertLess(replace_index, retry_index)
+            self.assertIn(
+                "--source-mount topic5_activity_detail_fixed.xlsx",
+                command,
+            )
+            self.assertIn(
+                "--source-name '修正版 activity.xlsx'",
+                command,
+            )
 
     def test_tool_result_contract_keeps_exact_hc_payload(self) -> None:
         text = (

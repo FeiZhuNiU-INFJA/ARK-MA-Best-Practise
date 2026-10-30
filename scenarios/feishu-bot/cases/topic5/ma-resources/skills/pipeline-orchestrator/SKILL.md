@@ -6,7 +6,7 @@ description: Run the Topic5 durable report pipeline. Use for starting, resuming 
 # pipeline-orchestrator
 
 Topic5 复盘报告流水线的确定性执行引擎。读取包内 `contracts/pipeline.v0.2.yaml`
-（29 节点 + 治理层），按节点 `handler` 驱动执行、在人工关卡暂停、支持续跑与状态查看。
+（29 节点 + 治理层），按节点 `handler` 驱动执行、在人工关卡暂停、支持续跑、受限换源与状态查看。
 该文件由打包脚本从源码树唯一权威契约注入。归属 **Topic5 专属**，由 coordinator 身份持有。
 
 ## 文件
@@ -34,11 +34,21 @@ python run_pipeline.py start  --dag contracts/pipeline.v0.2.yaml \
 # 遇人工关卡暂停后续跑（默认用占位人工产物）
 python run_pipeline.py resume --dag contracts/pipeline.v0.2.yaml \
   --workspace <ws> --task <task_id> --run <run_id>
+# 仅 n04 的 excel_source 校验失败后，把修正版源写入新版 confirmed_plan
+python run_pipeline.py replace-source --workspace <ws> \
+  --task <task_id> --run <run_id> \
+  --source-name <display.xlsx> --source-mount <mounted-basename.xlsx>
+# 显式重试当前失败节点
+python run_pipeline.py retry --dag contracts/pipeline.v0.2.yaml \
+  --workspace <ws> --task <task_id> --run <run_id>
 # 查看状态
 python run_pipeline.py status --workspace <ws> --task <task_id> --run <run_id>
 ```
 
 遇 `mode: human` 节点（G1/G2/G3/G4 及操作级 HC）会 `awaiting_human` 暂停并打印待办；`resume` 继续。
+`replace-source` 不直接重试；它只在当前 Run 为 `failed`、当前失败节点为 `n04_run_init`
+且失败详情包含 `excel_source:` 时更新源引用并生成新版 `confirmed_plan`。随后必须显式执行
+`retry`。其他节点或其他失败原因禁止换源。
 
 ## 依赖
 

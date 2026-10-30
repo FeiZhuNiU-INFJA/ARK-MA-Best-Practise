@@ -823,6 +823,39 @@ class PipelineStore:
                 (file_id or "", file_name or "", mount_path or "", _now(), job_id),
             )
 
+    def claim_source_replacement(
+        self, job_id: str, file_id: str, file_name: str, mount_path: str
+    ) -> bool:
+        """Atomically install a replacement source and claim its n04 retry."""
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                UPDATE pipeline_jobs
+                SET source_file_id = ?, source_file_name = ?,
+                    source_file_mount_path = ?, status = ?, finished_at = NULL,
+                    updated_at = ?
+                WHERE job_id = ? AND status = ? AND current_phase = ?
+                  AND failure_scope IN ('', ?)
+                  AND retry_strategy = ?
+                  AND last_error LIKE '%excel_source:%'
+                """,
+                (
+                    file_id or "",
+                    file_name or "",
+                    mount_path or "",
+                    STATUS_RUNNING,
+                    _now(),
+                    job_id,
+                    STATUS_FAILED,
+                    "n04_run_init",
+                    FAILURE_SCOPE_RECOVERABLE,
+                    RETRY_STRATEGY_NODE,
+                ),
+            )
+        if cursor.rowcount:
+            self._notify_status(job_id, STATUS_RUNNING)
+        return cursor.rowcount == 1
+
     # ---- hc_events ---------------------------------------------------------
 
     def append_hc_event(

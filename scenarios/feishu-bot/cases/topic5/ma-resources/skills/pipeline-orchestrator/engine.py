@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -361,3 +362,64 @@ def retry_failed(dag: Dag, st: RunState,
     )
     st.save()
     return run(dag, st, ctx)
+
+
+def replace_failed_source(
+    st: RunState,
+    *,
+    source_name: str,
+    source_mount_path: str,
+) -> RunState:
+    """Replace the source pointer for a failed n04 Excel validation only."""
+    if st.status != "failed":
+        raise ValueError(f"run status is {st.status!r}, expected 'failed'")
+    if st.current_node != "n04_run_init":
+        raise ValueError("source replacement is only allowed at n04_run_init")
+    rec = st.node_rec("n04_run_init")
+    if rec.get("status") != "failed":
+        raise ValueError("n04_run_init is not failed")
+    failure = next(
+        (
+            str(item.get("detail") or "")
+            for item in reversed(st.log)
+            if item.get("node") == "n04_run_init"
+            and item.get("event") == "failed"
+        ),
+        "",
+    )
+    if "excel_source:" not in failure:
+        raise ValueError(
+            "source replacement requires an excel_source validation failure"
+        )
+
+    mount_path = str(source_mount_path or "").strip()
+    if (
+        not mount_path
+        or Path(mount_path).name != mount_path
+        or not mount_path.lower().endswith(".xlsx")
+    ):
+        raise ValueError("source mount path must be a basename ending in .xlsx")
+    name = str(source_name or mount_path).strip()
+    if not name or any(char in name for char in ("\x00", "\r", "\n")):
+        raise ValueError("source name is invalid")
+
+    current = st.read_artifact("confirmed_plan")
+    if not isinstance(current, dict) or not current.get("confirmed"):
+        raise ValueError("confirmed_plan is missing or not confirmed")
+    updated = deepcopy(current)
+    updated["source_file"] = {
+        "name": name,
+        "mount_path": mount_path,
+    }
+    next_artifact_version = int(
+        (st.artifacts.get("confirmed_plan") or {}).get("version") or 0
+    ) + 1
+    updated["version"] = f"plan-v{next_artifact_version}"
+    ref = st.write_artifact("confirmed_plan", updated)
+    st.event(
+        "n04_run_init",
+        "source_replaced",
+        f"{ref} mount_path={mount_path}",
+    )
+    st.save()
+    return st

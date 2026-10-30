@@ -58,6 +58,88 @@ class TestCreateRun(unittest.TestCase):
         self.assertTrue((run_dir / "run.json").exists())
 
 
+class TestReplaceFailedSource(unittest.TestCase):
+    def setUp(self):
+        self.ws = tempfile.mkdtemp()
+        self.dag = engine.Dag({
+            "slug": "replace-source-test",
+            "version": "1",
+            "entry": "n04_run_init",
+            "params": {},
+            "nodes": [{
+                "id": "n04_run_init",
+                "handler": "run_init",
+                "inputs": [],
+                "outputs": [],
+                "next": None,
+            }],
+        })
+        self.st = engine.create_run(
+            self.dag, Path(self.ws), "task-source", "run-source"
+        )
+        self.st.write_artifact("confirmed_plan", {
+            "confirmed": True,
+            "version": "plan-v1",
+            "source_file": {
+                "name": "old.xlsx",
+                "mount_path": "old.xlsx",
+            },
+            "subject": {"stable": True},
+        })
+        self.st.status = "failed"
+        self.st.current_node = "n04_run_init"
+        self.st.node_rec("n04_run_init")["status"] = "failed"
+        self.st.event(
+            "n04_run_init",
+            "failed",
+            "excel_source: 缺少必要列: url -> pause",
+        )
+        self.st.save()
+
+    def tearDown(self):
+        shutil.rmtree(self.ws, ignore_errors=True)
+
+    def test_replaces_plan_with_new_immutable_version(self):
+        engine.replace_failed_source(
+            self.st,
+            source_name="fixed.xlsx",
+            source_mount_path="topic5_fixed_123.xlsx",
+        )
+        plan = self.st.read_artifact("confirmed_plan")
+        self.assertEqual(plan["version"], "plan-v2")
+        self.assertEqual(
+            plan["source_file"],
+            {
+                "name": "fixed.xlsx",
+                "mount_path": "topic5_fixed_123.xlsx",
+            },
+        )
+        self.assertEqual(plan["subject"], {"stable": True})
+        self.assertEqual(
+            self.st.artifact_ref("confirmed_plan")["artifact_id"],
+            "confirmed_plan@v2",
+        )
+        self.assertEqual(self.st.status, "failed")
+
+    def test_rejects_non_excel_failure(self):
+        self.st.log[-1]["detail"] = "run_init: runtime resource missing -> pause"
+        with self.assertRaisesRegex(ValueError, "excel_source"):
+            engine.replace_failed_source(
+                self.st,
+                source_name="fixed.xlsx",
+                source_mount_path="fixed.xlsx",
+            )
+
+    def test_rejects_later_failed_node(self):
+        self.st.current_node = "n11_annotate_r2"
+        with self.assertRaisesRegex(ValueError, "n04_run_init"):
+            engine.replace_failed_source(
+                self.st,
+                source_name="fixed.xlsx",
+                source_mount_path="fixed.xlsx",
+            )
+
+
 class TestHumanGateFlow(unittest.TestCase):
     def setUp(self):
         self.ws = tempfile.mkdtemp()

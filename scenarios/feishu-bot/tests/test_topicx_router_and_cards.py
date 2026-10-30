@@ -120,6 +120,44 @@ async def test_topic5_file_followup_attaches_and_resumes_production():
 
 
 @pytest.mark.asyncio
+async def test_topic5_failed_file_followup_can_repair_source():
+    runner = object.__new__(TopicxRunner)
+    calls = []
+    job = SimpleNamespace(source_file_name="fixed.xlsx")
+
+    class Topic5Runner:
+        @staticmethod
+        async def attach_activity_file(**kwargs):
+            calls.append(("attach", kwargs["resource"]))
+            return job
+
+        @staticmethod
+        async def resume_after_activity_file(attached_job):
+            calls.append(("resume", attached_job))
+
+    runner._topic5_runner = Topic5Runner()
+    message = SimpleNamespace(
+        user_open_id="ou-collaborator",
+        chat_id="chat",
+        thread_id="thread",
+        text="",
+        resources=["fixed-xlsx-resource"],
+    )
+    task = SimpleNamespace(
+        user_open_id="ou-owner",
+        status="failed",
+        scenario="topic5",
+    )
+
+    await runner.handle_followup(message, task)
+
+    assert calls == [
+        ("attach", "fixed-xlsx-resource"),
+        ("resume", job),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_topic5_paused_followup_resumes_same_job_with_message():
     runner = object.__new__(TopicxRunner)
     calls = []
