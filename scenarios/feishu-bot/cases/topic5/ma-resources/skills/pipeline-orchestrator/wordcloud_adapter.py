@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -198,6 +199,53 @@ def require(ok, message):
         raise ValueError(message)
 
 
+def quote_choices(post):
+    """Index complete source sentences without rewriting their contents."""
+    choices = []
+    for field in ("text", "title", "ocr_text"):
+        body = post.get(field, "")
+        if not isinstance(body, str):
+            continue
+        for match in re.finditer(r".*?(?:[。！？]+[”’」』]*|\r\n|\r|\n|$)", body, re.S):
+            excerpt = match.group().strip()
+            if excerpt:
+                choices.append({"field": field, "quote_id": f"{field}:{match.start()}",
+                                "excerpt": excerpt})
+    return choices
+
+
+def resolve_quote(fragment, post):
+    """Resolve a selected source ID; retain strict validation for legacy quotes."""
+    field = fragment.get("field")
+    if "quote_id" in fragment:
+        selected = next((choice for choice in quote_choices(post)
+                         if choice["quote_id"] == fragment["quote_id"]
+                         and choice["field"] == field), None)
+        require(selected is not None, "原句编号不存在或不属于指定字段")
+        require(fragment.get("excerpt") in (None, selected["excerpt"]),
+                "原句编号与模型提供的摘录不一致")
+        fragment["excerpt"] = selected["excerpt"]
+    excerpt = fragment.get("excerpt")
+    require(field in ("text", "title", "ocr_text") and isinstance(excerpt, str)
+            and bool(excerpt) and excerpt in post.get(field, ""),
+            "摘录非指定字段连续原文：post_id=" + str(post.get("id", ""))
+            + " field=" + str(field) + " excerpt=" + json.dumps(excerpt, ensure_ascii=False)
+            + "；选择本帖对应字段的原句编号，不拼接/改写。")
+
+
+def validate_terms(topic, words):
+    terms = topic.get("terms")
+    require(isinstance(terms, list) and bool(terms) and all(isinstance(t, str) for t in terms),
+            "terms必须为原词列表")
+    duplicates = sorted({t for t in terms if terms.count(t) > 1})
+    unknown = sorted(set(terms) - words)
+    require(not duplicates and not unknown,
+            "议题「" + str(topic.get("title", "")) + "」代表词重复或不属于完整原词表："
+            + json.dumps({"duplicate_terms": duplicates, "unknown_terms": unknown,
+                          "allowed_terms": sorted(words)}, ensure_ascii=False)
+            + "；terms只能从allowed_terms逐字选择，原帖出现的其他词不能作为代表词。")
+
+
 def validate_topics(data, words, allowed_ids, forbidden):
     topics = data.get("topics")
     require(isinstance(topics, list) and 1 <= len(topics) <= 5, "topics需1–5个有效议题")
@@ -208,14 +256,17 @@ def validate_topics(data, words, allowed_ids, forbidden):
             require(isinstance(topic.get(field), str) and bool(topic[field].strip()), field + "缺失")
         require(not any(term in topic["title"] + topic["interpretation"] for term in forbidden),
                 "命中禁用措辞")
-        terms = topic.get("terms")
-        require(isinstance(terms, list) and bool(terms) and all(isinstance(t, str) for t in terms),
-                "terms必须为原词列表")
-        require(len(terms) == len(set(terms)) and set(terms) <= words, "代表词重复或不属于完整原词表")
+        validate_terms(topic, words)
         ids = topic.get("post_ids", [])
-        require(isinstance(ids, list) and all(isinstance(i, str) for i in ids)
-                and len(ids) == len(set(ids)) and set(ids) <= allowed_ids,
-                "议题引用未读或范围未知原帖：" + str(ids))
+        require(isinstance(ids, list) and all(isinstance(i, str) for i in ids),
+                "post_ids必须为字符串列表")
+        duplicates = sorted({i for i in ids if ids.count(i) > 1})
+        unread = sorted(set(ids) - allowed_ids)
+        require(not duplicates and not unread,
+                "议题「" + topic["title"] + "」引用未读或范围未知原帖："
+                + json.dumps({"duplicate_ids": duplicates, "unread_ids": unread,
+                              "allowed_read_ids": sorted(allowed_ids)}, ensure_ascii=False)
+                + "；引用只能从allowed_read_ids选择，未读帖需先走supplemental_post_ids补读。")
 
 
 def analyze(state, chart, skill_dir, forbidden):
@@ -255,6 +306,9 @@ def analyze(state, chart, skill_dir, forbidden):
         def check_selection(data):
             require(isinstance(data.get("selection_note"), str) and bool(data["selection_note"]), "缺抽样依据")
             require(isinstance(data.get("candidates"), list) and bool(data["candidates"]), "缺候选议题")
+            for candidate in data["candidates"]:
+                require(isinstance(candidate, dict), "候选议题必须为JSON对象")
+                validate_terms(candidate, words)
             ids = data.get("initial_post_ids")
             require(isinstance(ids, list) and bool(ids) and all(isinstance(i, str) for i in ids)
                     and len(ids) == len(set(ids)) and set(ids) <= set(available), "初读ID无效")
@@ -263,6 +317,7 @@ def analyze(state, chart, skill_dir, forbidden):
 先通读完整词表形成候选议题，再按词组检索与内容多样性选择初读原帖。
 每议题参考3–5条，首轮参考15–20条；少样本可更少，不重复凑数。
 相同作者/近似转载/同一事件避免占满，未知互动字段不跨口径排名。
+候选议题terms只选本范围完整输入words中的原词，原帖中的其他词不能加入代表词。
 返回 {"candidates":[{"title":"短标题","terms":["原词"]}],
 "initial_post_ids":["实际ID"],"selection_note":"检索、覆盖、多样性及跳过依据"}。""",
                        check_selection, audit_dir=root / "semantic/candidates")
@@ -285,26 +340,24 @@ def analyze(state, chart, skill_dir, forbidden):
                         require(isinstance(fragments, list) and bool(fragments), "缺关键原句")
                         post = available[entry["post_id"]]
                         for fragment in fragments:
-                            field = fragment.get("field")
-                            excerpt = fragment.get("excerpt")
-                            require(field in ("text", "title", "ocr_text") and isinstance(excerpt, str)
-                                    and bool(excerpt) and excerpt in post.get(field, ""),
-                                    "摘录非指定字段连续原文：post_id=" + entry["post_id"]
-                                    + " field=" + str(field) + " excerpt=" + json.dumps(excerpt, ensure_ascii=False)
-                                    + "；从本帖对应完整字段逐字复制连续原句，保留标点与换行，不拼接/改写。")
+                            resolve_quote(fragment, post)
                             require(isinstance(fragment.get("claim"), str) and bool(fragment["claim"]), "缺claim")
                             require(fragment.get("relation") in ("supports", "contradicts", "qualifies", "context"),
                                     "relation非法")
 
                 reading = ask(SYSTEM, base + "\n候选议题：" + json.dumps(candidates, ensure_ascii=False)
-                              + "\n本批完整原帖字段：\n" + json.dumps(batch, ensure_ascii=False) + """
+                              + "\n本批完整原帖字段与可选原句编号：\n"
+                              + json.dumps([{**post, "quote_choices": quote_choices(post)}
+                                            for post in batch], ensure_ascii=False) + """
 实际读完每条完整正文及必要标题/OCR，判断支持/反驳/限定哪个议题，保留否定与条件。
 选择能直达判断的连续关键原句，禁止默认摘录正文开头，OCR营销宣称不当作体验成效。
 返回 {"read_posts":[{"post_id":"按本批顺序","note":"全文阅读判断与多字段归属复核",
-"evidence":[{"field":"text","excerpt":"连续原句",
+"evidence":[{"field":"text","quote_id":"从本帖quote_choices选择的实际编号",
 "claim":"具体判断","relation":"supports"}]}]}。
 field只能精确为text、title、ocr_text三者之一，relation只能精确为supports、contradicts、qualifies、context之一。
-每帖只选必要的1–3句，逐字复制原字段，不调整标点、不加省略号、不把多个字段拼接；claim写你的分析。""",
+每帖只选必要的1–3句，必须选择本帖quote_choices中对应field的quote_id。
+不要生成excerpt，程序会从原字段复制选中的连续原句；不得自造编号或跨帖/跨字段选择。
+完整正文仍须阅读全文，不限于某个原句；claim写你的分析。""",
                               check_reads, 6144, audit_dir=root / f"semantic/read-{round_index}-{start}")
                 for entry in reading["read_posts"]:
                     reads.append({**entry, "phase": "initial" if round_index == 0 else "supplemental"})
@@ -324,13 +377,16 @@ field只能精确为text、title、ocr_text三者之一，relation只能精确�
                     validate_topics(data, words, read_ids, forbidden)
 
             final = ask(SYSTEM, base + index_text + "\n候选议题：" + json.dumps(candidates, ensure_ascii=False)
-                        + "\n实际全文阅读与关键原句：\n" + json.dumps(reads, ensure_ascii=False) + """
+                        + "\n实际全文阅读与关键原句：\n" + json.dumps(reads, ensure_ascii=False)
+                        + "\n可引用的已读原帖ID白名单：" + json.dumps(sorted(read_ids), ensure_ascii=False) + """
 检查歧义、相反观点及重要判断的单条依据，主动选能挑战初判的内容补读。
 需补读时返回 {"supplemental_post_ids":["未读ID"],"supplemental_reason":"具体原因"}。
 若主要议题已理解且新内容重复则形成最终结果：
 {"topics":[{"title":"短标题","terms":["原词"],"interpretation":"一小段发现",
 "rationale":"词表/背景/原帖依据和反例，内部留存","post_ids":["实际已读ID，可空"]}],
 "stopping_reason":"实际饱和依据与歧义已消除的判断","supplemental_post_ids":[]}。
+terms只能从本范围完整输入words逐字选择；原帖中的其他词可以参与正文分析，但不能加入terms。
+post_ids只能引用已读白名单中的ID且每议题不重复；候选索引中的未读帖必须先补读才能引用。
 不以词频同列声称帖子共现，无匹配原帖的议题可仅依据词表；样本观点不外推总体。""",
                         check_final, 6144, audit_dir=root / f"semantic/final-{round_index}")
             pending = final.get("supplemental_post_ids") or []
@@ -359,13 +415,16 @@ field只能精确为text、title、ocr_text三者之一，relation只能精确�
     # the complete table, known background and the actual field-grounded reading.
     reviewed = ask(SYSTEM, base + "\n待交付议题：\n" + json.dumps(topics, ensure_ascii=False)
                    + "\n实际全文阅读证据（无记录时仅按词表/背景判断）：\n"
-                   + json.dumps(reads, ensure_ascii=False) + """
+                   + json.dumps(reads, ensure_ascii=False)
+                   + "\n可引用的已读原帖ID白名单："
+                   + json.dumps(sorted({r["post_id"] for r in reads}), ensure_ascii=False) + """
 交付前逐议题语义复核并修正：标题中的每个业务判断也必须有依据，不能仅正文谨慎而标题夸大。
 例如只有渠道购买/下单证据，不能命名“囤货”；词频同列不等于同帖共现，不把热门样本变成多数观点。
 标题、正文和内部rationale保持一致；不以词频合计推算议题声量或人群排名。
 OCR包装/商品页只支持归属或页面宣称，不当成用户体验、已验证性能或整体销售效果。
 核对原句支持的具体判断、否定/条件、多字段属于同帖；未核查的营销宣称需准确表述为宣传内容。
 保留能成立的发现，删改没有依据的判断，不强制行动建议，不另加常规限制段落。
+terms仍只能从本范围完整输入words逐字选择；post_ids只选已读白名单且不重复。
 返回 {"topics":[{"title":"短标题","terms":["原词"],"interpretation":"复核后的发现",
 "rationale":"内部证据及判断强度","post_ids":["实际已读ID，可空"]}]}。""",
                    lambda data: validate_topics(data, words, {r["post_id"] for r in reads}, forbidden),
