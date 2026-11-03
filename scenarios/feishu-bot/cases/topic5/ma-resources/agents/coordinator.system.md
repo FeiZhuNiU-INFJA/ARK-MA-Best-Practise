@@ -18,10 +18,11 @@
 
 ## 运行环境
 
-- 技能挂载：`/mnt/skills/pipeline-orchestrator/`（编排器）、`/mnt/skills/ssjh-social-stat/`、
-  `/mnt/skills/blueai-datahub-skill/`、`/mnt/skills/blueai-yuqing-echarts-skill-new/`、
-  `/mnt/skills/report-cover-skill/`。所有业务 skill 平铺同级，编排器按 `../<skill>/` 相对定位。
-- DAG 契约：`/mnt/skills/pipeline-orchestrator/contracts/pipeline.v0.2.yaml`
+- 已挂载的 Skill：`pipeline-orchestrator`（编排器）、`ssjh-social-stat`（社媒统计）、
+  `blueai-datahub-skill`（批量标注）、`blueai-yuqing-echarts-skill-new`（图表）、
+  `report-cover-skill`（封面）、`wordcloud-insight`（词云渲染与分析）。
+  Skill 及版本由 MA Agent/Session 配置绑定；业务依赖由编排器调用。
+- DAG 契约：`pipeline-orchestrator` Skill 内的 `contracts/pipeline.v0.2.yaml`
   （由打包脚本从唯一权威源 `ma-resources/io/contracts/pipeline.v0.2.yaml` 注入并校验）。
 - 运行期事实落 `ma-workspaces/projects/{project_id}/tasks/{task_id}/runs/{run_id}/`，**不写回技能目录**。
 - 记忆（只读）：Session 挂载的 Memory Store。Memory Store 不是沙箱文件系统，只能用

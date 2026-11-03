@@ -183,10 +183,10 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
     <ul>
       <li><b>并行化（本轮）</b>：调度由单指针改为<b>就绪队列(frontier)</b>——<code>next</code> 支持列表(分叉)，
           节点 <code>inputs</code> 全部就绪才可跑(汇合)。三处天然并行如实表达：
-          <code>n04→[n05,n06,n13]</code> 三路数说、<code>n07→[n08,n09]</code>、<code>n13→[n14,n15]</code>；
+          <code>n04→[n05,n06,n13]</code> 三路取数、<code>n07→[n08,n09]</code>；<code>n12/n13→n14→n15→n16</code> 为图表与词云分析依赖链；
           join 节点 <code>n11/n12/n16</code> 在各自上游齐备后才运行。执行仍串行确定性，仅留一处真并发接缝；
           QC 环靠 control 边驱动不受影响。n08/n09b/n15/n16 的 owner 改为对应语义子 Agent
-          （Discovery/Opinion/Insight/Narrative，身份文件见 <code>identity/subagents/</code>）。</li>
+          （Discovery/Opinion/Insight/Narrative 为逻辑职责，由 handler 实现，当前仅注册 Coordinator 与 Validator 两个 MA Agent）。</li>
       <li><b>相对 v0.1 的改进</b>：补回方案确认门 G2（<code>n02_plan→n03_hc_plan</code>）、
           保留操作级 HC 与 QC 循环（<code>n17→n18→n19</code> 回环）、补终验超时升级边
           （<code>n22_user_gate→n_user_escalate</code>）、交付 draft→commit 分离
@@ -194,9 +194,10 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
       <li><b>已迁入</b>：<code>skills/SSJH-Social-Stat/</code>（n05/n06/n13）、<code>skills/blueai-yuqing-echarts-skill-new/</code>（n14 图表）、
           <code>skills/report-cover-skill/</code>（n14 封面）。SSJH / 图像 API 为<b>付费或外部调用</b>，接真须走成本确认门；
           图表为本地 PNG，由 n20 上传飞书 media。</li>
-      <li><b>仍缺依赖</b>：<code>validate_handoff.py / handoff.json</code> — 补齐前 <code>n24</code> 仍只能 stub。</li>
-      <li><b>控制面未上线</b>：Blueflare-Ada 未上线，<code>n04_run_init</code> / <code>n23_delivery_commit</code>
-          以本地 stub 执行，保留接入缝。</li>
+      <li><b>当前输入与交付</b>：G2 后由 Gateway 等待 Excel，默认冻结飞书附件引用与 SHA256，沙箱直读并缓存；n24 按当前 <code>handlers.py</code> 校验交付闭环，不以历史缺依赖说明推断运行状态。</li>
+      <li><b>知识与资源</b>：Memory 当前仅三份记忆，业务知识统一迁移暂缓；字体从仓库外缓存校验后注入 Skill ZIP，运行时无需下载。</li>
+      <li><b>控制面接入边界</b>：<code>n04_run_init</code> / <code>n23_delivery_commit</code>
+          保留 Blueflare-Ada 接入标记，当前本地 handler 已校验冻结输入和交付状态，不是无条件通过的占位逻辑。</li>
       <li><b>可立即接真</b>：<code>n07_clean</code>、<code>n12_aggregate</code>（本地已有脚本，不依赖外部服务）。</li>
     </ul></div>
 
@@ -632,6 +633,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         
       </div>
       <div class="biz"><b>业务背景</b>读取独立品牌大盘和活动各维度完整词表，按平台最多5议题；已有原帖抽样阅读全文并补读消歧，compose校验双图及schema2证据后交付分析。</div>
+      <div class="biz"><b>当前实现约束</b>默认2–4议题，低证据可1个，不强制建议。模型选择quote_id，代码复制原字段片段；原词须精确属于当前范围且无重复，证据帖子必须已读。未知词、重复词、未读帖子及引用冲突给具体反馈后重试，有原帖证据失败必须阻断。</div>
       <div class="grid2">
         <div><b>输入</b><code>wordcloud_data, stats_bundle, chart_urls</code></div>
         <div><b>产出</b><code>wordcloud_insight</code></div>
@@ -642,7 +644,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         <div><b>幂等键</b><code>none</code></div>
       </div>
       <div><b>流转</b><code>→ n16_report</code></div>
-      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>handlers.py · wordcloud_insight</code></li><li><code>stats_bundle.brand + wordcloud_data</code></li></ul></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>handlers.py · wordcloud_insight</code></li><li><code>wordcloud_adapter.py</code></li><li><code>stats_bundle.brand + wordcloud_data</code></li></ul></div>
     </div>
     <div class="card" id="n16_report">
       <div class="card-h">
@@ -736,6 +738,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         
       </div>
       <div class="biz"><b>业务背景</b>P0 必须修复并 patch 版本递增后复检（回到 n17），避免带病交付。</div>
+      <div class="biz"><b>当前实现约束</b>模型修复叙事，代码从统计源重建Top10与代表证据；完整性兼容标题变体并核验字段/行数。结构错误进入节点内下一次尝试，最多3次，通过同源扫描器预检后交独立G3；与DAG qc_max_rounds分开计。</div>
       <div class="grid2">
         <div><b>输入</b><code>qc_report, report_md</code></div>
         <div><b>产出</b><code>report_md</code></div>
@@ -746,7 +749,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         <div><b>幂等键</b><code>none</code></div>
       </div>
       <div><b>流转</b><code>→ n17_validate</code></div>
-      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>KS_Exception_Handling.md</code></li></ul></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>handlers.py · fix_report</code></li><li><code>report_contract.py / REPORT_CONTRACT.md</code></li><li><code>validator_scan.py（打包注入）</code></li></ul></div>
     </div>
     <div class="card" id="n_hc7_escalate">
       <div class="card-h">
@@ -792,7 +795,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         <div><b>输入</b><code>report_md, chart_urls</code></div>
         <div><b>产出</b><code>delivery_draft, external_receipts, feishu_doc, qc_report</code></div>
       </div>
-      <div><b>通过条件</b>内容层→飞书布局层，创建文档并转移所有权；发布后机器检查结果合并回 qc_report</div>
+      <div><b>通过条件</b>内容层→飞书布局层，创建文档并转移所有权或授予并核验full_access协作者权限；回读表格/图片/布局并记录revision_id，发布后机器检查结果合并回qc_report</div>
       <div class="grid2">
         <div><b>副作用</b>feishu-doc-create</div>
         <div><b>幂等键</b><code>feishu:{task_id}:{resource_lock}:{report_artifact_sha256}</code></div>

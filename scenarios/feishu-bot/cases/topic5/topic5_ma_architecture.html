@@ -524,6 +524,7 @@
         <a href="#gates">门禁</a>
         <a href="#ownership">数据与交付</a>
         <a href="#code">代码地图</a>
+        <a href="./topic5_pipeline_overview.html">节点全景</a>
       </nav>
     </div>
   </header>
@@ -531,13 +532,13 @@
   <main>
     <section class="hero">
       <div>
-        <p class="eyebrow">Topicx business package / Topic 5</p>
+        <p class="eyebrow">Topicx business package / Topic 5 · 2026-11-03</p>
         <h1>营销复盘的 Managed Agents 架构</h1>
         <p class="hero-copy">Topicx 提供统一飞书入口与控制面；Topic5 以独立 Business Session 执行。Coordinator 保持轻薄，确定性编排器负责 29 节点 DAG、断点续跑和局部重试，独立 Validator 负责 G3 自动质检。</p>
       </div>
       <div class="facts" aria-label="架构摘要">
         <div class="fact"><strong>2</strong><span>实际注册的 MA Agent<br>Coordinator + Validator</span></div>
-        <div class="fact"><strong>28</strong><span>Durable Workflow 节点<br>从需求到 handoff</span></div>
+        <div class="fact"><strong>29</strong><span>Durable Workflow 节点<br>从需求到 handoff</span></div>
         <div class="fact"><strong>3 + 3</strong><span>固定人工门 + 条件人工门<br>G3 不属于人工门</span></div>
         <div class="fact"><strong>并行</strong><span>以飞书话题隔离任务<br>Topic5 不占用 Topic6 Lease</span></div>
       </div>
@@ -590,6 +591,8 @@
             <button class="component data span-2" data-detail="datahub"><span class="type">Annotation</span><span class="name">DataHub / 小引擎</span><span class="desc">两轮 AI 标注</span></button>
             <button class="component data span-2" data-detail="echarts"><span class="type">Renderer</span><span class="name">ECharts + resvg</span><span class="desc">本地 PNG</span></button>
             <button class="component output span-3" data-detail="delivery"><span class="type">Delivery</span><span class="name">飞书原生文档</span><span class="desc">表格、图片、revision 绑定</span></button>
+            <button class="component data span-6" data-detail="wordcloud"><span class="type">Customer skill</span><span class="name">wordcloud-insight v0.2.6</span><span class="desc">双版词云、全词表议题、原帖证据与 compose</span></button>
+            <button class="component workflow span-6" data-detail="deployment"><span class="type">Resource lifecycle</span><span class="name">字体准备与原地更新</span><span class="desc">仓库外缓存 → SHA256 → ZIP；保留 Agent ID</span></button>
           </div>
         </div>
 
@@ -613,9 +616,9 @@
         <article class="resource"><h3>Coordinator Agent</h3><p>薄前台，不做业务判断、指标计算或报告撰写。</p><ul><li>启动 / resume 编排器</li><li>转发可见 HC</li><li>输出 FINAL_RESULT</li></ul></article>
         <article class="resource"><h3>Validator Agent</h3><p>独立质检身份，只读报告与证据，不修改正文。</p><ul><li>scan_report.py 全量扫描</li><li>全文语义检查</li><li>p0_count == 0 放行</li></ul></article>
         <article class="resource"><h3>Cloud Environment</h3><p>承载 Python、Node 与网络访问能力。</p><ul><li>pandas / openpyxl / httpx</li><li>ECharts + resvg 运行时</li><li>Asia/Shanghai 时区</li></ul></article>
-        <article class="resource"><h3>Read-only Memory</h3><p>跨会话保存规范与经验，不保存运行状态。</p><ul><li>/mnt/memory/topic5/MEMORY.md</li><li>版本状态</li><li>错误案例库</li></ul></article>
+        <article class="resource"><h3>Read-only Memory</h3><p>当前仅三份记忆，完整业务知识迁移暂缓。</p><ul><li>MEMORY.md / _版本状态.md / 错误案例库.md</li><li>Agent 用 memory_ls / memory_read 读取</li><li>脚本语义调用不自动继承 Memory</li><li><a href="./KNOWLEDGE_MEMORY_REQUIREMENT.md">迁移需求（暂缓）</a> · <a href="./KNOWLEDGE_MIGRATION_AUDIT.md">审计</a></li></ul></article>
         <article class="resource"><h3>Vault</h3><p>凭证只通过环境注入，文档和代码不持久化密钥。</p><ul><li>Ark / SSJH / DataHub</li><li>飞书应用凭证</li><li>报告封面服务</li></ul></article>
-        <article class="resource"><h3>Custom Skills</h3><p>能力以版本化 Skill 挂载，部署脚本统一更新。</p><ul><li>pipeline-orchestrator</li><li>SSJH / DataHub / ECharts</li><li>report-cover / validator</li></ul></article>
+        <article class="resource"><h3>Custom Skills</h3><p>共7个 Skill，按 Agent 职责绑定；原地更新后新 Session 生效。</p><ul><li>pipeline-orchestrator</li><li>SSJH / DataHub / ECharts</li><li>wordcloud-insight / report-cover / validator</li><li>字体由缓存校验后注入部署包</li></ul></article>
       </div>
     </section>
 
@@ -655,7 +658,7 @@
         <article class="ownership"><h3>Topicx ControlStore</h3><p>统一入口的控制面事实。</p><ul><li>task_id 与 Router / Business Session 映射</li><li>飞书话题与业务 Job 映射</li><li>Topic5 不使用全局 Lease</li></ul></article>
         <article class="ownership"><h3>Topic5 PipelineStore</h3><p>Host 侧可恢复状态。</p><ul><li>pipeline_jobs</li><li>pipeline_hc_events</li><li>pipeline_receipts</li></ul></article>
         <article class="ownership"><h3>Sandbox Project</h3><p>单次 Run 的业务事实。</p><ul><li>节点 Artifact</li><li>ledger / checkpoint</li><li>qc_report / report_md / handoff</li></ul></article>
-        <article class="ownership"><h3>Memory Store</h3><p>只读的跨会话规范。</p><ul><li>指标口径与版本状态</li><li>历史错误案例</li><li>不保存 Job / HC / OAuth 状态</li></ul></article>
+        <article class="ownership"><h3>Memory Store</h3><p>只读的三份跨会话记忆；尚非完整业务知识源。</p><ul><li>索引、版本状态和历史错误案例</li><li>plan_pack/report_pack 统一迁移待实施</li><li>不保存 Job / HC / OAuth 状态</li></ul></article>
         <article class="ownership"><h3>外部数据源</h3><p>各自保留来源边界。</p><ul><li>Excel：逐帖活动明细</li><li>SSJH：品牌统计、基准期、词云</li><li>DataHub：大批量 AI 标注</li></ul></article>
         <article class="ownership"><h3>飞书交付</h3><p>最终报告使用原生 Docx 能力发布。</p><ul><li>原生表格与图片</li><li>owner transfer + readback</li><li>revision_id 贯穿验证与 handoff</li></ul></article>
       </div>
@@ -704,10 +707,12 @@
       semantic: {kind:"Handlers", title:"语义与确定性节点", role:"Discovery、Opinion、Insight、Narrative 等名称是逻辑职责，不是额外 MA Agent。语义节点经统一模型接口执行，清洗、聚合、门禁和交付由确定性代码约束。", boundary:["减少子 Agent 冷启动与 IPC","指标口径由代码和参数锁定","语义结果必须通过结构校验"]},
       validator: {kind:"Independent MA agent", title:"topic5-validator", role:"G3 由独立身份执行 scan_report.py 机器全检与 Agent 全文语义检查，产出绑定当前 ReportArtifact 的 qc_report。", boundary:["只读报告与证据","不修改正文、不写飞书","p0_count == 0 才能放行","最多 3 轮后进入 HC7"], code:"scenarios/feishu-bot/cases/topic5/ma-resources/agents/validator.system.md"},
       ssjh: {kind:"External data", title:"SSJH Social Stat", role:"n05、n06、n13 分别获取活动期品牌统计、30 天不重叠基准期和各平台词云。", boundary:["与 Excel 逐帖明细来源不同","502 / timeout 时主链阻断","禁止模拟数据降级"]},
-      excel: {kind:"Mounted input", title:"活动明细 Excel", role:"用户通过 G2 后在任务话题上传，Gateway 校验容器并挂入 Session；n07 映射逐帖数据后过滤、去重与派生字段。", boundary:["G2 后未上传时停在 wait_input","demo 清洗后稳定抽样最多 500 条","full 保留全量"]},
+      excel: {kind:"Feishu attachment", title:"活动明细 Excel", role:"G2 后上传；Gateway 校验容器，冻结 message_id/file_key/sha256。excel_source.py 在沙箱直读到 /workspace/topic5_repro_inputs/ 并核对哈希；n04 校验字段和逐行数据，n07 清洗。", boundary:["默认 feishu_resource，避免 Ark Files 配额","续跑复用经校验的缓存","ark_files 与旧 Session 保留旧契约","G2 后未上传时停在 wait_input","demo 最多500条，full全量"], code:"scenarios/feishu-bot/cases/topic5/ma-resources/skills/pipeline-orchestrator/excel_source.py"},
       datahub: {kind:"Annotation", title:"DataHub 与小引擎", role:"n09 / n11 执行情感、相关性、观点、UGC 类别与讨论维度标注。小数据走语义小引擎，大批量可走 DataHub。", boundary:["缺 AI 情感直接报错","N/A 可作为合法标签","覆盖率必须校验"]},
       echarts: {kind:"Renderer", title:"ECharts + resvg", role:"n14 在 MA 沙箱将图表规格渲染为本地 PNG；n20 再通过飞书媒体接口原生上传。", boundary:["空图、全零图、单类别图会被剔除","渲染器缺失时阻断交付","不依赖外部对象存储"]},
-      delivery: {kind:"Delivery", title:"飞书原生文档", role:"报告发布器使用飞书原生结构渲染表格、图片与布局，完成所有权转移、回读和 revision_id 记录。", boundary:["不用 Markdown 表格冒充原生表格","验证与 handoff 绑定同一 revision","G4 只确认具体 revision"]}
+      wordcloud: {kind:"Customer skill", title:"wordcloud-insight v0.2.6", role:"n14 生成1400×880全横排透明/白底词云及 render.json，绘图前100词但保留全词表；n15 通读全词表，抽样全文阅读原帖、补读消歧并 compose。", boundary:["报告默认透明 wordcloud.png，白底版留存","默认2–4议题，最多5个，低证据可1个，不强制建议","模型选择 quote_id，代码复制原字段片段","原词必须属于当前范围且不重复，证据帖子必须已读","具体错误进入重试；有原帖证据失败必须阻断"], code:"scenarios/feishu-bot/cases/topic5/ma-resources/skills/pipeline-orchestrator/wordcloud_adapter.py"},
+      deployment: {kind:"Resource lifecycle", title:"字体准备与原地更新", role:"prepare_fonts.py 下载三份字体到 ~/.cache/topic5-fonts/，SHA256 校验后由 pack_skills.sh 注入对应 ZIP。上传改动 Skill，再原地更新 Agent 绑定；依赖变更原地更新 Environment。", boundary:["ECharts：Source Han Sans SC Regular/Bold","词云：Windows优先微软雅黑粗体，其他系统Noto Sans CJK Bold","运行时无需联网下载字体","Agent/Environment ID不变，Gateway无需重启","新Session使用新版本，已有Session不刷新"], code:"scenarios/feishu-bot/cases/topic5/tools/prepare_fonts.py"},
+      delivery: {kind:"Delivery", title:"飞书原生文档", role:"报告发布器渲染原生表格、图片与布局，转移所有权；受限时授予并核验 full_access 协作者权限，然后回读和记录 revision_id。", boundary:["不用 Markdown 表格冒充原生表格","验证与 handoff 绑定同一 revision","G4 只确认具体 revision","权限失败仍按质检处理"]}
     };
 
     const pipelineStages = [
@@ -723,11 +728,11 @@
       n00:["意图模板","声明 G1 需要的字段，不伪造 demo 默认值。"],
       G1:["G1 · 需求确认","用户确认品牌、周期、平台、关键词与内容范围；无需先上传 Excel。"],
       n02:["方案生成","根据已确认需求生成分析计划与能力预检。"],
-      G2:["G2 · 方案确认","冻结 ConfirmedPlan，之后生产节点以此为依据。"],
-      n04:["运行初始化","建立 Run 工作目录并冻结输入与资源指纹。"],
+      G2:["G2 · 方案确认","通过后进入 Gateway wait_input；附件校验并写入 source_file 后才冻结 ConfirmedPlan。"],
+      n04:["运行初始化","校验冻结附件哈希、表头与逐行数据，建立 Run 并冻结输入与资源指纹。"],
       n05:["活动期品牌取数","通过 SSJH 获取活动期品牌声量与互动统计。"],
       n06:["基准期取数","获取活动开始前 30 天且不重叠的基准数据。"],
-      n07:["活动明细清洗","读取挂载 Excel，按周期过滤、去重并派生平台/KOL 字段。"],
+      n07:["活动明细清洗","读取冻结引用对应、经哈希校验的 Excel，按周期过滤、去重并派生平台/KOL 字段。"],
       n08:["UGC 发现","从清洗数据发现 UGC 主题，输出结构化结果。"],
       n09:["第一轮标注","标注 AI 情感与活动相关性；按数据量选择 DataHub 或小引擎。"],
       n09b:["观点候选","抽取可用于第二轮标注的观点候选标签。"],
@@ -736,13 +741,13 @@
       n12:["指标聚合","严格按白名单计算条均互动、品牌提及率、产品提及占比与 NSR。"],
       n13:["词云取数","按平台独立获取词频数据，不跨平台合并。"],
       n14:["图表渲染","生成 ECharts 图表及客户 wordcloud-insight v0.2.6 双版词云；默认1400×880，报告默认引用透明版，白底版与render.json留存。"],
-      n15:["词云解读","接续n14，通读完整词表，抽样全文阅读已有原帖并补读消歧，最多5议题；compose核验双图、原词及schema2字段证据，有原帖失败时阻断。"],
+      n15:["词云解读","通读完整词表和抽样原帖，补读消歧；模型选quote_id，代码复制原片段。原词精确属于当前范围且无重复，帖子必须已读；错误给具体反馈并重试。有原帖证据失败时阻断。默认2–4议题、最多5个，不强制建议。"],
       n16:["报告撰写","根据统计、图表、词云与观点生成报告正文。"],
       G3:["G3 · Validator 自动门","独立 Validator 检查当前报告；无 P0 自动放行，有 P0 进入返修。"],
       n18:["QC 判定","根据 qc_report 选择交付、返修或超限升级。"],
-      n19:["报告返修","逐项消费 qc_report.issues 修复，并在写入前用同规则预检。"],
+      n19:["报告返修","模型修叙事，代码重建Top10与代表证据。兼容标题变体并核验字段/行数；结构错误反馈到局部重试（最多3次），同源扫描预检后交独立G3。与qc_max_rounds分开计。"],
       HC7:["HC7 · 质检超限","自动返修超过上限后升级人工，但不能直接豁免 P0。"],
-      n20:["飞书交付草稿","发布原生飞书文档，上传图片、转移 owner、回读并记录 revision。"],
+      n20:["飞书交付草稿","发布原生文档，上传图片、转移owner或核验full_access协作者权限，回读并记录revision。"],
       n20g:["发布后质检路由","回读、图片或所有权存在 P0 时自动回到 n19 返修；通过后才进入 G4。"],
       G4:["G4 · 用户终验","用户确认绑定 revision 的最终飞书报告。"],
       n22:["终验判定","通过则落定，拒绝则回到交付修订，异常走 USER_ESCALATE。"],

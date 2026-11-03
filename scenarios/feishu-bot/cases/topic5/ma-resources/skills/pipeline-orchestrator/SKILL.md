@@ -96,6 +96,7 @@ python run_pipeline.py status --workspace <ws> --task <task_id> --run <run_id>
   快照并在后续卡片中持续展示；不要重新生成已确认的标签。
 - 新任务默认动态UGC类别，触发标签人工确认属预期行为。
 - 品牌词云从stats_bundle.brand读取，活动词云从wordcloud_data读取；各活动/维度/平台独立。n14调用wordcloud-insight v0.2.6生成透明/白底PNG及render.json；n15依赖chart_urls，通读全词表、抽样全文阅读已有原帖并按需补读，生成topics.json和schema2 post-review.json后compose。报告默认引用透明图wordcloud.png，保留完整双图与审计文件。不可截词、截正文、自动剔词或把未核验产物当作成功；无原帖正常走词频分析，有原帖失败必须阻断。
+- n15 原句由模型选择 `quote_id`、代码复制原字段片段，拒绝未知/跨字段/冲突引用。候选及最终原词必须精确属于当前范围且无重复，证据帖子须已读，未读先补读；错误反馈列明议题、未知词、重复词、未读帖子与允许集合后重试。默认2–4议题、最多5个，低证据可1个，不强制建议。
 - 飞书交付使用原生Callout和50:50 Grid；缺本地图片直接失败，发布后回读Grid/Column/Callout/表格。
 - N16结构或口径不达标时停止，不整篇降级；N19固定模块由report_contract重新装配并按完整扫描器复检。
 
