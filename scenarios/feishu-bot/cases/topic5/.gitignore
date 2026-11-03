@@ -14,8 +14,12 @@ skills/**/Outputs/
 tools/out/*.zip
 tools/out/*.sha256
 
-# ECharts 中文字体体积约 16 MiB/个，不进入 Git；部署前按 fonts/README.md 本地放置。
-ma-resources/skills/blueai-yuqing-echarts-skill-new/assets/fonts/*.otf
+# 所有 Topic5 字体二进制仅放仓库外缓存，由部署脚本注入临时 Skill 包。
+*.otf
+*.ttf
+*.ttc
+*.woff
+*.woff2
 
 # Python 缓存
 **/__pycache__/

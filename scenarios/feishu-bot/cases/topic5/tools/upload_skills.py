@@ -37,6 +37,7 @@ SKILLS = [
     ("blueai-datahub-skill", "blueai-datahub-skill.zip", "topic5 · DataHub 批量标注(n09/n11)"),
     ("blueai-yuqing-echarts-skill-new", "blueai-yuqing-echarts-skill-new.zip", "topic5 · ECharts 本地 PNG 渲染(n14，飞书 media 交付)"),
     ("report-cover-skill", "report-cover-skill.zip", "topic5 · 报告封面生成"),
+    ("wordcloud-insight", "wordcloud-insight.zip", "topic5 · 完整词云议题分析与双版配图 v0.2.6"),
     ("topic5-validator", "topic5-validator.zip", "topic5 · 报告质检(G3 / n17_validate)"),
 ]
 

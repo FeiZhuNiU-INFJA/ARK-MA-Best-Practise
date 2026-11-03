@@ -25,6 +25,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import wordcloud_adapter
 from typing import Any, Optional
 
 # 图表 / 封面 skill 根目录。节点恢复包会把 pipeline-orchestrator 解压到 /tmp，
@@ -48,6 +49,7 @@ def _resolve_skill_dir(name: str) -> str:
 
 ECHARTS_DIR = _resolve_skill_dir("blueai-yuqing-echarts-skill-new")
 COVER_DIR = _resolve_skill_dir("report-cover-skill")
+WORDCLOUD_DIR = _resolve_skill_dir("wordcloud-insight")
 _RENDER_SCRIPT = os.path.join(ECHARTS_DIR, "scripts", "render_from_spec.js")
 _ECHARTS_NODE_MODULES = os.path.join(ECHARTS_DIR, "scripts", "node_modules")
 
@@ -130,8 +132,8 @@ def _platform_spec(cid: str, stats: dict) -> Optional[dict]:
 
 def _trend_spec(cid: str, stats: dict) -> Optional[dict]:
     """日声量+互动量双序列趋势。"""
-    tr = (stats or {}).get("trend") or {}
-    interaction = (stats or {}).get("interaction_trend") or {}
+    tr = daily_totals((stats or {}).get("trend") or {})
+    interaction = daily_totals((stats or {}).get("interaction_trend") or {})
     pts = sorted(tr.items())
     if len(pts) < 2:
         return None
@@ -144,6 +146,26 @@ def _trend_spec(cid: str, stats: dict) -> Optional[dict]:
                 _series("日互动量", [int(interaction.get(key) or 0) for key in cats]),
             ],
             "source_mode": "native"}
+
+
+def daily_totals(values: dict) -> dict:
+    """Accept date→count and SSJH platform→date→count; sum matching dates."""
+    result = {}
+    for key, value in (values or {}).items():
+        if key == "_total":
+            continue
+        if isinstance(value, dict):
+            for day, count in daily_totals(value).items():
+                result[day] = result.get(day, 0) + count
+        else:
+            day = str(key).replace("-", "")
+            if not re.fullmatch(r"\d{8}", day):
+                raise ValueError(f"趋势日期格式无效: {key}")
+            result[day] = result.get(day, 0) + int(value or 0)
+    # A supplied total series is authoritative; do not add it to platforms.
+    if isinstance((values or {}).get("_total"), dict):
+        return daily_totals(values["_total"])
+    return dict(sorted(result.items()))
 
 
 def _content_spec(cid: str, stats: dict) -> Optional[dict]:
@@ -176,7 +198,7 @@ def _analysis_specs(cid: str, stats: dict) -> list[dict]:
         specs.append({
             "chart_id": f"{cid}_mention_funnel",
             "title": f"活动 {cid}·提及漏斗",
-            "chart_type": "bar",
+            "chart_type": "funnel",
             "categories": cats,
             "series": [_series("声量", vals)],
             "source_mode": "native",
@@ -222,7 +244,7 @@ def _analysis_specs(cid: str, stats: dict) -> list[dict]:
     return specs
 
 
-def _wordcloud_specs(wordcloud_data: dict) -> list[dict]:
+def _wordcloud_specs(wordcloud_data: dict, plan: Optional[dict] = None) -> list[dict]:
     """逐活动、维度、平台生成真实词云规格。"""
     specs = []
     for cid, dimensions in ((wordcloud_data or {}).get("campaigns") or {}).items():
@@ -230,7 +252,14 @@ def _wordcloud_specs(wordcloud_data: dict) -> list[dict]:
             for plat, words in (bundle.get("platforms") or {}).items():
                 if not isinstance(words, dict) or not words:
                     continue
-                top = sorted(words.items(), key=lambda kv: kv[1], reverse=True)[:100]
+                rows = (bundle.get("word_rows") or {}).get(plat)
+                if rows is not None:
+                    if ({r["term"]: r["value"] for r in rows} != words
+                            or len(rows) != len(words)):
+                        raise ValueError("词云原表顺序记录与原始词频不一致")
+                    words = {row["term"]: row["value"] for row in rows}
+                # Skill selects Top100 only at render time; analysis retains all.
+                top = list(words.items())
                 specs.append({
                     "chart_id": f"wordcloud_{_safe(cid)}_{dimension}_{plat}",
                     "title": f"{cid}·{dimension}·{_PLATFORM_LABEL.get(plat, plat)}词云",
@@ -238,13 +267,17 @@ def _wordcloud_specs(wordcloud_data: dict) -> list[dict]:
                     "metric": "词频",
                     "dimension": "关键词",
                     "categories": [word for word, _ in top],
-                    "series": [_series("词频", [int(freq) for _, freq in top])],
+                    "series": [_series("词频", [freq for _, freq in top])],
                     "source_mode": "native",
+                    "wordcloud_input": wordcloud_adapter.input_payload(
+                        cid, dimension, plat, words, plan or {},
+                        bundle.get("metric") or "unknown"),
+                    "wordcloud_scope": {"campaign": cid, "dimension": dimension, "platform": plat},
                 })
     return specs
 
 
-def build_chart_specs(stats_bundle: dict, wordcloud_data: dict) -> list[dict]:
+def build_chart_specs(stats_bundle: dict, wordcloud_data: dict, plan: Optional[dict] = None) -> list[dict]:
     """把统计产物翻译为图表 spec 列表（确定性、无副作用、可单测）。
 
     资格规则（简化自 echarts skill §1/§8）：剔除空图/全零/单值/单类别；多活动逐个出图；
@@ -291,7 +324,12 @@ def build_chart_specs(stats_bundle: dict, wordcloud_data: dict) -> list[dict]:
             ])],
             "source_mode": "native",
         })
-    specs.extend(_wordcloud_specs(wordcloud_data))
+    specs.extend(_wordcloud_specs(wordcloud_data, plan))
+    if brand.get("wordcloud"):
+        specs.extend(_wordcloud_specs({"campaigns": {"brand": {"overall": {
+            "platforms": brand["wordcloud"],
+            "word_rows": brand.get("wordcloud_rows") or {},
+        }}}}, plan))
     return specs
 
 
@@ -323,33 +361,11 @@ def _render_png(spec: dict, out_png: str, width: int = 1200, height: int = 600) 
         raise RuntimeError(f"图表渲染产物为空: {spec.get('chart_id')}")
 
 
-def _render_wordcloud(spec: dict, out_png: str) -> None:
-    try:
-        from wordcloud import WordCloud
-    except ImportError as error:
-        raise RuntimeError("缺少 wordcloud 渲染依赖") from error
-    categories = spec.get("categories") or []
-    values = ((spec.get("series") or [{}])[0].get("values") or [])
-    frequencies = {
-        str(word): float(value)
-        for word, value in zip(categories, values)
-        if float(value or 0) > 0
-    }
-    if not frequencies:
-        raise RuntimeError(f"词云数据为空: {spec.get('chart_id')}")
-    font_path = os.path.join(
-        ECHARTS_DIR, "assets", "fonts", "SourceHanSansSC-Regular.otf"
-    )
-    cloud = WordCloud(
-        width=1200,
-        height=600,
-        background_color=None,
-        mode="RGBA",
-        font_path=font_path if os.path.isfile(font_path) else None,
-        collocations=False,
-        random_state=42,
-    ).generate_from_frequencies(frequencies)
-    cloud.to_file(out_png)
+def _render_wordcloud(spec: dict, out_root: str) -> dict:
+    # Explicit user override is optional. Otherwise use the customer's
+    # platform-specific automatic font order, including packaged Noto Bold.
+    font = os.environ.get("TOPIC5_WORDCLOUD_FONT")
+    return wordcloud_adapter.render(spec, out_root, WORDCLOUD_DIR, font)
 
 
 def _gen_cover(title: str, subtitle: str, out_png: str) -> Optional[str]:
@@ -370,7 +386,7 @@ def _gen_cover(title: str, subtitle: str, out_png: str) -> Optional[str]:
 
 def render_charts(stats_bundle: dict, wordcloud_data: dict, *,
                   project: str, version: str, report_name: str,
-                  outdir: str) -> dict:
+                  outdir: str, plan: Optional[dict] = None) -> dict:
     """真路径：逐张渲染为本地 PNG（落 outdir），封面 best-effort。
 
     图片由飞书交付层（feishu.create_delivery）用 medias/upload_all 上传本地二进制。
@@ -379,17 +395,21 @@ def render_charts(stats_bundle: dict, wordcloud_data: dict, *,
     if not renderer_available():
         raise RuntimeError("图表渲染器不可用（缺 node_modules 或 node）")
 
-    specs = build_chart_specs(stats_bundle, wordcloud_data)
+    specs = build_chart_specs(stats_bundle, wordcloud_data, plan)
     os.makedirs(outdir, exist_ok=True)
     charts_out: list[dict] = []
     for spec in specs:
         png = os.path.join(outdir, f"{spec['chart_id']}.png")
+        wordcloud_artifacts = None
         if spec.get("chart_type") == "wordcloud":
-            _render_wordcloud(spec, png)
+            wordcloud_artifacts = _render_wordcloud(spec, outdir)
+            png = wordcloud_artifacts["transparent_path"]
         else:
             _render_png(spec, png)                # 逐张生成 + 自检
         charts_out.append({"chart_id": spec["chart_id"], "title": spec["title"],
                            "chart_type": spec["chart_type"], "local_path": png,
+                           "spec": spec,
+                           **({"wordcloud_artifacts": wordcloud_artifacts} if wordcloud_artifacts else {}),
                            "url": None, "source_mode": spec.get("source_mode")})
 
     cover = {"local_path": None, "url": None, "degraded": True}

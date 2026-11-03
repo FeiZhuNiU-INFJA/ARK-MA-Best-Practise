@@ -120,20 +120,173 @@ class TestFeishuAdapter(unittest.TestCase):
             "table": {"cells": ["c1", "c2", "c3", "c4"]},
         }]
         calls = []
+        paragraphs = {f"c{i}": [f"p{i}"] for i in range(1, 5)}
+        contents = {f"p{i}": "" for i in range(1, 5)}
 
         def fake_req(method, path, token, body=None, timeout=30):
             calls.append((method, path, body))
+            block_id = path.split("/blocks/")[1].split("/")[0]
+            if method == "GET":
+                return {"block": {"block_id": block_id, "block_type": 32,
+                                  "children": paragraphs[block_id]}}
+            if method == "PATCH" and "update_text_elements" in body:
+                contents[block_id] = "".join(
+                    e["text_run"]["content"]
+                    for e in body["update_text_elements"]["elements"])
+            if method == "POST":
+                paragraphs[block_id].insert(0, "extra")
             return {}
 
         with patch("feishu._req", side_effect=fake_req):
             filled = feishu._fill_tables("token", "doc", submitted, created)
 
         self.assertEqual(filled, 1)
-        self.assertEqual(len(calls), 4)
-        self.assertEqual([
-            call[2]["children"][0]["text"]["elements"][0]["text_run"]["content"]
-            for call in calls
-        ], ["指标", "数值", "声量", "42"])
+        self.assertEqual(list(contents.values()), ["指标", "数值", "声量", "42"])
+        self.assertTrue(all(len(children) == 1 for children in paragraphs.values()))
+        self.assertFalse(any(method == "POST" for method, _, _ in calls))
+
+    def test_funnel_grid_ratio_reaches_publish_request(self):
+        for title, expected in (
+            ("活动二级关联漏斗", [55, 45]),
+            ("活动三级提及漏斗", [55, 45]),
+            ("整体情感分布", [50, 50]),
+        ):
+            with self.subTest(title=title):
+                blocks = feishu.layout_blocks([
+                    {"block_type": 27, "image": {}, "_alt": title},
+                    feishu._table_block([["层级", "数量"]]),
+                ])
+                seen = []
+
+                def fake_req(method, path, token, body=None, timeout=30):
+                    seen.append((method, path, body))
+                    if method == "POST":
+                        return {"children": [
+                            {**block, "block_id": f"b-{len(seen)}-{i}",
+                             **({"children": ["left", "right"]}
+                                if block["block_type"] == 24 else {})}
+                            for i, block in enumerate(body["children"])
+                        ]}
+                    if method == "GET":
+                        return {"block": {"children": ["paragraph"]}}
+                    return {}
+
+                # No table cells are needed to verify the real grid PATCH.
+                blocks[0]["_columns"][1] = [feishu._text_block("数据")]
+                with patch("feishu._req", side_effect=fake_req):
+                    feishu._publish_blocks("token", "doc", blocks)
+                ratios = [body["update_grid_column_width_ratio"]["width_ratios"]
+                          for _, _, body in seen
+                          if body and "update_grid_column_width_ratio" in body]
+                self.assertEqual(ratios, [expected])
+
+    def test_write_table_cell_removes_only_empty_trailing_paragraphs(self):
+        calls = []
+
+        def fake_req(method, path, token, body=None, timeout=30):
+            calls.append((method, path, body))
+            if method == "GET":
+                if path.endswith("/cell"):
+                    return {"block": {"children": ["content", "blank"]}}
+                return {"block": feishu._text_block("")}
+            return {}
+
+        with patch("feishu._req", side_effect=fake_req):
+            feishu._write_table_cell("token", "doc", "cell", "**42**")
+        writes = [(method, path, body) for method, path, body in calls if method != "GET"]
+        self.assertEqual(writes[0][0:2], (
+            "PATCH", "/open-apis/docx/v1/documents/doc/blocks/content"))
+        element = writes[0][2]["update_text_elements"]["elements"][0]["text_run"]
+        self.assertEqual(element["content"], "42")
+        self.assertTrue(element["text_element_style"]["bold"])
+        self.assertEqual(writes[1], (
+            "DELETE", "/open-apis/docx/v1/documents/doc/blocks/cell/children/batch_delete",
+            {"start_index": 1, "end_index": 2}))
+
+    def test_write_table_cell_keeps_required_empty_paragraph(self):
+        with patch("feishu._req", side_effect=[
+            {"block": {"children": ["paragraph"]}}, {},
+        ]) as request:
+            feishu._write_table_cell("token", "doc", "cell", "")
+        self.assertEqual(request.call_args.args[0], "PATCH")
+        self.assertEqual(request.call_args.args[3], {
+            "update_text_elements": {"elements": [{"text_run": {"content": ""}}]}})
+
+    def test_write_table_cell_refuses_extra_nonempty_content(self):
+        with patch("feishu._req", side_effect=[
+            {"block": {"children": ["content", "extra"]}},
+            {"block": feishu._text_block("用户补充说明")},
+        ]) as request:
+            with self.assertRaisesRegex(RuntimeError, "额外非空内容"):
+                feishu._write_table_cell("token", "doc", "cell", "42")
+        self.assertTrue(all(call.args[0] == "GET" for call in request.call_args_list))
+
+    def test_table_widths_follow_body_and_grid_container(self):
+        metric = feishu._table_block([["指标", "数值"], ["活动相关条数", "6329"]])
+        opinion = feishu._table_block([
+            ["排名", "观点标签", "条数", "占比", "代表原文"],
+            ["1", "产品体验", "42", "12%", "真实饮用体验与口味反馈"],
+        ])
+        blocks = [metric, feishu._grid(
+            [feishu._text_block("漏斗图")], [opinion], (55, 45))]
+        width_updates = {}
+
+        def fake_req(method, path, token, body=None, timeout=30):
+            if method == "POST":
+                created = []
+                for index, block in enumerate(body["children"]):
+                    block_id = f"{path}-{index}"
+                    got = {**block, "block_id": block_id}
+                    if block["block_type"] == 31:
+                        prop = block["table"]["property"]
+                        got["table"] = {**block["table"], "cells": [
+                            f"cell-{i}" for i in range(prop["row_size"] * prop["column_size"])]}
+                    if block["block_type"] == 24:
+                        got["children"] = ["left", "right"]
+                    created.append(got)
+                return {"children": created}
+            if method == "GET":
+                return {"block": {"children": ["paragraph"]}}
+            prop = (body or {}).get("update_table_property")
+            if prop:
+                width_updates.setdefault(path, {})[prop["column_index"]] = prop["column_width"]
+            return {}
+
+        with patch("feishu._req", side_effect=fake_req):
+            feishu._publish_blocks("token", "doc", blocks)
+        widths = [list(columns.values()) for columns in width_updates.values()]
+        self.assertEqual(len(widths), 2)
+        self.assertEqual(sum(widths[0]), 800)
+        self.assertEqual(sum(widths[1]), round((800 - 24) * 0.45))
+        self.assertGreater(widths[1][-1], widths[1][0])
+        self.assertTrue(all(width >= 50 for table in widths for width in table))
+
+    def test_table_layout_readback_rejects_default_widths_and_extra_paragraphs(self):
+        source = [feishu._table_block([["指标", "数值"]])]
+        widths = feishu._table_column_widths(source[0]["_table_rows"], 800)
+        items = [
+            {"block_id": "doc", "block_type": 1, "children": ["table"]},
+            {"block_id": "table", "block_type": 31, "children": ["c1", "c2"],
+             "table": {"property": {"column_width": widths}}},
+            {"block_id": "c1", "block_type": 32, "children": ["p1"]},
+            {"block_id": "c2", "block_type": 32, "children": ["p2"]},
+            {"block_id": "p1", **feishu._text_block("指标")},
+            {"block_id": "p2", **feishu._text_block("数值")},
+        ]
+        self.assertTrue(feishu._table_layout_check(items, source)["ok"])
+        items[1]["table"]["property"]["column_width"] = [100, 100]
+        self.assertFalse(feishu._table_layout_check(items, source)["ok"])
+        items[1]["table"]["property"]["column_width"] = widths
+        items[2]["children"].append("blank")
+        items.append({"block_id": "blank", **feishu._text_block("")})
+        result = feishu._table_layout_check(items, source)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["invalid_cells"], ["c1"])
+
+    def test_many_columns_keep_minimum_readable_width(self):
+        widths = feishu._table_column_widths([["排名"] * 10], 300)
+        self.assertEqual(widths, [50] * 10)
+        self.assertEqual(feishu._table_column_widths([], 800), [])
 
     def test_fallback_deterministic_token(self):
         a = feishu.fallback(_REPORT_MD, title="t", task_id="t5", report_version="0.0")
@@ -302,13 +455,13 @@ class TestFeishuAdapter(unittest.TestCase):
             if method == "GET" and "/blocks" in path:
                 # 回读：返回两个 heading、一个 image block。
                 return {"items": [
-                    {"block_type": 3, "heading1": {"elements": [
+                    {"block_id": "read-heading-1", "block_type": 3, "heading1": {"elements": [
                         {"text_run": {"content": "立白复盘"}}]}},
-                    {"block_type": 4, "heading2": {"elements": [
+                    {"block_id": "read-heading-2", "block_type": 4, "heading2": {"elements": [
                         {"text_run": {"content": "活动传播"}}]}},
-                    {"block_type": 4, "heading2": {"elements": [
+                    {"block_id": "read-heading-3", "block_type": 4, "heading2": {"elements": [
                         {"text_run": {"content": "经验总结"}}]}},
-                    {"block_type": 27, "image": {}},
+                    {"block_id": "read-image", "block_type": 27, "image": {}},
                 ]}
             return {}
 
@@ -785,6 +938,39 @@ class TestValidator(unittest.TestCase):
         self.assertTrue(qc["has_p0"])
         self.assertTrue(any(i["id"].startswith("P0-aggregate") for i in qc["issues"]))
 
+    def test_single_campaign_total_is_not_cross_campaign_aggregation(self):
+        stats = {"campaigns": {"测试活动": {}}}
+        qc = validator.validate_report(
+            {"markdown": _REPORT_MD + "\n本次活动总声量 6317 条。\n"}, stats=stats)
+        self.assertFalse(any(i["id"].startswith("P0-aggregate") for i in qc["issues"]))
+        for text, data in (
+            ("多活动合计声量 10000 条。", {"campaigns": {"A": {}, "B": {}}}),
+            ("品牌与活动相加的总声量 10000 条。", stats),
+        ):
+            with self.subTest(text=text):
+                qc = validator.validate_report({"markdown": _REPORT_MD + "\n" + text}, stats=data)
+                self.assertTrue(any(i["id"].startswith("P0-aggregate") for i in qc["issues"]))
+
+    def test_phone_privacy_distinguishes_alphanumeric_post_hash(self):
+        qc = validator.validate_report(
+            {"markdown": _REPORT_MD + "\n[原文](https://www.xiaohongshu.com/explore/a13000000001b)\n"})
+        self.assertFalse(any(i["id"].startswith("P0-privacy-phone") for i in qc["issues"]))
+        for text in ("联系人：13000000001", "https://example.com/?phone=13000000001"):
+            with self.subTest(text=text):
+                qc = validator.validate_report({"markdown": _REPORT_MD + "\n" + text})
+                self.assertTrue(any(i["id"].startswith("P0-privacy-phone") for i in qc["issues"]))
+
+    def test_small_sample_only_applies_to_presented_dimension_nsr(self):
+        stats = {"campaigns": {"测试活动": {
+            "dimension_nsr": {"口感": {"sample_size": 19}, "功能": {"sample_size": 5}}}}}
+        qc = validator.validate_report(
+            {"markdown": _REPORT_MD + "\n口感反馈较好，功能话题主要讨论试饮。\n"}, stats=stats)
+        self.assertFalse(any(i["id"].startswith("P0-small-sample") for i in qc["issues"]))
+        for text in ("口感 NSR 为 0.9。", "| 维度 | NSR |\n| --- | --- |\n| 口感 | 0.9 |"):
+            with self.subTest(text=text):
+                qc = validator.validate_report({"markdown": _REPORT_MD + "\n" + text}, stats=stats)
+                self.assertTrue(any(i["id"].startswith("P0-small-sample") for i in qc["issues"]))
+
     def test_raw_json_and_internal_fields_are_p0(self):
         bad = (
             _REPORT_MD
@@ -880,7 +1066,7 @@ class TestValidator(unittest.TestCase):
             }
         }
         qc = validator.validate_report(
-            {"markdown": _REPORT_MD + "\n口感表现较好。\n"},
+            {"markdown": _REPORT_MD + "\n口感 NSR 为 0.9。\n"},
             stats=stats,
         )
         self.assertTrue(any(

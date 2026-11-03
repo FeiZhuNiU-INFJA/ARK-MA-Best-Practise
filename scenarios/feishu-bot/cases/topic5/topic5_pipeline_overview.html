@@ -295,7 +295,7 @@ flowchart TD
     subgraph sgAgg ["I · 统计聚合 + 图表"]
       n12_aggregate["n12 分对象统计聚合<br/>aggregate"]:::code
       n14_charts["n14 图表 + 封面本地 PNG<br/>charts_render"]:::tool
-      n15_wordcloud_insight["n15 词云三步解读<br/>wordcloud_insight"]:::agent
+      n15_wordcloud_insight["n15 全词表议题 + 原帖阅读 + compose<br/>wordcloud_insight"]:::agent
     end
 
     subgraph sgReport ["J · 报告撰写"]
@@ -340,9 +340,8 @@ flowchart TD
     n10_hc_opinion -->|"N10 确认"| n11_annotate_r2
     n11_annotate_r2 --> n12_aggregate
     n13_wordcloud_pull --> n14_charts
-    n13_wordcloud_pull --> n15_wordcloud_insight
     n12_aggregate --> n14_charts
-    n14_charts --> n16_report
+    n14_charts --> n15_wordcloud_insight
     n15_wordcloud_insight --> n16_report
     n16_report --> n17_validate
     n17_validate -->|"G3 质检"| n18_qc_gate
@@ -575,7 +574,7 @@ flowchart TD
       tags: ['<span class="tag tool">tool</span>', '<span class="tag">owner: tool-gateway</span>', '<span class="tag">module: wordcloud_topics</span>'],
       desc: "逐活动拉整体 / 品牌 / 产品词云。",
       content:
-        sec("职责", `<p>SSJH 逐活动拉词云。随后 <b>fan-out</b> 两路：图表（n14）与解读（n15）。</p>`) +
+        sec("职责", `<p>SSJH 逐活动拉完整词表与原始原帖。随后 n14 生成双版词云，再由 n15 分析并 compose。</p>`) +
         io("<code>confirmed_plan</code>", "<code>wordcloud_data</code>（<code>{platform: cloud_word}</code>）") +
         sec("关键约束", `<p>retry max=2，on_fail=<code>exception_bypass</code>。</p>
            <p class="note">口径修订（2026-10-21）：竞品 SOV 已下线；<b>缺平台不再跨平台合并</b>，各平台独立。</p>`)
@@ -585,18 +584,18 @@ flowchart TD
       tags: ['<span class="tag tool">tool</span>', '<span class="tag">owner: tool-gateway</span>', '<span class="tag">handler: charts_render</span>'],
       desc: "按规范产全部图表 + 封面为本地 PNG，交付时经飞书 media 原生插图。",
       content:
-        sec("职责", `<p>join <code>stats_bundle</code> + <code>wordcloud_data</code>。<code>build_chart_specs</code> 产 echarts spec（剔空图/全零/单类别）；<code>render_charts</code> 逐张沙箱 resvg 渲染为本地 PNG + 封面，由 n20 经飞书 <code>medias/upload_all</code> 原生插图。</p>`) +
-        io("<code>stats_bundle</code> · <code>wordcloud_data</code>", "<code>chart_urls</code>（含每张 local_path）") +
-        sec("关键约束", `<p>side_effect=chart-render；幂等键 <code>chart-render:{task_id}:{resource_lock}</code>；retry max=2。</p>
+        sec("职责", `<p>join <code>stats_bundle</code> + <code>wordcloud_data</code>。ECharts渲染常规图表，客户 wordcloud-insight v0.2.6渲染1400×880横排词云及双版PNG，保留render.json与完整原词表；n15接着分析与compose，n20默认上传透明图。</p>`) +
+        io("<code>stats_bundle</code> · <code>wordcloud_data</code> · <code>confirmed_plan</code>", "<code>chart_urls</code>（含每张 local_path与词云双版记录）") +
+        sec("关键约束", `<p>side_effect=chart-render；幂等键 <code>chart-render:wordcloud-v0.2.6:{task_id}:{resource_lock}</code>；retry max=2。</p>
            <p class="note">真渲染需 <code>node_modules</code>（Environment setup_script 沙箱内安装）。缺渲染器时 handler fail-closed，禁止无图交付；图片由飞书 media API 原生上传。</p>`)
     },
     n15_wordcloud_insight: {
-      title: "n15 · 词云三步解读",
+      title: "n15 · 全词表议题、原帖阅读与图文组装",
       tags: ['<span class="tag">agent · 语义</span>', '<span class="tag">owner: InsightSubagent</span>', '<span class="tag">handler: wordcloud_insight</span>'],
-      desc: "逐词查帖 → 剔噪音 → 聚 3-5 议题。",
+      desc: "通读全词表 → 可选原帖全文阅读/补读 → 最多5议题 → compose校验双图和schema2证据。",
       content:
         sec("职责", `<p>语义 handler：各平台各维独立解读，产出议题。</p>`) +
-        io("<code>wordcloud_data</code>", "<code>wordcloud_insight</code>") +
+        io("<code>wordcloud_data</code> · <code>stats_bundle</code> · <code>chart_urls</code>", "<code>wordcloud_insight</code>（含分析/预览/审计文件）") +
         sec("关键约束", `<p class="note">各平台词云<b>独立解读，禁止跨平台合并</b>。</p>`)
     },
     n16_report: {

@@ -26,6 +26,7 @@ import annotate as annotate_mod
 import excel_source
 import feishu
 import validator as validator_mod
+import report_contract
 
 # ── 业务口径常量（源：飞书 wiki 活动复盘口径 + knowledge/_字段速查.md）────────
 # 指标命名白名单：活动层只允许这些指标名；禁用“人均/转化率/性价比”等无数据支撑说法。
@@ -420,6 +421,8 @@ def _campaign_stats(rows: list[dict], brand_words: list[str], product_words: lis
         },
         "content_type_dist": content_dist,
         "ugc_category_dist": ugc_dist,
+        "opinion_analysis": report_contract.opinion_analysis(rows, _row_sentiment),
+        "ugc_analysis": report_contract.ugc_analysis(rows),
         "dimension_nsr": dimension_nsr,
         "top_content": {
             "pgc": sorted(
@@ -430,7 +433,7 @@ def _campaign_stats(rows: list[dict], brand_words: list[str], product_words: lis
                 ],
                 key=lambda row: int(row.get("interaction_cnt") or 0),
                 reverse=True,
-            )[:6],
+            )[:10],
             "ugc": sorted(
                 [
                     row for row in rows
@@ -542,7 +545,9 @@ def aggregate(node, state, ctx):
             "trend": brand_period.get("volume_trend") or {},
             "interaction_trend": brand_period.get("interaction_trend") or {},
             "wordcloud": brand_period.get("cloud_word") or {},
+            "wordcloud_rows": brand_period.get("_wordcloud_tables") or {},
             "hot_content": brand_period.get("articles") or {},
+            "top_content": report_contract.top_content(_iter_ssjh_rows(brand_period)),
             "degraded": bool(brand_period.get("degraded")),
         },
         "campaigns": per_campaign,
@@ -761,12 +766,14 @@ def ssjh_pull(node, state, ctx):
                 campaign_result[dimension] = {
                     "query": query,
                     "platforms": result.get("cloud_word") or {},
+                    "word_rows": result.get("_wordcloud_tables") or {},
+                    "raw_source": result,
                     "evidence_rows": [
                         {
                             "id": row.get("id") or row.get("item_id"),
                             "platform": row.get("_platform") or row.get("site_name"),
                             "title": row.get("title"),
-                            "content": str(row.get("content") or "")[:300],
+                            "content": str(row.get("content") or ""),
                             "url": row.get("url"),
                         }
                         for row in _iter_ssjh_rows(result)[:100]
@@ -916,13 +923,10 @@ def charts_render(node, state, ctx):
     """图表 + 封面渲染为本地 PNG（n14_charts）。
 
     消费 stats_bundle + wordcloud_data，产 chart_urls（含逐张 local_path + 封面）。
-    图表选题/数据绑定为确定性（charts.build_chart_specs）；真路径逐张渲染 PNG 到
-    run_dir/charts（供飞书交付层上传 media），逐张生成逐张自检；无 node_modules / node /
-    渲染失败降级到确定性占位（出口 schema 与真路径一致，带 degraded=True，local_path=None，
-    保留 spec 便于后续补渲染）。COS 已从链路移除——图片经飞书 medias/upload_all 原生上传。
-
-    side_effect=chart-render、idempotency=chart-render:{task_id}:{resource_lock}、retry max2 on_fail=pause
-    由引擎统一处理：本 handler 只需保证返回 chart_urls 且不因缺渲染器抛异常（避免 pause）。
+    图表规格确定性生成；ECharts渲染常规图表，wordcloud-insight v0.2.6
+    渲染透明/白底双图及render.json（使用完整原表输入）。词云输出目录每次新建，
+    chart_urls保留双图和范围记录供n15 compose，local_path默认引用透明图供飞书原生media。
+    缺依赖或任一图失败必须抛错，由引擎重试/暂停，禁止无图交付。
     """
     stats = state.read_artifact("stats_bundle") or {}
     wc = state.read_artifact("wordcloud_data") or {}
@@ -938,7 +942,7 @@ def charts_render(node, state, ctx):
             try:
                 return charts.render_charts(
                     stats, wc, project=project, version=version,
-                    report_name=report_name, outdir=outdir)
+                    report_name=report_name, outdir=outdir, plan=plan)
             except Exception as error:
                 result = charts.fallback(
                     stats, wc, project=project, version=version,
@@ -969,7 +973,7 @@ def feishu_export(node, state, ctx):
 
 
 # ── agent 节点（语义，接真：Ark Chat + 确定性降级）─────────────
-# 固定四类（params.ugc_category_mode=fixed_four，默认）：活动复盘 UGC 参与方式标准四类。
+# 旧固定四类仅作为显式兼容选项；默认按真实UGC动态发现。
 _UGC_FIXED_FOUR = ["模仿打卡", "创意改编", "测评分享", "自发安利"]
 
 
@@ -1007,8 +1011,8 @@ def ugc_discovery(node, state, ctx):
     """UGC 参与方式发现。
 
     口径（knowledge/_字段速查 + params）：
-      - ugc_category_mode=fixed_four（默认）→ 锁定标准四类，不调模型。
-      - dynamic → 从活动相关内容样本语义聚类出参与方式类别；无凭据降级到四类。
+      - dynamic（默认）→ 从UGC内容样本发现参与方式；经标签关卡确认。
+      - fixed_four 为显式兼容选项；无语义能力直接报错，不生成固定类别兜底。
     输出 schema 固定：{mode, categories[], degraded?, source}
     """
     plan = state.read_artifact("confirmed_plan") or {}
@@ -1029,14 +1033,26 @@ def ugc_discovery(node, state, ctx):
             "reason": "content_scope=pgc; UGC participation module disabled",
         }}}
 
-    mode = state.params.get("ugc_category_mode", "fixed_four")
+    mode = state.params.get("ugc_category_mode", "dynamic")
     if mode == "fixed_four":
         return {"artifacts": {"ugc_category_list": {
             "mode": mode, "categories": list(_UGC_FIXED_FOUR), "source": "fixed"}}}
 
     cleaned = state.read_artifact("cleaned_data") or {}
     rows = cleaned.get("rows") if isinstance(cleaned, dict) else None
-    samples = _sample_texts(rows or [])
+    ugc_rows = [
+        row for row in (rows or [])
+        if str(row.get("content_mode") or "").upper() == "UGC"
+    ]
+    if rows and not ugc_rows and all(
+        str(row.get("content_mode") or "").upper() in ("PGC", "UKN", "未知")
+        for row in rows
+    ):
+        return {"artifacts": {"ugc_category_list": {
+            "mode": "not_applicable", "categories": [], "source": "cleaned_data",
+            "not_applicable": True, "reason": "清洗后无UGC内容",
+        }}}
+    samples = _sample_texts(ugc_rows)
     if not semantic.llm_available() or not samples:
         raise RuntimeError("ugc_discovery: 动态类别发现能力不可用")
 
@@ -1050,7 +1066,8 @@ def ugc_discovery(node, state, ctx):
         if not cats:
             raise ValueError("模型未返回类别")
         return {"artifacts": {"ugc_category_list": {
-            "mode": mode, "categories": cats[:6], "source": "llm"}}}
+            "mode": mode, "categories": cats[:6], "source": "llm",
+            "evidence_count": len(ugc_rows)}}}
     except Exception:
         raise
 
@@ -1154,195 +1171,41 @@ def opinion_policy_gate(node, state, ctx):
 
 @handler("wordcloud_insight")
 def wordcloud_insight(node, state, ctx):
-    """Resolve each word against source posts, remove noise, then cluster topics."""
+    """Complete the customer's full-table analysis and grounded composition."""
+    import wordcloud_adapter
     wc = state.read_artifact("wordcloud_data") or {}
-    campaigns = wc.get("campaigns") if isinstance(wc, dict) else None
-    if not semantic.llm_available() or not campaigns:
-        raise RuntimeError("wordcloud_insight: 缺少可核查词云或语义能力")
-
-    sys_p = ("你是内容议题分析师。对给定平台的词云高频词做三步解读：剔除噪音词，把相关词"
-             "聚成恰好 3 个简洁议题，每个议题给名称、关键词、用户行为/市场含义和行动建议。"
-             "words 必须逐字选自给定词云高频词；每个结论必须引用给定帖子的短引用 "
-             "E01/E02 等，禁止改写或编造引用；不要跨活动、维度或平台合并。只输出 JSON，格式 "
-             "{\"noise_words\":[],\"topics\":[{\"topic\":\"\",\"words\":[],"
-             "\"evidence_refs\":[],\"insight\":\"\",\"action\":\"\"}]}。")
-    out: dict[str, dict] = {}
-    degraded = False
-    failures: list[dict] = []
-    for cid, dimensions in campaigns.items():
-        out[cid] = {}
-        for dimension, bundle in (dimensions or {}).items():
+    stats = state.read_artifact("stats_bundle") or {}
+    chart_bundle = state.read_artifact("chart_urls") or {}
+    if not semantic.llm_available():
+        raise RuntimeError("wordcloud_insight: 缺少语义能力")
+    expected = {
+        spec["chart_id"]: spec for spec in charts.build_chart_specs(stats, wc, state.read_artifact("confirmed_plan") or {})
+        if spec["chart_type"] == "wordcloud"
+    }
+    rendered = {
+        chart["chart_id"]: chart for chart in chart_bundle.get("charts", [])
+        if chart.get("chart_type") == "wordcloud"
+    }
+    if not expected or set(rendered) != set(expected):
+        raise RuntimeError("wordcloud_insight: n14 词云范围不完整，禁止跳过分析")
+    out = {}
+    for chart in rendered.values():
+        spec = chart.get("spec") or chart
+        if spec.get("wordcloud_input") != expected[chart["chart_id"]]["wordcloud_input"]:
+            raise RuntimeError("wordcloud_insight: n14 输入与当前词表/方案不一致")
+        scope = (chart.get("wordcloud_artifacts") or {}).get("scope") or {}
+        cid, dimension, platform = (scope.get("campaign"), scope.get("dimension"), scope.get("platform"))
+        if not all((cid, dimension, platform)):
+            raise RuntimeError("wordcloud_insight: 缺少 n14 新 Skill 范围记录")
+        result = wordcloud_adapter.analyze(state, chart, charts.WORDCLOUD_DIR, FORBIDDEN_METRIC_TERMS)
+        out.setdefault(cid, {}).setdefault(dimension, {"platforms": {}})["platforms"][platform] = result
+    for cid, dimensions in (wc.get("campaigns") or {}).items():
+        for dimension, bundle in dimensions.items():
             if bundle.get("not_applicable"):
-                out[cid][dimension] = {"not_applicable": True, "platforms": {}}
-                continue
-            evidence = bundle.get("evidence_rows") or []
-            platform_words = bundle.get("platforms") or {}
-            out[cid][dimension] = {"platforms": {}}
-            for platform, frequency in platform_words.items():
-                words = (
-                    list(frequency.keys())
-                    if isinstance(frequency, dict) else list(frequency or [])
-                )
-                posts = [
-                    row for row in evidence
-                    if str(row.get("platform") or "") in (str(platform), "")
-                ]
-                if not words or not posts:
-                    degraded = True
-                    failures.append({
-                        "campaign": cid,
-                        "dimension": dimension,
-                        "platform": platform,
-                        "status": "insufficient_evidence",
-                        "word_count": len(words),
-                        "post_count": len(posts),
-                    })
-                    out[cid][dimension]["platforms"][platform] = {
-                        "topics": [],
-                        "status": "insufficient_evidence",
-                    }
-                    continue
-                # Keep this semantic request bounded. Source posts can contain full
-                # social articles; sending dozens verbatim caused repeated 180s
-                # model timeouts without improving the evidence contract.
-                prompt_posts = posts[:6]
-                evidence_ref_map = {
-                    f"E{index:02d}": str(row.get("id"))
-                    for index, row in enumerate(prompt_posts, 1)
-                    if row.get("id") is not None
-                }
-                prompt_evidence = [
-                    {
-                        "ref": f"E{index:02d}",
-                        "title": str(row.get("title") or "")[:80],
-                        "content": str(row.get("content") or "")[:180],
-                    }
-                    for index, row in enumerate(prompt_posts, 1)
-                ]
-                prompt_words = words[:16]
-                user_p = (
-                    f"活动：{cid}\n维度：{dimension}\n平台：{platform}\n"
-                    f"词云高频词：{'、'.join(prompt_words)}\n"
-                    "代表帖子（只能引用 ref）：\n"
-                    + json.dumps(prompt_evidence, ensure_ascii=False)
-                )
-                try:
-                    data = semantic.chat_json(
-                        sys_p,
-                        user_p,
-                        max_tokens=768,
-                        retries=1,
-                        thinking="disabled",
-                    )
-                    valid_ids = set(evidence_ref_map.values())
-                    allowed_words = {
-                        str(word).strip().casefold()
-                        for word in prompt_words
-                        if str(word).strip()
-                    }
-                    topics = []
-                    invalid_reasons = []
-                    for topic in (data.get("topics") or [])[:5]:
-                        if not isinstance(topic, dict):
-                            invalid_reasons.append("topic_not_object")
-                            continue
-                        evidence_refs = {
-                            str(value).strip().upper()
-                            for value in (topic.get("evidence_refs") or [])
-                            if str(value).strip()
-                        }
-                        evidence_ids = {
-                            evidence_ref_map[value]
-                            for value in evidence_refs
-                            if value in evidence_ref_map
-                        }
-                        # Backward compatibility for exact immutable IDs.
-                        evidence_ids.update(
-                            str(value)
-                            for value in (topic.get("evidence_ids") or [])
-                            if str(value) in valid_ids
-                        )
-                        topic_words = [
-                            str(value).strip()
-                            for value in (topic.get("words") or [])
-                            if str(value).strip()
-                        ]
-                        unknown_refs = sorted(
-                            value for value in evidence_refs
-                            if value not in evidence_ref_map
-                        )
-                        unsupported_words = [
-                            value for value in topic_words
-                            if value.casefold() not in allowed_words
-                        ]
-                        supported_words = [
-                            value for value in topic_words
-                            if value.casefold() in allowed_words
-                        ]
-                        if not evidence_ids or unknown_refs or not supported_words:
-                            invalid_reasons.append({
-                                "topic": topic.get("topic"),
-                                "unknown_evidence_refs": unknown_refs,
-                                "unsupported_words": unsupported_words,
-                            })
-                            continue
-                        topic = {
-                            **topic,
-                            "words": supported_words,
-                            "evidence_ids": sorted(evidence_ids),
-                        }
-                        if unsupported_words:
-                            topic["dropped_unsupported_words"] = unsupported_words
-                        topic.pop("evidence_refs", None)
-                        topics.append(topic)
-                    if not topics:
-                        degraded = True
-                        failures.append({
-                            "campaign": cid,
-                            "dimension": dimension,
-                            "platform": platform,
-                            "status": "invalid_evidence",
-                            "reasons": invalid_reasons[:3],
-                        })
-                        out[cid][dimension]["platforms"][platform] = {
-                            "topics": topics,
-                            "noise_words": data.get("noise_words") or [],
-                            "evidence_count": len(posts),
-                            "status": "invalid_evidence",
-                            "invalid_reasons": invalid_reasons,
-                        }
-                        continue
-                    out[cid][dimension]["platforms"][platform] = {
-                        "topics": topics,
-                        "noise_words": data.get("noise_words") or [],
-                        "evidence_count": len(posts),
-                        "status": "ok",
-                        **(
-                            {"discarded_topics": invalid_reasons}
-                            if invalid_reasons else {}
-                        ),
-                    }
-                except Exception as error:
-                    degraded = True
-                    failures.append({
-                        "campaign": cid,
-                        "dimension": dimension,
-                        "platform": platform,
-                        "status": "semantic_failure",
-                        "error": f"{type(error).__name__}: {error}"[:300],
-                    })
-                    out[cid][dimension]["platforms"][platform] = {
-                        "topics": [],
-                        "status": "semantic_failure",
-                    }
-    if degraded:
-        raise RuntimeError(
-            "wordcloud_insight: 逐词查帖证据或语义解读不完整；"
-            + json.dumps(failures[:5], ensure_ascii=False)
-        )
+                out.setdefault(cid, {})[dimension] = {"not_applicable": True, "platforms": {}}
     return {"artifacts": {"wordcloud_insight": {
-        "campaigns": out, "source": "llm" if not degraded else "mixed",
-        **({"degraded": True} if degraded else {})}}}
+        "brand": out.pop("brand", {}), "campaigns": out,
+        "source": "wordcloud-insight-v0.2.6", "complete": True}}}
 
 
 def _report_evidence(stats: dict) -> dict:
@@ -1359,9 +1222,14 @@ def _report_evidence(stats: dict) -> dict:
         for key, item in value.items():
             if key.startswith("_") and key != "_total":
                 continue
-            if key in {"source", "articles", "content", "raw", "keywords"}:
+            if key in {"source", "articles", "raw", "keywords", "hot_content"}:
                 continue
-            if key in {"author", "author_id", "user_id", "nickname", "account_name"}:
+            if key in {"author_id", "user_id", "nickname", "account_name"}:
+                continue
+            if key == "author" and (anonymous or str(value.get("content_mode") or "").upper() != "PGC"):
+                continue
+            if key == "content":
+                result[key] = report_contract.excerpt(value)
                 continue
             result[key] = compact(item, anonymous=anonymous or key == "ugc")
         return result
@@ -1416,6 +1284,14 @@ def write_report(node, state, ctx):
         "明确写出总体量、实际样本量、demo 抽样及“仅供参考、不代表全量结论”，不得把样本统计"
         "外推成全量活动结论。\n"
         "只输出 Markdown 正文。")
+    sys_p += (
+        "\n必需证据规范：品牌和活动分别使用自己的词云，不得混用。活动口碑依据 opinion_analysis "
+        "给出正负观点TOP5、各自情感方向全部内容为分母的占比、每观点2-3条代表原文；"
+        "UGC依据 ugc_analysis 逐类写占比、代表内容与基于样本的质量解读。"
+        "PGC和UGC热门内容分别Top10，不得截短或丢无标题正文，字段以给定top_content为准。"
+        "数据说明列出平台、周期、分析对象、关键词、过滤词，区分品牌监测聚合和活动Excel来源。"
+    )
+    sys_p += "\n\n" + (Path(__file__).parent / "REPORT_CONTRACT.md").read_text(encoding="utf-8")
     user_p = ("统计数据(stats_bundle)：\n" + json.dumps(_report_evidence(stats), ensure_ascii=False)
               + "\n\n词云议题(wordcloud_insight)：\n"
               + json.dumps(wc_insight, ensure_ascii=False)
@@ -1424,7 +1300,7 @@ def write_report(node, state, ctx):
               + "\n\n冻结需求：\n"
               + json.dumps(state.read_artifact("confirmed_plan") or {}, ensure_ascii=False))
     try:
-        md = semantic.chat(sys_p, user_p, max_tokens=8192)
+        md = semantic.chat(sys_p, user_p, max_tokens=16384)
         if not md.strip():
             raise ValueError("模型返回空报告")
         md, removed_sentences = _strip_forbidden_sentences(md)
@@ -1436,17 +1312,13 @@ def write_report(node, state, ctx):
                 md, list((stats.get("campaigns") or {}).keys())
             )
         except ValueError as error:
-            guardrail_reason = str(error)
-            md = _fallback_report_md(
-                stats, charts, wc_insight, chapters, version
-            )
-            md, fallback_removed = _strip_forbidden_sentences(md)
-            removed_sentences.extend(fallback_removed)
-            _assert_no_forbidden_terms(md)
-            _assert_report_structure(
-                md, list((stats.get("campaigns") or {}).keys())
-            )
-            source = "deterministic_guardrail"
+            raise ValueError(f"write_report: 报告未达结构或口径要求，禁止整篇降级替换: {error}") from error
+        md = report_contract.assemble(
+            md, plan=state.read_artifact("confirmed_plan") or {}, stats=stats,
+            charts=charts, insight=wc_insight,
+        )
+        _assert_no_forbidden_terms(md)
+        _assert_report_structure(md, list((stats.get("campaigns") or {}).keys()))
         return {"artifacts": {"report_md": {
             "markdown": md,
             "chapters": chapters,
@@ -1464,12 +1336,7 @@ def write_report(node, state, ctx):
 
 @handler("fix_report")
 def fix_report(node, state, ctx):
-    """P0 修复（patch 递增后复检）。
-
-    读 qc_report 的 P0 问题与当前 report_md，语义修复后版本递增。
-    无凭据降级：在报告追加“修复记录”并递增版本（保持可复检）。
-    输出 schema 与 write_report 一致：{markdown, chapters, version, fixed_round, source, degraded?}
-    """
+    """修订完整报告；代码重建证据模块，结构/P0错误最多返修三次。"""
     state.counters["qc_rounds"] = state.counters.get("qc_rounds", 0) + 1
     state.counters["report_patch"] = state.counters.get("report_patch", 0) + 1
     version = f"0.{state.counters['report_patch']}"
@@ -1491,14 +1358,23 @@ def fix_report(node, state, ctx):
     stats = state.read_artifact("stats_bundle") or {}
     charts_payload = state.read_artifact("chart_urls") or {}
     requirement = state.read_artifact("requirement_confirmed") or {}
+    assembly_args = {
+        "plan": state.read_artifact("confirmed_plan") or {}, "stats": stats,
+        "charts": charts_payload, "insight": state.read_artifact("wordcloud_insight") or {},
+    }
+    # Compare the same canonical structure on both sides, including old reports
+    # whose generated Top10 modules used nested Markdown headings.
+    canonical_previous = report_contract.assemble(prev_md, **assembly_args)
     sys_p = (
         "你是报告质检修复人。逐项关闭给定质检问题后输出完整 Markdown。"
         "每个 P0 都必须根据 id/title/evidence/locus 修复，不能只概括处理；保持未涉及章节和图表不变。"
+        "保留所有编号章节；Top10表格及证据模块由代码按统计产物重建，不得改动其中数据。"
         "修订结果会立即由与独立 Validator 相同的确定性 scan_report 规则预检，仍有 P0 会在当前"
         "返修节点继续要求修改。口径不变：指标白名单、只讲提及不讲转化、数字不得编造。"
         "小样本披露可使用“样本不足”“样本量不足”“样本数不足”“样本量<30”等明确措辞，"
         "并且必须靠近对应维度名称，同时不得输出确定性结论。只输出修订后的完整 Markdown。"
     )
+    sys_p += "\n\n" + (Path(__file__).parent / "REPORT_CONTRACT.md").read_text(encoding="utf-8")
 
     def build_user_prompt(current_md: str, current_issues: list) -> str:
         return (
@@ -1516,7 +1392,7 @@ def fix_report(node, state, ctx):
             + json.dumps(state.read_artifact("confirmed_plan") or {}, ensure_ascii=False)
         )
 
-    current_md = prev_md
+    current_md = canonical_previous
     current_issues = list(issues)
     last_preflight: dict = {}
     try:
@@ -1526,24 +1402,28 @@ def fix_report(node, state, ctx):
                 build_user_prompt(current_md, current_issues),
                 max_tokens=16384,
             )
-            if not md.strip():
-                raise ValueError("模型返回空修订")
-            md, removed_sentences = _strip_forbidden_sentences(md)
-            _assert_no_forbidden_terms(md)
-            _assert_report_structure(
-                md,
-                list((stats.get("campaigns") or {}).keys()),
-            )
-            previous_headings = [
-                line.strip()
-                for line in prev_md.splitlines()
-                if line.lstrip().startswith("##")
-            ]
-            missing_headings = [heading for heading in previous_headings if heading not in md]
-            if missing_headings:
-                raise ValueError(
-                    "fix_report: 修订丢失原有章节: " + ", ".join(missing_headings)
+            try:
+                if not md.strip():
+                    raise ValueError("模型返回空修订")
+                md, removed_sentences = _strip_forbidden_sentences(md)
+                md = report_contract.assemble(md, **assembly_args)
+                _assert_no_forbidden_terms(md)
+                _assert_report_structure(
+                    md, list((stats.get("campaigns") or {}).keys()),
                 )
+                report_contract.assert_preserved_structure(canonical_previous, md)
+                report_contract.assert_hot_tables(md, stats)
+            except ValueError as error:
+                # Keep the last valid full document. Never feed a truncated or
+                # structurally invalid replacement forward as the new baseline.
+                issue = {
+                    "id": "P0-repair-structure", "severity": "P0",
+                    "title": "返修结构或证据完整性未通过",
+                    "evidence": str(error), "locus": "report_md",
+                }
+                current_issues = list(issues) + [issue]
+                last_preflight = {"issues": [issue], "scan_mode": "structure"}
+                continue
             last_preflight = validator_mod.validate_report(
                 {"markdown": md, "degraded": False},
                 requirement=requirement,
@@ -1581,6 +1461,8 @@ def fix_report(node, state, ctx):
         raise ValueError(
             "fix_report: 3 次节点内返修后仍有确定性 P0: "
             + ", ".join(remaining_ids)
+            + "; 具体问题: "
+            + _issue_text(last_preflight.get("issues") or [])
         )
     except Exception:
         raise
@@ -1979,9 +1861,9 @@ def plan_compile(node, state, ctx):
         "wordcloud_topics": {
             "inputs": ["queries", "period", "platforms"],
             "data_source": "controlled-stat-tool",
-            "route": "SSJH-Social-Stat + Insight handler",
+            "route": "SSJH-Social-Stat → wordcloud-insight v0.2.6 render → full-table Insight handler + compose",
             "outputs": ["wordcloud_data", "wordcloud_insight"],
-            "failure_strategy": "missing platform is explicit; never merge other platforms",
+            "failure_strategy": "invalid table/render/provided-post evidence fails closed; optional absent posts use frequency analysis; never merge platforms",
         },
         "top_content": {
             "inputs": ["activity rows with URL/content/interaction"],
@@ -2238,8 +2120,8 @@ def plan_compile(node, state, ctx):
         "concurrency": [
             ["brand_period_pull", "brand_baseline_pull", "wordcloud_pull"],
             ["ugc_discovery", "round1_annotation"],
-            ["chart_render", "wordcloud_insight"],
         ],
+        "dependencies": [["chart_render", "wordcloud_insight", "report_write"]],
         "retry_and_timeout": {
             "external_unknown": "reconcile-before-retry",
             "side_effects": "idempotency key required",
@@ -2342,6 +2224,9 @@ def run_init(node, state, ctx):
         "rules-implementation": combined_fingerprint([
             Path(__file__),
             Path(__file__).resolve().parent / "acceptance.py",
+            Path(__file__).resolve().parent / "charts.py",
+            Path(__file__).resolve().parent / "wordcloud_adapter.py",
+            Path(__file__).resolve().parent / "ssjh.py",
         ]),
         "coordinator-agent": combined_fingerprint([
             runtime_resources / "agents" / "coordinator.json",
@@ -2377,6 +2262,14 @@ def run_init(node, state, ctx):
         "report-cover-skill": resource_fingerprint(
             skills_root / "report-cover-skill" / "scripts" / "generate_cover_gpt.py"
         ),
+        "wordcloud-insight": combined_fingerprint([
+            Path(charts.WORDCLOUD_DIR) / "SKILL.md",
+            Path(charts.WORDCLOUD_DIR) / "scripts" / "wordcloud_insight.py",
+            Path(charts.WORDCLOUD_DIR) / "scripts" / "post_evidence.py",
+            Path(charts.WORDCLOUD_DIR) / "scripts" / "field_source.py",
+            Path(os.environ.get("TOPIC5_WORDCLOUD_FONT") or str(
+                Path(charts.WORDCLOUD_DIR) / "assets/fonts/NotoSansCJK-Bold.ttc")),
+        ]),
         "feishu-delivery-tool": resource_fingerprint(
             Path(__file__).resolve().parent / "feishu.py"
         ),
@@ -2502,6 +2395,12 @@ def delivery_draft(node, state, ctx):
             ),
             "locus": "feishu-docx",
         })
+    if readback.get("layout_complete") is False:
+        post_publish_issues.append({
+            "id": "P0-postpublish-layout", "severity": "P0",
+            "title": "飞书Grid/Callout/表格布局回读不完整",
+            "evidence": str(readback.get("layout_counts") or {}), "locus": "feishu-docx",
+        })
     if not ownership_transferred:
         ownership_error = str(
             feishu_doc.get("ownership_error") or "unknown ownership error"
@@ -2539,15 +2438,13 @@ def delivery_draft(node, state, ctx):
     )
     post_publish_validation = {
         "validator": "topic5-validator",
-        "rules_version": "topic5-validator-qc-v1.6",
+        "rules_version": "topic5-validator-qc-v1.7",
         "scope": "post_publish",
         "issues": post_publish_issues,
         "p0_count": post_publish_p0_count,
         "has_p0": post_publish_p0_count > 0,
-        "manual_checks": [
-            "5.2 传播概况 grid", "5.3 词云 grid", "5.4 口碑观点 grid",
-            "5.6 callout 类型与视觉",
-        ],
+        "layout_counts": readback.get("layout_counts") or {},
+        "manual_checks": ["图表文字可读性、移动端视觉和议题表达质量"],
     }
     prior_qc = state.read_artifact("qc_report") or {}
     prior_issues = (

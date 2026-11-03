@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import feishu
+from excel_source import normalize_source_file
 # 人工关卡 node_id → HC 种类（供卡片展示 / resume --hc 定位）。
 NODE_TO_HC = {
     "n01_hc_requirement": "G1",
@@ -208,10 +209,7 @@ def _parse_source_file(note: str) -> dict:
     mount_path = str(source["mount_path"])
     if Path(mount_path).name != mount_path or not mount_path.lower().endswith(".xlsx"):
         raise ValueError("G2 source_file.mount_path 非法")
-    return {
-        "name": str(source.get("name") or mount_path),
-        "mount_path": mount_path,
-    }
+    return normalize_source_file(source)
 
 
 def build_human_outputs(

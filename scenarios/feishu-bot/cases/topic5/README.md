@@ -4,6 +4,22 @@ Topic 5 是一个运行在火山方舟 Managed Agents（MA）上的飞书 Bot �
 
 架构采用**薄 Agent + Durable Workflow**：飞书前台 Agent 只负责「启动 / 抛人工关卡 / 续跑 / 交终态」四件事，所有业务编排与 LLM 语义调用都沉淀到沙箱内的确定性编排器（`pipeline-orchestrator`），由它驱动 29 节点 DAG，天然支持幂等重放、局部重试和冷进程续跑。
 
+## 保持Agent ID的资源更新
+
+已有部署在代码或提示词调整后，可依次打包、上传改动Skill，再执行
+`tools/update_agents_in_place.py`。它使用`ma-resources/created_ids.json`定位现有
+Coordinator/Validator，带当前版本原地更新并回读校验。支持`--dry-run`只读预检。
+凭据从当前shell环境读取；不删除Agent，不更新Environment或Memory Store，不重启Gateway。
+Agent ID不变，因此新建Session直接使用更新后的版本；已有Session不自动刷新。
+
+N19所需完整Validator扫描器由`pack_skills.sh`从权威源码注入编排包。
+
+Topic5 三份字体统一由 `tools/prepare_fonts.py` 管理：ECharts 使用 Source Han Sans SC
+Regular/Bold 2.004R，词云使用 Noto Sans CJK Bold。字体只保存在仓库外缓存和临时部署目录；
+`pack_skills.sh` 校验 SHA-256 后加入对应 Skill ZIP，`upload_skills.py` 随包上传 MA，
+运行时无需下载。`update_ma.sh` 的单测也使用相同流程准备临时字体资源。
+旧`update_ma.sh`仍是全量重建入口，其Agent ID变化及Gateway重启要求只适用于该旧入口。
+
 ## 文档导航
 
 - [当前执行流程与阶段输出（客户核对版）](./TOPIC5_EXECUTION_FLOW_AND_OUTPUTS.md)
@@ -49,7 +65,16 @@ Bot 会基于触发消息创建独立话题，按以下顺序推进：
 1. 在 G1 卡片填写并提交品牌、活动周期、平台、取数关键词、产品关键词和内容范围；
 2. 审核并通过 G2 分析与执行方案；
 3. 在同一话题发送活动明细 `.xlsx` 文件；
-4. 收到“数据文件已挂载”回执后，任务自动进入生产 Run。
+4. 收到“数据文件已校验”回执后，任务自动进入生产 Run。
+
+活动 Excel 默认直接从飞书附件下载到 MA 沙箱，避免依赖方舟 Files 存储配额。
+Gateway 先下载并校验文件容器，持久化原消息引用与 SHA256；流水线再下载同一附件，
+校验哈希后缓存到 `/workspace/topic5_repro_inputs/`，重试与续跑复用经校验的缓存。
+G1 需求 JSON 默认随控制消息原样传入，也不使用 Files 上传。沙箱仍需具备
+`FEISHU_APP_ID/FEISHU_APP_SECRET`（或可用用户 token）。
+可在 Gateway 环境设置 `TOPIC5_INPUT_TRANSPORT=ark_files` 恢复旧输入上传/挂载方式；
+默认值为 `feishu_resource`。Coordinator v6 起新建 Session 使用直读；
+旧 Session 按其冻结的技能版本继续使用旧输入契约。
 
 Excel 是 n07 活动明细清洗的输入；n05/n06/n13 的品牌活动期、基准期和词云仍由
 `SSJH-Social-Stat` 获取。验收时固定出现 **G1 / G2 / G4** 用户确认；N10 仅在标签有歧义时出现；
@@ -84,6 +109,9 @@ Topic 5 只注册 **2 个 MA Agent**（遵循「避免过度拆分子 Agent」�
 | `blueai-datahub-skill`             | n09/n11 DataHub 批量 AI 标注（情感 / 观点 / 属性）              |
 | `blueai-yuqing-echarts-skill-new`  | n14 ECharts 图表真渲染（沙箱内 resvg）                          |
 | `report-cover-skill`               | n14 报告封面生成                                                |
+| `wordcloud-insight`                | n14 客户 v0.2.6 双版词云；n15 全词表分析、原帖全文证据及 compose |
+
+词云链路为 `n12/n13 → n14 → n15 → n16`。分析保留全部原词与数值；渲染仅按客户 Top100 规则选词。n14 使用客户自然填隙布局和六色配色，默认 1400×880，同时生成透明与白底图。n15 按候选议题抽样阅读全文、按需补读反例，校验 schema2 原帖字段定位与关键原句，组装分析、预览及内部证据。无可用正文时正常按词表分析；已提供正文处理失败则阻断。报告默认引用透明图wordcloud.png，白底版及审计文件保存在任务目录。字体按客户优先顺序自动选择：Windows优先微软雅黑粗体，其他系统优先Noto Sans CJK粗体；字体二进制不入仓库，打包脚本从仓库外缓存校验并加入部署包，MA Linux沙箱无需运行时下载字体。`TOPIC5_WORDCLOUD_FONT`可用于显式客户字体覆盖或本地指定外部缓存路径，实际字体与哈希记入render.json。
 | `topic5-validator`                 | n17 自动质检（scan_report.py 机器全检 + Agent 全文语义检查）    |
 
 ## 29 节点 DAG 与人工关卡

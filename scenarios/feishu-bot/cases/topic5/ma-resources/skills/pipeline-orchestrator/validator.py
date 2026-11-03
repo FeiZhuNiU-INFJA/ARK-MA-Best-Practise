@@ -42,8 +42,14 @@ def _skill_scan_path() -> Optional[Path]:
         return Path(env)
     # pipeline-orchestrator/ 与 topic5-validator/ 同为 skills/ 下兄弟目录。
     here = Path(__file__).resolve()
-    cand = here.parent.parent / "topic5-validator" / "scripts" / "scan_report.py"
-    return cand if cand.exists() else None
+    bundled = here.parent / "validator_scan.py"
+    if bundled.exists():
+        return bundled
+    for root in (here.parent.parent, Path("/mnt/skills")):
+        cand = root / "topic5-validator" / "scripts" / "scan_report.py"
+        if cand.exists():
+            return cand
+    return None
 
 
 def _load_scan():
@@ -67,7 +73,7 @@ def available() -> bool:
 
 def _markdown_and_degraded(report_md: Any) -> tuple[str, bool]:
     if isinstance(report_md, dict):
-        return str(report_md.get("markdown") or ""), bool(report_md.get("degraded"))
+        return str(report_md.get("markdown") or ""), bool(report_md.get("degraded") or report_md.get("source") == "deterministic_guardrail")
     return str(report_md or ""), False
 
 
@@ -88,7 +94,7 @@ def validate_report(
             stats=stats,
             charts=charts,
         )
-    return _builtin_scan(md, degraded=degraded)
+    raise RuntimeError("Validator完整扫描器不可用，禁止按简化规则放行")
 
 
 def _builtin_scan(md: str, *, degraded: bool) -> dict:

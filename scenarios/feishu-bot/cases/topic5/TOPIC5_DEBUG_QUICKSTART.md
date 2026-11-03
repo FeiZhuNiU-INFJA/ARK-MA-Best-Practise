@@ -28,25 +28,16 @@ python -m pip install -e ".[dev]"
 conda activate topicX
 ```
 
-### 0.2 ECharts 中文字体（首次或新机器）
+### 0.2 Topic5 字体（首次或新机器）
 
-两个 Source Han Sans SC OTF 文件体积较大，不进入 Git。执行 `update_ma.sh` 前必须把：
+ECharts 的 Source Han Sans SC Regular/Bold 和词云的 Noto Sans CJK Bold 统一由
+`tools/prepare_fonts.py` 下载并校验，默认缓存到仓库外的 `~/.cache/topic5-fonts/`。
+`update_ma.sh` 在单测前准备临时 Skill 副本，`tools/pack_skills.sh` 在打包时注入字体，
+随后由 `tools/upload_skills.py` 随 Skill ZIP 上传 MA。源码目录无需手工放字体。
 
-```text
-SourceHanSansSC-Regular.otf
-SourceHanSansSC-Bold.otf
-```
-
-放入：
-
-```text
-scenarios/feishu-bot/cases/topic5/ma-resources/skills/
-blueai-yuqing-echarts-skill-new/assets/fonts/
-```
-
-文件来源、复制命令和当前验收 SHA-256 见
+首次准备需要联网；有效缓存可离线复用。可用 `TOPIC5_FONT_CACHE_DIR` 指定另一个仓库外目录。
+下载或 SHA-256 校验失败即停止。完整字体版本和哈希见
 [字体目录说明](./ma-resources/skills/blueai-yuqing-echarts-skill-new/assets/fonts/README.md)。
-`tools/pack_skills.sh` 会在打包前检查两个文件，缺失时直接停止，避免部署出中文缺字的图表 Skill。
 
 ---
 

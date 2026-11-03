@@ -9,14 +9,16 @@
     "packages": {
       "pip": [
         "pandas>=2.0",
-        "openpyxl>=3.1",
+        "openpyxl>=3.1,<4",
         "httpx>=0.27",
         "requests>=2.31",
         "pyyaml>=6.0",
-        "numpy>=1.24",
+        "numpy>=1.26,<3",
+        "Pillow>=10,<13",
+        "fonttools>=4.50,<5",
         "openai>=1.0",
         "python-dateutil>=2.8",
-        "wordcloud>=1.9"
+        "wordcloud>=1.9.4,<2"
       ]
     },
     "setup_script": "set -e\n# ECharts 图表真渲染依赖:在沙箱内为仓内 echarts skill 安装 node_modules。\n# node_modules 不入库(.gitignore),resvg 二进制仅 Linux,真渲染只在 MA 沙箱发生。\n# 安装失败会保留环境启动日志;运行到 n14 时严格阻断,禁止无图交付。\nECHARTS_SCRIPTS=/mnt/skills/blueai-yuqing-echarts-skill-new/scripts\nif command -v npm >/dev/null 2>&1 && [ -f \"$ECHARTS_SCRIPTS/package.json\" ]; then\n  (cd \"$ECHARTS_SCRIPTS\" && npm install --no-audit --no-fund --silent) || echo \"WARN: echarts npm install 失败,n14 将阻断\" >&2\nelse\n  echo \"WARN: npm 或 echarts package.json 缺失,n14 将阻断\" >&2\nfi",

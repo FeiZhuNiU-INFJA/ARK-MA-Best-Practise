@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "context": {
+    "subject": "鸡肉产品讨论（合成示例）",
+    "project": "合成演示，不代表任何真实品牌或调研结果",
+    "objective": "了解讨论涉及的口感与烹饪场景，为内容选题提供参考",
+    "background": "合成项目背景：本次传播希望突出酥脆口感和居家便捷烹饪。该目标不是已达成效果的证明。",
+    "period": "合成示例，无真实采集时间",
+    "platform": "示例平台",
+    "sentiment": "全部",
+    "content_type": "UGC"
+  },
+  "metric": "post_count",
+  "words": [
+    {"term":"炸鸡","value":67}, {"term":"脆皮","value":45},
+    {"term":"空气炸锅","value":41}, {"term":"鸡块","value":36},
+    {"term":"多汁","value":32}, {"term":"夜宵","value":30},
+    {"term":"外酥里嫩","value":29}, {"term":"半成品","value":25},
+    {"term":"鸡翅","value":23}, {"term":"速食","value":22},
+    {"term":"打工人","value":19}, {"term":"零食","value":18},
+    {"term":"奥尔良","value":17}, {"term":"减脂","value":15},
+    {"term":"鸡胸肉","value":14}, {"term":"掌中宝","value":12},
+    {"term":"洋葱圈","value":10}, {"term":"外皮","value":9},
+    {"term":"不能用","value":6}, {"term":"烤箱","value":5}
+  ]
+}

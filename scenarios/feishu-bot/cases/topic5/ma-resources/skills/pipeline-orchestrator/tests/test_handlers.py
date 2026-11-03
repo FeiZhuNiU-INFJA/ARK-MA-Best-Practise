@@ -141,6 +141,7 @@ class TestSpecificHandlers(unittest.TestCase):
                 "validator-agent", "environment", "pipeline-orchestrator",
                 "topic5-validator", "SSJH-Social-Stat", "blueai-datahub-skill",
                 "blueai-yuqing-echarts-skill-new", "report-cover-skill",
+                "wordcloud-insight",
                 "feishu-delivery-tool", "semantic-tool", "annotation-tool", "model",
             )
         }

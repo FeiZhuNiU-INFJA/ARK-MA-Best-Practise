@@ -70,7 +70,7 @@ CAUSALITY_PATTERNS = (
     re.compile(r"活动(?:直接)?(?:带来|导致|驱动|促成).{0,24}(?:增长|提升|下降)"),
     re.compile(r"归功于本次活动"),
 )
-PHONE_PATTERN = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
+PHONE_PATTERN = re.compile(r"(?<![A-Za-z0-9])1[3-9]\d{9}(?![A-Za-z0-9])")
 IMAGE_PATTERN = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 SMALL_SAMPLE_DISCLOSURE_PATTERN = (
     r"(?:样本(?:量|数)?(?:不足|少于|低于)"
@@ -81,6 +81,102 @@ SMALL_SAMPLE_DISCLOSURE_PATTERN = (
 def _issue(iid: str, severity: str, title: str, evidence: str, locus: str = "") -> dict:
     return {"id": iid, "severity": severity, "title": title,
             "evidence": evidence[:300], "locus": locus}
+
+
+def _section(md, prefix):
+    match = re.search(rf"(?m)^#{{2,4}}\s+{re.escape(prefix)}(?=[^\d.]|$)[^\n]*", md)
+    if not match:
+        return ""
+    tail = md[match.end():]
+    end = re.search(r"(?m)^#{2,4}\s+", tail)
+    return tail[:end.start()] if end else tail
+
+
+def _tables(md):
+    lines = md.splitlines()
+    result = []
+    i = 0
+    while i + 1 < len(lines):
+        split = lambda line: [s.strip().replace(r"\|", "|") for s in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
+        if "|" in lines[i] and re.fullmatch(r"[\s|:\-]+", lines[i + 1]) and "---" in lines[i + 1]:
+            rows = [split(lines[i])]
+            i += 2
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                rows.append(split(lines[i]))
+                i += 1
+            result.append(rows)
+        else:
+            i += 1
+    return result
+
+
+def _module_checks(md, requirement, stats, charts):
+    issues = []
+    def fail(key, title, evidence, locus):
+        issues.append(_issue("P0-module-" + key, "P0", title, evidence, locus))
+    description = re.search(r"(?m)^#{2,4}\s+.*数据说明[^\n]*", md)
+    intro = md[description.end():] if description else ""
+    next_heading = re.search(r"(?m)^#{2,4}\s+", intro)
+    intro = intro[:next_heading.start()] if next_heading else intro
+    if requirement:
+        for term in ("分析对象", "关键词", "过滤词", "品牌大盘", "活动明细"):
+            if term not in intro:
+                fail("description-" + term, "数据说明缺必要字段", term, "00")
+        for key in ("brand_query", "activity_query", "product_query", "brand_filter", "activity_filter"):
+            value = str(requirement.get(key) or "")
+            if value and value.replace("|", r"\|") not in intro and value not in intro:
+                fail("query-" + key, "数据说明未披露实际查询配置", key, "00")
+    chart_ids = {item.get("chart_id") for item in charts.get("charts") or []}
+    objects = [("brand", stats.get("brand") or {}, "1.4")]
+    objects += [(cid, bundle, f"2.{index}.5") for index, (cid, bundle) in enumerate((stats.get("campaigns") or {}).items(), 1)]
+    for cid, bundle, hot_prefix in objects:
+        trend = bundle.get("trend") or {}
+        days = set()
+        for key, value in trend.items():
+            days.update(value.keys() if isinstance(value, dict) else [key])
+        if len(days) >= 2 and cid + "_trend" not in chart_ids:
+            fail("trend-" + cid, "缺应生成的趋势图", cid, "chart_urls")
+        clouds = bundle.get("wordcloud") or {} if cid == "brand" else {}
+        for platform, words in clouds.items():
+            if words and f"wordcloud_brand_overall_{platform}" not in chart_ids:
+                fail("cloud-brand-" + platform, "缺品牌大盘词云", platform, "1.3")
+        hot = _section(md, hot_prefix)
+        tables = _tables(hot)
+        for kind, fields in (("pgc", ["排名", "标题", "内容≤100字", "内容类型", "站点名称", "作者", "URL", "总互动量"]),
+                             ("ugc", ["排名", "内容≤100字", "站点名称", "URL", "总互动量"])):
+            rows = (bundle.get("top_content") or {}).get(kind) or []
+            if not rows:
+                continue
+            matching = [t for t in tables if t[0] == fields]
+            if not matching:
+                fail(f"hot-fields-{cid}-{kind}", "热门内容表字段缺失", "/".join(fields), hot_prefix)
+            elif len(matching[0]) - 1 != min(10, len(rows)):
+                fail(f"hot-count-{cid}-{kind}", "热门榜单行数不符合可用Top10", str(len(rows)), hot_prefix)
+        if cid != "brand":
+            index = hot_prefix.split(".")[1]
+            opinion = _section(md, f"2.{index}.3")
+            for direction, name in (("positive", "正面"), ("negative", "负面")):
+                analysis = (bundle.get("opinion_analysis") or {}).get(direction) or {}
+                sample = (bundle.get("sentiment_dist") or {}).get(direction, 0)
+                if sample >= 10 and not analysis.get("top5"):
+                    fail(f"opinion-data-{cid}-{direction}", "活动统计缺观点与原文证据", str(sample), "stats_bundle")
+                if sample > 0 and f"{name}观点 TOP5" not in opinion:
+                    fail(f"opinion-body-{cid}-{direction}", "活动口碑缺观点分析", name, f"2.{index}.3")
+                for topic in analysis.get("top5") or []:
+                    if topic["label"] not in opinion or not all(
+                        str(row.get("content") or row.get("title") or "")[:100] in opinion
+                        for row in topic.get("representatives") or []
+                    ):
+                        fail(f"opinion-evidence-{cid}-{direction}-{topic['label']}", "观点未展示代表原文", topic["label"], f"2.{index}.3")
+            ugc = _section(md, f"2.{index}.4")
+            for category in (bundle.get("ugc_analysis") or {}).get("categories") or []:
+                if category["label"] not in ugc or not all(str(row.get("content") or row.get("title") or "")[:100] in ugc
+                                                         for row in category.get("representatives") or []):
+                    fail(f"ugc-evidence-{cid}-{category['label']}", "UGC类别缺代表内容", category["label"], f"2.{index}.4")
+    for table in _tables(md):
+        if any(len(row) != len(table[0]) for row in table):
+            fail("table-columns", "Markdown表格列数错位", "正文竖线须转义", "tables")
+    return issues
 
 
 def scan_markdown(
@@ -104,8 +200,16 @@ def scan_markdown(
                     f"L{ln_no}: {line.strip()}", locus=f"L{ln_no}"))
 
     # 2) 多活动相加/合计声量（P0）——同行含“不相加/逐个”等免责标记则视为口径声明，跳过。
+    single_campaign = len((stats or {}).get("campaigns") or {}) == 1 or len(expected_campaigns or []) == 1
     for ln_no, line in enumerate(lines, 1):
         if any(mk in line for mk in AGGREGATE_DISCLAIMER_MARKERS):
+            continue
+        mixed_sum = re.search(
+            r"多活动|跨活动|各活动.*(?:合计|相加|总计)|"
+            r"(?:品牌.{0,15}活动|活动.{0,15}品牌).{0,15}(?:相加|合计|总计|加总|\+)",
+            line,
+        )
+        if single_campaign and not mixed_sum:
             continue
         for pat in AGGREGATE_SUM_PATTERNS:
             if pat in line:
@@ -217,6 +321,7 @@ def scan_markdown(
     requirement = requirement or {}
     stats = stats or {}
     charts = charts or {}
+    issues.extend(_module_checks(md, requirement, stats, charts))
     content_scope = str(requirement.get("content_scope") or "all").lower()
     if content_scope != "all" and re.search(r"PGC\s*[/与和对比]+\s*UGC|PGC/UGC", md):
         issues.append(_issue(
@@ -277,7 +382,17 @@ def scan_markdown(
             if not isinstance(values, dict):
                 continue
             sample = values.get("sample_size", values.get("sample"))
-            if isinstance(sample, int) and sample < 30 and str(dimension) in md:
+            dimension_text = re.escape(str(dimension))
+            presented = bool(re.search(
+                rf"{dimension_text}(?:维度)?[\s*：:，,（）()=为的]*(?:NSR|净情绪指数)"
+                rf"|(?:NSR|净情绪指数)[\s*：:，,（）()=为的]*{dimension_text}",
+                md, re.I,
+            )) or any(
+                any("NSR" in header.upper() or "净情绪指数" in header for header in table[0])
+                and any(str(dimension) in [cell.strip("* ") for cell in row] for row in table[1:])
+                for table in _tables(md)
+            )
+            if isinstance(sample, int) and sample < 30 and presented:
                 dimension_text = re.escape(str(dimension))
                 disclosed = re.search(
                     (
@@ -297,6 +412,13 @@ def scan_markdown(
 
     # 8) 图表 Artifact 完整性；内容层允许受控本地 PNG，发布后再检查 media。
     chart_items = charts.get("charts") if isinstance(charts, dict) else []
+    known_paths = {str(item.get("local_path") or item.get("url") or "") for item in chart_items or []}
+    cover = charts.get("cover") or {}
+    if isinstance(cover, dict):
+        known_paths.add(str(cover.get("local_path") or ""))
+    for path in IMAGE_PATTERN.findall(md):
+        if path.startswith(("/", "./", "../")) and (not Path(path).is_file() or (charts and path not in known_paths)):
+            issues.append(_issue("P0-image-invalid", "P0", "报告引用不存在或未登记的本地图片", path, "report_md"))
     for item in chart_items or []:
         if not isinstance(item, dict):
             continue
@@ -334,10 +456,10 @@ def scan_markdown(
             "P1-no-chart", "P1", "报告未引用任何图表/封面链接",
             "正文中未检出 ![](...) 或图表 URL", locus="charts"))
 
-    # 11) 降级标注（P1）——来源降级时留痕，便于人工复核但不拦截。
+    # 11) 报告降级禁发；不得静默以整篇简化模板代替业务报告。
     if degraded:
         issues.append(_issue(
-            "P1-degraded-source", "P1", "报告来源含降级产物",
+            "P0-degraded-source", "P0", "报告来源含降级产物",
             "report_md.degraded=True 或上游降级", locus="provenance"))
 
     p0 = [i for i in issues if i["severity"] == "P0"]
@@ -353,7 +475,7 @@ def scan_markdown(
         "forbidden_terms": list(FORBIDDEN_TERMS),
         "scan_mode": "full_scan",
         "degraded": bool(degraded),
-        "rules_version": "topic5-validator-qc-v1.6",
+        "rules_version": "topic5-validator-qc-v1.8",
     }
 
 
@@ -362,7 +484,7 @@ def _load_markdown(args) -> tuple[str, bool]:
         return Path(args.markdown_file).read_text(encoding="utf-8"), False
     data = json.loads(Path(args.report_md).read_text(encoding="utf-8"))
     md = data.get("markdown") if isinstance(data, dict) else str(data)
-    return md or "", bool(isinstance(data, dict) and data.get("degraded"))
+    return md or "", bool(isinstance(data, dict) and (data.get("degraded") or data.get("source") == "deterministic_guardrail"))
 
 
 def _input_ref(path_value: str, key: str) -> dict:
@@ -438,7 +560,7 @@ def main() -> int:
         "validator": "topic5-validator",
         "validation_id": f"validation_{uuid.uuid4().hex}",
         "subject": subject,
-        "rules_version": "topic5-validator-qc-v1.6",
+        "rules_version": "topic5-validator-qc-v1.8",
         "execution_source": args.execution_source,
         "validator_version": args.validator_version,
         "execution_ref": {
@@ -453,6 +575,8 @@ def main() -> int:
             "degraded_provenance", "requirement_scope", "product_funnel",
             "competitor_retired", "placeholder_leakage", "causality",
             "phone_privacy", "small_sample_disclosure", "chart_files",
+            "required_trends", "brand_wordcloud", "hot_table_schema",
+            "opinion_representatives", "ugc_representatives", "query_disclosure",
         ],
         "uncheckable_scope": [
             "semantic_evidence", "live_feishu_layout", "document_ownership",

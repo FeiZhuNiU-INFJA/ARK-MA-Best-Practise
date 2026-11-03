@@ -4,6 +4,14 @@
 > （已被 `.gitignore` 拦截，只读不入库），MA 部署源码以 `ma-resources/` 为准；
 > 根目录下的 Gateway、HITL 和打包脚本属于 MA 接入层。
 
+## 2026-11-02 报告完整性补齐
+
+`pipeline-orchestrator/REPORT_CONTRACT.md`依据客户报告模板、飞书格式规范及Producer要求整理。
+`report_contract.py`确定性装配数据说明、PGC/UGC各Top10、观点/UGC代表证据及正确图片；
+写作和返修节点显式读取契约。品牌大盘词云由品牌统计分别接入图表和解读节点。
+飞书原生Grid/Callout/富文本在`feishu.py`实现，完整性规则在独立Validator扫描器实现。
+打包器注入同一扫描器供N19预检；不依赖客户原目录，不修改客户资产。
+
 ## 标记说明
 
 | 标记     | 含义                                                         |
@@ -107,7 +115,8 @@ Subagent（Discovery/Opinion/Insight/Narrative）**合并**为确定性编排器
 | `pipeline_store.py`         | 作业/Session/HC 事件状态持久化（`HC_KINDS=G1/G2/N10/G3/G4/HC7/USER_ESCALATE`，无 user_oauth 表）| 适配迁入 |
 | `topic5_hitl.py`            | 人工关卡卡片回调；`HCx pass`/`HCx reject: note`/`HCx remark: note`          | 适配迁入 |
 | `topic5_progress_card.py`   | 飞书进度卡片渲染（全程复用同一卡 patch 覆写）                              | 适配迁入 |
-| `tools/pack_skills.sh`      | 校验并打包 6 个 Skill（额外 exclude `.env`/`config.json`/`Outputs`/`node_modules`）| 适配迁入 |
+| `tools/pack_skills.sh`      | 校验并打包 7 个 Skill（额外 exclude `.env`/`config.json`/`Outputs`/`node_modules`）| 适配迁入 |
+| 客户新增 `wordcloud-insight/` v0.2.6 | `ma-resources/skills/wordcloud-insight/` 完整迁入；仅扩展preflight显式字体参数，n14/n15经wordcloud_adapter.py执行双图与完整分析契约 | 适配迁入 |
 | `tools/upload_skills.py`    | 上传 SkillHub 并回填 ID/版本                                                | 适配迁入 |
 | `update_ma.sh`              | 统一更新入口（与 Topic6 共用 `CONDA_ENV=topicX`，无妙搭 OAuth）              | 适配迁入 |
 | `tools/out/*.zip`、`*.sha256` | `pack_skills.sh` 重建的打包产物                                           | 运行产物 |
@@ -126,6 +135,6 @@ Subagent（Discovery/Opinion/Insight/Narrative）**合并**为确定性编排器
 ## 八、维护规则
 
 1. 客户文件只作为迁移基线，MA 生效源码统一修改 `ma-resources/`。
-2. 修改 Skill 后统一跑 `./update_ma.sh`（内含 pack→upload→create_all）。
+2. 修改 Skill 后运行 pack→upload→`tools/update_agents_in_place.py`，保留 Agent ID；需要改环境依赖时用`tools/update_environment_in_place.py`。`create_all.sh`仅用于首次资源创建，不用于这类原地修复。
 3. 真实凭证只写 `config.env`；入库文件一律 `${...}` 占位。
 4. 新增、拆分、合并或删除文件时，同步更新本表。

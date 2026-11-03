@@ -134,6 +134,13 @@ def pull(plan: dict, *, baseline: bool = False, wordcloud: bool = False,
     merged["meta"].update({"start_date": start, "end_date": end,
                            "keywords": kws, "platforms": platforms,
                            "window": "baseline" if baseline else "campaign"})
+    # RunState canonicalizes dict keys for hashing. Arrays retain source order,
+    # which the customer's Top100 tie rule requires across artifact persistence.
+    merged["_wordcloud_tables"] = {
+        platform: [{"term": term, "value": value} for term, value in table.items()]
+        for platform, table in (merged.get("cloud_word") or {}).items()
+        if isinstance(table, dict)
+    }
     return merged
 
 

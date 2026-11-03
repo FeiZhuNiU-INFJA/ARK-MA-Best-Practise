@@ -24,6 +24,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import random
 import re
 import shlex
@@ -671,7 +672,7 @@ class Topic5Runner:
         await self.reply_for_job(
             job,
             "G2 方案已确认。请在当前话题上传活动明细 `.xlsx` 文件；"
-            "挂载成功后将自动进入生产 Run。",
+            "文件校验成功后将自动进入生产 Run。",
         )
 
     async def resume_after_activity_file(self, job: PipelineJob) -> None:
@@ -713,18 +714,13 @@ class Topic5Runner:
                 raise
             return
         source_note = json.dumps(
-            {
-                "source_file": {
-                    "name": job.source_file_name,
-                    "mount_path": job.source_file_mount_path,
-                }
-            },
+            {"source_file": self.activity_source_payload(job)},
             ensure_ascii=False,
             separators=(",", ":"),
         )
         await self.reply_for_job(
             job,
-            f"数据文件已挂载：`{job.source_file_name}`。正在自动启动生产 Run。",
+            f"数据文件已校验：`{job.source_file_name}`。正在自动启动生产 Run。",
         )
         await self.resume_job(job, f"G2 pass: {source_note}")
 
@@ -736,7 +732,7 @@ class Topic5Runner:
         user_open_id: str,
         resource: ResourceRef,
     ) -> PipelineJob:
-        """下载飞书话题里的活动明细 Excel，并挂到对应 MA Session。
+        """校验飞书活动明细，默认让流水线直接从原附件下载到沙箱。
 
         允许 G2 确认后的 input 阶段上传；也允许 n04 源 Excel 校验失败后上传
         修正版。其他失败节点不能换源。同一阶段最后一次成功认领的唯一 mount_path
@@ -788,31 +784,35 @@ class Topic5Runner:
         mount_path = (
             f"topic5_activity_detail_{job.job_id}_{uuid.uuid4().hex[:8]}.xlsx"
         )
-        try:
-            ark_file_id = await self._ark.upload_file(
-                file_name,
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                data,
-            )
-            await self._ark.add_session_file(
-                job.ma_session_id, ark_file_id, mount_path
-            )
-        except Exception as error:  # noqa: BLE001
-            log.exception(
-                "topic5 activity file ark mount failed job=%s name=%s",
-                job.job_id,
-                file_name,
-            )
-            raise Topic5RunnerError("Excel 挂载到任务环境失败，请稍后重试") from error
+        if await self.input_transport_for_job(job) == "feishu_resource":
+            # Persist only non-secret immutable source metadata. Reuse the
+            # existing source pointer column so recovery retains the reference.
+            source_id = "feishu:" + json.dumps({
+                "transport": "feishu_resource",
+                "message_id": message_id,
+                "file_key": resource.file_key,
+                "sha256": hashlib.sha256(data).hexdigest(),
+            }, separators=(",", ":"))
+        else:
+            try:
+                source_id = await self._ark.upload_file(
+                    file_name,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    data,
+                )
+                await self._ark.add_session_file(job.ma_session_id, source_id, mount_path)
+            except Exception as error:  # noqa: BLE001
+                log.exception("topic5 activity file ark mount failed job=%s", job.job_id)
+                raise Topic5RunnerError("Excel 挂载到任务环境失败，请稍后重试") from error
         if source_replacement:
             claimed = self._store.claim_source_replacement(
-                job.job_id, ark_file_id, file_name, mount_path
+                job.job_id, source_id, file_name, mount_path
             )
             if not claimed:
                 raise Topic5RunnerError("任务状态已变化，修正版未触发重试")
         else:
             self._store.set_source_file(
-                job.job_id, ark_file_id, file_name, mount_path
+                job.job_id, source_id, file_name, mount_path
             )
         refreshed = self._store.get_job(job.job_id)
         if refreshed is None:
@@ -826,14 +826,47 @@ class Topic5Runner:
         )
         return refreshed
 
+    @staticmethod
+    def input_transport() -> str:
+        transport = os.environ.get("TOPIC5_INPUT_TRANSPORT", "feishu_resource").strip()
+        if transport not in ("feishu_resource", "ark_files"):
+            raise Topic5RunnerError("TOPIC5_INPUT_TRANSPORT 仅支持 feishu_resource 或 ark_files")
+        return transport
+
+    async def input_transport_for_job(self, job: PipelineJob) -> str:
+        """Old Sessions keep their snapshot's input contract until completion."""
+        if self.input_transport() == "ark_files":
+            return "ark_files"
+        session = await self._ark.get_session(job.ma_session_id)
+        agent = session.get("agent") or {}
+        # Coordinator v6 is the first snapshot whose bridge retains Feishu
+        # source metadata. Older mounted Skills cannot use the new descriptor.
+        if int(agent.get("version") or 0) < 6:
+            return "ark_files"
+        return "feishu_resource"
+
+    @staticmethod
+    def activity_source_payload(job: PipelineJob) -> dict:
+        source = {"name": job.source_file_name, "mount_path": job.source_file_mount_path}
+        if job.source_file_id.startswith("feishu:"):
+            try:
+                metadata = json.loads(job.source_file_id[len("feishu:"):])
+            except ValueError as error:
+                raise Topic5RunnerError("飞书活动明细引用不完整，请重新上传附件") from error
+            if not isinstance(metadata, dict) or metadata.get("transport") != "feishu_resource":
+                raise Topic5RunnerError("飞书活动明细引用无效")
+            source.update(metadata)
+        return source
+
     async def attach_requirement_payload(
         self, job: PipelineJob, requirement: dict, event_id: int
     ) -> str:
-        """Mount the exact G1 form JSON so the LLM only transports a short path."""
+        """Transport exact G1 JSON inline by default; retain opt-in Files mounts."""
+        payload = json.dumps(requirement, ensure_ascii=False, separators=(",", ":"))
+        if await self.input_transport_for_job(job) == "feishu_resource":
+            return payload
         mount_path = f"topic5_requirement_{job.job_id}_{event_id}.json"
-        data = json.dumps(
-            requirement, ensure_ascii=False, separators=(",", ":")
-        ).encode("utf-8")
+        data = payload.encode("utf-8")
         try:
             ark_file_id = await self._ark.upload_file(
                 mount_path, "application/json", data
@@ -924,6 +957,10 @@ class Topic5Runner:
                     f"--task {shlex.quote(task_id)} --run {shlex.quote(run_id)} "
                     f"--source-name {shlex.quote(job.source_file_name)} "
                     f"--source-mount {shlex.quote(job.source_file_mount_path)} && "
+                )
+                source_json = json.dumps(self.activity_source_payload(job), ensure_ascii=False)
+                replace_source = replace_source.removesuffix(" && ") + (
+                    f" --source-json {shlex.quote(source_json)} && "
                 )
             message = (
                 f"[topic5-control] retry_failed node={job.current_phase}\n"

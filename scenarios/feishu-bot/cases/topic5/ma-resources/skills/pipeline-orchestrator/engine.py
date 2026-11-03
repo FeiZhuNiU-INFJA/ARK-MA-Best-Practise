@@ -369,6 +369,7 @@ def replace_failed_source(
     *,
     source_name: str,
     source_mount_path: str,
+    source_file: dict | None = None,
 ) -> RunState:
     """Replace the source pointer for a failed n04 Excel validation only."""
     if st.status != "failed":
@@ -407,10 +408,12 @@ def replace_failed_source(
     if not isinstance(current, dict) or not current.get("confirmed"):
         raise ValueError("confirmed_plan is missing or not confirmed")
     updated = deepcopy(current)
-    updated["source_file"] = {
+    from excel_source import normalize_source_file
+    updated["source_file"] = normalize_source_file({
+        **(source_file or {}),
         "name": name,
         "mount_path": mount_path,
-    }
+    })
     next_artifact_version = int(
         (st.artifacts.get("confirmed_plan") or {}).get("version") or 0
     ) + 1

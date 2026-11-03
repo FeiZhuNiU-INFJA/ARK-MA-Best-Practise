@@ -47,8 +47,8 @@ Coordinator 不负责计算指标、撰写报告或判断质检是否通过；�
 | 4. 冻结生产输入 | 编排器 | G2 方案、Excel 挂载引用 | G2 resume 生成 `confirmed_plan`；`n04_run_init` 校验 Excel schema 并冻结资源 | `confirmed_plan`、`run_record`、`resource_lock`、`context_snapshot` | 进度卡进入生产 Run |
 | 5. 并行取数与清洗 | 工具 + 编排器 | `confirmed_plan`、活动 Excel | `n05_brand_pull`、`n06_brand_baseline`、`n13_wordcloud_pull` 并行；`n07_clean` 清洗活动明细 | `brand_stats`、`brand_stats_baseline`、`wordcloud_data`、`cleaned_data` | 进度卡显示取数/清洗进度 |
 | 6. 两轮 AI 标注 | 编排器 + 标注工具 | `cleaned_data` | `n08_ugc_discovery`；`n09_annotate_r1`；`n09b_opinion_candidates`；`n10_hc_opinion`；`n11_annotate_r2` | `ugc_category_list`、`annotated_round1`、`opinion_candidates`、`confirmed_opinion_labels`、`annotated_data` | 无歧义时自动通过；有歧义时展示 N10 标签确认卡 |
-| 7. 统计、图表与洞察 | 编排器 + 工具 | 标注数据、品牌数据、词云数据 | `n12_aggregate`、`n14_charts`、`n15_wordcloud_insight` | `stats_bundle`、`chart_urls`、`wordcloud_insight` | 进度卡显示聚合、图表和洞察状态 |
-| 8. 报告撰写 | 编排器 | 统计、图表、词云洞察 | `n16_report` 生成内容层报告 | `report_md` | 暂不直接交付；先进入独立质检 |
+| 7. 统计、图表与洞察 | 编排器 + 工具 + 语义模型 | 标注数据、品牌数据、词云数据 | `n12/n13 → n14` 生成双版词云 → `n15` 全词表议题、可选原帖全文阅读/补读及 compose | `stats_bundle`、`chart_urls`、`wordcloud_insight`，双 PNG、`render.json`、`analysis.md`、`preview.html`、`analysis-evidence.json` | 进度卡显示聚合、图表和洞察状态 |
+| 8. 报告撰写 | 编排器 | 统计、图表、词云洞察、REPORT_CONTRACT | `n16_report` 模型写作后装配数据说明、Top10、观点/UGC证据及正确图片 | `report_md` | 暂不直接交付；先进入独立质检 |
 | 9. 独立质检与返修 | Validator + 编排器 | `report_md`、`chart_urls`、`stats_bundle` | `n17_validate` → `n18_qc_gate`；有 P0 时 `n19_fix` 后回到 n17 | `qc_report`；返修后生成新版 `report_md` | G3 自动执行；超过最大轮次或外部权限异常时展示 HC7 |
 | 10. 飞书草稿与发布后检查 | 编排器 + 飞书 API | 已通过质检的报告和图片 | `n20_delivery_draft` 创建飞书文档、上传图片、转移所有权并回读；`n20_delivery_gate` 路由 | `delivery_draft`、`external_receipts`、`feishu_doc`、更新后的 `qc_report` | G4 卡片展示飞书文档链接供用户终验 |
 | 11. 用户终验 | 用户 + 编排器 | `delivery_draft` | `n21_hc_user` → `n22_user_gate` | `user_confirmation` | 通过则提交；打回则回到 n20；超时则进入升级 |
