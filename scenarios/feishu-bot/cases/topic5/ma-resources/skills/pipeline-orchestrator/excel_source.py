@@ -1,14 +1,19 @@
 """用户上传活动明细 Excel → clean_campaign 行结构适配。
 
-权威样例列来自 ``瑞幸暹罗厘普联名数据.xlsx``。文件由 Host Gateway 上传 Ark Files API，
-并挂载到 ``/mnt/session/uploads/<mount_path>``；confirmed_plan.source_file.mount_path
-是唯一运行期引用。没有 source_file 时返回 None，让 handler fail-closed；
+权威样例列来自 ``瑞幸暹罗厘普联名数据.xlsx``。默认按 Gateway 校验过的飞书附件引用
+下载到沙箱；兼容旧任务的 Ark Files 挂载。confirmed_plan.source_file 是运行期引用。
+没有 source_file 时返回 None，让 handler fail-closed；
 已声明文件但不可读则抛错，禁止静默换源。
 """
 from __future__ import annotations
 
 import os
 import re
+import hashlib
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -24,6 +29,70 @@ _PLATFORM_MAP = {
     "微信公众号": "weixin",
 }
 _CONTENT_MODE = {"UGC": "UGC", "PGC": "PGC", "未知": "UKN", "UKN": "UKN"}
+_MAX_FILE_BYTES = 50 * 1024 * 1024
+
+
+def normalize_source_file(source: dict) -> dict:
+    """Validate and retain both legacy mounts and authenticated Feishu sources."""
+    mount = str(source.get("mount_path") or "")
+    if Path(mount).name != mount or not mount.lower().endswith(".xlsx"):
+        raise ValueError("excel_source: source_file.mount_path 非法")
+    result = {"name": str(source.get("name") or mount), "mount_path": mount}
+    transport = source.get("transport")
+    if transport in (None, "", "ark_files"):
+        return result
+    if transport != "feishu_resource":
+        raise ValueError("excel_source: 不支持的文件传输方式")
+    for key, pattern in (("message_id", r"om_[A-Za-z0-9_]+"),
+                         ("file_key", r"file_[A-Za-z0-9_-]+"),
+                         ("sha256", r"[0-9a-f]{64}")):
+        value = source.get(key)
+        if not isinstance(value, str) or not re.fullmatch(pattern, value):
+            raise ValueError(f"excel_source: 飞书附件 {key} 无效")
+        result[key] = value
+    result["transport"] = transport
+    return result
+
+
+def _stage_feishu_file(source: dict, path: Path) -> None:
+    """Download the original attachment atomically, verifying the host checksum."""
+    expected = source["sha256"]
+    if path.is_file() and path.stat().st_size <= _MAX_FILE_BYTES:
+        if hashlib.sha256(path.read_bytes()).hexdigest() == expected:
+            return
+    import feishu
+    try:
+        token = feishu._tenant_token()
+    except RuntimeError:
+        raise ValueError("excel_source: 飞书鉴权失败，请检查沙箱飞书凭据与权限") from None
+    message_id = urllib.parse.quote(source["message_id"], safe="")
+    file_key = urllib.parse.quote(source["file_key"], safe="")
+    request = urllib.request.Request(
+        f"{feishu._BASE}/open-apis/im/v1/messages/{message_id}/resources/{file_key}?type=file",
+        headers={"Authorization": "Bearer " + token})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as output:
+                temporary = Path(output.name)
+                checksum, total = hashlib.sha256(), 0
+                while chunk := response.read(1024 * 1024):
+                    total += len(chunk)
+                    if total > _MAX_FILE_BYTES:
+                        raise ValueError("excel_source: 飞书附件超过 50 MiB")
+                    output.write(chunk)
+                    checksum.update(chunk)
+        if total == 0 or checksum.hexdigest() != expected:
+            raise ValueError("excel_source: 飞书附件 SHA256 与 Gateway 校验值不一致")
+        os.replace(temporary, path)
+    except urllib.error.HTTPError as error:
+        raise ValueError(f"excel_source: 飞书附件下载失败 HTTP {error.code}") from None
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        raise ValueError(f"excel_source: 飞书附件下载失败 ({type(error).__name__})") from None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _text(value: Any) -> str:
@@ -131,9 +200,13 @@ def resolve_activity_xlsx(plan: dict) -> Optional[Path]:
     source = plan.get("source_file") if isinstance(plan, dict) else None
     if not isinstance(source, dict) or not source.get("mount_path"):
         return None
-    mount_path = str(source["mount_path"])
-    if Path(mount_path).name != mount_path or not mount_path.lower().endswith(".xlsx"):
-        raise ValueError("excel_source: source_file.mount_path 非法")
+    source = normalize_source_file(source)
+    mount_path = source["mount_path"]
+    if source.get("transport") == "feishu_resource":
+        uploads_dir = Path(os.environ.get("TOPIC5_SESSION_UPLOADS_DIR", "/workspace/topic5_repro_inputs"))
+        path = uploads_dir / mount_path
+        _stage_feishu_file(source, path)
+        return path
     uploads_dir = Path(os.environ.get("TOPIC5_SESSION_UPLOADS_DIR", "/mnt/session/uploads"))
     return uploads_dir / mount_path
 

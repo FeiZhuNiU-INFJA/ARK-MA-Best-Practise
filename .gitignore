@@ -26,6 +26,10 @@ scenarios/feishu-bot/cases/topic5/assets_from_customer
 # topic6/topic5 打包产物:pack_skills.sh 每次跑都会重新生成,不入库
 scenarios/feishu-bot/cases/topic6/tools/out/
 scenarios/feishu-bot/cases/topic5/tools/out/
+# 词云字体仅在仓库外缓存和部署包中保存
+scenarios/feishu-bot/cases/topic5/ma-resources/skills/wordcloud-insight/assets/fonts/*.ttc
+scenarios/feishu-bot/cases/topic5/ma-resources/skills/wordcloud-insight/assets/fonts/*.ttf
+scenarios/feishu-bot/cases/topic5/ma-resources/skills/wordcloud-insight/assets/fonts/*.otf
 *.zip
 *.sha256
 
@@ -52,3 +56,4 @@ scenarios/feishu-bot/cases/topicx/ma-resources/created_ids.json
 .idea/
 .vscode/
 audit/
+deliverables/

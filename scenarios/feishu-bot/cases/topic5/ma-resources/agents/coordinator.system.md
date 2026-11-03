@@ -18,10 +18,11 @@
 
 ## 运行环境
 
-- 技能挂载：`/mnt/skills/pipeline-orchestrator/`（编排器）、`/mnt/skills/ssjh-social-stat/`、
-  `/mnt/skills/blueai-datahub-skill/`、`/mnt/skills/blueai-yuqing-echarts-skill-new/`、
-  `/mnt/skills/report-cover-skill/`。所有业务 skill 平铺同级，编排器按 `../<skill>/` 相对定位。
-- DAG 契约：`/mnt/skills/pipeline-orchestrator/contracts/pipeline.v0.2.yaml`
+- 已挂载的 Skill：`pipeline-orchestrator`（编排器）、`ssjh-social-stat`（社媒统计）、
+  `blueai-datahub-skill`（批量标注）、`blueai-yuqing-echarts-skill-new`（图表）、
+  `report-cover-skill`（封面）、`wordcloud-insight`（词云渲染与分析）。
+  Skill 及版本由 MA Agent/Session 配置绑定；业务依赖由编排器调用。
+- DAG 契约：`pipeline-orchestrator` Skill 内的 `contracts/pipeline.v0.2.yaml`
   （由打包脚本从唯一权威源 `ma-resources/io/contracts/pipeline.v0.2.yaml` 注入并校验）。
 - 运行期事实落 `ma-workspaces/projects/{project_id}/tasks/{task_id}/runs/{run_id}/`，**不写回技能目录**。
 - 记忆（只读）：Session 挂载的 Memory Store。Memory Store 不是沙箱文件系统，只能用
@@ -153,13 +154,17 @@ nohup python3 run_pipeline.py resume \
   > "$WS/tasks/$TASK/runs/$RUN/resume.log" 2>&1 &
 ```
 
-- **G1 特殊**：生产路径的 note 是 `@/mnt/session/uploads/topic5_requirement_*.json`。
-  必须把冒号后的短文件引用**原样**作为 `--note` 参数传给脚本，不得读取、摘要、改写或
-  重新生成；`hc_bridge` 会在沙箱内读取并校验。G1 需求不包含活动明细文件引用。
+- **G1 特殊**：默认 note 是 Gateway 序列化的完整需求 JSON；必须将冒号后的 JSON
+  **原样**作为单个 `--note` 参数传给脚本，用正确的 shell 引号保留其中的引号与特殊字符，
+  不得摘要、改写、重组字段或重新生成。旧模式可能仍传入
+  `@/mnt/session/uploads/topic5_requirement_*.json`，同样原样传入。G1 不包含活动明细引用。
 - **G2 通过特殊**：Gateway 会等用户在 G2 后上传 Excel，再把
-  `{"source_file":{"name":"...","mount_path":"..."}}` 作为 note 原样注入。
+  `{"source_file":{"name":"...","mount_path":"...","transport":"feishu_resource",
+  "message_id":"...","file_key":"...","sha256":"..."}}` 作为 note 原样注入。
   必须原样传给 `resume --hc G2 --decision pass --note ...`，由 `hc_bridge` 写入
-  `ConfirmedPlan` 后才允许进入生产 Run。
+  `ConfirmedPlan` 后才允许进入生产 Run。全部字段必须保留；流水线会自行从飞书下载并校验
+  原附件，不要自行下载、上传 Files、拼接下载脚本或设置另一个输入来源。
+  默认缓存目录为 `/workspace/topic5_repro_inputs/`；旧任务仍兼容 Files 挂载目录。
 - `decision` 只能是 `pass` / `reject` / `remark`。
 - **remark 无内容**：脚本打印 `REMARK_RECORDED ...` 且**不续跑**——你只需回报「已记录备注，等待进一步指令」，
   **不要**自己把它当 pass 推进（project_memory 硬约束）。

@@ -26,17 +26,74 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from email.utils import parsedate_to_datetime
 from typing import Any, Optional
 
 _BASE = (os.environ.get("FEISHU_OPENAPI_BASE") or "https://open.feishu.cn").rstrip("/")
 _WEB_BASE = (os.environ.get("FEISHU_WEB_BASE") or "https://www.feishu.cn").rstrip("/")
+_DOCUMENT_BODY_WIDTH = 800
+_GRID_GAP = 24
+
+
+def _table_column_widths(rows: list[list[str]], available_width: int) -> list[int]:
+    """Fit columns to their container, reserving more space for long text."""
+    if not rows:
+        return []
+    count = len(rows[0])
+    if not count:
+        return []
+    weights = []
+    for index, heading in enumerate(rows[0]):
+        if "排名" in heading:
+            weight = 0.5
+        elif any(term in heading for term in ("代表", "内容", "正文", "备注", "关键词", "过滤词")):
+            weight = 4.5
+        elif "标题" in heading:
+            weight = 3.0
+        elif any(term in heading for term in ("占比", "比例", "条数", "数量", "数值", "互动量")):
+            weight = 1.0
+        elif "URL" in heading.upper() or "链接" in heading:
+            weight = 1.2
+        else:
+            lengths = [
+                sum(2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+                    for char in row[index])
+                for row in rows if index < len(row)
+            ]
+            weight = max(1.2, min(2.5, max(lengths, default=0) / 8))
+        weights.append(weight)
+    # Native tables need readable minimum widths. If an unusually wide table
+    # cannot fit, preserve that minimum and let Feishu provide horizontal scroll.
+    total = max(round(available_width), 50 * count)
+    remaining = total - 50 * count
+    shares = [remaining * weight / sum(weights) for weight in weights]
+    widths = [50 + int(share) for share in shares]
+    for index in sorted(range(count), key=lambda i: shares[i] % 1, reverse=True)[:total - sum(widths)]:
+        widths[index] += 1
+    return widths
+
+
+def _layout_table_widths(blocks: list[dict], available_width: int = _DOCUMENT_BODY_WIDTH):
+    """Yield expected table widths in document order, including nested columns."""
+    for block in blocks:
+        if block.get("block_type") == 31:
+            yield _table_column_widths(block.get("_table_rows") or [], available_width)
+        if block.get("_children"):
+            yield from _layout_table_widths(block["_children"], max(50, available_width - 32))
+        if block.get("_columns"):
+            ratios = block.get("_width_ratios", [50, 50])
+            for children, ratio in zip(block["_columns"], ratios):
+                width = round(max(50, available_width - _GRID_GAP) * ratio / sum(ratios))
+                yield from _layout_table_widths(children, width)
 
 
 def _app_creds() -> tuple[str, str]:
@@ -81,17 +138,53 @@ def _http_error(error: urllib.error.HTTPError, token: str = "") -> RuntimeError:
 
 def _req(method: str, path: str, token: str, body: Optional[dict] = None,
          timeout: int = 30) -> dict:
+    """Retry rejected requests, without replaying ambiguous non-idempotent writes."""
     url = f"{_BASE}{path}"
     data = json.dumps(body, ensure_ascii=False).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method, headers={
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json; charset=utf-8",
     })
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        raise _http_error(error, token) from error
+    # A 429 explicitly rejects this request. A 503 may hide an applied write:
+    # only reads, absolute replacements, or requests with a client token replay.
+    replacements = {
+        "update_text_elements", "update_table_property",
+        "update_grid_column_width_ratio", "replace_image",
+    }
+    safe_replay = (
+        method.upper() in ("GET", "HEAD")
+        or bool(urllib.parse.parse_qs(urllib.parse.urlsplit(path).query).get("client_token"))
+        or (method.upper() == "PATCH" and bool(body) and set(body) <= replacements)
+    )
+    deadline = time.monotonic() + 60
+    for attempt in range(6):
+        try:
+            with urllib.request.urlopen(
+                req, timeout=min(timeout, max(0.1, deadline - time.monotonic()))
+            ) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as error:
+            retryable = error.code == 429 or (error.code == 503 and safe_replay)
+            delay = 2 ** attempt
+            retry_after = (error.headers or {}).get("Retry-After")
+            if retry_after:
+                try:
+                    seconds = float(retry_after)
+                except (TypeError, ValueError):
+                    try:
+                        seconds = parsedate_to_datetime(retry_after).timestamp() - time.time()
+                    except (TypeError, ValueError, OverflowError):
+                        seconds = delay
+                if math.isfinite(seconds):
+                    delay = max(delay, seconds)
+            if not retryable or attempt == 5 or delay > deadline - time.monotonic():
+                try:
+                    raise _http_error(error, token) from error
+                finally:
+                    error.close()
+            error.close()
+            time.sleep(delay)
     if payload.get("code") not in (0, None):
         raise RuntimeError(f"飞书 API 错误 code={payload.get('code')} msg={payload.get('msg')}")
     return payload.get("data") or {}
@@ -180,7 +273,31 @@ _HEADING_KEY = {1: "heading1", 2: "heading2", 3: "heading3", 4: "heading4"}
 
 def _text_block(content: str) -> dict:
     return {"block_type": _BLOCK_TEXT,
-            "text": {"elements": [{"text_run": {"content": content}}]}}
+            "text": {"elements": _inline_elements(content)}}
+
+
+def _inline_elements(content: str) -> list[dict]:
+    """Translate common Markdown emphasis and hyperlinks into native text runs."""
+    pattern = re.compile(r"\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)]+)\)|\*([^*]+)\*")
+    elements, position = [], 0
+    def add(text, style=None):
+        if text:
+            run = {"content": text.replace(r"\|", "|")}
+            if style:
+                run["text_element_style"] = style
+            elements.append({"text_run": run})
+    for match in pattern.finditer(content):
+        add(content[position:match.start()])
+        if match.group(1) is not None:
+            add(match.group(1), {"bold": True})
+        elif match.group(2) is not None:
+            url = match.group(3)
+            add(match.group(2), {"link": {"url": url}} if url.startswith(("https://", "http://")) else None)
+        else:
+            add(match.group(4), {"italic": True})
+        position = match.end()
+    add(content[position:])
+    return elements or [{"text_run": {"content": ""}}]
 
 
 def _split_table_row(line: str) -> list[str]:
@@ -231,6 +348,9 @@ def md_to_blocks(markdown: str) -> list[dict]:
         if not line.strip():
             i += 1
             continue
+        if line.strip().startswith("<!--") and line.strip().endswith("-->"):
+            i += 1
+            continue
         if (i + 1 < len(lines) and "|" in line
                 and _is_table_separator(lines[i + 1])):
             rows = [_split_table_row(line)]
@@ -238,6 +358,8 @@ def md_to_blocks(markdown: str) -> list[dict]:
             while i < len(lines) and "|" in lines[i] and lines[i].strip():
                 rows.append(_split_table_row(lines[i]))
                 i += 1
+            if any(len(row) != len(rows[0]) for row in rows):
+                raise ValueError("Markdown表格列数不一致，请转义正文竖线")
             blocks.append(_table_block(rows))
             continue
         m = re.match(r"^(#{1,4})\s+(.*)$", line)
@@ -246,7 +368,7 @@ def md_to_blocks(markdown: str) -> list[dict]:
             bt = _HEADING_BLOCK_TYPE.get(level, 6)
             key = _HEADING_KEY.get(level, "heading4")
             blocks.append({"block_type": bt, key: {
-                "elements": [{"text_run": {"content": m.group(2).strip()}}]}})
+                "elements": _inline_elements(m.group(2).strip())}})
             i += 1
             continue
         img = re.match(r"^!\[(.*?)\]\((.*?)\)\s*$", line)
@@ -255,13 +377,95 @@ def md_to_blocks(markdown: str) -> list[dict]:
             if path and os.path.isfile(path):
                 blocks.append({"block_type": _BLOCK_IMAGE, "image": {},
                                "_local_path": path, "_alt": alt})
-            else:
+            elif path.startswith(("https://", "http://")):
                 blocks.append(_text_block(f"[图] {alt}: {path}"))
+            else:
+                raise ValueError("报告引用的本地图片不存在，禁止改写为路径文字")
             i += 1
             continue
-        blocks.append(_text_block(line.strip()))
+        bullet = re.match(r"^\s*[-+*]\s+(.*)", line)
+        ordered = re.match(r"^\s*\d+[.)]\s+(.*)", line)
+        quote = re.match(r"^\s*>\s?(.*)", line)
+        if bullet or ordered or quote:
+            match = bullet or ordered or quote
+            key, bt = ("bullet", 12) if bullet else ("ordered", 13) if ordered else ("quote", 15)
+            blocks.append({"block_type": bt, key: {"elements": _inline_elements(match.group(1))}})
+        else:
+            blocks.append(_text_block(line.strip()))
         i += 1
     return blocks
+
+
+def _block_text(block):
+    return "".join(el.get("text_run", {}).get("content", "")
+                   for el in (block.get(_key_for(block)) or {}).get("elements", []))
+
+
+def _grid(left, right, width_ratios=(50, 50)):
+    return {"block_type": 24, "grid": {"column_size": 2},
+            "_columns": [left, right], "_width_ratios": list(width_ratios)}
+
+
+def layout_blocks(blocks: list[dict]) -> list[dict]:
+    """Content→layout: callouts, cloud/topic pairs, image/data pairs, opinion columns."""
+    result, i = [], 0
+    first_paragraph = False
+    description = False
+    while i < len(blocks):
+        block = blocks[i]
+        bt, text = block.get("block_type"), _block_text(block)
+        if bt in _HEADING_BLOCK_TYPE.values():
+            description = "数据说明" in text or (description and "整体洞察" not in text and bt > 4)
+            first_paragraph = not description and (bt >= 5 or "整体洞察" in text)
+            result.append(block)
+            i += 1
+            continue
+        if text.startswith("正面观点 TOP5"):
+            stop = i + 1
+            while stop < len(blocks) and blocks[stop].get("block_type") not in (*_HEADING_BLOCK_TYPE.values(), 27):
+                stop += 1
+            split = next((j for j in range(i + 1, stop)
+                          if _block_text(blocks[j]).startswith("负面观点 TOP5")), None)
+            if split is not None:
+                result.append(_grid(blocks[i:split], blocks[split:stop]))
+                i = stop
+                continue
+        if bt == 27:
+            stop = i + 1
+            if "词云" in str(block.get("_alt") or ""):
+                while stop < len(blocks) and blocks[stop].get("block_type") in (2, 12, 13, 15):
+                    stop += 1
+                if stop > i + 1:
+                    result.append(_grid([block], blocks[i + 1:stop]))
+                    i = stop
+                    continue
+            elif stop < len(blocks) and blocks[stop].get("block_type") in (27, 31):
+                right = [blocks[stop]]
+                stop += 1
+                if stop < len(blocks) and _block_text(blocks[stop]).startswith("活动整体 NSR"):
+                    right.append(blocks[stop])
+                    stop += 1
+                image_name = str(block.get("_alt") or "") + " " + str(block.get("_local_path") or "")
+                ratios = (55, 45) if "漏斗" in image_name or "mention_funnel" in image_name else (50, 50)
+                result.append(_grid([block], right, ratios))
+                i = stop
+                continue
+        if first_paragraph and bt == 2:
+            result.append({"block_type": 19, "callout": {"background_color": 2, "emoji_id": "bulb"},
+                           "_children": [block]})
+            first_paragraph = False
+        else:
+            result.append(block)
+        i += 1
+    return result
+
+
+def _flatten_blocks(blocks):
+    for block in blocks:
+        yield block
+        yield from _flatten_blocks(block.get("_children") or [])
+        for column in block.get("_columns") or []:
+            yield from _flatten_blocks(column)
 
 
 def _strip_internal(block: dict) -> dict:
@@ -281,7 +485,7 @@ def _strip_internal(block: dict) -> dict:
 
 # ── 真路径 ────────────────────────────────────────────────────
 def _create_children(token: str, doc_token: str, blocks: list[dict],
-                     batch: int = 50) -> list[dict]:
+                     batch: int = 50, parent_id: str = "") -> list[dict]:
     """批量创建子 block（docx 单次 children 上限 50），返回每个已建 block（含 block_id），顺序对齐。"""
     created: list[dict] = []
     index = 0
@@ -289,11 +493,39 @@ def _create_children(token: str, doc_token: str, blocks: list[dict],
         chunk = [_strip_internal(b) for b in blocks[i:i + batch]]
         data = _req(
             "POST",
-            f"/open-apis/docx/v1/documents/{doc_token}/blocks/{doc_token}/children",
+            f"/open-apis/docx/v1/documents/{doc_token}/blocks/{parent_id or doc_token}/children",
             token, {"children": chunk, "index": index})
         created.extend(data.get("children") or [])
         index += len(chunk)
+    if len(created) != len(blocks):
+        raise RuntimeError("飞书创建块回执数量与提交数量不一致")
     return created
+
+
+def _publish_blocks(token, doc_token, blocks, parent_id="", available_width=_DOCUMENT_BODY_WIDTH):
+    created = _create_children(token, doc_token, blocks, parent_id=parent_id)
+    _fill_tables(token, doc_token, blocks, created, available_width=available_width)
+    images = _fill_images(token, doc_token, blocks, created)
+    for submitted, got in zip(blocks, created):
+        block_id = got.get("block_id")
+        if submitted.get("_children"):
+            images += _publish_blocks(token, doc_token, submitted["_children"], block_id,
+                                      max(50, available_width - 32))
+        if submitted.get("_columns"):
+            columns = got.get("children") or []
+            if len(columns) != 2:
+                data = _req("GET", f"/open-apis/docx/v1/documents/{doc_token}/blocks/{block_id}", token)
+                columns = (data.get("block") or data).get("children") or []
+            if len(columns) != 2:
+                raise RuntimeError("飞书双栏Grid未返回两个Column")
+            _req("PATCH", f"/open-apis/docx/v1/documents/{doc_token}/blocks/{block_id}", token,
+                 {"update_grid_column_width_ratio": {
+                     "width_ratios": submitted.get("_width_ratios", [50, 50])}})
+            ratios = submitted.get("_width_ratios", [50, 50])
+            for column_id, children, ratio in zip(columns, submitted["_columns"], ratios):
+                width = round(max(50, available_width - _GRID_GAP) * ratio / sum(ratios))
+                images += _publish_blocks(token, doc_token, children, column_id, width)
+    return images
 
 
 def _fill_images(token: str, doc_token: str, blocks: list[dict],
@@ -316,8 +548,8 @@ def _fill_images(token: str, doc_token: str, blocks: list[dict],
                  f"/open-apis/docx/v1/documents/{doc_token}/blocks/{block_id}",
                  token, {"replace_image": {"token": file_token}})
             filled += 1
-        except Exception:
-            continue
+        except Exception as error:
+            raise RuntimeError(f"飞书图片上传或回填失败: {type(error).__name__}") from error
     return filled
 
 
@@ -352,8 +584,31 @@ def _expand_table(token: str, doc_token: str, block_id: str,
     return table
 
 
+def _write_table_cell(token: str, doc_token: str, cell_id: str, value: str) -> None:
+    """Reuse the native paragraph; remove only verified empty trailing paragraphs."""
+    path = f"/open-apis/docx/v1/documents/{doc_token}/blocks/{cell_id}"
+    data = _req("GET", path, token)
+    children = (data.get("block") or data).get("children") or []
+    if not children:
+        raise RuntimeError("飞书表格单元格缺少默认段落")
+    # Earlier publishers inserted content before the default empty paragraph.
+    # Never remove a nonempty or non-text block while repairing that layout.
+    for child_id in children[1:]:
+        data = _req("GET", f"/open-apis/docx/v1/documents/{doc_token}/blocks/{child_id}", token)
+        child = data.get("block") or data
+        if child.get("block_type") != _BLOCK_TEXT or _block_text(child).strip():
+            raise RuntimeError("飞书表格单元格含额外非空内容，禁止自动覆盖")
+    _req(
+        "PATCH", f"/open-apis/docx/v1/documents/{doc_token}/blocks/{children[0]}",
+        token, {"update_text_elements": {"elements": _inline_elements(value)}},
+    )
+    if len(children) > 1:
+        _req("DELETE", f"{path}/children/batch_delete", token,
+             {"start_index": 1, "end_index": len(children)})
+
+
 def _fill_tables(token: str, doc_token: str, blocks: list[dict],
-                 created: list[dict]) -> int:
+                 created: list[dict], *, available_width: int = _DOCUMENT_BODY_WIDTH) -> int:
     """把内部表格行数据写入飞书创建出的 table cell block。"""
     filled = 0
     for submitted, got in zip(blocks, created):
@@ -383,13 +638,13 @@ def _fill_tables(token: str, doc_token: str, blocks: list[dict],
         if len(cell_ids) != len(values):
             raise RuntimeError(
                 f"飞书表格单元格数量异常：expected={len(values)} got={len(cell_ids)}")
+        widths = _table_column_widths(rows, available_width)
+        for index, width in enumerate(widths):
+            _req("PATCH", f"/open-apis/docx/v1/documents/{doc_token}/blocks/{got['block_id']}",
+                 token, {"update_table_property": {
+                     "column_index": index, "column_width": width}})
         for cell_id, value in zip(cell_ids, values):
-            _req(
-                "POST",
-                f"/open-apis/docx/v1/documents/{doc_token}/blocks/{cell_id}/children",
-                token,
-                {"children": [_text_block(value)], "index": 0},
-            )
+            _write_table_cell(token, doc_token, cell_id, value)
         filled += 1
     return filled
 
@@ -415,12 +670,10 @@ def create_delivery(report_md: str, *, title: str, task_id: str,
             raise RuntimeError(f"创建飞书文档失败：{data}")
 
     # 写入 block（批量 children），再对 image block 上传 media 回填。
-    blocks = md_to_blocks(report_md)
+    blocks = layout_blocks(md_to_blocks(report_md))
     images_filled = 0
     if blocks and not reused_doc_token:
-        created = _create_children(token, doc_token, blocks)
-        _fill_tables(token, doc_token, blocks, created)
-        images_filled = _fill_images(token, doc_token, blocks, created)
+        images_filled = _publish_blocks(token, doc_token, blocks)
 
     # 优先转移所有权；失败时降级添加 full_access 协作者，保证发起人可管理文档。
     owner = os.environ.get("FEISHU_USER_OPEN_ID")
@@ -511,6 +764,41 @@ def _list_document_blocks(token: str, doc_token: str) -> list[dict]:
         page_token = next_token
 
 
+def _table_layout_check(items: list[dict], source_blocks: list[dict]) -> dict:
+    """Verify effective native widths and one paragraph per table cell."""
+    by_id = {block["block_id"]: block for block in items}
+    ordered, visited = [], set()
+
+    def walk(block):
+        block_id = block["block_id"]
+        if block_id in visited:
+            return
+        visited.add(block_id)
+        ordered.append(block)
+        for child_id in block.get("children") or []:
+            if child_id in by_id:
+                walk(by_id[child_id])
+
+    for block in items:
+        if block.get("block_type") == 1:
+            walk(block)
+    for block in items:
+        walk(block)
+    expected = list(_layout_table_widths(source_blocks))
+    tables = [block for block in ordered if block.get("block_type") == 31]
+    actual = [(block.get("table") or {}).get("property", {}).get("column_width") or []
+              for block in tables]
+    bad_cells = [
+        block["block_id"] for block in items
+        if block.get("block_type") == 32 and (
+            len(block.get("children") or []) != 1
+            or by_id.get(block["children"][0], {}).get("block_type") != 2)
+    ]
+    return {"ok": actual == expected and not bad_cells,
+            "expected_widths": expected, "actual_widths": actual,
+            "invalid_cells": bad_cells}
+
+
 def _readback_check(token: str, doc_token: str, report_md: str,
                     report_version: str) -> dict:
     """导出后回读核对：章节齐全 / 图 block 生效 / 绑定版本一致。"""
@@ -522,12 +810,25 @@ def _readback_check(token: str, doc_token: str, report_md: str,
         el.get("text_run", {}).get("content", "")
         for b in items for el in (b.get(_key_for(b), {}) or {}).get("elements", [])
         if isinstance(el, dict))
-    want_headings = re.findall(r"^#{1,4}\s+(.*)$", report_md, flags=re.M)
+    source_blocks = md_to_blocks(report_md)
+    want_headings = [_block_text(b) for b in source_blocks if b.get("block_type") in _HEADING_BLOCK_TYPE.values()]
     missing = [h.strip() for h in want_headings if h.strip() and h.strip() not in text_all]
     # 图核对：回读到的 image block 数 >= 期望本地图数即视为图引用生效。
     want_images = _expected_image_count(report_md)
     got_images = sum(1 for b in items if b.get("block_type") == _BLOCK_IMAGE)
     images_ok = got_images >= want_images
+    expected = list(_flatten_blocks(layout_blocks(source_blocks)))
+    layout_counts = {
+        name: {"expected": sum(b.get("block_type") == bt for b in expected),
+               "got": sum(b.get("block_type") == bt for b in items)}
+        for name, bt in (("grid", 24), ("callout", 19), ("table", 31))
+    }
+    layout_counts["grid_column"] = {
+        "expected": 2 * layout_counts["grid"]["expected"],
+        "got": sum(b.get("block_type") == 25 for b in items),
+    }
+    layout_ok = all(count["got"] >= count["expected"] for count in layout_counts.values())
+    table_layout = _table_layout_check(items, layout_blocks(source_blocks))
     return {
         "revision_id": revision_id,
         "chapters_complete": not missing,
@@ -536,7 +837,10 @@ def _readback_check(token: str, doc_token: str, report_md: str,
         "expected_images": want_images,
         "got_images": got_images,
         "version_bound": report_version,
-        "ok": (not missing) and images_ok,
+        "layout_counts": layout_counts,
+        "layout_complete": layout_ok,
+        "table_layout": table_layout,
+        "ok": (not missing) and images_ok and layout_ok and table_layout["ok"],
     }
 
 
@@ -545,6 +849,8 @@ def _key_for(block: dict) -> str:
     bt = block.get("block_type")
     if bt == _BLOCK_TEXT:
         return "text"
+    if bt in (12, 13, 15):
+        return {12: "bullet", 13: "ordered", 15: "quote"}[bt]
     for lvl, code in _HEADING_BLOCK_TYPE.items():
         if bt == code:
             return _HEADING_KEY[lvl]

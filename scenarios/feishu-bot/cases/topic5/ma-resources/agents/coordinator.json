@@ -12,7 +12,8 @@
     {"type": "custom", "skill_id": "${skill_id.SSJH-Social-Stat}", "version": "${version.SSJH-Social-Stat}"},
     {"type": "custom", "skill_id": "${skill_id.blueai-datahub-skill}", "version": "${version.blueai-datahub-skill}"},
     {"type": "custom", "skill_id": "${skill_id.blueai-yuqing-echarts-skill-new}", "version": "${version.blueai-yuqing-echarts-skill-new}"},
-    {"type": "custom", "skill_id": "${skill_id.report-cover-skill}", "version": "${version.report-cover-skill}"}
+    {"type": "custom", "skill_id": "${skill_id.report-cover-skill}", "version": "${version.report-cover-skill}"},
+    {"type": "custom", "skill_id": "${skill_id.wordcloud-insight}", "version": "${version.wordcloud-insight}"}
   ],
   "tools": [
     {"type": "agent_toolset_20260701"}

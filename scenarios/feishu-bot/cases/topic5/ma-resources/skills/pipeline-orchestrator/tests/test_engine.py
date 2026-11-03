@@ -130,6 +130,25 @@ class TestReplaceFailedSource(unittest.TestCase):
                 source_mount_path="fixed.xlsx",
             )
 
+    def test_replacement_preserves_feishu_download_reference(self):
+        source = {
+            "transport": "feishu_resource",
+            "message_id": "om_original",
+            "file_key": "file_v3_original",
+            "sha256": "a" * 64,
+        }
+        engine.replace_failed_source(
+            self.st,
+            source_name="fixed.xlsx",
+            source_mount_path="fixed.xlsx",
+            source_file=source,
+        )
+        plan = self.st.read_artifact("confirmed_plan")
+        self.assertEqual(plan["source_file"], {
+            **source, "name": "fixed.xlsx", "mount_path": "fixed.xlsx",
+        })
+        self.assertEqual(plan["version"], "plan-v2")
+
     def test_rejects_later_failed_node(self):
         self.st.current_node = "n11_annotate_r2"
         with self.assertRaisesRegex(ValueError, "n04_run_init"):

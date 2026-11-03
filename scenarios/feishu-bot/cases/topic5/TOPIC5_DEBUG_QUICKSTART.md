@@ -28,25 +28,16 @@ python -m pip install -e ".[dev]"
 conda activate topicX
 ```
 
-### 0.2 ECharts 中文字体（首次或新机器）
+### 0.2 Topic5 字体（首次或新机器）
 
-两个 Source Han Sans SC OTF 文件体积较大，不进入 Git。执行 `update_ma.sh` 前必须把：
+ECharts 的 Source Han Sans SC Regular/Bold 和词云的 Noto Sans CJK Bold 统一由
+`tools/prepare_fonts.py` 下载并校验，默认缓存到仓库外的 `~/.cache/topic5-fonts/`。
+`update_ma.sh` 在单测前准备临时 Skill 副本，`tools/pack_skills.sh` 在打包时注入字体，
+随后由 `tools/upload_skills.py` 随 Skill ZIP 上传 MA。源码目录无需手工放字体。
 
-```text
-SourceHanSansSC-Regular.otf
-SourceHanSansSC-Bold.otf
-```
-
-放入：
-
-```text
-scenarios/feishu-bot/cases/topic5/ma-resources/skills/
-blueai-yuqing-echarts-skill-new/assets/fonts/
-```
-
-文件来源、复制命令和当前验收 SHA-256 见
+首次准备需要联网；有效缓存可离线复用。可用 `TOPIC5_FONT_CACHE_DIR` 指定另一个仓库外目录。
+下载或 SHA-256 校验失败即停止。完整字体版本和哈希见
 [字体目录说明](./ma-resources/skills/blueai-yuqing-echarts-skill-new/assets/fonts/README.md)。
-`tools/pack_skills.sh` 会在打包前检查两个文件，缺失时直接停止，避免部署出中文缺字的图表 Skill。
 
 ---
 
@@ -87,7 +78,7 @@ topic5 轻量初始化：只问方舟 API Key + 扫码建飞书应用，写入 `
 - [ ] `docx:document` — 读写飞书文档正文（n20 导出草稿、回读核对）
 - [ ] `drive:drive` — 上传图表 PNG 为文档 media（`medias/upload_all` 原生插图，n14→n20）
 - [ ] `docs:permission.member:create` — 把报告发起人与管理员添加为协作者
-- [ ] `docs:permission.member:transfer` — 将报告所有权转给任务发起人（交付三门禁之一）
+- [ ] `docs:permission.member:transfer` — 尝试将报告所有权转给任务发起人；受限时授予并核验 `full_access` 协作者权限
 - [ ] `docs:permission.member:retrieve` — 授权后查询协作者列表做结果复核
 
 > topic5 交付走**导出 + 回读核对 + 记录 revision_id** 三门禁，禁用 `drive:import` MD 直导。
@@ -154,7 +145,7 @@ ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 ### 2.3 飞书交付（L 阶段）
 
 ```env
-# n20 使用 Session 注入的 FEISHU_USER_OPEN_ID，把所有权转给任务发起人。
+# n20 使用 Session 注入的 FEISHU_USER_OPEN_ID，转移所有权或授予可管理协作者权限。
 # 正常任务无需在全局配置中设置 owner open_id。
 FEISHU_OPENAPI_BASE=https://open.feishu.cn
 # 可选：企业自定义飞书域名；未配置时使用 https://www.feishu.cn
@@ -180,7 +171,25 @@ set -a; source ~/.arkagent/cases/topicX/config.env; set +a
 
 ## 3. 更新资源并启动 Gateway
 
-首次部署和后续更新都使用同一个入口。在 `scenarios/feishu-bot/cases/topic5` 目录执行：
+### 3.1 已有部署：保留 Agent ID 更新
+
+加载 §2 的 shell 配置后，在仓库根目录执行。以下以编排器修复为例：
+
+```bash
+bash scenarios/feishu-bot/cases/topic5/tools/pack_skills.sh
+python scenarios/feishu-bot/cases/topic5/tools/upload_skills.py --only pipeline-orchestrator
+python scenarios/feishu-bot/cases/topic5/tools/update_agents_in_place.py --only coordinator
+```
+
+其他 Skill 按对应 key 上传；Validator 改动需更新 Validator，省略 Agent 更新的
+`--only` 会更新两个 Agent。支持 `--dry-run` 预检。依赖变更使用
+`tools/update_environment_in_place.py` 保留 Environment ID。
+这些更新无需重启 Gateway；新建 Session 采用新版本，已有 Session 保持冻结版本。
+当前 Memory 仅有三份记忆文件，客户业务知识统一迁移仍暂缓，不能借修复覆盖导入。
+
+### 3.2 首次创建或全量重建
+
+在 `scenarios/feishu-bot/cases/topic5` 目录执行：
 
 只验证本地测试隔离、不打包或上传资源：
 
@@ -231,12 +240,12 @@ cd ../.. && python -m arkagent run --case topicx
 2. Gateway 日志滚动 SSE `agent.message.delta`；
 3. G1 卡片展示结构化需求问卷，提交后进入方案编制；
 4. 通过 **G2（方案确认）** 后，在当前话题发送活动明细 `.xlsx`；
-5. Excel 通过飞书资源下载 → Ark Files API → Session `/mnt/session/uploads/`，挂载成功后自动续跑；n07 读取该文件，SSJH 仍负责 n05/n06/n13；
+5. Gateway 下载并校验 Excel 容器，冻结原消息引用与 SHA256；MA 沙箱从飞书附件直读到 `/workspace/topic5_repro_inputs/`，验证哈希并缓存后自动续跑；n07 读取该文件，SSJH 仍负责 n05/n06/n13。默认 `TOPIC5_INPUT_TRANSPORT=feishu_resource`，`ark_files` 仅用于旧挂载方式；
 6. 后续固定弹出 **G4（用户终验）**；N10 仅在观点或 UGC 标签有歧义时弹出；
 7. 点击按钮 → Coordinator `resume` → 编排器续跑下一阶段；
 8. G3 由独立 `topic5-validator` 子 Agent 按客户完整规则适配表自动执行（脚本全量扫描 +
    Agent 全文语义检查），`p0_count==0` 自动放行，有 P0 自动返修，不发人工审核卡；
-9. 最终产出飞书文档链接（经转移所有权 + 回读核对 + revision_id 记录三门禁）。
+9. 最终产出飞书文档链接（经所有权或可管理协作者权限核验 + 回读核对 + revision_id 记录）。
 
 ### HC 决策消息格式（严格）
 
@@ -249,9 +258,9 @@ HCx remark: <note>
 ```
 
 其中 `HCx` 是关卡种类（`G1`/`G2`/`N10`/`G3`/`G4`/`HC7`/`USER_ESCALATE`）。**备注（remark）无内容时只记录 remark，不触发 resume_job**，需等用户后续消息指令。
-G1 是特殊结构化消息：Gateway 将需求问卷写入 Session 挂载文件，并以
-`G1 pass: @/mnt/session/uploads/topic5_requirement_*.json` 注入。Coordinator 必须把文件引用
-原样传给 `run_pipeline.py resume --note`，不得读取、摘要或改写。
+G1 是特殊结构化消息：默认以 `G1 pass: <原始需求 JSON>` 注入，不上传 Ark Files。
+Coordinator 必须将完整 JSON 原样传给 `run_pipeline.py resume --note`，不得摘要或改写。
+仅旧输入契约使用 `G1 pass: @/mnt/session/uploads/topic5_requirement_*.json` 文件引用。
 
 ---
 
@@ -278,12 +287,14 @@ G1 是特殊结构化消息：Gateway 将需求问卷写入 Session 挂载文件
 | 现象                          | 排查方向                                                                       |
 | ----------------------------- | ------------------------------------------------------------------------------ |
 | 日志「topic5 场景：未启用」    | 检查 `TOPIC5_COORDINATOR_AGENT_ID` 是否已写入 config.env、拼写是否正确          |
-| Skill 找不到                  | 重跑 `./update_ma.sh`                                                           |
+| Skill 找不到                  | 核对打包/上传结果和 Agent Skill 绑定，按 §3.1 原地更新后新建 Session             |
 | HC 卡片点击后无响应           | Feishu Bot 后台「事件订阅」里是否开启 `card.action.trigger` 权限                |
 | SSE 中断/超时                 | 单会话默认超时，超长任务加大 `SESSION_TIMEOUT_MS`（毫秒）                       |
 | n14 图表渲染失败              | 检查 `REPORT_COVER_API_KEY`；沙箱 node_modules 是否安装成功（看 setup_script 日志）|
 | n09/n11 标注走降级            | 检查 `DATAHUB_API_KEY` / `DATAHUB_BASE_URL`；行数 <1000 会走小引擎 semantic     |
-| 飞书交付失败                  | 检查 `docs:permission.member:transfer` 权限与 Session 是否注入 `FEISHU_USER_OPEN_ID` |
+| 飞书交付失败                  | 检查任务发起人身份、转移或 `full_access` 协作者授权与权限回读；按实际 P0 处理 |
+| Excel 上传提示配额不足        | 核对是否仍使用旧 Session 或 `ark_files`；新 Session 默认采用附件直读，沙箱须具备飞书资源下载凭证 |
+| n15 词云分析失败              | 检查 `wordcloud_adapter.py` 的具体反馈：未知/重复原词、未读帖子、无效 quote_id 或字段证据冲突；有原帖的失败不得跳过 |
 | 报告缺指标/口径不符           | 对照 README「口径红线」；缺 AI 情感会直接报错（设计如此，不兜底）               |
 
 ---
@@ -296,7 +307,10 @@ G1 是特殊结构化消息：Gateway 将需求问卷写入 Session 挂载文件
 - HITL 卡片 [topic5_hitl.py](./topic5_hitl.py)
 - 状态持久化 [pipeline_store.py](./pipeline_store.py)
 - 配置字段 [config.py](./config.py)
-- 统一更新入口 [update_ma.sh](./update_ma.sh)
+- 原地 Agent 更新 [update_agents_in_place.py](./tools/update_agents_in_place.py)
+- 原地环境更新 [update_environment_in_place.py](./tools/update_environment_in_place.py)
+- 字体准备 [prepare_fonts.py](./tools/prepare_fonts.py)
+- 首次创建/全量重建入口 [update_ma.sh](./update_ma.sh)
 - Coordinator Prompt [coordinator.system.md](./ma-resources/agents/coordinator.system.md)
 - Validator Prompt [validator.system.md](./ma-resources/agents/validator.system.md)
 - 架构全景 HTML [topic5_ma_architecture.html](./topic5_ma_architecture.html)

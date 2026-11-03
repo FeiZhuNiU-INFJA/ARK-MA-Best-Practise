@@ -15,8 +15,10 @@ Topic5 复盘报告流水线的确定性执行引擎。读取包内 `contracts/p
 |---|---|
 | `engine.py` | DAG 加载 + 节点调度 + 续跑（`Dag.load` / `create_run` / `run` / `resume`）；含幂等执行层（render→ledger 重放/对账） |
 | `handlers.py` | 各业务节点 handler、质检返修及原生飞书交付 |
+| `report_contract.py` / `REPORT_CONTRACT.md` | 固定报告模块、数据说明、PGC/UGC Top10、观点与代表内容、正确图片装配及写作规范 |
+| `validator_scan.py` | 打包时注入独立Validator权威扫描器，供协调器内N19使用同一规则预检 |
 | `feishu.py` | N20 原生文档发布、表格扩容、图片回填及回读校验 |
-| `excel_source.py` | 读取 Session 挂载的用户活动明细 `.xlsx`，映射为 n07 `clean_campaign` 行结构 |
+| `excel_source.py` | 按飞书附件引用下载、校验并缓存用户活动明细 `.xlsx`，兼容旧挂载输入，映射为 n07 `clean_campaign` 行结构 |
 | `state.py` | Run 状态持久化（`RunState`，落 run 目录 `attempts/artifacts/...`） |
 | `run_pipeline.py` | CLI 入口 |
 | `contracts/pipeline.v0.2.yaml` | 部署包内 DAG；打包时从 `ma-resources/io/contracts/` 注入 |
@@ -54,9 +56,14 @@ python run_pipeline.py status --workspace <ws> --task <task_id> --run <run_id>
 
 - Python 3.9+；`PyYAML`（解析 contract）、`openpyxl`（读取用户上传的活动明细 Excel）。
 - 运行期事实写入 `--workspace` 指向的 `tasks/{task_id}/runs/{run_id}/`，**不写回本资源目录**。
-- G1 只确认业务需求。G2 通过后，Gateway 等待用户上传 Excel，并把
-  `source_file.mount_path` 写入 `confirmed_plan`；n07 从
-  `/mnt/session/uploads/<mount_path>` 读取该文件。
+- G1 默认由 Gateway 传递完整 JSON，兼容旧的 Files 需求文件引用。G2 后 Gateway 校验
+  飞书 Excel 并传递 `source_file`（`transport=feishu_resource`、`message_id`、
+  `file_key`、`sha256`、`name`、`mount_path`），桥接层完整写入 `confirmed_plan`。
+  n04/n07 的读取器用环境中的飞书凭据直接下载原附件，SHA256 校验通过后原子缓存至
+  `/workspace/topic5_repro_inputs/<mount_path>`，续跑校验并复用缓存。下载或哈希校验失败则停止。
+  不需要 Agent 拼下载代码，也不经过 Ark Files API。凭据只从环境读取，不写入源引用。
+  旧任务缺少 `transport` 时仍从 `/mnt/session/uploads/<mount_path>` 读取。
+  `TOPIC5_SESSION_UPLOADS_DIR` 可显式覆盖缓存/挂载目录。
 
 ## 幂等执行层（已实现）
 
@@ -87,6 +94,11 @@ python run_pipeline.py status --workspace <ws> --task <task_id> --run <run_id>
   当前 `run.json` 终态与失败回执优先。不得把 N20 发布失败改成人工需求审核。
 - N10 确认必须绑定 `opinion_candidates` 与 `ugc_category_list` 版本。Gateway 保存确认
   快照并在后续卡片中持续展示；不要重新生成已确认的标签。
+- 新任务默认动态UGC类别，触发标签人工确认属预期行为。
+- 品牌词云从stats_bundle.brand读取，活动词云从wordcloud_data读取；各活动/维度/平台独立。n14调用wordcloud-insight v0.2.6生成透明/白底PNG及render.json；n15依赖chart_urls，通读全词表、抽样全文阅读已有原帖并按需补读，生成topics.json和schema2 post-review.json后compose。报告默认引用透明图wordcloud.png，保留完整双图与审计文件。不可截词、截正文、自动剔词或把未核验产物当作成功；无原帖正常走词频分析，有原帖失败必须阻断。
+- n15 原句由模型选择 `quote_id`、代码复制原字段片段，拒绝未知/跨字段/冲突引用。候选及最终原词必须精确属于当前范围且无重复，证据帖子须已读，未读先补读；错误反馈列明议题、未知词、重复词、未读帖子与允许集合后重试。默认2–4议题、最多5个，低证据可1个，不强制建议。
+- 飞书交付使用原生Callout和50:50 Grid；缺本地图片直接失败，发布后回读Grid/Column/Callout/表格。
+- N16结构或口径不达标时停止，不整篇降级；N19固定模块由report_contract重新装配并按完整扫描器复检。
 
 接口依据：
 [创建块](https://open.feishu.cn/document/server-docs/docs/docs/docx-v1/document-block/create.md)、

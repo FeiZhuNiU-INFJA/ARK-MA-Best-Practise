@@ -72,12 +72,12 @@ governance:
 # ─── 业务口径参数（真口径，模块引用；模块开关走 plan.selected_modules）────
 params:
   annotation_routing_threshold: 1000
-  ugc_category_mode: fixed_four              # 默认 fixed_four 固定四类；dynamic 分支保留(handler 仍支持)
+  ugc_category_mode: dynamic                 # 根据真实UGC发现类别，经标签关卡确认
   nsr_denominator_includes_neutral: true     # 默认含中性
   report_chapters: five                      # 默认五部分
   qc_max_rounds: 3
   user_confirm_timeout_days: 2
-  validator_rules_version: topic5-validator-qc-v1.6
+  validator_rules_version: topic5-validator-qc-v1.7
 
 # ─── 可执行节点层（engine 直接驱动；gate/module/control_plane 为治理标注）───
 nodes:
@@ -264,12 +264,12 @@ nodes:
     module: activity_performance
     inputs: [annotated_data, brand_stats, brand_stats_baseline]
     outputs: [stats_bundle]
-    success: 各活动独立统计（趋势/互动/情感/TopN/KOL效能/UGC分布/分维NSR）
+    success: 各活动独立统计（趋势/互动/情感/PGC与UGC各Top10/正负观点及代表原文/UGC占比及代表内容/分维NSR）
     # 口径修订 2026-10-21:活动层所有指标分母=活动相关内容条数;指标用条均互动量/品牌提及率/产品提及占比
     side_effect: none
     retry: {max: 1, on_fail: pause}
     checkpoint: true
-    next: n14_charts                          # join: annotated_data + brand_stats + brand_stats_baseline 齐备后聚合
+    next: n14_charts                         # 先双版绘图，再分析并组装
 
   - id: n13_wordcloud_pull
     name: 词云拉取                              # 口径修订 2026-10-21:竞品 SOV 下线
@@ -283,7 +283,7 @@ nodes:
     side_effect: external-stat-pull
     idempotency: "ssjh:wc:{task_id}:{resource_lock}"
     retry: {max: 2, on_fail: exception_bypass}
-    next: [n14_charts, n15_wordcloud_insight]    # fan-out：词云数据供图表与解读两路
+    next: n14_charts
 
   # ⑤ 图表封面
   - id: n14_charts
@@ -291,24 +291,24 @@ nodes:
     owner: tool-gateway
     mode: tool
     handler: charts_render
-    inputs: [stats_bundle, wordcloud_data]
+    inputs: [stats_bundle, wordcloud_data, confirmed_plan]
     outputs: [chart_urls]
-    success: 按图表规范产全部图表+封面本地 PNG，交付节点上传飞书 media
+    success: 产图表封面及客户词云双版 PNG/render.json，词表全量保留，报告默认引用透明图
     side_effect: chart-render
-    idempotency: "chart-render:{task_id}:{resource_lock}"
+    idempotency: "chart-render:wordcloud-v0.2.6:{task_id}:{resource_lock}"
     retry: {max: 2, on_fail: pause}
     checkpoint: true
-    next: n16_report                          # join: stats_bundle + wordcloud_data 齐备后生成图表
+    next: n15_wordcloud_insight
 
   # ⑥ 报告撰写
   - id: n15_wordcloud_insight
-    name: 词云三步解读
+    name: 完整词表议题分析、原帖阅读与词云图文组装
     owner: InsightSubagent
     mode: agent
     handler: wordcloud_insight
-    inputs: [wordcloud_data]
+    inputs: [wordcloud_data, stats_bundle, chart_urls]
     outputs: [wordcloud_insight]
-    success: 逐词查帖→剔噪音→聚 3-5 议题，产出各平台各维议题
+    success: 通读全词表→可选原帖抽样全文阅读/消歧→最多5议题→compose校验双图/原词/原帖证据，产analysis.md/preview.html/analysis-evidence.json
     retry: {max: 1, on_fail: pause}
     next: n16_report
 

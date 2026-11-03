@@ -65,7 +65,7 @@ python3 /mnt/skills/topic5-validator/scripts/scan_report.py \
   "validator": "topic5-validator",
   "validation_id": "validation_xxx",
   "subject": {"artifact_id": "report_md@vN", "key": "report_md", "version": 1, "sha256": "..."},
-  "rules_version": "topic5-validator-qc-v1.6",
+  "rules_version": "topic5-validator-qc-v1.8",
   "validator_version": "<mounted skill version>",
   "execution_source": "<independent MA session/execution id>",
   "execution_ref": {"task_id": "...", "run_id": "...", "attempt_id": "..."},
@@ -88,7 +88,7 @@ python3 /mnt/skills/topic5-validator/scripts/scan_report.py \
   （同行含免责声明则不算违规）；报告为空；缺核心章节（品牌传播 / 活动传播 / 综合定位（容忍「综合
   表现定位」变体）/ 经验总结）；缺品牌 1.1-1.4 或任一活动 2.N.1-2.N.5；
   数字编造；提及漏斗越界。
-- **P1 可披露放行**（记录不拦截）：图表引用缺失、内容偏短、来源含降级产物、证据偏弱。
+- **P1 可披露放行**（记录不拦截）：内容偏短、非必需补充证据偏弱。
 - **P2 提示**：风格 / 措辞建议。
 
 ---
@@ -109,3 +109,16 @@ python3 /mnt/skills/topic5-validator/scripts/scan_report.py \
   基准期与活动期长度不同，检查是否披露日均可比口径，不能只列总量差。
 - execution_source 必须绑定本次真实 Validator 子线程或独立执行 ID；不得填写协调器的主线程 ID，
   不得使用 mounted-skill 等占位版本。先解析真实执行标识与挂载 Skill 版本，再运行扫描器。
+
+## 必需模块补充检查
+
+以下缺失均记P0：数据说明的关键词/过滤词及来源区别；应生成的品牌趋势或品牌大盘词云；
+品牌及每活动PGC/UGC Top10表的固定字段或可用行；活动正负观点TOP5的占比和代表原文；
+有数据的UGC类别、占比、代表内容与质量解读；未知或不存在的图片引用；整篇降级报告。
+词云必须归属正确对象：品牌大盘在1.3，活动各维度在2.N.4；不能以图片存在代替解读验收。
+公开PGC作者只允许热门表，UGC个人账号不得展示。正文中通用定义不算样本观点分析。
+飞书发布阶段通过原生块回读检查Grid、Column、Callout和表格；G3检查内容与图片放置，
+视觉可读性在G4终验复核。不得把缺必需字段或未生成图片降成P1。
+
+判定时区分单活动总量与多活动相加，区分独立手机号与帖子哈希中的数字片段；
+分维小样本检查仅针对实际展示的 NSR 指标或表格行，不能因普通叙事提到维度词而判缺披露。

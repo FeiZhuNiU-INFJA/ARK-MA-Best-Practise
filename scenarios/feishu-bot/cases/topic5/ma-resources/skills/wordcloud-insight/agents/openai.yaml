@@ -1,0 +1,5 @@
+interface:
+  display_name: "词云分析与配图"
+  short_description: "结合词频与可选原帖生成简要议题洞察及自然填隙透明及白底词云图"
+  default_prompt: "使用 $wordcloud-insight，结合项目背景、词频表和可选原帖输出简要议题分析与透明、白底两种词云PNG，供工作流Agent按报告要求选择；有原帖先抽样阅读全文辅助提炼；标题简洁，正文以发现为主，业务含义按需点到为止。"
+

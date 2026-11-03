@@ -51,181 +51,35 @@ class TestSemanticDegradedContract(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "能力不可用"):
             handlers.opinion_candidates({"id": "n09b", "name": "oc"}, self.st, {})
 
-    def test_wordcloud_insight_platforms_not_merged(self):
-        # 两平台各自词表和证据 → 各平台独立出议题，不跨平台合并。
-        self.st.write_artifact("wordcloud_data", {"campaigns": {"campA": {"overall": {
-            "platforms": {
-                "xiaohongshu": {"好用": 10, "回购": 8},
-                "douyin": {"好看": 5, "有趣": 3},
-            },
-            "evidence_rows": [
-                {"id": "x1", "platform": "xiaohongshu", "content": "好用，准备回购"},
-                {"id": "d1", "platform": "douyin", "content": "好看而且有趣"},
-            ],
-        }}}})
-
-        def fake_chat_json(_system, user, **_kwargs):
-            if "平台：xiaohongshu" in user:
-                return {"topics": [{"topic": "使用体验", "words": ["好用", "回购"],
-                                    "evidence_ids": ["x1"]}]}
-            return {"topics": [{"topic": "视觉趣味", "words": ["好看", "有趣"],
-                                "evidence_ids": ["d1"]}]}
-
-        with patch("semantic.llm_available", return_value=True), \
-                patch("semantic.chat_json", side_effect=fake_chat_json):
-            out = handlers.wordcloud_insight({"id": "n15", "name": "wc"}, self.st, {})
-        art = out["artifacts"]["wordcloud_insight"]
-        platforms = art["campaigns"]["campA"]["overall"]["platforms"]
-        self.assertNotIn("degraded", art)
-        self.assertIn("xiaohongshu", platforms)
-        self.assertIn("douyin", platforms)
-        # 每平台独立 topics，键不混入另一平台的词
-        xhs_words = {w for t in platforms["xiaohongshu"]["topics"] for w in t["words"]}
-        self.assertIn("好用", xhs_words)
-        self.assertNotIn("好看", xhs_words)
-
-    def test_wordcloud_rejects_unbound_evidence_and_words(self):
+    def test_wordcloud_insight_requires_complete_n14_ranges(self):
         self.st.write_artifact("wordcloud_data", {"campaigns": {"campA": {
-            "overall": {
-                "platforms": {"xiaohongshu": {"好用": 10}},
-                "evidence_rows": [{
-                    "id": "x1", "platform": "xiaohongshu",
-                    "content": "产品好用",
-                }],
-            },
-        }}})
+            "overall": {"platforms": {"xiaohongshu": {"好用": 10}}}}}})
+        self.st.write_artifact("chart_urls", {"charts": []})
+        with patch("semantic.llm_available", return_value=True):
+            with self.assertRaisesRegex(RuntimeError, "n14 词云范围不完整"):
+                handlers.wordcloud_insight({"id": "n15"}, self.st, {})
+
+    def test_wordcloud_insight_preserves_platforms_and_not_applicable(self):
+        import charts
+        wc = {"campaigns": {"campA": {
+            "overall": {"platforms": {"xiaohongshu": {"好用": 10}, "douyin": {"有趣": 5}}},
+            "product": {"not_applicable": True, "platforms": {}},
+        }}}
+        self.st.write_artifact("wordcloud_data", wc)
+        self.st.write_artifact("chart_urls", {"charts": [
+            {**spec, "wordcloud_artifacts": {"scope": spec["wordcloud_scope"]}}
+            for spec in charts.build_chart_specs({}, wc)
+        ]})
+        def analyze(_state, chart, *_args):
+            return {"topics": [{"words": chart["categories"]}], "status": "ok"}
         with patch("semantic.llm_available", return_value=True), \
-                patch("semantic.chat_json", return_value={
-                    "topics": [{
-                        "topic": "伪造结论",
-                        "words": ["完全无来源"],
-                        "evidence_ids": ["fake-999"],
-                    }],
-                }):
-            with self.assertRaisesRegex(RuntimeError, "证据或语义解读不完整"):
-                handlers.wordcloud_insight(
-                    {"id": "n15", "name": "wc"}, self.st, {}
-                )
-
-    def test_wordcloud_short_refs_map_to_immutable_ids(self):
-        self.st.write_artifact("wordcloud_data", {"campaigns": {"campA": {
-            "overall": {
-                "platforms": {"xiaohongshu": {"好用": 10, "回购": 8}},
-                "evidence_rows": [{
-                    "id": "long-immutable-post-id",
-                    "platform": "xiaohongshu",
-                    "content": "产品好用，准备回购",
-                }],
-            },
-        }}})
-        with patch("semantic.llm_available", return_value=True), \
-                patch("semantic.chat_json", return_value={
-                    "topics": [{
-                        "topic": "使用体验",
-                        "words": ["好用", "回购"],
-                        "evidence_refs": ["E01"],
-                    }],
-                }):
-            out = handlers.wordcloud_insight(
-                {"id": "n15", "name": "wc"}, self.st, {}
-            )
-        topic = out["artifacts"]["wordcloud_insight"]["campaigns"][
-            "campA"]["overall"]["platforms"]["xiaohongshu"]["topics"][0]
-        self.assertEqual(topic["evidence_ids"], ["long-immutable-post-id"])
-        self.assertNotIn("evidence_refs", topic)
-
-    def test_wordcloud_filters_model_added_words_but_keeps_grounded_topic(self):
-        self.st.write_artifact("wordcloud_data", {"campaigns": {"campA": {
-            "overall": {
-                "platforms": {"xiaohongshu": {"好用": 10, "回购": 8}},
-                "evidence_rows": [{
-                    "id": "post-1",
-                    "platform": "xiaohongshu",
-                    "content": "产品好用，准备回购",
-                }],
-            },
-        }}})
-        with patch("semantic.llm_available", return_value=True), \
-                patch("semantic.chat_json", return_value={
-                    "topics": [{
-                        "topic": "使用体验",
-                        "words": ["好用", "模型新增同义词"],
-                        "evidence_refs": ["E01"],
-                    }],
-                }):
-            out = handlers.wordcloud_insight(
-                {"id": "n15", "name": "wc"}, self.st, {}
-            )
-        topic = out["artifacts"]["wordcloud_insight"]["campaigns"][
-            "campA"]["overall"]["platforms"]["xiaohongshu"]["topics"][0]
-        self.assertEqual(topic["words"], ["好用"])
-        self.assertEqual(
-            topic["dropped_unsupported_words"], ["模型新增同义词"]
-        )
-
-    def test_wordcloud_prompt_is_bounded(self):
-        words = {f"词{i:02d}": 100 - i for i in range(40)}
-        rows = [{
-            "id": f"post-{i:02d}",
-            "platform": "xiaohongshu",
-            "title": "题" * 200,
-            "content": "正文" * 500,
-        } for i in range(20)]
-        self.st.write_artifact("wordcloud_data", {"campaigns": {"campA": {
-            "overall": {
-                "platforms": {"xiaohongshu": words},
-                "evidence_rows": rows,
-            },
-        }}})
-        captured = {}
-
-        def fake_chat_json(_system, user, **kwargs):
-            captured["user"] = user
-            captured["kwargs"] = kwargs
-            return {"topics": [{
-                "topic": "高频议题",
-                "words": ["词00"],
-                "evidence_refs": ["E01"],
-            }]}
-
-        with patch("semantic.llm_available", return_value=True), \
-                patch("semantic.chat_json", side_effect=fake_chat_json):
-            handlers.wordcloud_insight(
-                {"id": "n15", "name": "wc"}, self.st, {}
-            )
-
-        self.assertIn('"ref": "E06"', captured["user"])
-        self.assertNotIn('"ref": "E07"', captured["user"])
-        self.assertIn("词15", captured["user"])
-        self.assertNotIn("词16", captured["user"])
-        self.assertLess(len(captured["user"]), 3500)
-        self.assertEqual(captured["kwargs"]["max_tokens"], 768)
-        self.assertEqual(captured["kwargs"]["retries"], 1)
-        self.assertEqual(captured["kwargs"]["thinking"], "disabled")
-
-    def test_wordcloud_rejects_unknown_short_ref_with_diagnostics(self):
-        self.st.write_artifact("wordcloud_data", {"campaigns": {"campA": {
-            "overall": {
-                "platforms": {"xiaohongshu": {"好用": 10}},
-                "evidence_rows": [{
-                    "id": "post-1",
-                    "platform": "xiaohongshu",
-                    "content": "产品好用",
-                }],
-            },
-        }}})
-        with patch("semantic.llm_available", return_value=True), \
-                patch("semantic.chat_json", return_value={
-                    "topics": [{
-                        "topic": "使用体验",
-                        "words": ["好用"],
-                        "evidence_refs": ["E99"],
-                    }],
-                }):
-            with self.assertRaisesRegex(RuntimeError, "E99"):
-                handlers.wordcloud_insight(
-                    {"id": "n15", "name": "wc"}, self.st, {}
-                )
+                patch("wordcloud_adapter.analyze", side_effect=analyze):
+            artifact = handlers.wordcloud_insight({"id": "n15"}, self.st, {})["artifacts"]["wordcloud_insight"]
+        platforms = artifact["campaigns"]["campA"]["overall"]["platforms"]
+        self.assertEqual(platforms["xiaohongshu"]["topics"][0]["words"], ["好用"])
+        self.assertEqual(platforms["douyin"]["topics"][0]["words"], ["有趣"])
+        self.assertTrue(artifact["campaigns"]["campA"]["product"]["not_applicable"])
+        self.assertTrue(artifact["complete"])
 
     def test_fallback_report_adapter_uses_real_metrics_and_whitelist(self):
         stats = {"campaigns": {
@@ -294,21 +148,17 @@ class TestSemanticDegradedContract(unittest.TestCase):
         self.assertEqual(len(removed), 2)
         handlers._assert_no_forbidden_terms(cleaned)
 
-    def test_write_report_uses_deterministic_template_for_invalid_structure(self):
+    def test_write_report_rejects_invalid_structure_without_fallback(self):
         stats = {"campaigns": {"campA": {"metrics": {}}}, "brand": {}}
         self.st.write_artifact("stats_bundle", stats)
         self.st.write_artifact("chart_urls", {"charts": []})
         self.st.write_artifact("wordcloud_insight", {"campaigns": {}})
-        with patch("semantic.llm_available", return_value=True), \
+        with self.assertRaisesRegex(ValueError, "禁止整篇降级替换"), \
+                patch("semantic.llm_available", return_value=True), \
                 patch("semantic.chat", return_value="# 简短报告\n没有完整章节"):
-            out = handlers.write_report(
+            handlers.write_report(
                 {"id": "n16", "name": "report"}, self.st, {}
             )
-        report = out["artifacts"]["report_md"]
-        self.assertEqual(report["source"], "deterministic_guardrail")
-        self.assertIn("缺少必需章节", report["guardrail_fallback_reason"])
-        handlers._assert_report_structure(report["markdown"], ["campA"])
-        handlers._assert_no_forbidden_terms(report["markdown"])
 
     def test_fix_report_rejects_missing_model_and_increments_attempt(self):
         self.st.write_artifact("report_md", {"markdown": "# 初稿", "chapters": "five",

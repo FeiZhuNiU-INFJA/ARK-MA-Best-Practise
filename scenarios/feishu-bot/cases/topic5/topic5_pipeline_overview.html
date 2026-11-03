@@ -234,9 +234,10 @@
 <body>
 
 <header>
+  <a class="home-link" href="./topic5_ma_architecture.html">MA 架构</a>
   <a class="home-link" href="./TOPIC5_EXECUTION_FLOW_AND_OUTPUTS.md">流程与输出文档</a>
   <a class="home-link" href="./README.md">← topic5 README</a>
-  <h1>topic5 · 营销活动复盘报告 Pipeline<span class="tag-arch">薄 Agent + Durable Workflow · 29 节点 DAG · 3 道固定人工门 · 2026-10-30</span></h1>
+  <h1>topic5 · 营销活动复盘报告 Pipeline<span class="tag-arch">薄 Agent + Durable Workflow · 29 节点 DAG · 3 道固定人工门 · 2026-11-03</span></h1>
   <span class="subtitle">点击左侧任一节点，右侧显示该节点的 owner / handler / 职责 / 输入输出 / 关键约束</span>
   <span class="legend">
     <span class="legend-item"><span class="dot" style="background:#7c3aed"></span> 语义 handler</span>
@@ -295,7 +296,7 @@ flowchart TD
     subgraph sgAgg ["I · 统计聚合 + 图表"]
       n12_aggregate["n12 分对象统计聚合<br/>aggregate"]:::code
       n14_charts["n14 图表 + 封面本地 PNG<br/>charts_render"]:::tool
-      n15_wordcloud_insight["n15 词云三步解读<br/>wordcloud_insight"]:::agent
+      n15_wordcloud_insight["n15 全词表议题 + 原帖阅读 + compose<br/>wordcloud_insight"]:::agent
     end
 
     subgraph sgReport ["J · 报告撰写"]
@@ -326,7 +327,7 @@ flowchart TD
     n01_hc_requirement -->|"G1 通过"| n02_plan
     n02_plan --> n03_hc_plan
     n03_hc_plan -->|"G2 通过"| wait_input
-    wait_input -->|"文件挂载 · 冻结 ConfirmedPlan"| n04_run_init
+    wait_input -->|"附件引用 + SHA256 · 冻结 ConfirmedPlan"| n04_run_init
     n04_run_init --> n05_brand_pull
     n04_run_init --> n06_brand_baseline
     n04_run_init --> n13_wordcloud_pull
@@ -340,9 +341,8 @@ flowchart TD
     n10_hc_opinion -->|"N10 确认"| n11_annotate_r2
     n11_annotate_r2 --> n12_aggregate
     n13_wordcloud_pull --> n14_charts
-    n13_wordcloud_pull --> n15_wordcloud_insight
     n12_aggregate --> n14_charts
-    n14_charts --> n16_report
+    n14_charts --> n15_wordcloud_insight
     n15_wordcloud_insight --> n16_report
     n16_report --> n17_validate
     n17_validate -->|"G3 质检"| n18_qc_gate
@@ -422,7 +422,7 @@ flowchart TD
       content:
         sec("职责", `<p>用户填写品牌、活动名称、活动周期、平台、品牌/活动/产品关键词、内容范围、业务问题和交付期望。提交后冻结 <code>requirement_confirmed</code>。</p>`) +
         io("<code>requirement_snapshot</code>", "<code>requirement_confirmed</code>") +
-        sec("关键约束", `<p class="note">生产路径把问卷 JSON 挂载为 <code>topic5_requirement_*.json</code>，Coordinator 只透传短文件引用；<code>hc_bridge</code> 在沙箱内读取并校验。G1 需求中不包含 <code>source_file</code>。</p>`)
+        sec("关键约束", `<p class="note">默认将需求 JSON 原样随控制消息传入，Coordinator 仅透传，<code>hc_bridge</code> 校验；不占用 Ark Files 配额。仅旧契约使用挂载文件引用。G1 需求中不包含 <code>source_file</code>。</p>`)
     },
     n02_plan: {
       title: "n02 · 方案编制",
@@ -440,7 +440,7 @@ flowchart TD
       content:
         sec("职责", `<p>用户确认 <code>analysis_plan</code>、<code>execution_plan</code> 和模块选择。Gateway 随后把 Job 置为 <code>wait_input</code>，不会立即启动 n04。</p>`) +
         io("<code>analysis_plan</code> · <code>execution_plan</code> · <code>selected_modules</code>", "G2 确认决定；文件到位后生成 <code>confirmed_plan</code>") +
-        sec("关键约束", `<p class="note">G2 通过不等于生产输入已经冻结。只有 Excel 挂载成功并把 <code>source_file</code> 注入后，才会生成 ConfirmedPlan 并进入 n04。</p>`)
+        sec("关键约束", `<p class="note">G2 通过不等于生产输入已经冻结。Excel 容器校验成功、附件引用与 SHA256 写入 <code>source_file</code> 后，才会生成 ConfirmedPlan 并进入 n04。</p>`)
     },
     wait_input: {
       title: "Gateway · 等待活动明细 Excel",
@@ -450,7 +450,9 @@ flowchart TD
         sec("上传要求", `<ul>
              <li>文件扩展名必须是 <code>.xlsx</code>，单文件不超过 <b>50 MiB</b></li>
              <li>必须是有效 XLSX 工作簿；内部文件数不超过 2,000，解压后不超过 250 MiB</li>
-             <li>文件在同一飞书话题上传；Gateway 生成唯一 mount_path 并挂载到当前 MA Session</li>
+             <li>文件在同一飞书话题上传；Gateway 校验容器并冻结 <code>message_id/file_key/sha256</code> 和唯一 <code>mount_path</code> 描述</li>
+             <li>默认 <code>feishu_resource</code>：沙箱直读飞书附件到 <code>/workspace/topic5_repro_inputs/</code>，校验 SHA256 并缓存；续跑复用有效缓存</li>
+             <li><code>TOPIC5_INPUT_TRANSPORT=ark_files</code> 可选择旧挂载方式；旧 Session 保持其冻结契约</li>
            </ul>`) +
         sec("表头契约", `<div class="table-wrap"><table class="contract-table">
           <thead><tr><th>类别</th><th>精确列名</th><th>规则</th></tr></thead>
@@ -468,14 +470,14 @@ flowchart TD
              <li>非 PGC/UGC/未知的内容类型达到 5% 时 fail-closed</li>
            </ul>
            <p class="note">文件容器校验在 Gateway 完成；表头、逐行值、平台、周期和活动分组校验在 n04 完成。</p>`) +
-        io("G2 已通过 + 用户上传的 <code>.xlsx</code>", "Session 唯一挂载引用 + 含 <code>source_file</code> 的 <code>confirmed_plan</code>")
+        io("G2 已通过 + 用户上传的 <code>.xlsx</code>", "冻结附件引用与 SHA256 + 含 <code>source_file</code> 的 <code>confirmed_plan</code>")
     },
     n04_run_init: {
       title: "n04 · Run 初始化",
       tags: ['<span class="tag control">control_plane</span>', '<span class="tag">owner: blueflare-ada</span>', '<span class="tag">handler: run_init</span>'],
       desc: "校验并冻结活动 Excel、资源版本和上下文快照。",
       content:
-        sec("职责", `<p>读取 <code>confirmed_plan.source_file.mount_path</code> 指向的唯一文件，执行表头与逐行数据校验，计算活动文件 SHA-256，冻结资源版本和上下文；随后 <b>fan-out 三路取数</b>：品牌期 / 基准期 / 词云。</p>`) +
+        sec("职责", `<p><code>excel_source.py</code> 根据 <code>confirmed_plan.source_file</code> 解析冻结输入，下载附件或复用已校验缓存，核对 SHA256，执行表头与逐行数据校验，冻结资源版本和上下文；随后 <b>fan-out 三路取数</b>：品牌期 / 基准期 / 词云。</p>`) +
         io("<code>confirmed_plan</code>", "<code>run_record</code> · <code>resource_lock</code> · <code>context_snapshot</code>") +
         sec("关键约束", `<p>side_effect=resource-lock；幂等键 <code>runinit:{task_id}:{confirmed_plan_version}</code>。</p>
            <p class="note red">任何 <code>excel_source</code> 校验错误都会阻断生产 Run，不会带着错误数据继续。</p>
@@ -506,7 +508,7 @@ flowchart TD
       desc: "只清洗 G2 确认并冻结的活动明细 Excel；缺少 source_file 时阻断。",
       content:
         sec("职责", `<p><code>excel_source.py</code> 把 G2 冻结的活动明细 Excel 中文列映射为统一行结构，再做内容范围过滤、去重、确定性 demo 抽样和 KOL 分层。缺少 source_file 时 fail-closed。</p>`) +
-        io("Session 唯一挂载的活动明细 Excel（<code>brand_stats</code> 为调度依赖）", "<code>cleaned_data</code>") +
+        io("冻结引用对应、经哈希校验的活动明细 Excel（<code>brand_stats</code> 为调度依赖）", "<code>cleaned_data</code>") +
         sec("关键约束", `<p>去重键优先级 <code>fingerprint → id → item_id → url</code>。</p>
            <p class="note">n04 已完成源文件 schema 校验；n07 只消费 ConfirmedPlan 冻结的引用，不接受运行中途上传的其他文件。</p>`)
     },
@@ -575,7 +577,7 @@ flowchart TD
       tags: ['<span class="tag tool">tool</span>', '<span class="tag">owner: tool-gateway</span>', '<span class="tag">module: wordcloud_topics</span>'],
       desc: "逐活动拉整体 / 品牌 / 产品词云。",
       content:
-        sec("职责", `<p>SSJH 逐活动拉词云。随后 <b>fan-out</b> 两路：图表（n14）与解读（n15）。</p>`) +
+        sec("职责", `<p>SSJH 逐活动拉完整词表与原始原帖。随后 n14 生成双版词云，再由 n15 分析并 compose。</p>`) +
         io("<code>confirmed_plan</code>", "<code>wordcloud_data</code>（<code>{platform: cloud_word}</code>）") +
         sec("关键约束", `<p>retry max=2，on_fail=<code>exception_bypass</code>。</p>
            <p class="note">口径修订（2026-10-21）：竞品 SOV 已下线；<b>缺平台不再跨平台合并</b>，各平台独立。</p>`)
@@ -585,19 +587,20 @@ flowchart TD
       tags: ['<span class="tag tool">tool</span>', '<span class="tag">owner: tool-gateway</span>', '<span class="tag">handler: charts_render</span>'],
       desc: "按规范产全部图表 + 封面为本地 PNG，交付时经飞书 media 原生插图。",
       content:
-        sec("职责", `<p>join <code>stats_bundle</code> + <code>wordcloud_data</code>。<code>build_chart_specs</code> 产 echarts spec（剔空图/全零/单类别）；<code>render_charts</code> 逐张沙箱 resvg 渲染为本地 PNG + 封面，由 n20 经飞书 <code>medias/upload_all</code> 原生插图。</p>`) +
-        io("<code>stats_bundle</code> · <code>wordcloud_data</code>", "<code>chart_urls</code>（含每张 local_path）") +
-        sec("关键约束", `<p>side_effect=chart-render；幂等键 <code>chart-render:{task_id}:{resource_lock}</code>；retry max=2。</p>
+        sec("职责", `<p>join <code>stats_bundle</code> + <code>wordcloud_data</code>。ECharts渲染常规图表，客户 wordcloud-insight v0.2.6渲染1400×880横排词云及双版PNG，保留render.json与完整原词表；n15接着分析与compose，n20默认上传透明图。</p>`) +
+        io("<code>stats_bundle</code> · <code>wordcloud_data</code> · <code>confirmed_plan</code>", "<code>chart_urls</code>（含每张 local_path与词云双版记录）") +
+        sec("关键约束", `<p>side_effect=chart-render；幂等键 <code>chart-render:wordcloud-v0.2.6:{task_id}:{resource_lock}</code>；retry max=2。</p>
+           <p class="note">词表全量保留，绘图仅稳定排序展示前100词。全横排、自然填充、客户六色配色。字体由 <code>prepare_fonts.py</code> 下载到仓库外缓存，SHA256 校验后注入 ZIP；运行时无需下载。Windows 优先微软雅黑粗体，其他系统优先 Noto Sans CJK Bold；实际字体记入 render.json。</p>
            <p class="note">真渲染需 <code>node_modules</code>（Environment setup_script 沙箱内安装）。缺渲染器时 handler fail-closed，禁止无图交付；图片由飞书 media API 原生上传。</p>`)
     },
     n15_wordcloud_insight: {
-      title: "n15 · 词云三步解读",
+      title: "n15 · 全词表议题、原帖阅读与图文组装",
       tags: ['<span class="tag">agent · 语义</span>', '<span class="tag">owner: InsightSubagent</span>', '<span class="tag">handler: wordcloud_insight</span>'],
-      desc: "逐词查帖 → 剔噪音 → 聚 3-5 议题。",
+      desc: "通读全词表 → 可选原帖全文阅读/补读 → 最多5议题 → compose校验双图和schema2证据。",
       content:
-        sec("职责", `<p>语义 handler：各平台各维独立解读，产出议题。</p>`) +
-        io("<code>wordcloud_data</code>", "<code>wordcloud_insight</code>") +
-        sec("关键约束", `<p class="note">各平台词云<b>独立解读，禁止跨平台合并</b>。</p>`)
+        sec("职责", `<p>各平台各维独立通读全词表；已有原帖抽样全文阅读并按需补读。默认2–4议题，最多5个，证据少可仅1个，不强制建议。保留 topics.json、schema2 post-review.json、模型尝试记录及 compose 审计输出。</p>`) +
+        io("<code>wordcloud_data</code> · <code>stats_bundle</code> · <code>chart_urls</code>", "<code>wordcloud_insight</code>（含分析/预览/审计文件）") +
+        sec("关键约束", `<ul><li>模型选择 <code>quote_id</code>，代码复制标题/正文/OCR 的原字段片段；拒绝未知、跨字段或冲突引用，不允许模型改写原句。</li><li>候选和最终词集均校验：原词必须属于当前范围且不重复；证据帖子必须已读，未读先补读。</li><li>错误反馈列明议题、未知词、重复词或未读帖子及允许集合，进入局部重试。有原帖但证据失败必须阻断；无原帖正常走词频分析。</li></ul><p class="note">各平台词云<b>独立解读，禁止跨平台合并</b>。完整分析不受绘图前100词限制。</p>`)
     },
     n16_report: {
       title: "n16 · 报告内容层撰写",
@@ -606,7 +609,7 @@ flowchart TD
       content:
         sec("职责", `<p>join <code>stats_bundle</code> + <code>chart_urls</code> + <code>wordcloud_insight</code>，产内容层 MD（<code>report_chapters</code> 参数控制结构，默认五部分，嵌入封面 + 各图）。<b>不含飞书布局</b>。</p>`) +
         io("<code>stats_bundle</code> · <code>chart_urls</code> · <code>wordcloud_insight</code>", "<code>report_md</code>") +
-        sec("关键约束", `<p>retry max=1，checkpoint=true。降级报告走 <code>_fallback_report_md</code>（同样嵌封面 + 图占位）。</p>`)
+        sec("关键约束", `<p>retry max=1，checkpoint=true。模型负责叙事，代码按 REPORT_CONTRACT 装配核心表格、原文证据和图片；生产报告结构与口径校验失败时停止，禁止以简化模板伪装完成。</p>`)
     },
     n17_validate: {
       title: "n17 · 质检关卡（G3）",
@@ -635,9 +638,9 @@ flowchart TD
       tags: ['<span class="tag">agent · 语义</span>', '<span class="tag">owner: Topic5Agent</span>', '<span class="tag">handler: fix_report</span>'],
       desc: "修复 P0 并版本递增后复检。",
       content:
-        sec("职责", `<p>按 <code>qc_report.issues</code> 修订报告，patch 递增后回 n17 复检。</p>`) +
+        sec("职责", `<p>模型按 <code>qc_report.issues</code> 修订叙事；代码从统计源重建品牌与各活动 PGC/UGC Top10 和代表证据，patch 递增后回 n17 独立复检。</p>`) +
         io("<code>qc_report</code> · <code>report_md</code>", "<code>report_md</code>（修订版）") +
-        sec("关键约束", `<p class="note">retry max=0，失败 <code>pause</code>。修订保持可复检性，<b>指标口径保持不变</b>。</p>`)
+        sec("关键约束", `<p>完整性按内容识别，兼容 Markdown 和加粗标题，并核对必需字段、行数与源数据。结构错误反馈到下一次局部尝试，最多3次，使用上一版有效完整正文；通过同源 Validator 扫描器预检后才保存。</p><p class="note">DAG retry max=0，失败 <code>pause</code>；节点内3次尝试与 <code>qc_max_rounds</code> 分开计。<b>指标口径保持不变</b>。</p>`)
     },
     n_hc7_escalate: {
       title: "n_hc7 · 质检超限介入（HC7）",
@@ -651,9 +654,9 @@ flowchart TD
     n20_delivery_draft: {
       title: "n20 · 交付草稿（飞书 draft）",
       tags: ['<span class="tag tool">tool</span>', '<span class="tag">handler: delivery_draft</span>'],
-      desc: "内容层 → 飞书布局层，创建文档并转移所有权。",
+      desc: "内容层 → 飞书布局层，创建文档并核验管理权限。",
       content:
-        sec("职责", `<p>MD → 飞书文档。<b>三门禁</b>：转移所有权（transfer_owner）+ 导出后回读核对（readback）+ 记录 <code>revision_id</code>。发布后问题合并回 <code>qc_report</code>。</p>`) +
+        sec("职责", `<p>MD → 飞书原生文档。核验所有权转移；受限时授予并回读 <code>full_access</code>（可管理协作者）权限。再回读图片、表格、布局并记录 <code>revision_id</code>。发布后问题合并回 <code>qc_report</code>，权限失败不豁免。</p>`) +
         io("<code>report_md</code> · <code>chart_urls</code>", "<code>delivery_draft</code> · <code>external_receipts</code> · <code>feishu_doc</code> · <code>qc_report</code>") +
         sec("关键约束", `<p>side_effect=feishu-doc-create；幂等键绑定当前 <code>report_artifact_sha256</code>；retry max=2。</p>
            <p class="note">禁用 <code>drive+import</code> MD 直导。缺凭证时 fail-closed；<code>online_url</code> = 飞书 docx URL。</p>`)
@@ -779,6 +782,15 @@ flowchart TD
       };
       svg.querySelectorAll(".node").forEach(nodeEl => {
         nodeEl.style.cursor = "pointer";
+        nodeEl.setAttribute("role", "button");
+        nodeEl.setAttribute("tabindex", "0");
+        nodeEl.setAttribute("aria-label", DETAILS[pick(nodeEl)]?.title || pick(nodeEl));
+        nodeEl.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            nodeEl.click();
+          }
+        });
         nodeEl.addEventListener("click", () => {
           const key = pick(nodeEl);
           if (currentSelected) currentSelected.classList.remove("selected");

@@ -1132,10 +1132,7 @@ class Topic5Hitl(Topic5CardSenderProtocol):
                 return
             decision_note = json.dumps(
                 {
-                    "source_file": {
-                        "name": job.source_file_name,
-                        "mount_path": job.source_file_mount_path,
-                    }
+                    "source_file": self._runner.activity_source_payload(job)
                 },
                 ensure_ascii=False,
                 separators=(",", ":"),

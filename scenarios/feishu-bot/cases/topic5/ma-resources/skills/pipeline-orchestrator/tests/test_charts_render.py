@@ -104,7 +104,7 @@ class TestChartSpecs(unittest.TestCase):
         ids = {s["chart_id"] for s in charts.build_chart_specs(stats, {})}
         self.assertNotIn("c1_platform", ids)
 
-    def test_three_level_mention_funnel_uses_supported_bar_type(self):
+    def test_three_level_mention_funnel_uses_native_funnel_type(self):
         stats = {"campaigns": {"c1": {
             "metrics": {"活动相关条数": 30},
             "mention_funnel": {
@@ -117,7 +117,7 @@ class TestChartSpecs(unittest.TestCase):
             s["chart_id"]: s for s in charts.build_chart_specs(stats, {})
         }
         spec = specs["c1_mention_funnel"]
-        self.assertEqual(spec["chart_type"], "bar")
+        self.assertEqual(spec["chart_type"], "funnel")
         self.assertEqual(
             spec["categories"], ["活动相关", "品牌提及", "产品提及"]
         )

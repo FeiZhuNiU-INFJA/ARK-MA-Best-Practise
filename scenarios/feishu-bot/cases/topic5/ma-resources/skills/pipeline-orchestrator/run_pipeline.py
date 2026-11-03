@@ -99,6 +99,7 @@ def main() -> None:
     ap.add_argument("--note", default="", help="resume：附注（remark 必带内容才续跑）")
     ap.add_argument("--source-name", help="replace-source：新源文件展示名")
     ap.add_argument("--source-mount", help="replace-source：新源文件挂载 basename")
+    ap.add_argument("--source-json", help="replace-source：完整源引用 JSON（含飞书下载信息）")
     args = ap.parse_args()
 
     ws = Path(args.workspace)
@@ -131,6 +132,7 @@ def main() -> None:
             st,
             source_name=args.source_name or args.source_mount,
             source_mount_path=args.source_mount,
+            source_file=json.loads(args.source_json) if args.source_json else None,
         )
         _print_state(st)
         return

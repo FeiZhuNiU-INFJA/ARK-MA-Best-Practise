@@ -1,6 +1,6 @@
 # Topic5 Validator 规则适配表
 
-版本：`topic5-validator-qc-v1.6`  
+版本：`topic5-validator-qc-v1.8`
 来源：客户 `Topic5_营销活动复盘检查清单.md` v1.5。  
 判定层：`deterministic`=脚本全量检查；`semantic`=独立 Validator Agent 全文语义检查；
 `post_publish`=飞书文档创建后检查；`human_authority`=只能由用户确认。
@@ -64,6 +64,12 @@
 | 8.1 | applicable | deterministic+semantic | UGC 个人账号名、手机号、地址不得出现；PGC 公开机构/KOL可展示 |
 | 8.2 | applicable | semantic | 不对竞品做无数据支撑的负面定性；当前竞品模块下线 |
 | 8.3 | applicable | deterministic+semantic | `<30` 样本只作探索性描述并明确披露 |
+| 9.1 | applicable | deterministic+semantic | 数据说明披露平台、周期、分析对象/关键词/过滤词及品牌与活动来源区别 |
+| 9.2 | applicable | deterministic+semantic | 品牌趋势与独立大盘词云不能缺失；活动词云不得替代品牌大盘词云 |
+| 9.3 | applicable | deterministic | 品牌及每活动分PGC/UGC Top10，固定字段与实际可用行完整，合法竖线转义 |
+| 9.4 | applicable | deterministic+semantic | 正负观点分别TOP5、占比、每观点2–3条可用代表原文；不足10条披露 |
+| 9.5 | applicable | deterministic+semantic | UGC动态类别、占比、每类1–2条代表内容及基于样本的质量解读 |
+| 9.6 | applicable | deterministic | 缺图、未知本地图片、整篇降级报告均P0，禁止静默放行 |
 
 ## 审核边界
 
@@ -73,3 +79,9 @@
 - G3：独立 `topic5-validator` Agent 自动执行；`p0_count==0` 自动放行，P0 自动返修。
 - G4：发布后 Validator 检查布局、图片、所有权、链接和 revision；最终接受仍由用户确认。
 - HC7 / USER_ESCALATE：异常与超限裁决始终保留人工。
+
+机器扫描边界：单活动的声量总量不是多活动相加；已知只有一个活动时仍须拦截明确的
+跨活动或品牌与活动相加表述。手机号须是独立数字串，不能匹配字母数字帖子哈希中的
+数字片段；独立手机号以及链接参数中的完整手机号仍须拦截。
+小样本规则针对报告实际展示的分维 NSR（正文指标或 NSR 表格行），普通议题中的
+“口感、功能、效果”等词不等于展示了该维度 NSR。

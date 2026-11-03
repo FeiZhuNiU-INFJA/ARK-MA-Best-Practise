@@ -112,9 +112,19 @@ run_isolated_test_python() {
   for name in "${ISOLATED_TEST_ENV_KEYS[@]}"; do
     env_args+=(-u "$name")
   done
-  env "${env_args[@]}" "${PYTHON[@]}" "$@"
+  TOPIC5_SKILLS_ROOT="$TEST_SKILLS_ROOT" env "${env_args[@]}" "${PYTHON[@]}" "$@"
 }
 
+# 测试与部署共用字体清单。测试用 Skill 副本也放仓库外，源码目录不落字体。
+TEST_SKILLS_ROOT="$(mktemp -d)"
+trap 'rm -rf "$TEST_SKILLS_ROOT"' EXIT
+for font_skill in blueai-yuqing-echarts-skill-new wordcloud-insight; do
+  rsync -a --exclude='node_modules' --exclude='__pycache__' \
+    --exclude='*.otf' --exclude='*.ttf' --exclude='*.ttc' --exclude='*.woff*' \
+    "$TOPIC5_DIR/ma-resources/skills/$font_skill/" "$TEST_SKILLS_ROOT/$font_skill/"
+  "${PYTHON[@]}" "$TOPIC5_DIR/tools/prepare_fonts.py" \
+    --skill "$font_skill" --stage-root "$TEST_SKILLS_ROOT/$font_skill"
+done
 step "1/5 运行 topic5 单测(pipeline-orchestrator + host stdlib)"
 (
   cd "$TOPIC5_DIR/ma-resources/skills/pipeline-orchestrator"

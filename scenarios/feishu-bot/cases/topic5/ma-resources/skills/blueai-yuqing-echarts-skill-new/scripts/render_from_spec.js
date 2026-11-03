@@ -766,6 +766,7 @@ ${buildLineLabelSnippet(labelPolicy)},
 function buildDualAxisTrendOption(spec) {
   const barSeries = spec.series[0];
   const lineSeries = spec.series[1];
+  const dualLines = String(spec.chart_type).toLowerCase() === 'line';
   const labelPolicy = getLabelPolicy(spec, 'key_points_only');
   const barValues = getSeriesValues(barSeries);
   const lineValues = getSeriesValues(lineSeries);
@@ -842,15 +843,19 @@ var option = {
   series: [
     {
       name: ${JSON.stringify(barSeries.name || '柱状值')},
-      type: "bar",
+      type: ${JSON.stringify(dualLines ? 'line' : 'bar')},
       data: barValues,
+      smooth: false,
+      symbol: "circle",
+      symbolSize: 6,
+      lineStyle: {width: 3, color: "#1677FF"},
       barWidth: 18,
       itemStyle: {
         borderRadius: [9, 9, 0, 0],
-        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+        color: ${dualLines ? '"#1677FF"' : `new echarts.graphic.LinearGradient(0, 0, 0, 1, [
           { offset: 0, color: "#1677FF" },
           { offset: 1, color: mixWhite("#1677FF") }
-        ])
+        ])`}
       }
     },
     {
@@ -988,6 +993,21 @@ function buildJsFromSpec(spec, width, height) {
     case 'pie':
       optionCode = buildDonutOption(spec);
       break;
+    case 'funnel': {
+      const data = spec.categories.map((name, i) => ({
+        name, value: Number(getSeriesValues(spec.series[0])[i] || 0),
+      }));
+      optionCode = `option = {
+        backgroundColor: "#fff",
+        tooltip: {trigger: "item"},
+        series: [{type: "funnel", left: "15%", top: 65, bottom: 35,
+          width: "70%", minSize: "0%", maxSize: "100%", sort: "descending",
+          gap: 8, label: {show: true, position: "inside", fontSize: FONT_MAIN, formatter: "{b}\\n{c} 条"},
+          itemStyle: {borderColor: "#fff", borderWidth: 2},
+          data: ${JSON.stringify(data)}}]
+      };`;
+      break;
+    }
     case 'bar':
     case 'vertical_bar':
       optionCode = buildVerticalBarOption(spec);

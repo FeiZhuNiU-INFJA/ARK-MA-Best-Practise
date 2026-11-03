@@ -51,7 +51,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
   <p><b>客户</b>品牌主（消费品 / 快消 / 时尚 / 科技），通常为品牌部或公关部。</p>
   <p><b>交付价值</b>量化活动声量与互动效果 · 识别高质量内容特征 · 提炼用户真实口碑 · 给出下次活动优化建议。</p>
   <p class="note">v0.2 合成来源：pipeline.v0.1.yaml（治理契约）+ pipeline_dag.yaml（可执行 DAG，已本地跑通）。双层：可执行 nodes 层 + 声明式 governance 层。</p>
-  <div class="legend"><span class="badge" style="color:#1a7f4b;background:#e6f6ec">可接真·本地脚本就绪</span><span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span><span class="badge" style="color:#b02a2a;background:#fdeaea">源包依赖缺失·只能 stub</span><span class="badge" style="color:#0f766e;background:#e6f5f3">控制面未上线·stub 执行留接缝</span><span class="badge" style="color:#1f5fb0;background:#e7f0fb">编排逻辑已真实</span><span class="badge" style="color:#6b3fa0;background:#f0e9fa">人工关卡</span></div>
+  <div class="legend"><span class="badge" style="color:#1a7f4b;background:#e6f6ec">已实现·回归验证</span><span class="badge" style="color:#1a7f4b;background:#e6f6ec">可接真·本地脚本就绪</span><span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span><span class="badge" style="color:#b02a2a;background:#fdeaea">源包依赖缺失·只能 stub</span><span class="badge" style="color:#0f766e;background:#e6f5f3">控制面未上线·stub 执行留接缝</span><span class="badge" style="color:#1f5fb0;background:#e7f0fb">编排逻辑已真实</span><span class="badge" style="color:#6b3fa0;background:#f0e9fa">人工关卡</span></div>
 </div>
 
 <div class="panel"><h2>流程全景</h2><div class="mermaid">flowchart TD
@@ -71,7 +71,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
   n12_aggregate["n12_aggregate<br/>分对象统计聚合"]
   n13_wordcloud_pull["n13_wordcloud_pull<br/>词云拉取"]
   n14_charts["n14_charts<br/>图表+封面生成（本地 PNG，交付时上传飞书 media）"]
-  n15_wordcloud_insight["n15_wordcloud_insight<br/>词云三步解读"]
+  n15_wordcloud_insight["n15_wordcloud_insight<br/>全词表议题、原帖阅读与图文组装"]
   n16_report["n16_report<br/>报告内容层撰写"]
   n17_validate["n17_validate<br/>质检关卡（G3·独立 Validator 两段式审计）"]
   n18_qc_gate{"n18_qc_gate<br/>质检路由"}
@@ -102,8 +102,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
   n11_annotate_r2 --> n12_aggregate
   n12_aggregate --> n14_charts
   n13_wordcloud_pull --> n14_charts
-  n13_wordcloud_pull --> n15_wordcloud_insight
-  n14_charts --> n16_report
+  n14_charts --> n15_wordcloud_insight
   n15_wordcloud_insight --> n16_report
   n16_report --> n17_validate
   n17_validate --> n18_qc_gate
@@ -136,15 +135,15 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
   style n10_hc_opinion fill:#f0e9fa,stroke:#6b3fa0,color:#1a252f
   style n11_annotate_r2 fill:#fff4d6,stroke:#9a6b00,color:#1a252f
   style n12_aggregate fill:#e6f6ec,stroke:#1a7f4b,color:#1a252f
-  style n13_wordcloud_pull fill:#fff4d6,stroke:#9a6b00,color:#1a252f
+  style n13_wordcloud_pull fill:#e6f6ec,stroke:#1a7f4b,color:#1a252f
   style n14_charts fill:#fff4d6,stroke:#9a6b00,color:#1a252f
-  style n15_wordcloud_insight fill:#fff4d6,stroke:#9a6b00,color:#1a252f
-  style n16_report fill:#fff4d6,stroke:#9a6b00,color:#1a252f
-  style n17_validate fill:#f0e9fa,stroke:#6b3fa0,color:#1a252f
+  style n15_wordcloud_insight fill:#e6f6ec,stroke:#1a7f4b,color:#1a252f
+  style n16_report fill:#e6f6ec,stroke:#1a7f4b,color:#1a252f
+  style n17_validate fill:#e6f6ec,stroke:#1a7f4b,color:#1a252f
   style n18_qc_gate fill:#e7f0fb,stroke:#1f5fb0,color:#1a252f
   style n19_fix fill:#e7f0fb,stroke:#1f5fb0,color:#1a252f
   style n_hc7_escalate fill:#f0e9fa,stroke:#6b3fa0,color:#1a252f
-  style n20_delivery_draft fill:#fff4d6,stroke:#9a6b00,color:#1a252f
+  style n20_delivery_draft fill:#e6f6ec,stroke:#1a7f4b,color:#1a252f
   style n20_delivery_gate fill:#e7f0fb,stroke:#1f5fb0,color:#1a252f
   style n21_hc_user fill:#f0e9fa,stroke:#6b3fa0,color:#1a252f
   style n22_user_gate fill:#e7f0fb,stroke:#1f5fb0,color:#1a252f
@@ -178,16 +177,16 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
       <div class="src"><b>发布后检查</b><ul><li><code>image-accessibility</code></li><li><code>document-layout</code></li><li><code>document-ownership</code></li><li><code>link-accessibility</code></li><li><code>source-artifact-revision-match</code></li></ul></div>
     </div></div>
 
-<div class="panel"><h2>业务口径参数（外置，不写进节点逻辑）</h2><table><tr><td><code>annotation_routing_threshold</code></td><td>1000</td></tr><tr><td><code>ugc_category_mode</code></td><td>fixed_four</td></tr><tr><td><code>nsr_denominator_includes_neutral</code></td><td>True</td></tr><tr><td><code>report_chapters</code></td><td>five</td></tr><tr><td><code>qc_max_rounds</code></td><td>3</td></tr><tr><td><code>user_confirm_timeout_days</code></td><td>2</td></tr><tr><td><code>validator_rules_version</code></td><td>topic5-validator-qc-v1.6</td></tr></table></div>
+<div class="panel"><h2>业务口径参数（外置，不写进节点逻辑）</h2><table><tr><td><code>annotation_routing_threshold</code></td><td>1000</td></tr><tr><td><code>ugc_category_mode</code></td><td>dynamic</td></tr><tr><td><code>nsr_denominator_includes_neutral</code></td><td>True</td></tr><tr><td><code>report_chapters</code></td><td>five</td></tr><tr><td><code>qc_max_rounds</code></td><td>3</td></tr><tr><td><code>user_confirm_timeout_days</code></td><td>2</td></tr><tr><td><code>validator_rules_version</code></td><td>topic5-validator-qc-v1.7</td></tr></table></div>
 
 <div class="panel"><h2>差异与依赖说明</h2>
     <ul>
       <li><b>并行化（本轮）</b>：调度由单指针改为<b>就绪队列(frontier)</b>——<code>next</code> 支持列表(分叉)，
           节点 <code>inputs</code> 全部就绪才可跑(汇合)。三处天然并行如实表达：
-          <code>n04→[n05,n06,n13]</code> 三路数说、<code>n07→[n08,n09]</code>、<code>n13→[n14,n15]</code>；
+          <code>n04→[n05,n06,n13]</code> 三路取数、<code>n07→[n08,n09]</code>；<code>n12/n13→n14→n15→n16</code> 为图表与词云分析依赖链；
           join 节点 <code>n11/n12/n16</code> 在各自上游齐备后才运行。执行仍串行确定性，仅留一处真并发接缝；
           QC 环靠 control 边驱动不受影响。n08/n09b/n15/n16 的 owner 改为对应语义子 Agent
-          （Discovery/Opinion/Insight/Narrative，身份文件见 <code>identity/subagents/</code>）。</li>
+          （Discovery/Opinion/Insight/Narrative 为逻辑职责，由 handler 实现，当前仅注册 Coordinator 与 Validator 两个 MA Agent）。</li>
       <li><b>相对 v0.1 的改进</b>：补回方案确认门 G2（<code>n02_plan→n03_hc_plan</code>）、
           保留操作级 HC 与 QC 循环（<code>n17→n18→n19</code> 回环）、补终验超时升级边
           （<code>n22_user_gate→n_user_escalate</code>）、交付 draft→commit 分离
@@ -195,9 +194,10 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
       <li><b>已迁入</b>：<code>skills/SSJH-Social-Stat/</code>（n05/n06/n13）、<code>skills/blueai-yuqing-echarts-skill-new/</code>（n14 图表）、
           <code>skills/report-cover-skill/</code>（n14 封面）。SSJH / 图像 API 为<b>付费或外部调用</b>，接真须走成本确认门；
           图表为本地 PNG，由 n20 上传飞书 media。</li>
-      <li><b>仍缺依赖</b>：<code>validate_handoff.py / handoff.json</code> — 补齐前 <code>n24</code> 仍只能 stub。</li>
-      <li><b>控制面未上线</b>：Blueflare-Ada 未上线，<code>n04_run_init</code> / <code>n23_delivery_commit</code>
-          以本地 stub 执行，保留接入缝。</li>
+      <li><b>当前输入与交付</b>：G2 后由 Gateway 等待 Excel，默认冻结飞书附件引用与 SHA256，沙箱直读并缓存；n24 按当前 <code>handlers.py</code> 校验交付闭环，不以历史缺依赖说明推断运行状态。</li>
+      <li><b>知识与资源</b>：Memory 当前仅三份记忆，业务知识统一迁移暂缓；字体从仓库外缓存校验后注入 Skill ZIP，运行时无需下载。</li>
+      <li><b>控制面接入边界</b>：<code>n04_run_init</code> / <code>n23_delivery_commit</code>
+          保留 Blueflare-Ada 接入标记，当前本地 handler 已校验冻结输入和交付状态，不是无条件通过的占位逻辑。</li>
       <li><b>可立即接真</b>：<code>n07_clean</code>、<code>n12_aggregate</code>（本地已有脚本，不依赖外部服务）。</li>
     </ul></div>
 
@@ -424,7 +424,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         
         <span class="chip mod">module: ugc_participation</span>
       </div>
-      <div class="biz"><b>业务背景</b>活动参与方式不预设：LLM 读样本自主发现 UGC 参与方式类别，避免固定四类遗漏新玩法。(dynamic vs fixed_four 为待裁决口径)</div>
+      <div class="biz"><b>业务背景</b>默认根据真实UGC样本动态发现参与方式，标签关卡确认；fixed_four只作显式兼容选项。</div>
       <div class="grid2">
         <div><b>输入</b><code>cleaned_data</code></div>
         <div><b>产出</b><code>ugc_category_list</code></div>
@@ -545,7 +545,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
       <div class="card-h">
         <span class="nid">n12_aggregate</span>
         <span class="nname">分对象统计聚合</span>
-        <span class="badge" style="color:#1a7f4b;background:#e6f6ec">可接真·本地脚本就绪</span>
+        <span class="badge" style="color:#1a7f4b;background:#e6f6ec">已实现·回归验证</span>
       </div>
       <div class="meta">
         <span class="chip">owner: Topic5Agent</span>
@@ -554,24 +554,24 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         <span class="chip ck">checkpoint</span>
         <span class="chip mod">module: activity_performance</span>
       </div>
-      <div class="biz"><b>业务背景</b>按「分析对象」分组输出各活动独立统计：声量趋势/互动/情感/TopN/KOL层级效能(人均互动量)/UGC分布/分维度NSR。</div>
+      <div class="biz"><b>业务背景</b>分活动统计趋势、互动、情感、分维NSR、PGC/UGC各Top10、正负观点占比与代表原文、UGC类别占比与代表内容；品牌统计保持独立。</div>
       <div class="grid2">
         <div><b>输入</b><code>annotated_data, brand_stats, brand_stats_baseline</code></div>
         <div><b>产出</b><code>stats_bundle</code></div>
       </div>
-      <div><b>通过条件</b>各活动独立统计（趋势/互动/情感/TopN/KOL效能/UGC分布/分维NSR）</div>
+      <div><b>通过条件</b>各活动独立统计（趋势/互动/情感/PGC与UGC各Top10/正负观点及代表原文/UGC占比及代表内容/分维NSR）</div>
       <div class="grid2">
         <div><b>副作用</b>none</div>
         <div><b>幂等键</b><code>none</code></div>
       </div>
       <div><b>流转</b><code>→ n14_charts</code></div>
-      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>skills/blueai-stats-aggregation-skill/</code></li><li><code>KS_Metrics_Calculation.md</code></li></ul></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>handlers.py · aggregate/_campaign_stats</code></li><li><code>report_contract.py · opinion_analysis/ugc_analysis/top_content</code></li></ul></div>
     </div>
     <div class="card" id="n13_wordcloud_pull">
       <div class="card-h">
         <span class="nid">n13_wordcloud_pull</span>
         <span class="nname">词云拉取</span>
-        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+        <span class="badge" style="color:#1a7f4b;background:#e6f6ec">已实现·回归验证</span>
       </div>
       <div class="meta">
         <span class="chip">owner: tool-gateway</span>
@@ -580,7 +580,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         
         <span class="chip mod">module: wordcloud_topics</span>
       </div>
-      <div class="biz"><b>业务背景</b>逐活动拉整体/品牌/产品维度词云；competitor_sov 启用时额外拉竞品声量用于市场声量份额(SOV)。同用 SSJH skill，付费外部取数。</div>
+      <div class="biz"><b>业务背景</b>逐活动拉整体/品牌/产品维度词云和代表帖子；竞品分析已下线。</div>
       <div class="grid2">
         <div><b>输入</b><code>confirmed_plan</code></div>
         <div><b>产出</b><code>wordcloud_data</code></div>
@@ -590,8 +590,8 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         <div><b>副作用</b>external-stat-pull</div>
         <div><b>幂等键</b><code>ssjh:wc:{task_id}:{resource_lock}</code></div>
       </div>
-      <div><b>流转</b><code>→ [n14_charts, n15_wordcloud_insight]</code></div>
-      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>skills/SSJH-Social-Stat/（付费外部·成本门后接真）</code></li><li><code>module: wordcloud_topics / competitor_sov</code></li></ul></div>
+      <div><b>流转</b><code>→ n14_charts</code></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>handlers.py · ssjh_pull</code></li><li><code>ssjh.py</code></li><li><code>module: wordcloud_topics</code></li></ul></div>
     </div><h3 class="stage">⑥ 图表封面</h3>
     <div class="card" id="n14_charts">
       <div class="card-h">
@@ -608,22 +608,22 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
       </div>
       <div class="biz"><b>业务背景</b>按图表规范生成全部图表 + 封面为本地 PNG，供报告内容层引用，并在飞书交付节点上传 media。图表(echarts)与封面能力已迁入；封面图像 API 为付费/外部服务，接真走成本确认门。</div>
       <div class="grid2">
-        <div><b>输入</b><code>stats_bundle, wordcloud_data</code></div>
+        <div><b>输入</b><code>stats_bundle, wordcloud_data, confirmed_plan</code></div>
         <div><b>产出</b><code>chart_urls</code></div>
       </div>
-      <div><b>通过条件</b>按图表规范产全部图表+封面本地 PNG，交付节点上传飞书 media</div>
+      <div><b>通过条件</b>图表封面及客户词云双版 PNG/render.json，词表全量保留，报告默认引用透明图</div>
       <div class="grid2">
         <div><b>副作用</b>chart-render</div>
-        <div><b>幂等键</b><code>chart-render:{task_id}:{resource_lock}</code></div>
+        <div><b>幂等键</b><code>chart-render:wordcloud-v0.2.6:{task_id}:{resource_lock}</code></div>
       </div>
-      <div><b>流转</b><code>→ n16_report</code></div>
+      <div><b>流转</b><code>→ n15_wordcloud_insight</code></div>
       <div class="src"><b>实现 / 源文件映射</b><ul><li><code>KS_Chart_Spec.md</code></li><li><code>skills/blueai-yuqing-echarts-skill-new/ · scripts/render_chart.js</code></li><li><code>skills/report-cover-skill/（封面·GPT 图像 API）</code></li><li><code>feishu.py · medias/upload_all</code></li></ul></div>
     </div><h3 class="stage">⑦ 报告撰写</h3>
     <div class="card" id="n15_wordcloud_insight">
       <div class="card-h">
         <span class="nid">n15_wordcloud_insight</span>
-        <span class="nname">词云三步解读</span>
-        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+        <span class="nname">完整词表议题分析、原帖阅读与词云图文组装</span>
+        <span class="badge" style="color:#1a7f4b;background:#e6f6ec">已实现·回归验证</span>
       </div>
       <div class="meta">
         <span class="chip">owner: InsightSubagent</span>
@@ -632,24 +632,25 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         
         
       </div>
-      <div class="biz"><b>业务背景</b>词云不只展示词：三步解读(逐词查帖→剔噪音→聚 3-5 议题)，产出各平台各维度议题文字。</div>
+      <div class="biz"><b>业务背景</b>读取独立品牌大盘和活动各维度完整词表，按平台最多5议题；已有原帖抽样阅读全文并补读消歧，compose校验双图及schema2证据后交付分析。</div>
+      <div class="biz"><b>当前实现约束</b>默认2–4议题，低证据可1个，不强制建议。模型选择quote_id，代码复制原字段片段；原词须精确属于当前范围且无重复，证据帖子必须已读。未知词、重复词、未读帖子及引用冲突给具体反馈后重试，有原帖证据失败必须阻断。</div>
       <div class="grid2">
-        <div><b>输入</b><code>wordcloud_data</code></div>
+        <div><b>输入</b><code>wordcloud_data, stats_bundle, chart_urls</code></div>
         <div><b>产出</b><code>wordcloud_insight</code></div>
       </div>
-      <div><b>通过条件</b>逐词查帖→剔噪音→聚 3-5 议题，产出各平台各维议题</div>
+      <div><b>通过条件</b>通读全词表 → 可选原帖抽样全文阅读/补读 → 最多5议题 → compose校验双图/原词/原帖证据；产analysis.md、preview.html、analysis-evidence.json</div>
       <div class="grid2">
         <div><b>副作用</b>none</div>
         <div><b>幂等键</b><code>none</code></div>
       </div>
       <div><b>流转</b><code>→ n16_report</code></div>
-      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>skills/blueai-wordcloud-insight-skill/</code></li></ul></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>handlers.py · wordcloud_insight</code></li><li><code>wordcloud_adapter.py</code></li><li><code>stats_bundle.brand + wordcloud_data</code></li></ul></div>
     </div>
     <div class="card" id="n16_report">
       <div class="card-h">
         <span class="nid">n16_report</span>
         <span class="nname">报告内容层撰写</span>
-        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+        <span class="badge" style="color:#1a7f4b;background:#e6f6ec">已实现·回归验证</span>
       </div>
       <div class="meta">
         <span class="chip">owner: NarrativeSubagent</span>
@@ -658,7 +659,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         <span class="chip ck">checkpoint</span>
         <span class="chip mod">module: evidence_summary</span>
       </div>
-      <div class="biz"><b>业务背景</b>内容层 MD（不含飞书布局），结构：数据说明→整体洞察→品牌/活动/综合/经验/建议。(report_chapters 参数控制 three vs five)</div>
+      <div class="biz"><b>业务背景</b>五章报告。读取REPORT_CONTRACT，模型写分析；代码装配数据说明、热门表、观点/UGC证据和正确图片。结构不达标直接停止，不整篇降级。</div>
       <div class="grid2">
         <div><b>输入</b><code>stats_bundle, chart_urls, wordcloud_insight</code></div>
         <div><b>产出</b><code>report_md</code></div>
@@ -669,13 +670,13 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         <div><b>幂等键</b><code>none</code></div>
       </div>
       <div><b>流转</b><code>→ n17_validate</code></div>
-      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>KS_Report_Template.md</code></li><li><code>KS_Writing_Standards.md</code></li></ul></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>handlers.py · write_report</code></li><li><code>REPORT_CONTRACT.md</code></li><li><code>report_contract.py · assemble</code></li></ul></div>
     </div><h3 class="stage">⑧ 质检循环 + 验证门 G3</h3>
     <div class="card" id="n17_validate">
       <div class="card-h">
         <span class="nid">n17_validate</span>
         <span class="nname">质检关卡（G3·独立 Validator 两段式审计）</span>
-        <span class="badge" style="color:#6b3fa0;background:#f0e9fa">人工关卡</span>
+        <span class="badge" style="color:#1a7f4b;background:#e6f6ec">已实现·回归验证</span>
       </div>
       <div class="meta">
         <span class="chip">owner: Validator</span>
@@ -695,7 +696,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         <div><b>幂等键</b><code>none</code></div>
       </div>
       <div><b>流转</b><code>→ n18_qc_gate</code></div>
-      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>ma-resources-Validator/（平级资源包·契约基线，未落地）</code></li></ul></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>topic5-validator/scripts/scan_report.py</code></li><li><code>topic5-validator/references/rule-adaptation.md</code></li></ul></div>
     </div>
     <div class="card" id="n18_qc_gate">
       <div class="card-h">
@@ -737,6 +738,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         
       </div>
       <div class="biz"><b>业务背景</b>P0 必须修复并 patch 版本递增后复检（回到 n17），避免带病交付。</div>
+      <div class="biz"><b>当前实现约束</b>模型修复叙事，代码从统计源重建Top10与代表证据；完整性兼容标题变体并核验字段/行数。结构错误进入节点内下一次尝试，最多3次，通过同源扫描器预检后交独立G3；与DAG qc_max_rounds分开计。</div>
       <div class="grid2">
         <div><b>输入</b><code>qc_report, report_md</code></div>
         <div><b>产出</b><code>report_md</code></div>
@@ -747,7 +749,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         <div><b>幂等键</b><code>none</code></div>
       </div>
       <div><b>流转</b><code>→ n17_validate</code></div>
-      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>KS_Exception_Handling.md</code></li></ul></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>handlers.py · fix_report</code></li><li><code>report_contract.py / REPORT_CONTRACT.md</code></li><li><code>validator_scan.py（打包注入）</code></li></ul></div>
     </div>
     <div class="card" id="n_hc7_escalate">
       <div class="card-h">
@@ -779,7 +781,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
       <div class="card-h">
         <span class="nid">n20_delivery_draft</span>
         <span class="nname">交付草稿（飞书文档 draft）</span>
-        <span class="badge" style="color:#9a6b00;background:#fff4d6">有脚本/清单·待审计迁入</span>
+        <span class="badge" style="color:#1a7f4b;background:#e6f6ec">已实现·回归验证</span>
       </div>
       <div class="meta">
         <span class="chip">owner: tool-gateway</span>
@@ -788,18 +790,18 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:#f2f4f7;pa
         <span class="chip ck">checkpoint</span>
         
       </div>
-      <div class="biz"><b>业务背景</b>内容层 MD → 飞书布局层 XML(grid/callout)，创建 draft 文档并转移所有权（发布门 G4）。p0 禁发/p1 可披露放行。</div>
+      <div class="biz"><b>业务背景</b>内容层MD转飞书原生块：加粗/链接/列表、Callout、50:50 Grid、完整表格和图片；发布后回读布局与图片，缺图片禁止写入路径文字。</div>
       <div class="grid2">
         <div><b>输入</b><code>report_md, chart_urls</code></div>
         <div><b>产出</b><code>delivery_draft, external_receipts, feishu_doc, qc_report</code></div>
       </div>
-      <div><b>通过条件</b>内容层→飞书布局层，创建文档并转移所有权；发布后机器检查结果合并回 qc_report</div>
+      <div><b>通过条件</b>内容层→飞书布局层，创建文档并转移所有权或授予并核验full_access协作者权限；回读表格/图片/布局并记录revision_id，发布后机器检查结果合并回qc_report</div>
       <div class="grid2">
         <div><b>副作用</b>feishu-doc-create</div>
         <div><b>幂等键</b><code>feishu:{task_id}:{resource_lock}:{report_artifact_sha256}</code></div>
       </div>
       <div><b>流转</b><code>→ n20_delivery_gate</code></div>
-      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>KS_Feishu_Format.md</code></li><li><code>build_table_with_hc.py</code></li><li><code>feishu-doc-writer</code></li></ul></div>
+      <div class="src"><b>实现 / 源文件映射</b><ul><li><code>feishu.py · md_to_blocks/layout_blocks/_publish_blocks/_readback_check</code></li></ul></div>
     </div>
     <div class="card" id="n20_delivery_gate">
       <div class="card-h">

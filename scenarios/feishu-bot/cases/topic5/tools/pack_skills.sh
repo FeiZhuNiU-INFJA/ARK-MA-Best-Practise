@@ -25,6 +25,7 @@ SKILLS=(
   "ma-resources/skills/blueai-datahub-skill|blueai-datahub-skill.zip|blueai-datahub-skill"
   "ma-resources/skills/blueai-yuqing-echarts-skill-new|blueai-yuqing-echarts-skill-new.zip|blueai-yuqing-echarts-skill-new"
   "ma-resources/skills/report-cover-skill|report-cover-skill.zip|report-cover-skill"
+  "ma-resources/skills/wordcloud-insight|wordcloud-insight.zip|wordcloud-insight"
   "ma-resources/skills/topic5-validator|topic5-validator.zip|topic5-validator"
 )
 
@@ -62,25 +63,13 @@ pack_one() {
   echo "=== $src_rel → $zip_name ==="
 
   local skill_name
-  skill_name="$(awk '/^name:[[:space:]]*/ { sub(/^name:[[:space:]]*/, ""); print; exit }' "$src/SKILL.md")"
+  skill_name="$(awk '/^name:[[:space:]]*/ { sub(/^name:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit }' "$src/SKILL.md")"
   if [[ -z "$skill_name" ]]; then
     skill_name="$(awk '/^#[[:space:]]+/ { sub(/^#[[:space:]]+/, ""); print; exit }' "$src/SKILL.md")"
   fi
   if [[ ! "$skill_name" =~ ^[a-z0-9-]{1,64}$ ]]; then
     echo "  [错误] SKILL.md name 不合法: '$skill_name'（必须匹配 ^[a-z0-9-]{1,64}\$）" >&2
     return 1
-  fi
-
-  if [[ "$src_rel" == "ma-resources/skills/blueai-yuqing-echarts-skill-new" ]]; then
-    local font_dir="$src/assets/fonts"
-    local font_name
-    for font_name in SourceHanSansSC-Regular.otf SourceHanSansSC-Bold.otf; do
-      if [[ ! -s "$font_dir/$font_name" ]]; then
-        echo "  [错误] 缺少 ECharts 中文字体: $font_dir/$font_name" >&2
-        echo "  请按 $font_dir/README.md 准备字体后重试。" >&2
-        return 1
-      fi
-    done
   fi
 
   # 用 stage 目录构造统一顶层
@@ -90,9 +79,18 @@ pack_one() {
   rsync -a --exclude='__pycache__' --exclude='.DS_Store' --exclude='*.pyc' \
         --exclude='node_modules' --exclude='.git' \
         --exclude='.env' --exclude='config.json' --exclude='Outputs' \
+        --exclude='*.[oO][tT][fF]' --exclude='*.[tT][tT][fF]' \
+        --exclude='*.[tT][tT][cC]' --exclude='*.[wW][oO][fF][fF]*' \
         "$src/" "$stage/$top_name/"
 
   local staged_root="$stage/$top_name"
+  if [[ "$top_name" == "wordcloud-insight" || "$top_name" == "blueai-yuqing-echarts-skill-new" ]]; then
+    if ! "${TOPIC5_DEPLOY_PYTHON:-python3}" "$ROOT/tools/prepare_fonts.py" \
+        --skill "$top_name" --stage-root "$staged_root"; then
+      rm -rf "$stage"
+      return 1
+    fi
+  fi
   if [[ "$top_name" == "pipeline-orchestrator" ]]; then
     local canonical_dag="$ROOT/ma-resources/io/contracts/pipeline.v0.2.yaml"
     if [[ ! -s "$canonical_dag" ]]; then
@@ -115,6 +113,10 @@ pack_one() {
        "$staged_root/runtime_resources/agents/"
     cp "$ROOT/ma-resources/environment.json" \
        "$staged_root/runtime_resources/environment.json"
+    # N19 runs in the coordinator sandbox, which does not mount the independent
+    # Validator skill. Bundle its canonical scanner for identical repair preflight.
+    cp "$ROOT/ma-resources/skills/topic5-validator/scripts/scan_report.py" \
+       "$staged_root/validator_scan.py"
   fi
   check_skill_md "$staged_root"
 
