@@ -13,7 +13,7 @@ from arkagent.feishu import FeishuSender, IncomingMessage
 
 from ..topic5.pipeline_store import PipelineStore as Topic5PipelineStore
 from ..topic5.topic5_hitl import Topic5Hitl
-from ..topic5.topic5_runner import Topic5Runner
+from ..topic5.topic5_runner import Topic5AttachmentStateError, Topic5Runner, Topic5RunnerError
 from ..topic6.artifact_sync import Topic6ArtifactSync
 from ..topic6.pipeline_store import PipelineStore as Topic6PipelineStore
 from ..topic6.topic6_hitl import Topic6Hitl
@@ -480,38 +480,45 @@ class TopicxRunner:
         if text.lower() in ("/new", "/continue", "/resume", "/stop"):
             await self.reply(task, "请使用任务卡片上的操作按钮。")
             return
+        if task.scenario == "topic5" and message.resources:
+            unavailable = {
+                "paused": "任务已暂停。请先点击“继续任务”恢复流程；发送附件不会自动继续任务。",
+                "stopping": "任务正在暂停，请等待暂停完成后再操作；当前不接收活动明细。",
+                "stopped": "任务已停止，不再接收活动明细；如需重新分析，请新建任务。",
+                "done": "报告已完成，不再接收活动明细；如需分析另一份数据，请新建任务。",
+                "busy": "任务正在准备中，请等待 G1 需求确认和 G2 方案确认；当前不接收活动明细。",
+            }.get(task.status)
+            if unavailable:
+                await self.reply(task, unavailable)
+                return
+            # Rich-text messages can contain images before the actual Excel file.
+            resource = next(
+                (item for item in message.resources if getattr(item, "type", None) == "file"),
+                message.resources[0],
+            )
+            try:
+                job = await self._topic5_runner.attach_activity_file(
+                    chat_id=message.chat_id,
+                    thread_id=message.thread_id,
+                    user_open_id=message.user_open_id,
+                    resource=resource,
+                )
+                await self._topic5_runner.resume_after_activity_file(job)
+            except Topic5AttachmentStateError as error:
+                await self.reply(task, str(error))
+            except Topic5RunnerError as error:
+                await self.reply(task, f"数据文件未接收：{error}")
+            return
         if task.status == "paused" and task.scenario == "topic5":
             if not text and not message.resources:
                 await self.reply(task, "任务已暂停；请发送文字消息或点击“继续任务”。")
                 return
             await self.resume_topic5_job(task, self._topic5_job(task), text or "继续")
             return
-        if (
-            task.status == "failed"
-            and task.scenario == "topic5"
-            and message.resources
-        ):
-            job = await self._topic5_runner.attach_activity_file(
-                chat_id=message.chat_id,
-                thread_id=message.thread_id,
-                user_open_id=message.user_open_id,
-                resource=message.resources[0],
-            )
-            await self._topic5_runner.resume_after_activity_file(job)
-            return
         if task.status in ("stopping", "stopped", "done", "failed", "busy"):
             await self.reply(task, "该任务当前不可继续操作。")
             return
         if task.scenario == "topic5":
-            if message.resources:
-                job = await self._topic5_runner.attach_activity_file(
-                    chat_id=message.chat_id,
-                    thread_id=message.thread_id,
-                    user_open_id=message.user_open_id,
-                    resource=message.resources[0],
-                )
-                await self._topic5_runner.resume_after_activity_file(job)
-                return
             if await self._topic5_hitl.handle_remark_message(
                 chat_id=message.chat_id,
                 thread_id=message.thread_id,

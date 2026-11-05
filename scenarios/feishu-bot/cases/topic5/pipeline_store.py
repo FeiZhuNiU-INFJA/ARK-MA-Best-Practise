@@ -823,6 +823,18 @@ class PipelineStore:
                 (file_id or "", file_name or "", mount_path or "", _now(), job_id),
             )
 
+    def claim_activity_source(
+        self, job_id: str, file_id: str, file_name: str, mount_path: str
+    ) -> bool:
+        """Only the input stage may bind a file, even if an upload awaited network IO."""
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE pipeline_jobs SET source_file_id = ?, source_file_name = ?, "
+                "source_file_mount_path = ?, updated_at = ? WHERE job_id = ? AND status = ?",
+                (file_id, file_name, mount_path, _now(), job_id, STATUS_WAIT_INPUT),
+            )
+        return cursor.rowcount == 1
+
     def claim_source_replacement(
         self, job_id: str, file_id: str, file_name: str, mount_path: str
     ) -> bool:

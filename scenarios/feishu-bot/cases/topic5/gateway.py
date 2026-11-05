@@ -26,6 +26,7 @@ try:
         Topic5Config as RunnerConfig,
         Topic5Runner,
         Topic5RunnerError,
+        Topic5AttachmentStateError,
         normalize_user_text,
         parse_trigger,
     )
@@ -37,6 +38,7 @@ except ImportError:  # pragma: no cover - standalone compatibility
         Topic5Config as RunnerConfig,
         Topic5Runner,
         Topic5RunnerError,
+        Topic5AttachmentStateError,
         normalize_user_text,
         parse_trigger,
     )
@@ -128,17 +130,11 @@ class Topic5Gateway:
                 self._store.complete_event(message.event_id, "completed")
                 return
 
-            if message.content_type == "file" and message.resources:
+            if message.resources:
                 resource = next(
                     (item for item in message.resources if item.type == "file"),
-                    None,
+                    message.resources[0],
                 )
-                if resource is None:
-                    await self._runner.reply_to_message(
-                        message.message_id, "未识别到可下载的文件附件。"
-                    )
-                    self._store.complete_event(message.event_id, "completed")
-                    return
                 try:
                     job = await self._runner.attach_activity_file(
                         chat_id=message.chat_id,
@@ -147,6 +143,8 @@ class Topic5Gateway:
                         resource=resource,
                     )
                     await self._runner.resume_after_activity_file(job)
+                except Topic5AttachmentStateError as error:
+                    await self._runner.reply_to_message(message.message_id, str(error))
                 except Topic5RunnerError as error:
                     await self._runner.reply_to_message(
                         message.message_id, f"数据文件未接收：{error}"
@@ -248,8 +246,8 @@ class Topic5Gateway:
 
 
 def _should_handle_message(message: IncomingMessage) -> bool:
-    if message.content_type == "file" and message.resources:
-        # 群聊主时间线的普通文件不抢占；Bot 创建的话题内可直接发文件，无需再次 @bot。
+    if message.resources:
+        # 群聊主时间线的普通附件不抢占；话题内附件由当前关卡判断，无需再次 @bot。
         return message.chat_type == "p2p" or bool(message.thread_id)
     if not message.text.strip():
         return False
