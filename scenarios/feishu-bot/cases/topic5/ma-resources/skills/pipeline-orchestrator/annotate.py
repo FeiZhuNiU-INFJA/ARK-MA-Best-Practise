@@ -22,6 +22,7 @@ from typing import Any, Optional
 
 import semantic
 import datahub
+import label_review
 
 # 情感标签 ↔ int（与 aggregate._row_sentiment 口径一致）。
 _SENTI_TO_INT = {
@@ -166,6 +167,8 @@ def _coverage_r1(rows: list[dict]) -> dict:
 def _r2_sys(
     opinion_labels: list[str], ugc_categories: list[str],
     ugc_not_applicable: bool = False,
+    opinion_review_items: list[dict] | None = None,
+    ugc_review_items: list[dict] | None = None,
 ) -> str:
     ops = "、".join(opinion_labels) if opinion_labels else "（无预设，按内容归纳）"
     ugcs = "、".join(ugc_categories) if ugc_categories else "（无预设）"
@@ -179,12 +182,16 @@ def _r2_sys(
             + ugc_instruction +
             "3) discussion_dimension：讨论维度（如 功效/价格/包装/服务/活动玩法；不适用填 \"N/A\"）。\n"
             "只输出 JSON 数组，每项 {\"id\":\"行id\",\"opinion\":\"\",\"ugc_category\":\"\","
-            "\"discussion_dimension\":\"\"}，顺序与输入一致。")
+            "\"discussion_dimension\":\"\"}，顺序与输入一致。"
+            + label_review.annotation_rules(opinion_review_items, opinion_labels)
+            + label_review.annotation_rules(ugc_review_items, ugc_categories))
 
 
 def _r2_prompt_dh(
     opinion_labels: list[str], ugc_categories: list[str],
     ugc_not_applicable: bool = False,
+    opinion_review_items: list[dict] | None = None,
+    ugc_review_items: list[dict] | None = None,
 ) -> str:
     ops = "、".join(opinion_labels) if opinion_labels else "（无预设）"
     ugcs = "、".join(ugc_categories) if ugc_categories else "（无预设）"
@@ -194,7 +201,9 @@ def _r2_prompt_dh(
             f"1) opinion：命中的观点标签（候选：{ops}）；\n"
             f"2) ugc_category：UGC 参与方式（{ugc}）；\n"
             "3) discussion_dimension：讨论维度（如 功效/价格/包装/服务/活动玩法）；\n"
-            "返回 JSON：{\"opinion\":\"\",\"ugc_category\":\"\",\"discussion_dimension\":\"\"}")
+            "返回 JSON：{\"opinion\":\"\",\"ugc_category\":\"\",\"discussion_dimension\":\"\"}"
+            + label_review.annotation_rules(opinion_review_items, opinion_labels)
+            + label_review.annotation_rules(ugc_review_items, ugc_categories))
 
 
 def _apply_r2(row: dict, parsed: dict) -> None:
@@ -211,7 +220,9 @@ def _apply_r2(row: dict, parsed: dict) -> None:
 
 def annotate_round2(rows: list[dict], *, opinion_labels: list[str],
                     ugc_categories: list[str], threshold: int = 1000,
-                    ugc_not_applicable: bool = False) -> dict:
+                    ugc_not_applicable: bool = False,
+                    opinion_review_items: list[dict] | None = None,
+                    ugc_review_items: list[dict] | None = None) -> dict:
     """轮次二标注（三任务 + 覆盖检查）。返回 {rows, round:2, routed_via, coverage, degraded?}。
 
     覆盖检查有 ERROR（真路径下某任务存在解析失败且非 N/A 跳过）→ 调用方 raise。
@@ -222,6 +233,8 @@ def annotate_round2(rows: list[dict], *, opinion_labels: list[str],
         _small_engine_r2(
             rs, opinion_labels, ugc_categories,
             ugc_not_applicable=ugc_not_applicable,
+            opinion_review_items=opinion_review_items,
+            ugc_review_items=ugc_review_items,
         )
 
     def _degrade(rs):
@@ -232,6 +245,8 @@ def annotate_round2(rows: list[dict], *, opinion_labels: list[str],
         dh_prompt=_r2_prompt_dh(
             opinion_labels, ugc_categories,
             ugc_not_applicable=ugc_not_applicable,
+            opinion_review_items=opinion_review_items,
+            ugc_review_items=ugc_review_items,
         ),
         dh_apply=_apply_r2,
         small_engine=_small, degrade=_degrade)
@@ -264,10 +279,14 @@ def _small_engine_r2(
     rows: list[dict], opinion_labels, ugc_categories, batch: int = 20,
     ugc_not_applicable: bool = False,
     max_attempts: int = 3,
+    opinion_review_items: list[dict] | None = None,
+    ugc_review_items: list[dict] | None = None,
 ) -> None:
     sys_p = _r2_sys(
         opinion_labels, ugc_categories,
         ugc_not_applicable=ugc_not_applicable,
+        opinion_review_items=opinion_review_items,
+        ugc_review_items=ugc_review_items,
     )
     for i in range(0, len(rows), batch):
         chunk = rows[i:i + batch]

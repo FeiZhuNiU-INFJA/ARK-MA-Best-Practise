@@ -95,6 +95,23 @@ python run_pipeline.py status --workspace <ws> --task <task_id> --run <run_id>
 - N10 确认必须绑定 `opinion_candidates` 与 `ugc_category_list` 版本。Gateway 保存确认
   快照并在后续卡片中持续展示；不要重新生成已确认的标签。
 - 新任务默认动态UGC类别，触发标签人工确认属预期行为。
+- N08/N09b 保留 `categories[]` / `candidates[]` 字符串数组，同时产出
+  `review_schema_version=1` 与 `review_items[]`：`name`、`definition`（≤100字）、
+  `boundary`（≤180字，含排除情形及单标签优先规则）、`evidence[]`、`evidence_status`。
+  模型只选择输入目录中的 `quote_id`，代码复制 `title`/`content` 的连续原片段；
+  未知 ID、跨字段或改写原句直接报错，缺代表证据显式记 `missing` 并转人工。
+  原帖定位包含 `post_id`、`source_row_index`（来源 artifact 的零基行索引）、
+  字段与字符起止位置、平台、内容类型和 URL；不复制作者等个人字段。
+- `sampling` 披露稳定 SHA256 抽样（最多40条）与片段范围（标题前120字、正文前360字），
+  `evidence_count` 是实际抽样帖数，非全量 UGC 数。`source_subject` 绑定原数据版本。
+  N10 的 `review_context` 必须完整转发两个候选 artifact，Coordinator 不重写定义、
+  边界或引用，不缩减为标签名。Gateway 在原审核卡内按 UGC/观点分组展示折叠详情；
+  旧 artifact 没有元数据时保留名称，并明确提示定义、边界和证据未记录。
+- 人工与策略自动确认均把 `opinion_review_items` / `ugc_review_items` 连同候选版本
+  写入 `confirmed_opinion_labels`；小引擎和 DataHub 的轮次二提示词消费其中的定义
+  与边界。Gateway 的确认快照同步保留完整元数据，后续主卡只展示确认摘要。
+  卡片按完整 JSON 的 UTF-8 字节计入28KiB发送预算，超额先仅展示首条证据及较短片段、
+  保留完整定义和边界，完整引用仍在冻结版本中；继续超额则停止构卡并报错。
 - 品牌词云从stats_bundle.brand读取，活动词云从wordcloud_data读取；各活动/维度/平台独立。n14调用wordcloud-insight v0.2.6生成透明/白底PNG及render.json；n15依赖chart_urls，通读全词表、抽样全文阅读已有原帖并按需补读，生成topics.json和schema2 post-review.json后compose。报告默认引用透明图wordcloud.png，保留完整双图与审计文件。不可截词、截正文、自动剔词或把未核验产物当作成功；无原帖正常走词频分析，有原帖失败必须阻断。
 - n15 原句由模型选择 `quote_id`、代码复制原字段片段，拒绝未知/跨字段/冲突引用。候选及最终原词必须精确属于当前范围且无重复，证据帖子须已读，未读先补读；错误反馈列明议题、未知词、重复词、未读帖子与允许集合后重试。默认2–4议题、最多5个，低证据可1个，不强制建议。
 - 飞书交付使用原生Callout和50:50 Grid；缺本地图片直接失败，发布后回读Grid/Column/Callout/表格。

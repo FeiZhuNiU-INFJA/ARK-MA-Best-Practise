@@ -27,6 +27,7 @@ import excel_source
 import feishu
 import validator as validator_mod
 import report_contract
+import label_review
 
 # ── 业务口径常量（源：飞书 wiki 活动复盘口径 + knowledge/_字段速查.md）────────
 # 指标命名白名单：活动层只允许这些指标名；禁用“人均/转化率/性价比”等无数据支撑说法。
@@ -903,7 +904,9 @@ def annotate(node, state, ctx):
         result = annotate_mod.annotate_round2(
             rows, opinion_labels=list(opinion_labels),
             ugc_categories=list(ugc_categories), threshold=threshold,
-            ugc_not_applicable=ugc_not_applicable)
+            ugc_not_applicable=ugc_not_applicable,
+            opinion_review_items=confirmed.get("opinion_review_items") or [],
+            ugc_review_items=confirmed.get("ugc_review_items") or [])
         if result.get("degraded"):
             raise RuntimeError("annotate r2: 标注能力不可用，禁止确定性伪标注")
         # 覆盖检查缺口（真路径 ERROR）→ 直接报错，交引擎按 retry/on_fail=pause 处理。
@@ -1013,7 +1016,7 @@ def ugc_discovery(node, state, ctx):
     口径（knowledge/_字段速查 + params）：
       - dynamic（默认）→ 从UGC内容样本发现参与方式；经标签关卡确认。
       - fixed_four 为显式兼容选项；无语义能力直接报错，不生成固定类别兜底。
-    输出 schema 固定：{mode, categories[], degraded?, source}
+    保留 categories[]；review_items 包含定义、边界、按 quote_id 核验的原帖引用。
     """
     plan = state.read_artifact("confirmed_plan") or {}
     selected = plan.get("selected_modules") if isinstance(plan, dict) else {}
@@ -1041,7 +1044,7 @@ def ugc_discovery(node, state, ctx):
     cleaned = state.read_artifact("cleaned_data") or {}
     rows = cleaned.get("rows") if isinstance(cleaned, dict) else None
     ugc_rows = [
-        row for row in (rows or [])
+        {**row, "_review_source_index": index} for index, row in enumerate(rows or [])
         if str(row.get("content_mode") or "").upper() == "UGC"
     ]
     if rows and not ugc_rows and all(
@@ -1052,24 +1055,20 @@ def ugc_discovery(node, state, ctx):
             "mode": "not_applicable", "categories": [], "source": "cleaned_data",
             "not_applicable": True, "reason": "清洗后无UGC内容",
         }}}
-    samples = _sample_texts(ugc_rows)
+    samples, catalog = label_review.source_catalog(ugc_rows)
     if not semantic.llm_available() or not samples:
         raise RuntimeError("ugc_discovery: 动态类别发现能力不可用")
 
-    sys_p = ("你是营销 UGC 分析师。从用户发布的活动相关内容中，归纳 UGC（用户生产内容）的"
-             "“参与方式”类别（如模仿打卡、创意改编、测评分享、自发安利等）。只输出 JSON，"
-             "格式 {\"categories\": [\"类别1\", ...]}，4-6 个互斥类别，用简体中文短语。")
-    user_p = "活动相关内容样本（每行一条）：\n" + "\n".join(samples)
-    try:
-        data = semantic.chat_json(sys_p, user_p, max_tokens=1024)
-        cats = [str(c).strip() for c in (data.get("categories") or []) if str(c).strip()]
-        if not cats:
-            raise ValueError("模型未返回类别")
-        return {"artifacts": {"ugc_category_list": {
-            "mode": mode, "categories": cats[:6], "source": "llm",
-            "evidence_count": len(ugc_rows)}}}
-    except Exception:
-        raise
+    data = semantic.chat_json(
+        label_review.discovery_prompt("categories", ugc=True),
+        json.dumps(samples, ensure_ascii=False), max_tokens=6144,
+    )
+    review = label_review.ground_candidates(data, "categories", catalog, 6)
+    review["sampling"]["population_size"] = len(ugc_rows)
+    review["source_subject"] = state.artifact_ref("cleaned_data")
+    return {"artifacts": {"ugc_category_list": {
+        **review, "mode": mode, "source": "llm",
+    }}}
 
 
 @handler("opinion_candidates")
@@ -1077,35 +1076,34 @@ def opinion_candidates(node, state, ctx):
     """观点候选生成（供 n10_hc_opinion 人工确认后注入轮次二）。
 
     基于轮次一标注的活动相关内容，语义聚类出观点候选（正/负/属性讨论的主题标签）。
-    无凭据降级到基于文本的确定性候选。输出 schema：{candidates[], source, degraded?}
+    缺语义能力报错；保留 candidates[]，另附版本内 review_items 审核口径与原帖。
     """
     r1 = state.read_artifact("annotated_round1") or {}
     rows = r1.get("rows") if isinstance(r1, dict) else None
     if not rows:
         cleaned = state.read_artifact("cleaned_data") or {}
         rows = cleaned.get("rows") if isinstance(cleaned, dict) else None
-    samples = _sample_texts(rows or [])
+    relevant_rows = [
+        {**row, "_review_source_index": index} for index, row in enumerate(rows or [])
+        if _is_relevant(row) is not False
+    ]
+    samples, catalog = label_review.source_catalog(relevant_rows)
 
     if not semantic.llm_available() or not samples:
         raise RuntimeError("opinion_candidates: 观点发现能力不可用")
 
-    sys_p = ("你是舆情观点分析师。从活动相关内容中归纳“观点候选”——用户讨论聚焦的观点主题"
-             "（覆盖正面/负面/属性维度），供人工确认后用于第二轮观点标注。只输出 JSON，"
-             "格式 {\"candidates\": [\"观点主题1\", ...]}，5-8 个，用简体中文短语，互斥、可标注。")
-    user_p = "活动相关内容样本（每行一条）：\n" + "\n".join(samples)
-    try:
-        data = semantic.chat_json(sys_p, user_p, max_tokens=1024)
-        cands = [str(c).strip() for c in (data.get("candidates") or []) if str(c).strip()]
-        if not cands:
-            raise ValueError("模型未返回观点候选")
-        return {"artifacts": {"opinion_candidates": {
-            "candidates": cands[:8],
-            "source": "llm",
-            "r1_ref": bool(r1),
-            "evidence_count": len(samples),
-        }}}
-    except Exception:
-        raise
+    data = semantic.chat_json(
+        label_review.discovery_prompt("candidates"),
+        json.dumps(samples, ensure_ascii=False), max_tokens=6144,
+    )
+    review = label_review.ground_candidates(data, "candidates", catalog, 8)
+    review["sampling"]["population_size"] = len(relevant_rows)
+    review["source_subject"] = state.artifact_ref(
+        "annotated_round1" if r1.get("rows") else "cleaned_data"
+    )
+    return {"artifacts": {"opinion_candidates": {
+        **review, "source": "llm", "r1_ref": bool(r1),
+    }}}
 
 
 @handler("opinion_policy_gate")
@@ -1147,10 +1145,22 @@ def opinion_policy_gate(node, state, ctx):
         reasons.append("UGC 类别不完整或不稳定")
     if ugc.get("mode") == "dynamic":
         reasons.append("动态 UGC 类别需要人工确认业务可用性")
+    for title, artifact in (("观点", opinion), ("UGC", ugc)):
+        if artifact.get("review_schema_version"):
+            expected_names = artifact.get("candidates") or artifact.get("categories") or []
+            by_name = {item["name"]: item for item in artifact.get("review_items") or []}
+            missing = [
+                name for name in expected_names
+                if not by_name.get(name, {}).get("definition")
+                or not by_name.get(name, {}).get("boundary")
+                or by_name.get(name, {}).get("evidence_status") != "grounded"
+            ]
+            if missing:
+                reasons.append(f"{title}候选缺少定义、边界或代表原帖支撑：" + "、".join(missing))
 
     if reasons:
         raise HumanPause(
-            prompt="观点与 UGC 标签存在歧义，需要人工确认：" + "；".join(reasons),
+            prompt="观点与 UGC 标签需要人工审核：" + "；".join(reasons),
             expect=node.get("outputs", []),
         )
 
@@ -1158,6 +1168,7 @@ def opinion_policy_gate(node, state, ctx):
         "labels": labels,
         "ugc_categories": ugc_categories,
         "ugc_not_applicable": bool(ugc.get("not_applicable")),
+        **label_review.confirmed_review(opinion, ugc),
         "confirmed": True,
         "confirmed_by": "validator-policy",
         "automatic": True,

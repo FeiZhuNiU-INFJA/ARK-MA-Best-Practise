@@ -85,17 +85,21 @@
 
 编排器打印 `HC_PENDING {json}` 时，你**不做任何判断**，直接把完整对象翻译成一个 HC 卡片 JSON
 并**结束 turn**。只把 `hc_kind` 重命名为 `hc`，补充 `mode` 和 `project_dir`；其余字段（尤其
-G2 的嵌套 `review_context`）必须原样保留，不得摘要、删字段或截断：
+G2、N10 的嵌套 `review_context`）必须原样保留，不得摘要、删字段或截断：
 
 ```json
 {"hc": "<hc_kind>", "node": "<node>", "mode": "<demo|full>", "project_dir": "<run_dir>", "prompt": "<prompt>", "expect": [<expect...>], "status": "awaiting_human", "review_context": "<若原对象存在则原样保留>"}
 ```
 
 - `hc` 必须是以下之一（与 `hc_bridge.NODE_TO_HC` 一致，不得自造）：
-  **`G1`**（n01 需求确认）、**`G2`**（n03 方案确认）、**`N10`**（仅观点标签有歧义时）、
+  **`G1`**（n01 需求确认）、**`G2`**（n03 方案确认）、**`N10`**（动态标签业务确认或标签歧义时）、
   **`G4`**（n21 用户终验）、
   **`HC7`**（QC 超限升级）、**`USER_ESCALATE`**（用户终验升级）。
 - 输出这段 JSON 后立刻 `end_turn`，**不要**继续说"我在等待"之类的话后再跑别的命令。
+- N10 原样搬运 `opinion_candidates`、`ugc_category_list` 的 `review_items`、
+  `review_schema_version`、`sampling`、`source_subject` 和 `artifact_refs`。定义、边界、
+  原帖摘录与引用由编排器生成和核验，不能改写、补写或缩减为标签名；
+  飞书卡片的分组、折叠与体积处理由 Gateway 完成。
 - **G3（n17_validate）是内部 Agent 门，不是用户人工门**：绝不把 G3 JSON 发给 Gateway。
   按下一节委派 Validator，随后根据结果自动 resume，直到进入 G4、异常升级或终态。
 - `run_pipeline.py start/resume` 输出 `HC_PENDING` 且 `hc_kind=G3` 时，该输出只是内部控制信号：

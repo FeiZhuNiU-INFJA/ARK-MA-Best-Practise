@@ -105,6 +105,14 @@ Topic 5 只注册 **2 个 MA Agent**（遵循「避免过度拆分子 Agent」�
 
 > DAG 节点上的 owner 标签（`DiscoverySubagent` / `OpinionSubagent` / `InsightSubagent` / `NarrativeSubagent`）是**逻辑归属**，由确定性编排器里的 handler 实现，**不**各建独立 MA Agent。这样避免了子 Agent 冷启动与 IPC 开销，也让编排逻辑连贯可测。
 
+N10 原审核卡按 UGC 参与方式、观点主题分组，每个候选可展开查看定义、边界与原帖片段。
+N08/N09b 生成这些信息，代码按 `quote_id` 复制输入字段原句，保留帖子 ID、类型、链接及
+来源版本；未知或改写引用报错，缺证据明确提示。样本数单独披露，不把抽样当全量统计。
+审核通过会冻结名称、定义、边界和引用，第二轮的小引擎与 DataHub 均使用确认口径。
+旧任务仅有标签名时显示信息缺失，不自动补写或重生成候选；修改本地代码不会更新已运行
+MA Session 的资源快照。完整字段契约见
+[编排器约束](ma-resources/skills/pipeline-orchestrator/SKILL.md)。
+
 主要 Skill：
 
 | Skill                              | 阶段与职责                                                       |

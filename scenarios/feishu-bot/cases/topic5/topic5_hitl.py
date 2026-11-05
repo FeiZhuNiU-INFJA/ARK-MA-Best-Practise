@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 import time
+from urllib.parse import quote, urlsplit
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -414,25 +415,124 @@ def _plan_review_elements(payload: dict) -> list[dict]:
     ]
 
 
-def _label_review_elements(payload: dict) -> list[dict]:
+def _review_text(value: Any, limit: int = 180) -> str:
+    """Render source/model text literally, including text resembling card markup."""
+    text = str(value or "")
+    if len(text) > limit:
+        text = text[:limit] + "…"
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    for char in ("\\", "`", "*", "[", "]"):
+        text = text.replace(char, "\\" + char)
+    return text
+
+
+def _review_panel(title: str, elements: list[dict], *, expanded: bool = False) -> dict:
+    return {
+        "tag": "collapsible_panel",
+        "expanded": expanded,
+        "header": {"title": {"tag": "plain_text", "content": title}},
+        "elements": elements,
+    }
+
+
+def _label_detail(name: str, item: dict, compact: bool) -> dict:
+    evidence = [ref for ref in item.get("evidence") or [] if isinstance(ref, dict)]
+    evidence.sort(key=lambda ref: ref.get("usage") != "representative")
+    supported = any(ref.get("usage") == "representative" for ref in evidence)
+    lines = [
+        "**定义**：" + _review_text(item.get("definition") or "未记录，需补充审核口径", 100),
+        "**边界与优先规则**：" + _review_text(
+            item.get("boundary") or "未记录，需补充相邻标签区分规则", 180
+        ),
+    ]
+    if not supported:
+        lines.append("⚠️ **缺少代表原帖证据，不能据此认定标签成立。**")
+    for ref in evidence[:1 if compact else 2]:
+        usage = "代表原帖" if ref.get("usage") == "representative" else "边界原帖"
+        content_type = _review_text(ref.get("content_type") or "未知", 12)
+        lines.append(
+            f"\n**{usage} · {content_type}**"
+            + ("" if compact else " · " + _review_text(ref.get("title"), 40))
+        )
+        lines.append("原文片段：" + _review_text(ref.get("excerpt"), 100 if compact else 180))
+        if ref.get("reason") and not compact:
+            lines.append("支持/区分理由：" + _review_text(ref["reason"], 60))
+        locator = ref.get("post_id") or ref.get("post_ref") or "未记录"
+        lines.append(
+            "来源：" + _review_text(locator, 64)
+            + " · " + _review_text(ref.get("source_field") or "字段未记录", 20)
+            + f"[{ref.get('start', '?')}:{ref.get('end', '?')}]"
+        )
+        url = str(ref.get("url") or "")
+        try:
+            parsed = urlsplit(url)
+            safe_url = parsed.scheme in ("https", "http") and parsed.hostname and not parsed.username
+        except ValueError:
+            safe_url = False
+        if safe_url and len(url) <= (256 if compact else 1500):
+            lines.append("[打开原帖](" + quote(url, safe=":/?&=#%+@-._~") + ")")
+        elif compact and safe_url:
+            lines.append("长链接见候选版本，可按来源 ID 核对原帖。")
+        elif not compact:
+            lines.append("未提供可用原帖链接，可按来源 ID 核对输入文件。")
+    if compact and len(evidence) > 1:
+        lines.append("卡片体积限制：仅显示首条证据，完整引用保存在候选版本中。")
+    return _review_panel(name, [{"tag": "markdown", "content": "\n".join(lines)}])
+
+
+def _label_review_elements(payload: dict, compact: bool = False) -> list[dict]:
     context = payload.get("review_context") or {}
-    opinions = (context.get("opinion_candidates") or {}).get("candidates") or []
-    ugc = (context.get("ugc_category_list") or {}).get("categories") or []
     refs = context.get("artifact_refs") or {}
-    return [{
+    elements = [{
         "tag": "markdown",
         "content": (
-            "**观点候选**\n"
-            + ("\n".join(f"- {item}" for item in opinions) or "无适用观点候选")
-            + "\n\n**UGC 参与方式候选**\n"
-            + ("\n".join(f"- {item}" for item in ugc) or "无适用 UGC 类别")
-            + "\n\n**候选版本**\n"
-            + "\n".join(
-                f"- `{key}`：`{(ref or {}).get('artifact_id')}`"
-                for key, ref in refs.items()
-            )
+            "**审核口径**\n展开标签核对定义、边界与代表原帖。UGC 是参与方式，观点是表达的主题；"
+            "同帖在两套标签中分别判断。原文片段来自输入字段，证据只是抽样，不代表全量占比。"
+            "\n通过将确认当前两套候选及定义、边界；打回时请说明具体标签与区分规则。"
         ),
     }]
+    for title, key, names_key, maximum in (
+        ("UGC 参与方式", "ugc_category_list", "categories", 6),
+        ("观点主题", "opinion_candidates", "candidates", 8),
+    ):
+        artifact = context.get(key) or {}
+        names = artifact.get(names_key) or artifact.get("labels") or []
+        details = {
+            item.get("name"): item for item in artifact.get("review_items") or []
+            if isinstance(item, dict)
+        }
+        children = []
+        sampling = artifact.get("sampling") or {}
+        if sampling:
+            children.append({
+                "tag": "markdown",
+                "content": (
+                    f"审核样本：{sampling.get('sample_size', '?')} 条"
+                    f" / 候选发现范围：{sampling.get('population_size', '?')} 条；非全量分类计数。"
+                ),
+            })
+        children.extend(
+            _label_detail(str(name), details.get(name) or {}, compact)
+            for name in names[:maximum]
+        )
+        if len(names) > maximum:
+            children.append({
+                "tag": "markdown",
+                "content": f"⚠️ 候选数量超出约定，仅展示前 {maximum} 个，请打回核对。",
+            })
+        if not names:
+            children.append({
+                "tag": "markdown",
+                "content": "不适用：" + _review_text(artifact.get("reason"), 100)
+                if artifact.get("not_applicable") else "⚠️ 未提供候选，需核对生成结果。",
+            })
+        elements.append(_review_panel(f"{title} · {len(names)} 个候选", children, expanded=True))
+    versions = [
+        f"- {title}：{_review_text((refs.get(key) or {}).get('artifact_id') or '未记录', 80)}"
+        for title, key in (("观点", "opinion_candidates"), ("UGC", "ugc_category_list"))
+    ]
+    elements.append({"tag": "markdown", "content": "**候选版本**\n" + "\n".join(versions)})
+    return elements
 
 
 def _qc_review_elements(payload: dict) -> list[dict]:
@@ -627,6 +727,7 @@ def build_hc_card(
             }
         )
     elements.extend(_payload_summary_elements(payload))
+    review_start = len(elements)
     if hc_kind == "G2":
         elements.extend(_plan_review_elements(payload))
     elif hc_kind == "N10":
@@ -637,6 +738,7 @@ def build_hc_card(
         elements.extend(_delivery_review_elements(payload))
     elif hc_kind == "HC7":
         elements.extend(_escalation_review_elements(payload))
+    review_end = len(elements)
     elements.append({"tag": "hr"})
     if hc_kind == "G1":
         elements.append(
@@ -754,7 +856,7 @@ def build_hc_card(
             ]
         )
 
-    return {
+    card = {
         "schema": "2.0",
         "config": {"width_mode": "default"},
         "header": {
@@ -765,6 +867,13 @@ def build_hc_card(
         },
         "body": {"elements": elements},
     }
+    if hc_kind == "N10":
+        # Measure the actual outbound JSON, including controls and previous reviews.
+        if len(json.dumps(card, ensure_ascii=False).encode("utf-8")) > 28 * 1024:
+            elements[review_start:review_end] = _label_review_elements(payload, compact=True)
+        if len(json.dumps(card, ensure_ascii=False).encode("utf-8")) > 28 * 1024:
+            raise ValueError("N10 卡片超过发送预算，需缩短审核载荷；未发送不完整的确认卡")
+    return card
 
 
 def build_hc_resolved_card(
