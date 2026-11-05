@@ -82,6 +82,13 @@ Excel 是 n07 活动明细清洗的输入；n05/n06/n13 的品牌活动期、基
 G3 由独立 `topic5-validator` 子 Agent 自动质检并按 `p0_count==0` 放行，不向用户发审核卡。
 G2 通过到文件上传之间由 Gateway 持久化为 `wait_input`，不是额外的业务审核门。
 
+附件按当前业务关卡处理：仅 G2 已确认后的 `wait_input` 阶段接收活动 Excel；
+只有 n04 源文件校验失败可上传修正版。停在 N10 时提示先确认观点与 UGC 标签，
+G1/G2/G4 等关卡分别提示当前待办，正常运行时提示等待后续通知。此类操作提示不会被
+包装为“任务处理失败”，不会确认审核或替换原数据；暂停任务也不会因发送附件而自动续跑。
+图文消息中的图片不作为活动明细，多个资源中优先选择文件；文件下载/上传期间若关卡
+已推进，写入源文件引用时再次以 `wait_input` 状态为条件，避免覆盖冻结的输入。
+
 已有部署的 Skill 或 Prompt 更新，在仓库根目录执行（先加载配置到 shell）：
 
 ```bash
@@ -104,6 +111,14 @@ Topic 5 只注册 **2 个 MA Agent**（遵循「避免过度拆分子 Agent」�
 | `topic5-validator`   | 独立质检子 Agent：按客户完整规则适配表执行脚本全量扫描 + Agent 全文语义检查 |
 
 > DAG 节点上的 owner 标签（`DiscoverySubagent` / `OpinionSubagent` / `InsightSubagent` / `NarrativeSubagent`）是**逻辑归属**，由确定性编排器里的 handler 实现，**不**各建独立 MA Agent。这样避免了子 Agent 冷启动与 IPC 开销，也让编排逻辑连贯可测。
+
+N10 原审核卡按 UGC 参与方式、观点主题分组，每个候选可展开查看定义、边界与原帖片段。
+N08/N09b 生成这些信息，代码按 `quote_id` 复制输入字段原句，保留帖子 ID、类型、链接及
+来源版本；未知或改写引用报错，缺证据明确提示。样本数单独披露，不把抽样当全量统计。
+审核通过会冻结名称、定义、边界和引用，第二轮的小引擎与 DataHub 均使用确认口径。
+旧任务仅有标签名时显示信息缺失，不自动补写或重生成候选；修改本地代码不会更新已运行
+MA Session 的资源快照。完整字段契约见
+[编排器约束](ma-resources/skills/pipeline-orchestrator/SKILL.md)。
 
 主要 Skill：
 
@@ -157,7 +172,9 @@ Validator 自动门，不是用户人工门。
 ## 维护约定
 
 - `ma-resources/` 是部署资源的唯一源码目录；不要直接修改 `tools/out/` 中的 ZIP。
-- Skill/Prompt 改动使用打包→上传→原地更新 Agent；依赖变更使用 `tools/update_environment_in_place.py`。只有全量重建改变资源 ID 后才需重启 Gateway。
+- Skill/Prompt 改动使用打包→上传→原地更新 Agent；依赖变更使用 `tools/update_environment_in_place.py`。
+  Gateway 宿主 Python 代码修改或全量重建改变资源 ID 后需重启统一 Gateway；
+  仅 Skill/Prompt 原地更新不需要重启。
 - 真实凭证（`DATAHUB_API_KEY` / `SSJH_API_TOKEN` / `REPORT_COVER_API_KEY` 等）只写 `config.env`，入库文件一律 `${...}` 占位。
 - `demo` 仅让 G1 表单自动预填；进入流水线后与 `full` 使用完全相同的 fail-closed 标准，默认模式为 `full`。
 - 图表只在沙箱内渲染本地 PNG，n20 通过飞书 `medias/upload_all` 原生插图，不依赖外部对象存储。

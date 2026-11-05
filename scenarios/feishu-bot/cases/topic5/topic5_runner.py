@@ -123,6 +123,44 @@ def is_source_repairable_failure(job: PipelineJob) -> bool:
     )
 
 
+def activity_attachment_hint(job: PipelineJob) -> str:
+    """Return the next allowed action; an attachment never confirms an HC gate."""
+    if job.status == STATUS_WAIT_INPUT or is_source_repairable_failure(job):
+        return ""
+    status_hints = {
+        STATUS_PAUSED: "任务已暂停。请先点击“继续任务”恢复流程；发送附件不会自动继续任务。",
+        STATUS_STOPPING: "任务正在暂停，请等待暂停完成后再操作；当前不接收活动明细。",
+        STATUS_STOPPED: "任务已停止，不再接收活动明细；如需重新分析，请新建任务。",
+        STATUS_DONE: "报告已完成，不再接收活动明细；如需分析另一份数据，请新建任务。",
+        STATUS_FAILED: "任务执行失败，当前节点不支持更换活动明细。请通过任务卡片重试或新建任务。",
+    }
+    if job.status in status_hints:
+        return status_hints[job.status]
+    if job.status == STATUS_WAIT_HC:
+        gate = {
+            "n01_hc_requirement": "G1",
+            "n03_hc_plan": "G2",
+            "n10_hc_opinion": "N10",
+            "n17_validate": "G3",
+            "n21_hc_user": "G4",
+            "n_hc7_escalate": "HC7",
+            "n_user_escalate": "USER_ESCALATE",
+        }.get(job.current_phase, job.current_phase)
+        return {
+            "G1": "当前等待 G1 需求确认。请先提交需求问卷，再完成 G2 方案确认后上传活动明细。",
+            "G2": "当前等待 G2 方案确认。请先在方案卡片中点击“通过”，再上传活动明细 `.xlsx`。",
+            "N10": (
+                "当前等待 N10 观点与 UGC 标签确认。请在审核卡片中核对定义、边界和原帖后点击“通过”；"
+                "确认后继续第二轮标注，无需重新完成 G1/G2 或上传活动明细。本次附件未替换原数据。"
+            ),
+            "G3": "报告正在等待质检结果，请等待质检完成；当前不接收新的活动明细。",
+            "G4": "当前等待 G4 报告终验。请查看交付报告并在终验卡片中确认，无需再次上传活动明细。",
+            "HC7": "当前等待异常升级处理。请在异常审核卡片中处理问题；当前不接收新的活动明细。",
+            "USER_ESCALATE": "当前等待终验升级处理。请在当前审核卡片中处理问题；当前不接收新的活动明细。",
+        }.get(gate, "当前等待人工审核。请先完成当前审核卡片中的确认；发送附件不会推进审核流程。")
+    return "任务正在处理中，当前不接收新的活动明细。请等待下一步通知，无需重复上传原数据。"
+
+
 def _event_contract_text(event: dict) -> str:
     """Return exact durable-pipeline envelopes from tool stdout."""
     if event.get("type") != "agent.tool_result":
@@ -742,16 +780,17 @@ class Topic5Runner:
             chat_id, thread_id, user_open_id
         )
         if job is None:
-            candidate = self._store.get_resumable_job_by_session_key(
+            job = self._store.get_resumable_job_by_session_key(
                 chat_id, thread_id, user_open_id
             )
-            if candidate is not None and is_source_repairable_failure(candidate):
-                job = candidate
         if job is None:
-            raise Topic5RunnerError("当前话题没有可接收数据文件的任务")
+            raise Topic5AttachmentStateError("当前话题没有可接收活动明细的任务，请进入目标任务话题后操作。")
+        hint = activity_attachment_hint(job)
+        if hint:
+            raise Topic5AttachmentStateError(hint)
         source_replacement = is_source_repairable_failure(job)
-        if job.status != STATUS_WAIT_INPUT and not source_replacement:
-            raise Topic5RunnerError("请先完成 G1 需求确认和 G2 方案确认，再上传活动明细")
+        if resource.type != "file":
+            raise Topic5RunnerError("活动明细仅支持 .xlsx 文件，请上传 Excel 文件附件。")
         file_name = (resource.file_name or "").strip()
         if not file_name.lower().endswith(".xlsx"):
             raise Topic5RunnerError("活动明细仅支持 .xlsx 文件")
@@ -811,9 +850,15 @@ class Topic5Runner:
             if not claimed:
                 raise Topic5RunnerError("任务状态已变化，修正版未触发重试")
         else:
-            self._store.set_source_file(
+            claimed = self._store.claim_activity_source(
                 job.job_id, source_id, file_name, mount_path
             )
+            if not claimed:
+                current = self._store.get_job(job.job_id)
+                raise Topic5AttachmentStateError(
+                    (activity_attachment_hint(current) if current else "")
+                    or "任务状态已变化，本次附件未替换原数据；请查看当前任务卡片。"
+                )
         refreshed = self._store.get_job(job.job_id)
         if refreshed is None:
             raise Topic5RunnerError("文件已挂载，但任务状态读取失败")
@@ -1574,6 +1619,10 @@ class Topic5Runner:
 
 class Topic5RunnerError(RuntimeError):
     """topic5 触发/续跑相关的业务错误。"""
+
+
+class Topic5AttachmentStateError(Topic5RunnerError):
+    """Expected guidance for an attachment received outside the input stage."""
 
 
 class Topic5CardSenderProtocol:

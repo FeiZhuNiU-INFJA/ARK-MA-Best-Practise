@@ -19,6 +19,7 @@ from typing import Any, Optional
 
 import feishu
 from excel_source import normalize_source_file
+import label_review
 # 人工关卡 node_id → HC 种类（供卡片展示 / resume --hc 定位）。
 NODE_TO_HC = {
     "n01_hc_requirement": "G1",
@@ -98,6 +99,8 @@ def write_hc_pending(st, run_dir: Path) -> dict:
             },
         }
     elif node_id == "n10_hc_opinion":
+        # Forward the complete versioned artifacts, including review_items and
+        # source_subject; the thin Coordinator must not rewrite review definitions.
         payload["review_context"] = {
             "opinion_candidates": st.read_artifact("opinion_candidates") or {},
             "ugc_category_list": st.read_artifact("ugc_category_list") or {},
@@ -515,6 +518,7 @@ def build_human_outputs(
             "ugc_not_applicable": bool(
                 isinstance(ugc, dict) and ugc.get("not_applicable")
             ),
+            **label_review.confirmed_review(prev, ugc),
             "confirmed": confirmed,
             "note": note,
             "subject": {

@@ -196,7 +196,7 @@ nodes:
     module: ugc_participation
     inputs: [cleaned_data]
     outputs: [ugc_category_list]
-    success: 动态发现类别（ugc_category_mode 参数控制）
+    success: 动态发现类别及 review_items（定义、边界、核验原帖）；categories 字符串数组兼容保留
     retry: {max: 1, on_fail: pause}
     next: n11_annotate_r2                     # ugc_category_list 汇入轮次二(join)
 
@@ -222,7 +222,7 @@ nodes:
     handler: opinion_candidates
     inputs: [annotated_round1]
     outputs: [opinion_candidates]
-    success: 基于轮次一抽样聚类出观点候选，供用户确认后注入轮次二
+    success: 基于轮次一相关内容稳定抽样，生成 candidates 及 review_items；quote_id 由代码回填原句
     side_effect: none
     retry: {max: 1, on_fail: pause}
     next: n10_hc_opinion
@@ -233,9 +233,9 @@ nodes:
     mode: agent
     handler: opinion_policy_gate
     pause_capable: true
-    inputs: [opinion_candidates]
+    inputs: [opinion_candidates, ugc_category_list]
     outputs: [confirmed_opinion_labels]
-    success: 来源、样本、数量、唯一性与可标注性均通过则自动确认；动态或歧义标签暂停人工确认
+    success: 来源、样本、数量、唯一性与审核元数据通过则自动确认；动态或歧义转人工，确认冻结两套定义及边界
     next: n11_annotate_r2
 
   - id: n11_annotate_r2
@@ -248,7 +248,7 @@ nodes:
     handler: annotate
     inputs: [confirmed_opinion_labels, ugc_category_list]
     outputs: [annotated_data]
-    success: 三任务(观点/UGC方式/分维度)标注完成并经覆盖检查,缺口显式报错
+    success: 小引擎与 DataHub 均消费确认的定义和边界，完成三任务及覆盖检查，缺口显式报错
     side_effect: annotation-batch
     idempotency: "annot:r2:{task_id}:{resource_lock}"
     retry: {max: 2, on_fail: pause}

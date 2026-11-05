@@ -170,6 +170,12 @@ def label_snapshot(payload: dict, note: str = "") -> dict:
         + [item.strip() for item in re.split(r"[,，、]", note) if item.strip()],
         "ugc_categories": list(ugc.get("categories") or []),
         "ugc_not_applicable": bool(ugc.get("not_applicable")),
+        "opinion_review_items": list(opinions.get("review_items") or []),
+        "ugc_review_items": list(ugc.get("review_items") or []),
+        "review_schema_version": max(
+            int(opinions.get("review_schema_version") or 0),
+            int(ugc.get("review_schema_version") or 0),
+        ),
         "subject": context.get("artifact_refs") or {},
         "note": note,
     }
