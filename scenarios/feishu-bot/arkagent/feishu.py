@@ -501,6 +501,57 @@ class FeishuSender:
         if not response.success():
             raise RuntimeError(f"飞书回复失败 {response.code}: {response.msg}")
 
+    def upload_image(self, data: bytes) -> str:
+        """上传消息图片，返回 image_key；同步调用需在 executor 中执行。"""
+        import io
+        from lark_channel.api.im.v1.model.create_image_request import (
+            CreateImageRequest, CreateImageRequestBody,
+        )
+
+        body = CreateImageRequestBody.builder().image_type("message").image(io.BytesIO(data)).build()
+        request = CreateImageRequest.builder().request_body(body).build()
+        response = self._client.im.v1.image.create(request)
+        if not response.success():
+            raise RuntimeError(f"飞书图片上传失败 {response.code}: {response.msg}")
+        key = str(getattr(response.data, "image_key", "") or "")
+        if not key:
+            raise RuntimeError("飞书图片上传成功，但未返回 image_key")
+        return key
+
+    def upload_file(self, name: str, data: bytes, file_type: str = "stream") -> str:
+        """上传消息文件，返回 file_key；MP4 使用 file_type=mp4。"""
+        import io
+        from lark_channel.api.im.v1.model.create_file_request import (
+            CreateFileRequest, CreateFileRequestBody,
+        )
+
+        body = (
+            CreateFileRequestBody.builder().file_type(file_type)
+            .file_name(name).file(io.BytesIO(data)).build()
+        )
+        request = CreateFileRequest.builder().request_body(body).build()
+        response = self._client.im.v1.file.create(request)
+        if not response.success():
+            raise RuntimeError(f"飞书文件上传失败 {response.code}: {response.msg}")
+        key = str(getattr(response.data, "file_key", "") or "")
+        if not key:
+            raise RuntimeError("飞书文件上传成功，但未返回 file_key")
+        return key
+
+    def reply_image(self, message_id: str, image_key: str, in_thread: bool = False) -> None:
+        content = json.dumps({"image_key": image_key})
+        if in_thread:
+            self._reply_in_thread_with(message_id, "image", content)
+        else:
+            self._reply_with(message_id, "image", content)
+
+    def reply_file(self, message_id: str, file_key: str, in_thread: bool = False) -> None:
+        content = json.dumps({"file_key": file_key})
+        if in_thread:
+            self._reply_in_thread_with(message_id, "file", content)
+        else:
+            self._reply_with(message_id, "file", content)
+
     def reply_in_thread(
         self, message_id: str, text: str, roster: "Optional[dict[str, str]]" = None
     ) -> Optional[str]:
@@ -1152,6 +1203,8 @@ def _history_item_to_dict(item: object) -> dict:
     mentions = getattr(item, "mentions", None) or []
     return {
         "message_id": str(getattr(item, "message_id", "") or ""),
+        # 明确引用素材时核对所属聊天，避免把其他聊天的文件注入当前创作。
+        "chat_id": str(getattr(item, "chat_id", "") or ""),
         "msg_type": getattr(item, "msg_type", None),
         "create_time": getattr(item, "create_time", None),
         "deleted": bool(getattr(item, "deleted", False)),

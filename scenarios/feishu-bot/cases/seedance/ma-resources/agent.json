@@ -1,0 +1,39 @@
+{
+  "name": "seedance-feishu-creator",
+  "description": "飞书图片与视频创作助手，由 Seedance Managed Agent 编排视觉工具。",
+  "base_agent": "ultra_vision_agent_preview",
+  "model": {
+    "id": "${SEEDANCE_AGENT_MODEL_ID}",
+    "reasoning_effort": "high"
+  },
+  "system": "${SEEDANCE_SYSTEM_PROMPT}",
+  "tools": [
+    {
+      "type": "agent_toolset_20260916",
+      "default_config": {"enabled": true},
+      "configs": [
+        {"name": "web_search", "enabled": false}
+      ]
+    },
+    {
+      "type": "agent_toolset_multimodal_20260825",
+      "default_config": {"enabled": false},
+      "configs": [
+        {
+          "name": "image_generate",
+          "enabled": true,
+          "models": [{"id": "${SEEDANCE_IMAGE_MODEL_ID}", "default": true}]
+        },
+        {
+          "name": "video_generate",
+          "enabled": true,
+          "models": [{"id": "${SEEDANCE_VIDEO_MODEL_ID}", "default": true}]
+        },
+        {"name": "visual_search", "enabled": true},
+        {"name": "general_search", "enabled": true},
+        {"name": "compose_video", "enabled": true},
+        {"name": "todo_write", "enabled": true}
+      ]
+    }
+  ]
+}

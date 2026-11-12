@@ -1,0 +1,8 @@
+{
+  "name": "seedance-feishu-env",
+  "description": "Seedance 图片与视频创作云环境。",
+  "config": {
+    "type": "cloud",
+    "networking": {"type": "unrestricted"}
+  }
+}

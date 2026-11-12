@@ -275,7 +275,10 @@ async def _init_case(case_name: str) -> None:
     print(f"配置已写入 {case_paths.config_path}(仅含方舟 Key + 飞书凭据)。")
     print("下一步:")
     print(f"  1) 在 {case_paths.config_path} 补齐该 case 所需的业务凭据(见 cases/{case_name}/ 文档)")
-    print(f"  2) cd cases/{case_name} && ./update_ma.sh  # 一键完成 pack/upload/建资源,资源 ID 自动回写 config.env")
+    if case_name == "seedance":
+        print("  2) bash scenarios/feishu-bot/cases/seedance/update_ma.sh  # 创建或原地更新视觉资源,ID 自动回写")
+    else:
+        print(f"  2) cd cases/{case_name} && ./update_ma.sh  # 一键完成 pack/upload/建资源,资源 ID 自动回写 config.env")
     print(f"  3) arkagent run --case {case_name}")
 
 

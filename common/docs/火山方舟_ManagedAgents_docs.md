@@ -1649,6 +1649,8 @@ Vaults 的创建方法、`mcp_oauth` / `static_bearer` 等凭据类型，以及�
 
 - **高风险工具**：对高风险 MCP 工具，建议配合 [工具权限策略](https://ark.volcengine.com/region:cn-beijing/docs/tool-permission-policy) 使用 `always_ask`。
 
+- **过长结果**：云环境中的 MCP 工具返回过长纯文本时，处理方式与内置工具一致，前提是 Session 具备沙箱读写能力；不具备时事件保留完整结果。客户端展示事件中的 `content`；任务依赖省略内容时，由 Agent 按摘要继续读取。完整边界请参见 [读取过长的工具结果](https://ark.volcengine.com/region:cn-beijing/docs/tools#large-tool-results)。
+
 ## 相关文档
 
 [Agent](https://ark.volcengine.com/region:cn-beijing/docs/define-agent)
@@ -1976,6 +1978,14 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 
 同一轮可能调用多个工具。使用 `tool_use_id` 或 `mcp_tool_use_id` 将每个结果与对应调用配对，不要只依赖事件到达顺序。
 
+#### 读取过长的工具结果
+
+云环境中，Session 具备沙箱读写能力时，内置工具或 MCP 工具返回的可恢复纯文本若过长，方舟会把完整结果保存在当前 Session 的沙箱文件中，并在 `agent.tool_result` 或 `agent.mcp_tool_result` 的文本块中返回摘要，避免完整结果反复占用模型上下文。
+
+客户端将 `content` 作为普通工具结果展示或记录即可。摘要中的路径只供当前 Session 中的 Agent 使用；任务依赖省略内容时，Agent 会根据该路径使用 `read` 或 `grep` 继续读取。客户端无需处理该路径。
+
+这项处理只适用于云环境中可恢复的纯文本结果。可恢复要求 Session 具备沙箱读写能力；自托管 Environment、非纯文本结果、Session 不具备沙箱读写能力、Agent 无法继续读取，或上游没有提供可恢复内容时，事件保留工具原本可见的结果。
+
 #### 确认后执行
 
 基础工具或 MCP 工具使用 `always_ask` 时，Session 会暂停并等待业务应用确认：
@@ -2018,7 +2028,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/agents \
 
 3. Worker 获取对应的 Work，并在企业 Sandbox 中执行工具。
 
-4. Worker 通过 `user.tool_result` 回传结果。`tool_use_id` 必须填写对应的 `agent.tool_use.id`；工具执行失败时，将 `is_error` 设为 `true`，并在 `content` 中返回失败说明。
+4. Worker 通过 `user.tool_result` 回传结果。`tool_use_id` 必须填写对应的 `agent.tool_use.id`。工具执行失败时，将 `is_error` 设为 `true`，并在 `content` 中返回失败说明。
 
 5. 所有待处理结果回传后，Session 返回 `session.status_running`，Agent 根据工具结果继续处理任务。
 
@@ -2124,11 +2134,11 @@ Agent 会根据任务内容和工具说明判断是否调用工具。单次未�
 
 Session 返回 `stop_reason.type=requires_action` 时，先读取 `stop_reason.event_ids`，再根据每个阻塞事件的类型执行对应操作：
 
-| 阻塞事件                                 | 场景                                                                            | 处理方式                                                                                                                                                                               |
-| ---------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent.tool_use` 或 `agent.mcp_tool_use` | 云环境中的工具使用 `always_ask`。                                               | 发送 `user.tool_confirmation`，将阻塞事件 ID 填入 `tool_use_id`，并设置 `allow` 或 `deny`。确认 MCP 调用时也使用 `tool_use_id`；`mcp_tool_use_id` 仅用于关联 `agent.mcp_tool_result`。 |
-| `agent.tool_use`                         | 自托管环境中的主 Agent 调用 `bash`、`read`、`write`、`edit`、`glob` 或 `grep`。 | Worker 完成执行后发送 `user.tool_result`，使用 `tool_use_id` 关联调用；失败时设置 `is_error: true` 并返回错误说明。                                                                    |
-| `agent.custom_tool_use`                  | 业务应用执行自定义工具。                                                        | 发送 `user.custom_tool_result`，使用 `custom_tool_use_id` 关联调用；失败时设置 `is_error: true` 并返回错误说明。                                                                       |
+| 阻塞事件                                 | 场景                                                                                            | 处理方式                                                                                                                                                                               |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent.tool_use` 或 `agent.mcp_tool_use` | 云环境中的工具使用 `always_ask`。                                                               | 发送 `user.tool_confirmation`，将阻塞事件 ID 填入 `tool_use_id`，并设置 `allow` 或 `deny`。确认 MCP 调用时也使用 `tool_use_id`；`mcp_tool_use_id` 仅用于关联 `agent.mcp_tool_result`。 |
+| `agent.tool_use`                         | 自托管环境中的主 Agent 调用 `bash`、`read`、`write`、`edit`、`glob` 或 `grep`，由 Worker 执行。 | Worker 完成执行后发送 `user.tool_result`，使用 `tool_use_id` 关联调用；失败时设置 `is_error: true` 并返回错误说明。                                                                    |
+| `agent.custom_tool_use`                  | 业务应用执行自定义工具。                                                                        | 发送 `user.custom_tool_result`，使用 `custom_tool_use_id` 关联调用；失败时设置 `is_error: true` 并返回错误说明。                                                                       |
 
 同一轮可能包含多个阻塞事件。处理 `stop_reason.event_ids` 中的全部事件后，Session 才会恢复运行。不要用新的 `user.message` 代替确认或工具结果。
 
@@ -2382,7 +2392,7 @@ Tools 决定 Agent 在 Session 中能主动调用哪些执行能力。
 
 > 来源：[https://docs.volcengine.com/docs/82379/2553721?lang=zh](https://docs.volcengine.com/docs/82379/2553721?lang=zh)
 
-本文介绍如何为方舟 Managed Agents 创建和管理云端沙箱环境，包括预装依赖包、环境变量、启动脚本和产物存储。
+本文介绍如何为方舟 Managed Agents 创建和管理云端沙箱环境，包括环境模板、资源规格、出网策略、预构建脚本、环境变量、启动脚本和产物存储。
 
 **Environment** 描述 Agent 运行时使用的沙箱模板。一个 Environment 可以被多个 Session 复用，但每个 Session 会启动独立的沙箱实例，文件系统状态彼此隔离。
 
@@ -2396,11 +2406,17 @@ Managed Agents 同时支持云环境和自托管环境。本页只介绍由方�
 
 - **类型**：选择云托管环境。
 
-- **预装包**：配置沙箱启动前安装的系统包和语言依赖。
+- **环境模板**：选择基础模板。`base` 适合常规命令行、代码执行和文件处理任务；`browser` 适合需要浏览器运行依赖的网页访问、页面解析或自动化任务。
+
+- **资源规格**：选择云沙箱的 CPU 和内存规格。未选择时默认使用 `1x`。
+
+- **预装包**：配置预构建阶段安装的系统包和语言依赖。
+
+- **预构建脚本**：配置依赖安装后执行的构建脚本。
 
 - **环境变量**：配置注入沙箱进程的非敏感键值对。
 
-- **初始化脚本**：配置沙箱启动阶段执行的脚本。
+- **初始化脚本**：设置每个 Session 启动时执行的初始化命令，例如创建目录或拉取本次任务所需的数据。
 
 - **产物存储**：可选。需要长期保留 Agent 产物时，选择自己的 TOS 目录；不选择时使用方舟公共 TOS。
 
@@ -2422,15 +2438,19 @@ environment=$(
     "type": "cloud",
     "networking": {
       "type": "unrestricted"
-      },
+    },
+    "template_id": "browser",
+    "spec": "4x",
     "packages": {
       "pip": ["pandas"],
       "apt": ["curl"]
     },
+    "build_script": "python -c \"import pandas; print('prebuild ready')\"",
     "env": {
       "MY_KEY_0": "value_0",
       "MY_KEY_1": "value_1"
-    }
+    },
+    "setup_script": "mkdir -p /workspace/bootstrap && echo ready > /workspace/bootstrap/status.txt"
   }
 }
 EOF
@@ -2449,9 +2469,13 @@ echo "Environment ID: $ENVIRONMENT_ID"
 
 - **`config.type`**：运行环境类型，云托管环境取值为 `cloud`。
 
-- **`config.networking.type`**：沙箱的出站网络访问策略。`unrestricted` 允许完整出站网络访问，但仍受通用安全拦截列表限制。
+- **`config.networking.type`**：沙箱的出站网络访问策略。`unrestricted` 不限制访问目标，但仍受平台通用安全拦截策略约束；`limited` 只允许访问显式配置的域名和平台运行必需的网络规则。
 
-- **`config.packages`**：沙箱启动前预安装的依赖包。依赖会在使用同一 Environment 的 Session 之间缓存。若同时配置多个包管理器，系统按 `apt`、`cargo`、`gem`、`go`、`npm`、`pip` 的顺序执行。依赖版本可以显式锁定，未指定版本时安装最新版本。
+- **`config.template_id`**：云环境模板。`base` 为默认模板，适合常规命令行和代码执行任务；`browser` 预置浏览器运行依赖，适合需要访问网页或执行浏览器自动化的任务。模板能力差异，详情请参见 [环境模板](https://ark.volcengine.com/region:cn-beijing/docs/cloud-sandbox-reference#environment-templates)。
+
+- **`config.spec`**：云沙箱资源规格。未配置时默认使用 `1x`。`1x`、`2x`、`4x`、`8x` 分别对应 2、4、8、16 vCPU，每个 vCPU 搭配 2 GiB 内存。可选规格与资源映射，详情请参见 [沙箱规格](https://ark.volcengine.com/region:cn-beijing/docs/cloud-sandbox-reference#sandbox-specs)。
+
+- **`config.packages`**：在预构建阶段安装系统包和语言依赖。配置后，使用该 Environment 的 Session 可以直接使用这些依赖，无需重复安装。依赖版本可以显式锁定，未指定版本时安装最新版本。
 
   | 字段    | 包管理器           | 示例                                        |
   | ------- | ------------------ | ------------------------------------------- |
@@ -2464,9 +2488,87 @@ echo "Environment ID: $ENVIRONMENT_ID"
 
 - **`config.env`**：注入沙箱进程的环境变量。需要让 Agent 读取非敏感业务参数时配置，例如时区或服务地址。
 
-- **`config.setup_script`**：沙箱启动阶段执行的初始化脚本。需要在每次启动沙箱时准备目录、下载资源或执行自定义初始化命令时配置。
+- **`config.build_script`**：在 `config.packages` 安装完成后执行，用于提前下载依赖、编译项目或生成后续 Session 可复用的文件。
+
+- **`config.setup_script`**：每个 Session 沙箱启动阶段执行的初始化脚本。需要为本次 Session 准备目录、拉取运行时数据，或者读取环境变量和 Session 文件时配置。
 
 - **`config.tos`**：Agent 最终产物的 TOS 存储位置。需要长期保留 Agent 生成的报告、文件或代码时配置；不配置时产物使用方舟公共 TOS。
+
+> **注意**
+
+> `config.networking`、`config.template_id`、`config.spec`、`config.packages`、`config.build_script`、`config.env`、`config.setup_script` 和 `config.tos` 仅适用于 `cloud` 类型的 Environment。创建或更新自托管环境时，只传 `config.type: self_hosted`。
+
+> **说明**
+
+> 服务端会校验完整 `config` 的大小。创建或更新后的配置超过当前上限时，接口返回 HTTP 400 `InvalidParameter`，错误信息中会给出允许的最大字节数。更新接口按合并后的完整配置校验。
+
+### 为 Session 准备依赖和初始化内容
+
+创建 Environment 时，可以提前准备多个 Session 都会使用的依赖和文件，也可以为每个 Session 配置单独的初始化逻辑。
+
+根据内容是否需要在多个 Session 中重复使用，选择 `config.packages`、`config.build_script` 或 `config.setup_script`。
+
+| 你的需求                                                                  | 建议配置              | 使用效果                                                                       |
+| ------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------ |
+| 让每个 Session 都能直接使用同一批系统包、语言依赖或固定版本工具。         | `config.packages`     | 使用该 Environment 创建的 Session 可以直接使用这些依赖，无需再次运行安装命令。 |
+| 编译项目、下载基础模型文件或生成缓存，并让后续 Session 继续使用这些内容。 | `config.build_script` | 脚本在依赖安装完成后执行，生成的文件、缓存和构建产物可以被后续 Session 使用。  |
+| 根据本次任务准备目录、拉取短期数据，或读取环境变量和 Session 文件。       | `config.setup_script` | 每个 Session 启动时执行一次，只为当前 Session 准备运行内容。                   |
+
+> **说明**
+
+> 不要在 `config.setup_script` 中安装多个 Session 都要使用的依赖，否则每次启动 Session 都会重复安装。固定依赖写入 `config.packages`；依赖安装后的编译、下载和缓存生成写入 `config.build_script`。
+
+## 配置出网策略
+
+云环境支持两种出网策略。选择策略时，先判断 Agent 的工具执行是否需要访问任意公网目标，还是只需要访问少量固定域名。
+
+| 策略           | 适用场景                                                                         | 关键配置                                                                                |
+| -------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `unrestricted` | 沙箱需要访问多个不固定的公网目标，例如通用网页抓取、临时下载资源或调试外部 API。 | 只需要设置 `config.networking.type` 为 `unrestricted`。                                 |
+| `limited`      | 沙箱只应该访问固定外部服务，例如企业 API、指定对象存储域名或固定回调地址。       | 设置 `config.networking.type` 为 `limited`，并在 `allowed_hosts` 中列出允许访问的域名。 |
+
+创建限定出网的云环境时，参考以下示例：
+
+```bash
+environment=$(
+  curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/environments" \
+    -H "Authorization: Bearer $ARK_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d @- <<'EOF'
+{
+  "name": "<ENVIRONMENT_NAME>",
+  "config": {
+    "type": "cloud",
+    "networking": {
+      "type": "limited",
+      "allowed_hosts": [
+        "api.example.com",
+        "*.example-cdn.com"
+      ],
+      "allow_package_managers": true
+    },
+    "packages": {
+      "pip": ["requests"]
+    }
+  }
+}
+EOF
+)
+
+ENVIRONMENT_ID=$(jq -er '.id' <<<"$environment")
+
+echo "Environment ID: $ENVIRONMENT_ID"
+```
+
+限定出网策略包含以下配置项：
+
+- `allowed_hosts`：允许沙箱直接访问的外部域名列表。只支持裸域名或最左侧通配符域名，例如 `api.example.com`、`*.example-cdn.com`。不要填写 URL、端口、路径、查询参数、IP 地址或 `localhost`。
+
+- `allow_package_managers`：是否额外允许包管理器访问平台配置的软件源域名。开启后，沙箱可以为 `apt`、`cargo`、`gem`、`go`、`npm`、`pip` 依赖访问对应软件源；关闭或省略时，`packages` 不会自动放行外部软件源。
+
+> **注意**
+
+> `limited` 是失败关闭策略。省略 `allowed_hosts` 且未开启 `allow_package_managers` 时，沙箱不会额外放行外部域名。更新 Environment 后，只有之后创建或升级的 Session 使用新策略，已有 Session 继续使用创建时冻结的配置。
 
 ## 配置产物存储
 
@@ -2485,13 +2587,13 @@ echo "Environment ID: $ENVIRONMENT_ID"
 
 - `bucket` 和 `prefix` 必须同时提供，不能只配置其中一个字段。
 
-- `prefix` 使用相对路径，例如 `ark-files/`。
+- `prefix` 使用相对路径，例如 `ark-files/`。Prefix 无需预先创建。
 
 - 平台从 outputs 目录注册产物时，会在该前缀后追加 `outputs/{env-id}/{session-id}/` 作为 Files API 写入前缀。最终对象路径以响应中的 `tos.object_key` 为准，通常还会包含 `ark_processed/{file_id}/{file_type}/{filename}`。
 
 - 直接调用 Files API 并传入 `tos[prefix]` 时，不会追加 Environment ID 或 Session ID，但 Files API 仍会在该前缀下生成服务侧处理目录。
 
-以下示例演示创建带产物存储的 Environment、更新存储位置，以及清空配置，使后续 Session 改用方舟公共 TOS：
+以下示例演示创建带产物存储的 Environment，以及为后续 Session 更新存储位置：
 
 ```Bash
 # Create an environment that stores outputs in your TOS bucket.
@@ -2543,30 +2645,11 @@ jq '{id, tos: .config.tos}' <<<"$updated_environment"
 #   "id": "env-20260723142038-xxxxx",
 #   "tos": {"bucket": "<NEW_TOS_BUCKET>", "prefix": "new-prefix/"}
 # }
-
-# Clear the configuration so future sessions use the default storage.
-cleared_environment=$(
-  curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/environments/$ENVIRONMENT_ID" \
-    -H "Authorization: Bearer $ARK_API_KEY" \
-    -H "Content-Type: application/json" \
-    -d '{
-      "config": {
-        "tos": {}
-      }
-    }'
-)
-
-jq '{id, tos: (.config.tos // null)}' <<<"$cleared_environment"
-# Example output:
-# {
-#   "id": "env-20260723142038-xxxxx",
-#   "tos": null
-# }
 ```
 
 > **注意**
 
-> 先更新 Environment，再创建需要使用新存储配置的 Session。已有 Session 使用创建时冻结的配置快照，不会自动切换到新的 Bucket 或 `prefix`。
+> 先更新 Environment，再创建需要使用新存储配置的 Session。已有 Session 继续使用创建时的存储配置，不会自动切换到新的 Bucket 或 `prefix`。
 
 ## 在 Session 中使用环境
 
@@ -2593,13 +2676,13 @@ echo "Session ID: $SESSION_ID"
 
 如果只有某次任务需要使用不同的产物存储位置，可以在创建 Session 时使用 Environment 覆写，不需要修改可复用的 Environment。详情请参见 [覆写产物存储](https://ark.volcengine.com/region:cn-beijing/docs/start-session#override-output-storage)。
 
-## 环境生命周期
+## 了解 Environment 与 Session 的关系
 
-- 多个 Session 可以引用同一个环境，但每个 Session 都会获得独立的沙箱实例。
+- 多个 Session 可以引用同一个 Environment，但每个 Session 都会获得独立的沙箱实例。
 
 - Session 之间不共享文件系统状态。
 
-- 环境本身不做版本化管理。如果你频繁更新环境配置，建议在业务侧记录变更，以便追溯某个 Session 使用的是哪一版环境。
+- Environment 本身不做版本化管理。如果你频繁更新环境配置，建议在业务侧记录变更，以便追溯某个 Session 使用的是哪一版配置。
 
 - 归档 Environment 后，已有 Session 继续使用创建时保存的环境配置；后续不能更新该 Environment，也不能用它创建新 Session。
 
@@ -2622,14 +2705,19 @@ environment=$(
     -H "Authorization: Bearer $ARK_API_KEY"
 )
 
-# Update environment description
+# Update environment name, description, and prebuild config
 environment=$(
   curl -sS --fail-with-body -X POST "https://ark.cn-beijing.volces.com/api/v3/environments/$ENVIRONMENT_ID" \
     -H "Authorization: Bearer $ARK_API_KEY" \
     -H "Content-Type: application/json" \
     -d @- <<'EOF'
 {
-  "description": "<UPDATED_ENVIRONMENT_DESC>"
+  "name": "<UPDATED_ENVIRONMENT_NAME>",
+  "description": "<UPDATED_ENVIRONMENT_DESC>",
+  "config": {
+    "spec": "8x",
+    "build_script": "python -c \"print('updated prebuild')\""
+  }
 }
 EOF
 )
@@ -2649,6 +2737,8 @@ curl -sS --fail-with-body -X DELETE \
   -H "Authorization: Bearer $ARK_API_KEY"
 ```
 
+更新 Environment 时，可以修改名称、描述和运行配置。字段规则和生效范围，详情请参见 [更新环境](https://ark.volcengine.com/region:cn-beijing/docs/update-environment-api)。
+
 不再希望新 Session 使用某个 Environment，但仍需保留配置供查询时，选择 [归档环境](https://ark.volcengine.com/region:cn-beijing/docs/archive-environment-api)；确定不再保留 Environment 时，先删除所有关联 Session，再 [删除环境](https://ark.volcengine.com/region:cn-beijing/docs/delete-environment-api)。
 
 归档只改变 Environment 配置的可用性，不会迁移或备份云沙箱、方舟公共 TOS 中的临时产物，以及你自己的 TOS Bucket 中的对象。已有 Session 继续使用创建时保存的环境配置。
@@ -2665,11 +2755,35 @@ curl -sS --fail-with-body -X DELETE \
 
 > 来源：[https://docs.volcengine.com/docs/82379/2553722?lang=zh](https://docs.volcengine.com/docs/82379/2553722?lang=zh)
 
-本文介绍 Managed Agents 云端沙箱预安装的编程语言、数据库、常用工具（Utilities）和基础资源规格，便于在配置环境或评估任务依赖时快速参考。
+本文介绍 Managed Agents 云端沙箱的环境模板、资源规格、预安装编程语言、数据库和常用工具（Utilities），便于在配置环境或评估任务依赖时快速参考。
 
 云端沙箱运行在方舟提供的隔离 Linux 容器中。运行时、数据库客户端和常用命令行工具已预安装，Agent 可以直接使用。
 
 > 本文中规格描述适用于 `cloud` 类型的 Environments。
+
+## 环境模板
+
+创建云环境时，可以通过 `config.template_id` 选择环境模板。未配置时默认使用 `base`。
+
+| 用户场景                                                 | 推荐模板  | 模板说明                                                                                                |
+| -------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------- |
+| 执行代码、处理文件、处理数据或调用命令行工具。           | `base`    | 基础云沙箱模板，预置常见语言运行时、数据库客户端和命令行工具。                                          |
+| 访问网页、解析页面、检查前端页面或执行浏览器自动化任务。 | `browser` | 浏览器任务模板，在基础能力上预置 Chromium、Playwright、`playwright-cli`、浏览器系统依赖和常用中文字体。 |
+
+`browser` 模板包含 `base` 模板的基础能力，并额外提供浏览器任务所需的运行依赖。下表列出两种模板的能力差异。镜像中的系统包和补丁版本会随平台维护更新。
+
+| 能力           | `base`                                                                                    | `browser`                                                                   |
+| -------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 基础语言运行时 | 预置 Python、Node.js、Go、Rust、Java、Ruby、PHP 和 C/C++ 构建工具。                       | 与 `base` 一样。                                                            |
+| 包管理工具     | 预置 pip、uv、npm、yarn、pnpm、go modules、cargo、maven、gradle、bundler、gem、composer。 | 与 `base` 一样。                                                            |
+| 数据库能力     | 预置 SQLite、本地数据库客户端和连接外部数据库所需的常用客户端工具。                       | 与 `base` 一样。                                                            |
+| 命令行工具     | 预置 git、curl、wget、jq、归档压缩工具、远程访问工具、构建工具、搜索工具和文本处理工具。  | 与 `base` 一样。                                                            |
+| 文档和媒体处理 | 预置音视频、图片、Office 文档、PDF、OCR 和 LaTeX 命令行工具及中英文字体。                 | 与 `base` 一样。                                                            |
+| 浏览器运行依赖 | 未预装。                                                                                  | 预置 Chromium、Playwright、`playwright-cli`、浏览器系统依赖和常用中文字体。 |
+
+> **说明**
+
+> 模板不包含业务代码依赖、私有源依赖和大体积资源。任务依赖这些内容、固定版本工具或其他浏览器自动化框架时，通过 `config.packages` 或 `config.build_script` 安装。
 
 ## 编程语言
 
@@ -2732,17 +2846,41 @@ curl -sS --fail-with-body -X DELETE \
 | `vim`, `nano`        | 文本编辑器。         |
 | `diff`, `patch`      | 文件比较与补丁工具。 |
 
+### 文档和媒体处理
+
+| 工具                                       | 描述                                                            |
+| ------------------------------------------ | --------------------------------------------------------------- |
+| `ffmpeg`, `ffprobe`                        | 转换音视频格式，并读取媒体流和编码信息。                        |
+| ImageMagick（`convert`, `identify`）       | 转换、处理图片，并读取图片尺寸和格式信息。                      |
+| Pandoc、LibreOffice                        | 通过命令行或 headless 模式转换常见文档、演示文稿和电子表格。    |
+| Poppler（`pdftotext`, `pdftoppm`）、`qpdf` | 提取 PDF 文本、将 PDF 页面转换为图片，以及检查或处理 PDF 结构。 |
+| Tesseract                                  | 识别英语和简体中文图片中的文字。                                |
+| `pdflatex`, `xelatex`, `latexmk`           | 编译中英文 LaTeX 文档。                                         |
+| Noto CJK、DejaVu、Liberation               | 为文档转换、排版和图片渲染提供常用中英文字体。                  |
+
+> **说明**
+
+> 文档转换工具以命令行或 headless 模式运行，沙箱不提供桌面环境。ImageMagick 保留 PDF 和 PostScript 安全限制；需要提取 PDF 文本或将页面转换为图片时，使用 Poppler 工具。沙箱不预装 Docker CLI 或 Docker daemon。
+
 ## 沙箱规格
 
-以下为云端沙箱的基础资源规格，可用于评估运行时资源和网络能力。
+以下为云端沙箱的基础规格和可选资源规格，可用于评估运行时资源和网络能力。
 
 | 属性     | 具体配置         |
 | -------- | ---------------- |
 | 操作系统 | Ubuntu 22.04 LTS |
 | 架构     | x86_64 (amd64)   |
-| 内存     | 4 GB             |
-| 磁盘空间 | 10 GB            |
+| 磁盘空间 | 约 10 GiB        |
 | 网络     | 默认开启         |
+
+创建云环境时，可以通过 `config.spec` 选择 CPU 和内存规格。未配置时默认使用 `1x`。
+
+| `config.spec` | CPU     | 内存   |
+| ------------- | ------- | ------ |
+| `1x`          | 2 vCPU  | 4 GiB  |
+| `2x`          | 4 vCPU  | 8 GiB  |
+| `4x`          | 8 vCPU  | 16 GiB |
+| `8x`          | 16 vCPU | 32 GiB |
 
 ## 关键目录及 Agent 权限
 
@@ -2818,11 +2956,11 @@ Agent 在沙箱中读写文件时应遵循以下规则，避免误改只读资�
 
 Session 是托管 Agent 在某个 Environment 中跑某个 Agent 的一次实例。一个 Session 在多次交互中维护对话历史、保留沙箱状态，允许 Agent 跨轮次记住之前做过的事情。
 
-启动一个 Session 分两步：
+启动一个 Session 有两种方式：
 
-1. **创建 Session**：配置沙箱、绑定 Agent 与 Environment，此时 Agent **不**开始任何工作。
+1. **先创建，再发送首个事件**：创建 Session 时配置沙箱、绑定 Agent 与 Environment，此时 Agent **不**开始任何工作；随后通过 `user.message` 事件把任务交给 Agent，Session 进入 `running` 状态开始执行。
 
-2. **发送首个事件**：通过 `user.message` 事件把任务交给 Agent，Session 进入 `running` 状态开始执行。
+2. **创建时一并发送初始事件**：在创建请求中传入 `initial_events`，服务端在创建完成后按顺序投递事件并启动 Agent，无需再次调用发送事件接口。
 
 ## 准备工作
 
@@ -2899,6 +3037,56 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 ```
 
 固定版本后，即使该 Agent 后续发布了新版本，本 Session 仍按 `version: 1` 的行为运行。这让你可以分阶段灰度推出新版本，而不影响存量 Session 的行为一致性。
+
+## 创建时发送初始事件（可选）
+
+如果任务在创建 Session 时已经明确，可以直接在请求中传入 `initial_events`，把创建 Session 和发送首个事件合并成一次调用。服务端会在 Session 创建成功后按请求顺序投递事件并启动智能体循环，无需再调用发送事件接口。
+
+**Curl**
+
+```Bash
+curl https://ark.cn-beijing.volces.com/api/v3/sessions \
+  -H "Authorization: Bearer $ARK_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent": "agent-20260701120000-abcde",
+    "environment_id": "env-20260701120000-fghij",
+    "initial_events": [
+      {
+        "type": "user.message",
+        "content": [
+          {"type": "text", "text": "分析产品材料，梳理需求边界并给出验收用例。"}
+        ]
+      }
+    ]
+  }'
+```
+
+`initial_events` 遵循以下规则：
+
+- 数组，最多 50 条。省略或传入 `[]` 时按普通创建处理，Session 以 `idle` 状态创建。
+
+- 当前只支持 `user.message`。工具结果、工具确认、中断这类事件都要基于会话中已经发生的交互，只能在会话启动后发送。`user.message` 的内容块与发送事件接口一致，可混合文本、图片、文档和视频，字段格式详见 [会话事件结构参考](https://ark.volcengine.com/region:cn-beijing/docs/sessions-events-reference-v2)。
+
+- 事件按请求顺序持久化。创建响应不回显 `initial_events`；需要确认事件是否已保存时，通过 [获取会话事件列表](https://ark.volcengine.com/region:cn-beijing/docs/list-events-api) 查询。
+
+- 传入非空 `initial_events` 后，创建响应中的 `status` 可能为 `running`，也可能因状态同步延迟仍为 `idle`。判断智能体是否已启动，以事件列表或后续查询到的会话状态为准。
+
+- `running` 表示事件已受理并启动智能体循环，不表示任务已经完成。初始事件会被分批处理，也不等同于一条合并后的 `user.message`。
+
+### 校验与失败处理
+
+服务端在创建 Session 前会把初始事件全部校验一遍：只要有一条不合法，请求就会失败，不会创建 Session。以下情况都会返回 `InvalidParameter`：
+
+- 事件数量超过 50 条。
+
+- `type` 不是 `user.message`。
+
+- 事件内容不符合发送事件接口的校验规则。
+
+> **说明**
+
+> 使用 `initial_events` 时，事件在创建请求处理过程中就开始投递，此时还无法获得 Session ID，也就无法提前建立 SSE 连接。若需要从第一轮开始完整接收实时事件流，请先创建 Session、再订阅事件流、最后发送首个事件；已经产生的事件可随时通过事件列表查询。
 
 ## 覆写 Agent 配置（可选）
 
@@ -3127,7 +3315,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 
 > **注意**
 
-> **创建 Session 仅完成沙箱配置，不会启动任何工作。** 必须发送 `user.message` 事件，Agent 才会开始执行。
+> **未使用****`initial_events`****时，创建 Session 仅完成沙箱配置，不会启动任何工作。** 必须发送 `user.message` 事件，Agent 才会开始执行。
 
 这种解耦设计让客户端可以先注入 Vaults 凭据、检查沙箱环境，再发送首个事件启动 Agent。需要实时接收本轮事件时，按以下顺序执行：
 
@@ -3538,11 +3726,11 @@ Session 创建后，你可以查询状态、筛选列表、更新标题和标签
 
 Session 详情接口只返回资源的最新状态、用量统计和配置快照。实时回复和历史事件由 Session Events API 承载：
 
-| 需要获取的内容                              | 使用接口                                   | 返回内容和限制                                                                                                |
-| ------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| 实时接收 Agent 回复和状态；按需接收累计用量 | `GET /sessions/{session_id}/events/stream` | 通过 SSE（Server\-Sent Events）协议订阅会话主线程收到的实时事件。请建立 SSE 并等待 `: ready` 后，再发送事件。 |
-| 已持久化的完整事件                          | `GET /sessions/{session_id}/events`        | 用于查询会话主线程中已经产生的事件，主要用于历史事件查询和断线补查，返回信息不包含预览帧。                    |
-| 最新状态、累计用量和配置快照                | `GET /sessions/{session_id}`               | 查询指定会话的详细信息，包括智能体、会话运行环境、资源、状态和标签等，不返回 Agent 回复或完整事件历史         |
+| 需要获取的内容                              | 使用接口                                                                                | 返回内容和限制                                                                                                                                                             |
+| ------------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 实时接收 Agent 回复和状态；按需接收累计用量 | [流式获取会话事件](https://ark.volcengine.com/region:cn-beijing/docs/stream-events-api) | 通过 SSE（Server\-Sent Events）协议订阅 Session 实时事件。建立连接并等待 `: ready` 后，再发送事件。                                                                        |
+| 已持久化的完整事件                          | [查询会话事件列表](https://ark.volcengine.com/region:cn-beijing/docs/list-events-api)   | 用于历史事件查询和断线补查，不包含预览帧。子线程内部的完整执行过程通过 [查询线程事件列表](https://ark.volcengine.com/region:cn-beijing/docs/list-thread-events-api) 获取。 |
+| 最新状态、累计用量和配置快照                | [查询会话详情](https://ark.volcengine.com/region:cn-beijing/docs/get-session-api)       | 返回智能体、运行环境、资源、状态和标签等信息，不包含 Agent 回复或完整事件历史。                                                                                            |
 
 正常交互时，通过 SSE 实时接收 Agent 回复和状态；如需展示用量或记账，可读取 `session.usage` 累计用量快照。`GET /sessions/{session_id}/events` 仅用于历史事件查询和断线补查。不要只根据 `status=idle` 判断本轮成功。发送任务、接收回复和判断 `stop_reason` 的完整流程，详情请参见 [Session 事件流](https://ark.volcengine.com/region:cn-beijing/docs/session-event-stream)。
 
@@ -3559,31 +3747,34 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 
 响应示例：
 
-```jsonc
+```Plain Text
 {
   "id": "<SESSION_ID>",
   "status": "idle",
   "usage": {
     "active_seconds": 147.661,
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 8192
+    },
     "cache_read_input_tokens": 271227,
-    "input_tokens": 34,
+    "input_tokens": 381008,
     "output_tokens": 7774,
     "server_tool_use": {
       "general_search_requests": 1,
       "visual_search_requests": 1,
       "web_fetch_requests": 0,
-      "web_search_requests": 2,
-    },
+      "web_search_requests": 2
+    }
   },
   "stats": {
     "active_seconds": 147.661,
-    "duration_seconds": 1788.0,
+    "duration_seconds": 1788.0
   },
   "agent": {
     "id": "<AGENT_ID>",
-    "version": 1,
+    "version": 1
   },
-  "environment_id": "<ENVIRONMENT_ID>",
+  "environment_id": "<ENVIRONMENT_ID>"
 }
 ```
 
@@ -3595,15 +3786,25 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 
 - **`usage`**：Session 运行期间累计的运行时长、模型 token 和服务端搜索请求次数（详情请参见 [Session 事件流 § 跟踪用量](https://ark.volcengine.com/region:cn-beijing/docs/session-event-stream)）。
 
-  - `active_seconds` 表示 Session 至少有一个线程处于 `running` 状态的累计时长。
+  - `active_seconds` 是 Session 实际处于运行状态的累计秒数。每次 Session 从运行中（`running`）回到空闲（`idle`）或结束（`terminated`），系统才把这次运行的时长累加进去；Session 当前还在运行的时间暂不计入。
 
-  - `cache_read_input_tokens`、`input_tokens` 和 `output_tokens` 分别记录缓存读取、未缓存输入和输出 token。
+  - `input_tokens` 是所有模型请求的输入 token 总数，包含缓存读取和缓存写入的部分。
+
+    - `cache_read_input_tokens` 是其中命中提示词缓存的部分。
+
+    - `cache_creation.ephemeral_5m_input_tokens` 是其中写入提示词缓存的部分。累计值为 `0` 时不返回该字段。
+
+    - `cache_creation.ephemeral_1h_input_tokens` 当前不返回。
+
+  - `output_tokens` 是输出 token 总数。
 
   - `server_tool_use` 记录服务端托管工具累计发起的请求次数，具体字段请参见 [查询会话详情](https://ark.volcengine.com/region:cn-beijing/docs/get-session-api) 。
 
+  `cache_read_input_tokens` 和 `cache_creation.ephemeral_5m_input_tokens` 都是 `input_tokens` 的子集。计算未缓存输入时，使用 `input_tokens - cache_read_input_tokens - cache_creation.ephemeral_5m_input_tokens`。
+
 - **`stats`**：Session 的累计运行时长和从创建到当前或终止时的总时长。
 
-  - `active_seconds` 表示 Session 至少有一个线程处于 `running` 状态的累计时长，单位为秒。
+  - `active_seconds` 与 `usage.active_seconds` 相同，单位为秒。
 
   - `duration_seconds` 表示从创建到查询时刻的总时长；Session 终止后，该值固定为从创建到终止的时长。
 
@@ -3757,7 +3958,7 @@ Session 资源记录、完整事件、Trace 记录、图片和视频等媒体数
 
 | 接口                                       | 客户端动作                                         | 返回内容和限制                                               |
 | ------------------------------------------ | -------------------------------------------------- | ------------------------------------------------------------ |
-| `GET /sessions/{session_id}/events/stream` | 建立 SSE 并等待 `: ready`，实时接收事件            | 只推送连接建立后产生的事件，不回放历史事件                   |
+| `GET /sessions/{session_id}/events/stream` | 建立 SSE 并等待 `: ready`，实时接收 Session 事件   | 只推送连接建立后产生的事件，不回放历史事件                   |
 | `POST /sessions/{session_id}/events`       | 发送 `user.*` 或 `system.message` 事件             | HTTP 200 只表示事件已受理，不表示 Agent 已处理或本轮已结束   |
 | `GET /sessions/{session_id}/events`        | 分页查询已持久化的完整事件，用于历史查看和断线补查 | 不包含 `event_start`、`event_delta` 预览帧，也不提供实时推送 |
 | `GET /sessions/{session_id}`               | 查询 Session 最新状态、累计用量和配置快照          | 不返回完整事件历史或 Agent 回复内容                          |
@@ -3774,6 +3975,20 @@ Session 资源记录、完整事件、Trace 记录、图片和视频等媒体数
 | `span.*`                   | Session 发送至客户端 | 返回模型调用的过程和结果                                            |
 
 每个完整事件都包含 `id`、`type` 和 `processed_at`。`processed_at` 为 `null` 时，表示事件已进入队列但尚未完成处理。完整事件类型、字段、取值和嵌套结构，详情请参见 [会话事件结构参考](https://ark.volcengine.com/region:cn-beijing/docs/sessions-events-reference-v2)。
+
+### 多线程会话的事件范围
+
+在多智能体会话中，Session 事件流除返回会话主线程的事件外，还返回以下需要在 Session 层统一观察或处理的事件：
+
+- 子线程创建和状态变化。
+
+- Main Agent 与 Subagent 之间用于委派、汇报和补充要求的协作消息。
+
+- Subagent 发起的自定义工具调用和需要客户端处理的工具授权事件。
+
+线程相关事件通过 `session_thread_id` 标识所属 Thread。Subagent 的思考、普通回复、工具结果、Span 和预览帧不在 Session 事件流中完整展开，需要通过 [查询线程事件列表](https://ark.volcengine.com/region:cn-beijing/docs/list-thread-events-api) 或 [流式获取线程事件](https://ark.volcengine.com/region:cn-beijing/docs/stream-thread-events-api) 查询。
+
+断线补查时，先使用 Session 事件列表补齐 Session 层事件。需要还原某个子线程的完整执行过程时，再按 `session_thread_id` 查询该 Thread 的事件并按事件 ID 去重。不要根据相邻事件、智能体名称或到达时间猜测事件归属。
 
 ### 运行环境差异
 
@@ -4501,7 +4716,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
       "ephemeral_5m_input_tokens": 0,
     },
     "cache_read_input_tokens": 271227,
-    "input_tokens": 34,
+    "input_tokens": 381008,
     "output_tokens": 7774,
     "server_tool_use": {
       "general_search_requests": 1,
@@ -4513,7 +4728,11 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 }
 ```
 
-`session.usage.id` 由对应的 `session.status_idle` 事件 ID 生成，格式为 `sevt-usg-<idle_event_id>`；两条事件的 `processed_at` 相同。客户端应保留服务端返回顺序，不要仅按 `processed_at` 排序或去重。当前事件中的 `cache_creation` 两个字段固定返回 `0`。
+`session.usage` 事件中的 `input_tokens` 是输入 token 总数，包含缓存读取和缓存写入的部分；`cache_read_input_tokens` 是其中命中提示词缓存的部分。`cache_creation.ephemeral_1h_input_tokens` 和 `cache_creation.ephemeral_5m_input_tokens` 当前固定返回 `0`，不能用于判断会话是否创建缓存，也不能据此计算未缓存输入。
+
+`span.model_request_end.model_usage` 中的 `cache_creation_input_tokens` 返回单次模型请求实际写入提示词缓存的输入 token 数，与 `session.usage` 中的占位字段不同。
+
+`session.usage.id` 由对应的 `session.status_idle` 事件 ID 生成，格式为 `sevt-usg-<idle_event_id>`；两条事件的 `processed_at` 相同。客户端应保留服务端返回顺序，不要仅按 `processed_at` 排序或去重。`usage.active_seconds` 是 Session 实际处于运行状态的累计秒数：每次 Session 从运行中（`running`）回到空闲（`idle`）或结束（`terminated`）时，系统才把这次运行的时长累加进去；Session 当前还在运行的时间暂不计入。
 
 需要查询服务端记录的最新累计用量和时长时，调用 `GET /sessions/{session_id}` 读取 Session 的 `usage` 和 `stats`；需要按线程排查消耗和启动耗时时，调用 `GET /sessions/{session_id}/threads/{thread_id}` 读取当前线程的 `usage` 和 `stats`。存量 Session 的统计完整性边界，详情请参见 [管理 Session](https://ark.volcengine.com/region:cn-beijing/docs/manage-session) 。
 
@@ -4529,7 +4748,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
   "model_usage": {
     "input_tokens": 1820,
     "output_tokens": 42,
-    "cache_creation_input_tokens": 1500,
+    "cache_creation_input_tokens": 0,
     "cache_read_input_tokens": 0,
     "speed": "standard"
   }
@@ -4538,13 +4757,13 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions/sesn-20260701120100-klmno
 
 `model_usage` 字段含义：
 
-- **`input_tokens`**：未缓存输入 token。
+- **`input_tokens`**：本次请求的输入 token 总数，包含缓存读取和缓存写入的部分。
 
-- **`output_tokens`**：全部输出 token。
+- **`output_tokens`**：本次请求的输出 token 总数。
 
-- **`cache_creation_input_tokens`**：本次请求写入提示词缓存的输入 token 数。
+- **`cache_read_input_tokens`**：本次请求输入中命中提示词缓存的部分，已包含在 `input_tokens` 内。
 
-- **`cache_read_input_tokens`**：本次请求从提示词缓存读取的输入 token 数。
+- **`cache_creation_input_tokens`**：本次请求写入提示词缓存的部分，已包含在 `input_tokens` 内；未写入缓存时返回 `0`。
 
 - **`speed`**：本次请求速度档位。
 
@@ -5268,7 +5487,7 @@ curl -sS --fail-with-body "https://ark.cn-beijing.volces.com/api/v3/memory_store
   }'
 ```
 
-单条 Memory 的内容上限为 100 KiB（102400 字节），约 25k tokens。单个 Store 最多保存 2,000 条 Memory。建议将记忆拆成多个小而聚焦的文件，避免使用长文档。
+单条 Memory 的内容上限为 100 KiB（102400 字节），约 25K tokens。单个 Store 最多保存 2,000 条 Memory。建议将记忆拆成多个小而聚焦的文件，避免使用长文档。
 
 ## 挂载 Memory Store 到 Session
 
@@ -5679,31 +5898,84 @@ Outcome 支持定义任务验收标准，Agent 自动迭代直到达标。
 
 > 来源：[https://docs.volcengine.com/docs/82379/2553730?lang=zh](https://docs.volcengine.com/docs/82379/2553730?lang=zh)
 
-Multi Agent（多智能体协作）允许协调器 Agent 将任务委派给多个子智能体。子智能体使用各自的模型、系统提示词、技能和工具完成任务。协调器负责拆分任务并汇总结果。
+当一次任务需要代码审查、测试设计等不同角色共同完成时，可以使用 Multi Agent。主 Agent（Main Agent）负责拆分任务、选择子 Agent（Subagent），并把各角色的结果汇总成最终答复。
 
-本页从已有子智能体和 Environment 开始，演示如何创建协调器、运行任务、验证结果和处理异常。
+本文以评审一个 Python 登录接口为例。你将为主 Agent 配置代码审查员和测试工程师两个固定成员，再创建 Session、提交评审任务，并通过 Thread 查看各成员的执行过程。开始前，准备 API Key、模型 ID、一个可用的 Environment，以及两个成员 Agent 的 ID 和版本号。
 
-## 选择并准备
+## 选择协作模式
 
-Multi Agent 适合需要角色分工或并行处理的复杂任务。如果任务不需要独立上下文或角色边界，优先使用更简单的方式。
+方舟支持 `multiagent_20261001` 和 `coordinator` 两种 Multi Agent 配置。先根据任务是否需要持续协作、跨层派发和运行时角色选择配置，再准备子 Agent。
 
-| 任务特征                               | 推荐方式               | 适用场景                       |
-| -------------------------------------- | ---------------------- | ------------------------------ |
-| 多个角色需要使用不同提示词、模型或工具 | Multi Agent            | 代码审查、测试设计等多角色任务 |
-| 单个 Agent 按固定步骤调用工具          | Agent + 工具（Tools）  | 流程固定，不需要独立角色上下文 |
-| 单个 Agent 复用操作说明                | Agent + 技能（Skills） | 需要沉淀流程，但不需要角色协作 |
+| 对比项                                               | `multiagent_20261001`                          | `coordinator`                                 |
+| ---------------------------------------------------- | ---------------------------------------------- | --------------------------------------------- |
+| 成员字段                                             | `subagents`                                    | `agents`                                      |
+| 成员来源                                             | 预定义 Agent、Self 和 Inline Agent             | 预定义 Agent 和 Self                          |
+| 将使用 `multiagent_20261001` 的 Agent 作为预定义成员 | 支持                                           | 不支持                                        |
+| 委派方式                                             | 目标 Thread 接受任务后，派发方继续执行         | 委派方等待子 Agent 执行结束                   |
+| 结果返回                                             | 结果异步回投给创建目标 Thread 的父 Thread      | 结果作为本次委派的工具结果返回                |
+| Thread 生命周期                                      | Thread 保留在当前 Session 中，可以继续接收任务 | 每次委派创建一次性 Thread，委派结束后不再复用 |
+| 子 Agent 层级                                        | 最多 3 层                                      | 最多 1 层                                     |
 
-开始前，完成以下准备：
+### `multiagent_20261001` 模式
 
-- 创建 API Key，并配置为 `ARK_API_KEY`。详情请参见 [API Key 管理](https://ark.volcengine.com/region:cn-beijing/apiKey) 。
+`multiagent_20261001` 适合多个角色在独立 Thread 中持续协作，或需要子 Agent 继续派生和派发任务的场景。它遵循以下规则：
 
-- 创建两个子智能体，并记录 Agent ID 和版本号。详情请参见 [Agent](https://ark.volcengine.com/region:cn-beijing/docs/define-agent)。
+- 子 Agent Thread 创建后会保留在当前 Session 中，可以继续接收任务，也可以单独中断或归档。
 
-- 创建或复用云环境，并记录 Environment ID。详情请参见 [配置云环境](https://ark.volcengine.com/region:cn-beijing/docs/configure-cloud-environment)。
+- 目标 Thread 接受任务后，派发方可以继续处理自己的工作，不需要等待。
 
-- 选择协调器模型，并确认本地已安装 `curl` 和 `jq`。
+- 一个 Agent 可以向同一 Session 中已有的其他子 Agent Thread 派发任务，包括同层或不同层的 Thread。派发方不会直接收到目标 Thread 的执行结果。
 
-配置环境变量：
+- 子 Agent 的结果始终异步回投给创建它的父 Thread，而不是最近一次派发任务的 Thread。父 Thread 处于 `idle` 时，结果会唤醒它；父 Thread 仍在运行时，结果会排队等待处理。
+
+- 只要还有 Thread 正在运行，Session 就会保持 `running`。所有 Thread 都不再运行后，Session 才会进入 `idle`；此时仍需根据 `stop_reason` 判断任务已经结束，还是正在等待外部操作。
+
+![图片](https://arkdocs.tos-cn-beijing.volces.com/flowcharts/managed-agent/multiagent-thread-result-routing.svg)
+
+### `coordinator` 模式
+
+`coordinator` 适合由主 Agent 依次调用固定成员、并在每次调用中直接等待结果的任务。它遵循以下规则：
+
+- 每次委派创建一个一次性子 Thread。
+
+- 主 Agent 会等待子 Agent 完成任务，收到结果后再继续处理。
+
+- 子 Agent 的最终输出作为本次委派的工具结果返回给委派方。
+
+- 委派完成后，一次性子 Thread 变为 `idle`，仍可通过线程接口查询。
+
+![图片](https://arkdocs.tos-cn-beijing.volces.com/flowcharts/managed-agent/coordinator-delegation-result-routing.svg)
+
+本文后续以 `multiagent_20261001` 为例，介绍子 Agent 来源、配置和 Session 管理。若现有 Agent 使用 `coordinator`，迁移限制参见 [从 ](https://ark.volcengine.com/region:cn-beijing/docs/multi-agent#migrate-from-coordinator)[coordinator](https://ark.volcengine.com/region:cn-beijing/docs/multi-agent#migrate-from-coordinator)[ 迁移](https://ark.volcengine.com/region:cn-beijing/docs/multi-agent#migrate-from-coordinator)。
+
+## 使用场景
+
+`multiagent_20261001` 支持三种子 Agent 来源。你可以根据角色是否固定、是否需要复用，以及是否要在任务运行时创建临时角色进行选择：
+
+| 来源         | 说明                                                     | 适用场景                                 | 配置方式                                        |
+| ------------ | -------------------------------------------------------- | ---------------------------------------- | ----------------------------------------------- |
+| 预定义 Agent | 提前创建并可以锁定版本的 Agent                           | 角色和能力已经稳定，需要在多次任务中复用 | 在 `predefined_agents` 中引用已有 Agent         |
+| Self         | 复用当前 Agent 的模型和能力，但单独保存对话上下文        | 需要并行处理多个同类子任务               | 在 `predefined_agents` 中加入 `{"type":"self"}` |
+| Inline Agent | 由主 Agent 在任务运行时定义的临时角色，不创建 Agent 资源 | 事先无法确定角色或分工                   | 将 `inline_agents.type` 设为 `enabled`          |
+
+三种来源可以同时使用。API 请求中，`multiagent.type` 设为 `multiagent_20261001`，并在 `multiagent.subagents` 中配置这些来源。
+
+Self 只复用当前 Agent 的模型、系统提示词和能力，不会复制其预定义成员列表。Inline Agent 也不会获得创建它的 Agent 的成员列表。
+
+## 配置主 Agent
+
+### 准备成员和委派规则
+
+使用已有 Agent 作为固定成员时，先创建成员并记录 Agent ID 和版本号。详情请参见 [Agent](https://ark.volcengine.com/region:cn-beijing/docs/define-agent)。
+
+以下示例使用两个固定成员：
+
+| 角色       | 职责                                             |
+| ---------- | ------------------------------------------------ |
+| 代码审查员 | 检查代码质量、架构和安全风险，输出问题与修改建议 |
+| 测试工程师 | 设计测试用例，说明覆盖范围和未覆盖风险           |
+
+配置本地环境变量：
 
 ```Bash
 export ARK_API_KEY="<ARK_API_KEY>"
@@ -5713,25 +5985,47 @@ export REVIEWER_AGENT_ID="<REVIEWER_AGENT_ID>"
 export REVIEWER_AGENT_VERSION="<REVIEWER_AGENT_VERSION>"
 export TESTER_AGENT_ID="<TESTER_AGENT_ID>"
 export TESTER_AGENT_VERSION="<TESTER_AGENT_VERSION>"
-export ENVIRONMENT_ID="<ENVIRONMENT_ID>"
 ```
 
-## 配置协调器
+Self 和 Inline Agent 都不需要提前创建 Agent 资源。主 Agent 选择 Self 后，系统会创建一个新的子 Agent Thread。它使用主 Agent 在本次 Session 中的模型、系统提示词、工具、MCP 和技能，但会单独保存对话上下文。Inline Agent 则由主 Agent 在任务运行时定义角色和系统提示词，并使用独立 Thread。
 
-### 定义角色和委派规则
+主 Agent 的系统提示词需要回答三个问题：
 
-协调器的系统提示词需要说明每个子智能体的职责和输出。角色边界越明确，协调器越容易正确分配任务。
+1. 每个固定成员负责什么。
 
-| 角色       | 职责                                             |
-| ---------- | ------------------------------------------------ |
-| 代码审查员 | 检查代码质量、架构和安全风险，输出问题与修改建议 |
-| 测试工程师 | 设计测试用例，说明覆盖范围和未覆盖风险           |
+2. 什么情况下创建 Self 或 Inline Agent。
 
-系统提示词还需要要求协调器先拆分和委派任务，收到全部结果后再汇总。下方 cURL 包含完整提示词。
+3. 收到成员结果后如何汇总并回复。
 
-### 创建协调器
+固定成员的名称和职责需要与配置一致。名称相似或职责重叠时，主 Agent 更容易选错成员。
 
-在 `multiagent.agents` 中传入子智能体 ID 和版本号。显式填写版本后，子智能体发布新版本不会改变当前协调器。
+如果允许主 Agent 创建 Inline Agent，还需要明确以下边界：
+
+- Inline Agent 使用创建它的 Agent 的模型、工具、MCP 和技能。创建时不能单独增加或减少这些能力。
+
+- 委派内容需要包含职责、必要背景、预期产物和文件责任。
+
+- 大段中间产物写入共享文件系统，消息只传递文件路径和结论摘要。
+
+- 用户只与主 Agent 交互，子 Agent 的结果由主 Agent 统一汇总。
+
+以下提示词片段可以作为起点：
+
+```Text
+你负责完成产品方案，并根据任务复杂度选择协作方式。
+
+- 代码审查交给代码审查员。
+- 测试设计交给测试工程师。
+- 多个同类子任务可以创建 Self 并行处理。
+- 无法预设的专业角色可以按需创建 Inline Agent。
+
+委派时说明职责、背景、预期产物和文件路径。
+收到全部必要结果后，汇总为一个最终答复。
+```
+
+### 创建主 Agent
+
+以下 cURL 使用两个预定义 Agent、一个 Self 和已启用的 Inline Agent 创建主 Agent，并锁定预定义 Agent 的版本：
 
 **cURL**
 
@@ -5759,7 +6053,7 @@ COORDINATOR_SYSTEM='你有以下团队成员：
 先拆分任务，再分别委派。收到全部结果后，汇总为最终结论。'
 export COORDINATOR_SYSTEM
 
-coordinator_payload=$(
+main_agent_payload=$(
   jq -n \
     --arg model_id "$COORDINATOR_MODEL_ID" \
     --arg system "$COORDINATOR_SYSTEM" \
@@ -5772,48 +6066,243 @@ coordinator_payload=$(
       model: {id: $model_id},
       system: $system,
       multiagent: {
-        type: "coordinator",
-        agents: [
-          {type: "agent", id: $reviewer_id, version: $reviewer_version},
-          {type: "agent", id: $tester_id, version: $tester_version}
-        ]
+        type: "multiagent_20261001",
+        subagents: {
+          type: "enabled",
+          inline_agents: {type: "enabled"},
+          predefined_agents: [
+            {type: "agent", id: $reviewer_id, version: $reviewer_version},
+            {type: "agent", id: $tester_id, version: $tester_version},
+            {type: "self"}
+          ]
+        }
       }
     }'
 )
 
-coordinator=$(
+main_agent=$(
   curl -sS --fail-with-body "$ARK_BASE_URL/agents" \
     -H "Authorization: Bearer $ARK_API_KEY" \
     -H "Content-Type: application/json" \
-    -d "$coordinator_payload"
+    -d "$main_agent_payload"
 )
 
 export COORDINATOR_AGENT_ID
 export COORDINATOR_AGENT_VERSION
-COORDINATOR_AGENT_ID=$(jq -er '.id' <<<"$coordinator")
-COORDINATOR_AGENT_VERSION=$(jq -er '.version' <<<"$coordinator")
+COORDINATOR_AGENT_ID=$(jq -er '.id' <<<"$main_agent")
+COORDINATOR_AGENT_VERSION=$(jq -er '.version' <<<"$main_agent")
 
-printf 'Coordinator Agent ID: %s\n' "$COORDINATOR_AGENT_ID"
-printf 'Coordinator Agent version: %s\n' "$COORDINATOR_AGENT_VERSION"
+printf 'Main Agent ID: %s\n' "$COORDINATOR_AGENT_ID"
+printf 'Main Agent version: %s\n' "$COORDINATOR_AGENT_VERSION"
 ```
 
-脚本将协调器 ID 和版本号写入 `COORDINATOR_AGENT_ID` 和 `COORDINATOR_AGENT_VERSION`。字段说明请参见 [创建智能体](https://ark.volcengine.com/region:cn-beijing/docs/create-agent-api)。
+脚本将主 Agent ID 和版本号写入 `COORDINATOR_AGENT_ID` 和 `COORDINATOR_AGENT_VERSION`。确认这两个变量均不为空后，再创建 Session。字段说明参见 [创建智能体](https://ark.volcengine.com/region:cn-beijing/docs/create-agent-api)。
 
-也可以通过控制台配置：
+脚本提交的核心配置如下：
 
-1. 进入 [Agent 管理页面](https://ark.volcengine.com/region:cn-beijing/managed-agent/agents) 。
+```JSON
+{
+  "type": "multiagent_20261001",
+  "subagents": {
+    "type": "enabled",
+    "inline_agents": {"type": "enabled"},
+    "predefined_agents": [
+      {"type": "agent", "id": "<AGENT_ID>", "version": 1},
+      {"type": "self"}
+    ]
+  }
+}
+```
 
-2. 创建或编辑 Agent，在 **04 能力扩展** 区域添加 **Multi Agents**。
+`subagents` 决定主 Agent 能否创建子 Agent，以及可以使用哪些子 Agent 来源：
 
-3. 选择子智能体，填写前面的系统提示词并保存。
+- `subagents.type` 设为 `disabled` 时，主 Agent 不派生子 Agent。
 
-4. 记录协调器 Agent ID 和版本号。
+- `inline_agents.type` 设为 `disabled` 时，主 Agent 只能从 `predefined_agents` 中选择成员。
 
-## 运行任务
+- 没有预定义成员时，传入 `predefined_agents: []`。
 
-主流程使用两个终端。终端 A 接收主事件流，终端 B 创建 Session、发送任务和查询结果。需要实时观察子线程时，再打开终端 C。
+> **注意**
 
-### 1. 创建 Session
+> 当 `subagents.type` 为 `enabled` 时，省略 `inline_agents` 表示允许创建 Inline Agent。若要禁止任务运行时创建临时角色，必须显式传入 `"inline_agents": {"type": "disabled"}`。
+
+**子 Agent 使用哪些配置**
+
+创建 Session 后，三类子 Agent 按以下规则确定模型和能力配置：
+
+| 来源         | 使用的配置                                                                       | 后续更新的影响                                                    |
+| ------------ | -------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| 预定义 Agent | 使用创建 Session 时记录的成员 Agent 配置，包括模型、系统提示词、工具、MCP 和技能 | 之后更新成员 Agent，不会改变当前 Session                          |
+| Self         | 使用主 Agent 在本次 Session 中的模型、系统提示词、工具、MCP 和技能               | 如果创建 Session 时临时修改了主 Agent 配置，Self 也使用修改后的值 |
+| Inline Agent | 运行时定义名称和系统提示词，模型、工具、MCP 和技能与创建它的 Agent 相同          | 不创建独立 Agent 资源，能力也不能在创建时单独调整                 |
+
+同一 Session 中的子 Agent 共享 Environment、Sandbox、文件系统和已绑定的 Vault 凭据，但不会自动共享对话历史。因此，创建 Session 时就需要确定 Environment 和需要挂载的 Vault 凭据。
+
+> **注意**
+
+> 共享文件系统不等于共享上下文。一个 Thread 写入文件后，其他 Thread 可以读取该文件，但主 Agent 不会自动获得写入过程和结论。子 Agent 需要显式回传文件路径和摘要。
+
+**配置限制**
+
+- 固定成员列表最多包含 20 项。
+
+- 同一 Session 默认最多包含 20 个 Thread，包括 Main Thread；账号和项目可以配置其他上限。
+
+- 使用 `multiagent_20261001` 时，一个 Session 最多派生 3 层子 Agent，包括预定义 Agent、Self 和 Inline Agent。
+
+- 更新主 Agent 不会修改已有 Session 正在使用的配置。
+
+- 主 Agent 和子 Agent 分别产生模型与运行资源用量，详情参见 [模型价格](https://ark.volcengine.com/region:cn-beijing/docs/model-pricing#ma_billing)。
+
+### 更新并检查配置
+
+需要新增、移除预定义成员或切换成员版本时，先调用 [查询智能体详情](https://ark.volcengine.com/region:cn-beijing/docs/get-agent-api) 查询主 Agent。更新请求必须携带返回的 `version`，以免覆盖其他更新。以下示例整体提交 `predefined_agents` 和匹配的系统提示词。
+
+```Bash
+export COORDINATOR_AGENT_VERSION="<LATEST_VERSION>"
+
+COORDINATOR_PREDEFINED_AGENTS_JSON=$(
+  jq -n \
+    --arg reviewer_id "$REVIEWER_AGENT_ID" \
+    --argjson reviewer_version "$REVIEWER_AGENT_VERSION" \
+    --arg tester_id "$TESTER_AGENT_ID" \
+    --argjson tester_version "$TESTER_AGENT_VERSION" \
+    '[
+      {type: "agent", id: $reviewer_id, version: $reviewer_version},
+      {type: "agent", id: $tester_id, version: $tester_version},
+      {type: "self"}
+    ]'
+)
+export COORDINATOR_PREDEFINED_AGENTS_JSON
+```
+
+创建脚本已导出 `COORDINATOR_SYSTEM`。更新前，确认该变量保存的是主 Agent 当前使用的完整系统提示词。
+
+**cURL**
+
+```Bash
+: "\\${ARK_BASE_URL:?Set ARK_BASE_URL}"
+: "\\${ARK_API_KEY:?Set ARK_API_KEY}"
+: "\\${COORDINATOR_AGENT_ID:?Set COORDINATOR_AGENT_ID}"
+: "\\${COORDINATOR_AGENT_VERSION:?Set COORDINATOR_AGENT_VERSION}"
+: "\\${COORDINATOR_SYSTEM:?Set COORDINATOR_SYSTEM}"
+: "\\${COORDINATOR_PREDEFINED_AGENTS_JSON:?Set COORDINATOR_PREDEFINED_AGENTS_JSON}"
+
+update_payload=$(
+  jq -n \
+    --argjson version "$COORDINATOR_AGENT_VERSION" \
+    --arg system "$COORDINATOR_SYSTEM" \
+    --argjson predefined_agents "$COORDINATOR_PREDEFINED_AGENTS_JSON" \
+    '{
+      version: $version,
+      system: $system,
+      multiagent: {
+        type: "multiagent_20261001",
+        subagents: {
+          type: "enabled",
+          inline_agents: {type: "enabled"},
+          predefined_agents: $predefined_agents
+        }
+      }
+    }'
+)
+
+main_agent=$(
+  curl -sS --fail-with-body \
+    "$ARK_BASE_URL/agents/$COORDINATOR_AGENT_ID" \
+    -H "Authorization: Bearer $ARK_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d "$update_payload"
+)
+
+export COORDINATOR_AGENT_VERSION
+COORDINATOR_AGENT_VERSION=$(jq -er '.version' <<<"$main_agent")
+
+printf 'Main Agent version: %s\n' "$COORDINATOR_AGENT_VERSION"
+```
+
+脚本将新版本号写入 `COORDINATOR_AGENT_VERSION`。接口返回 `version: conflict` 时，重新查询最新版本，合并配置后再提交。
+
+**更新语义**
+
+| 请求写法                                                    | 更新结果                             |
+| ----------------------------------------------------------- | ------------------------------------ |
+| 省略顶层 `multiagent`                                       | 保留完整的 Multi Agent 配置          |
+| 传入 `multiagent: null`                                     | 删除 Multi Agent 配置，改为单 Agent  |
+| 省略 `multiagent.subagents.predefined_agents`               | 保留当前预定义成员列表               |
+| 传入 `multiagent.subagents.predefined_agents: []`           | 清空预定义成员列表                   |
+| 将 `subagents.type` 或 `inline_agents.type` 设为 `disabled` | 分别禁止创建子 Agent 或 Inline Agent |
+
+**从 ** **`coordinator`** ** 迁移**
+
+`coordinator` 使用 `agents` 配置成员，`multiagent_20261001` 使用 `subagents`。迁移时需要提交完整的 `subagents` 配置，原有 `agents` 不会自动转换。
+
+切换配置时遵循以下规则：
+
+- 单 Agent 或使用 `coordinator` 的 Agent 可以切换为 `multiagent_20261001`。请求中需要提交完整的 `subagents` 配置。
+
+- 使用 `multiagent_20261001` 后不能切换回 `coordinator`。如需改为单 Agent，传入 `multiagent: null` 清空配置。
+
+- 更新 Agent 只生成新版本，不会改变已有 Session。需要让已有 Session 使用新配置时，参见 [升级 Session 配置](https://ark.volcengine.com/region:cn-beijing/docs/multi-agent#upgrade-session-config)。
+
+创建或更新完成后，调用 [查询智能体详情](https://ark.volcengine.com/region:cn-beijing/docs/get-agent-api) 检查以下内容：
+
+- `version` 是本次保存产生的新版本。
+
+- `multiagent.type` 为 `multiagent_20261001`。
+
+- `multiagent.subagents.type` 为 `enabled`。
+
+- `multiagent.subagents.predefined_agents` 包含预期的预定义 Agent 和 Self。
+
+- `multiagent.subagents.inline_agents.type` 与是否允许动态角色一致。
+
+- 固定成员的 `id` 和 `version` 与计划一致。
+
+- 系统提示词中的角色名称与成员职责一致。
+
+- 按最小权限原则，只为主 Agent 和成员 Agent 配置任务必需的工具、MCP 和技能。
+
+Inline Agent 不创建独立 Agent 资源，因此不会出现在 Agent 列表中。任务运行时，系统会为该临时角色创建独立 Thread。
+
+## 运行 Session
+
+完成配置后，创建一个 Session，并把任务发送给主 Agent。无论主 Agent 选择预定义 Agent、Self 还是 Inline Agent，都使用相同的 Session 和 Thread 接口观察执行过程、处理工具结果或中断任务。
+
+开始前，创建或复用 Environment，并记录 Environment ID。详情参见 [配置云环境](https://ark.volcengine.com/region:cn-beijing/docs/configure-cloud-environment)。
+
+配置运行所需环境变量：
+
+```Bash
+export ARK_API_KEY="<ARK_API_KEY>"
+export ARK_BASE_URL="https://ark.cn-beijing.volces.com/api/v3"
+export COORDINATOR_AGENT_ID="<MAIN_AGENT_ID>"
+export ENVIRONMENT_ID="<ENVIRONMENT_ID>"
+```
+
+示例脚本沿用 `COORDINATOR_AGENT_ID` 变量名表示承担协调职责的主 Agent。
+
+### 创建 Session
+
+一个 Session 承载一次多智能体任务。主 Agent 和每个子 Agent 分别使用独立的 Thread：
+
+```Text
+Session
+└── Main Thread
+    ├── Thread A：预定义 Agent
+    ├── Thread B：Self
+    └── Thread C：Inline Agent
+```
+
+每个 Thread 都有稳定的 `session_thread_id`，并独立保存消息和推理上下文。`parent_thread_id` 记录创建关系：Main Thread 返回 `null`，子 Agent Thread 返回创建它的父 Thread ID。
+
+同一 Session 中的 Thread 共享 Environment、Sandbox、文件系统和已绑定的 Vault 凭据，但不会自动共享对话历史。一个 Thread 写入文件后，其他 Thread 可以读取该文件；需要同时传递结论时，子 Agent 还应回传文件路径和摘要。
+
+> **说明**
+
+> 预定义 Agent、Self 和 Inline Agent 只影响子 Agent 的配置来源。任务运行时，三类子 Agent 都在当前 Session 中使用独立 Thread，并通过同一组 Session 和 Thread API 管理。Inline Agent 是当前 Session 内的临时角色，不会创建 Agent 资源或新的 Session。
+
+主流程使用两个终端。终端 A 接收 Session 事件流，终端 B 创建 Session、发送任务和查询结果。需要实时查看某个 Thread 的完整过程时，再打开终端 C。
 
 在终端 B 创建 Session：
 
@@ -5848,13 +6337,11 @@ SESSION_ID=$(jq -er '.id' <<<"$session")
 printf 'Session ID: %s\n' "$SESSION_ID"
 ```
 
-脚本将 Session ID 写入 `SESSION_ID`：
+脚本将 Session ID 写入 `SESSION_ID`。确认该变量不为空后，再订阅事件流。此时只会创建 Main Thread。主 Agent 首次委派任务时，系统才会创建对应的子 Agent Thread。Session 会记录创建时使用的主 Agent 配置和运行限制，之后更新 Agent 不会影响这个 Session。
 
-```Text
-Session ID: sesn-20261005121000-xxxxx
-```
+### 提交并观察任务
 
-### 2. 订阅主事件流
+**订阅 Session 事件**
 
 在终端 A 配置同一个 Session ID：
 
@@ -5864,7 +6351,7 @@ export ARK_BASE_URL="https://ark.cn-beijing.volces.com/api/v3"
 export SESSION_ID="<SESSION_ID>"
 ```
 
-建立主事件流：
+建立 Session 事件流：
 
 **cURL**
 
@@ -5879,15 +6366,27 @@ curl -sS -N --fail-with-body --max-time 600 \
   -H "Accept: text/event-stream"
 ```
 
-终端 A 输出 `: ready` 后保持连接。先建连再发送任务，可以避免遗漏实时事件。
+终端 A 输出 `: ready` 后保持连接，再发送任务。通过 Session 事件流可以看到：
 
-### 3. 发送任务
+- Session 的整体状态。
 
-回到终端 B，配置任务内容：
+- Thread 的创建、运行、空闲、重新调度和终止。
+
+- Thread 之间用于委派、汇报和补充要求的协作消息。
+
+- 子 Agent 发起的自定义工具调用和需要客户端处理的工具授权事件。
+
+- 自托管 Environment 中需要 Worker 执行的内置工具调用。
+
+需要查看某个子 Agent 的思考、回复、工具结果、Span 或预览帧时，查询对应的 Thread 事件。
+
+**提交任务**
+
+用户消息统一发送给主 Agent。主 Agent 根据任务需要选择预定义 Agent、Self 或 Inline Agent：
 
 ```Bash
 TASK_TEXT=$(cat <<'EOF'
-评审以下 Python 登录接口实现。代码审查员分析代码质量、架构和安全风险，测试工程师设计测试用例并说明覆盖范围，最后汇总结论。
+评审以下 Python 登录接口实现。安排合适的子 Agent 分析代码质量、安全风险和测试覆盖，最后汇总结论。
 
 def login(username, password):
     key = f"login_failures:{username}"
@@ -5904,8 +6403,6 @@ EOF
 )
 export TASK_TEXT
 ```
-
-发送任务：
 
 **cURL**
 
@@ -5927,66 +6424,13 @@ curl -sS --fail-with-body \
   -d "$payload"
 ```
 
-#### 实时观察子线程（可选）
+使用 `multiagent_20261001` 时，任务投递成功只表示目标 Thread 已接收任务，不表示子 Agent 已完成。主 Agent 可以继续处理其他工作，子 Agent 的结果会在执行结束后异步返回。
 
-只在需要实时观察子智能体时执行以下步骤：
+主 Agent 首次向某个成员派发任务时，Session 事件流会出现 `session.thread_created`。需要补充要求时，可以继续使用原 Thread，不必重新创建上下文。
 
-1. 终端 A 收到 `session.thread_created` 后，记录 `session_thread_id`。
+**查看 Thread**
 
-2. 在终端 C 配置鉴权信息、Session ID 和子线程 ID：
-
-   ```Bash
-   export ARK_API_KEY="<ARK_API_KEY>"
-   export ARK_BASE_URL="https://ark.cn-beijing.volces.com/api/v3"
-   export SESSION_ID="<SESSION_ID>"
-   export SESSION_THREAD_ID="<SESSION_THREAD_ID>"
-   ```
-
-3. **建立子线程事件流**：
-
-   **cURL**
-
-```Bash
-   : "\\${ARK_BASE_URL:?Set ARK_BASE_URL}"
-   : "\\${ARK_API_KEY:?Set ARK_API_KEY}"
-   : "\\${SESSION_ID:?Set SESSION_ID}"
-   : "\\${SESSION_THREAD_ID:?Set SESSION_THREAD_ID}"
-
-   curl -sS -N --fail-with-body --max-time 600 \
-     "$ARK_BASE_URL/sessions/$SESSION_ID/threads/$SESSION_THREAD_ID/stream" \
-     -H "Authorization: Bearer $ARK_API_KEY" \
-     -H "Accept: text/event-stream"
-```
-
-4. 终端 C 输出 `: ready` 后，在终端 B 按“验证结果”中的方式补查该子线程历史。
-
-5. 按事件 `id` 合并实时和历史事件，忽略重复 ID。
-
-每个子线程使用独立事件流。出现多个 `session_thread_id` 时，分别重复以上步骤。
-
-### 4. 等待本轮结束
-
-继续观察终端 A。正常事件轨迹如下：
-
-```Text
-session.thread_created
-agent.thread_message_sent
-session.thread_status_idle
-agent.message
-session.status_idle
-```
-
-收到 `session.status_idle` 后检查 `stop_reason.type`：
-
-- **`end_turn`**：本轮执行结束，按下一节验证结果。
-
-- **`requires_action`**：保持连接，处理全部待操作事件后继续观察。
-
-- **`retries_exhausted`**：调整输入后可以发送新任务；如果修改 Agent 配置，请创建新 Session。
-
-## 验证结果
-
-在终端 B 列出全部线程：
+在终端 B 列出当前 Session 的全部 Thread：
 
 **cURL**
 
@@ -6001,24 +6445,28 @@ threads=$(
     -H "Authorization: Bearer $ARK_API_KEY"
 )
 
-printf 'Agent\tThread ID\tStatus\n'
-jq -r '.data[] | [.agent_name, .id, .status] | @tsv' <<<"$threads"
+printf 'Agent\tThread ID\tParent Thread ID\tStatus\n'
+jq -r '.data[] | [.agent_name, .id, (.parent_thread_id // "-"), .status] | @tsv' <<<"$threads"
 
 export SESSION_THREAD_ID
-if ! SESSION_THREAD_ID=$(jq -er '.data[1].id' <<<"$threads"); then
-  printf 'No child thread is available yet.\n' >&2
+if ! SESSION_THREAD_ID=$(
+  jq -er 'first(.data[] | select(.parent_thread_id != null and .status != "archived" and .status != "terminated") | .id)' \
+    <<<"$threads"
+); then
+  printf 'No active child thread is available yet.\n' >&2
   return 1 2>/dev/null || exit 1
 fi
 printf 'Selected child thread ID: %s\n' "$SESSION_THREAD_ID"
 ```
 
-命令将第一个子线程 ID 写入 `SESSION_THREAD_ID`。检查其他子线程时，更新该变量并清空分页标识：
+脚本将第一个子 Agent 的 Thread ID 写入 `SESSION_THREAD_ID`。检查其他 Thread 时，更新该变量，并在查询历史前清空分页标识：
 
 ```Bash
+export SESSION_THREAD_ID="<SESSION_THREAD_ID>"
 unset THREAD_EVENTS_PAGE
 ```
 
-查询该子线程的完整历史：
+查询该 Thread 的完整历史：
 
 **cURL**
 
@@ -6055,40 +6503,84 @@ THREAD_EVENTS_PAGE=$(jq -r '.next_page // empty' <<<"$events")
 printf 'Next page: %s\n' "$THREAD_EVENTS_PAGE"
 ```
 
-如果 `Next page` 不为空，保持 `THREAD_EVENTS_PAGE` 并重复执行，直到下一页标识为空。切换子线程前必须再次清空该变量。
+如果 `Next page` 不为空，保持 `THREAD_EVENTS_PAGE` 并重复执行，直到下一页标识为空。切换 Thread 前再次清空该变量。
 
-主线程和各子线程使用独立事件流，不能根据跨流到达顺序判断执行顺序。使用 `session_thread_id`、`from_session_thread_id` 和 `to_session_thread_id` 关联委派与返回消息。
+查询 Thread 详情或列表时，`stats` 返回运行时长，`usage` 返回该 Thread 累计的模型 token、缓存和服务端工具用量。
+
+需要实时查看该 Thread 时，在终端 C 建立事件流：
+
+**cURL**
+
+```Bash
+: "\\${ARK_BASE_URL:?Set ARK_BASE_URL}"
+: "\\${ARK_API_KEY:?Set ARK_API_KEY}"
+: "\\${SESSION_ID:?Set SESSION_ID}"
+: "\\${SESSION_THREAD_ID:?Set SESSION_THREAD_ID}"
+
+curl -sS -N --fail-with-body --max-time 600 \
+  "$ARK_BASE_URL/sessions/$SESSION_ID/threads/$SESSION_THREAD_ID/stream" \
+  -H "Authorization: Bearer $ARK_API_KEY" \
+  -H "Accept: text/event-stream"
+```
+
+Thread 事件流输出 `: ready` 后，再补查一次历史。按事件 `id` 合并实时与历史结果，并忽略重复事件。Session 和 Thread 事件流中的消息到达顺序可能不同。可以通过 `session_thread_id`、`from_session_thread_id` 和 `to_session_thread_id` 找到一次委派及其返回结果。
+
+**判断本轮是否完成**
+
+正常事件轨迹如下：
+
+```Text
+session.thread_created
+agent.thread_message_sent
+session.thread_status_idle
+agent.message
+session.status_idle
+```
 
 只有同时满足以下条件，本轮任务才成功：
 
-- 主线程产生最终 `agent.message`。
+- Main Thread 产生最终 `agent.message`。
 
 - Session 以 `stop_reason.type=end_turn` 进入 `idle`。
 
-- 没有子线程停留在 `running` 或 `rescheduling`。
+- 没有 Thread 停留在 `running` 或 `rescheduling`。
 
-- 本轮没有出现 `session.thread_status_terminated`。
+- 本轮没有出现需要处理的终止或错误事件。
 
 > **注意**
 
-> HTTP 200 只表示服务端已受理事件。`session.status_idle` 不一定表示任务成功。
+> HTTP 200 只表示服务端已受理事件。`session.status_idle` 也不一定表示任务成功，仍需检查 `stop_reason` 和各 Thread 的状态。
 
-## 处理异常状态
+## 管理 Session
 
-| 信号                                | 含义                       | 处理动作                                        |
-| ----------------------------------- | -------------------------- | ----------------------------------------------- |
-| SSE 连接中断                        | 中断期间的事件不会自动回放 | 先重建连接，再查询历史并按事件 ID 去重          |
-| `requires_action`                   | 等待工具确认或外部工具结果 | 处理全部 `stop_reason.event_ids`                |
-| `session.thread_status_rescheduled` | 子线程正在自动重新调度     | 保持监听，不要并行手动重试                      |
-| `session.thread_status_terminated`  | 子线程已终止               | 查询历史和错误事件，Session 空闲后重新分配任务  |
-| 子线程长时间保持 `running`          | 子任务未结束               | 携带 `session_thread_id` 发送 `user.interrupt`  |
-| `retries_exhausted`                 | 当前轮次重试次数已用尽     | 调整输入后重试；修改 Agent 配置后创建新 Session |
+### 继续委派和处理等待操作
 
-### 处理等待操作
+Session 以 `end_turn` 结束后，可以继续向同一 Session 发送新的 `user.message`。消息仍发送给主 Agent。在任务中说明要继续处理的角色、已有结果和新增要求，主 Agent 可以复用原 Thread，也可以创建新的 Thread。
 
-子线程以 `requires_action` 进入 `idle` 后，按以下步骤处理：
+使用 `multiagent_20261001` 时，可以复用已有子 Agent Thread。任务接受、结果回投和父 Thread 唤醒规则参见 [选择协作模式](https://ark.volcengine.com/region:cn-beijing/docs/multi-agent#choose-collaboration-mode)。
 
-1. 保持主事件流和目标子线程事件流连接。如果连接已关闭，先重新建连并等待 `: ready`，再补查历史。补查主线程前清空分页标识：
+同一个任务建议始终使用同一个 Session，以保留上下文。需要隔离新任务、变更 Environment，或让所有 Thread 统一使用一套新配置时，再创建新 Session。
+
+**Thread 状态**
+
+| 状态           | 含义                                                                     |
+| -------------- | ------------------------------------------------------------------------ |
+| `running`      | Thread 正在处理当前工作                                                  |
+| `idle`         | 当前工作已暂停或结束，可以继续派发任务                                   |
+| `rescheduling` | Thread 正在从临时错误中自动恢复                                          |
+| `archived`     | 会话归档后子线程进入该状态，不能再接收任务，但仍可查询                   |
+| `terminated`   | 线程已终止，不能再接收任何输入；历史协作模式的会话按事件还原线程时会出现 |
+| `unknown`      | 暂时无法判断 Thread 状态，需要继续查询后续事件                           |
+
+中断只结束当前执行。中断完成后，Thread 可以继续接收任务。
+
+**处理等待操作**
+
+Thread 等待工具确认或外部工具结果时，Session 会以 `requires_action` 进入 `idle`：
+
+1. 保持 Session 和目标 Thread 的事件流连接。如果连接已关闭，先重新建连并等待 `: ready`。
+
+2. 清空分页标识，并补查 Session 历史：
 
    ```Bash
    unset SESSION_EVENTS_PAGE
@@ -6128,9 +6620,9 @@ printf 'Next page: %s\n' "$THREAD_EVENTS_PAGE"
    printf 'Next page: %s\n' "$SESSION_EVENTS_PAGE"
 ```
 
-2. 从 `session.thread_status_idle` 中记录 `session_thread_id` 和全部 `stop_reason.event_ids`。按“验证结果”中的方式补查子线程，并逐一找到这些事件。
+3. 从 `session.thread_status_idle` 中记录 `session_thread_id` 和全部 `stop_reason.event_ids`，再到对应 Thread 历史中找到这些事件。
 
-3. 对 `agent.tool_use` 或 `agent.mcp_tool_use`，配置关联 ID 并发送确认：
+4. 对 `agent.tool_use` 或 `agent.mcp_tool_use`，设置要确认的 Thread ID 和工具调用 ID：
 
    ```Bash
    export SESSION_THREAD_ID="<SESSION_THREAD_ID>"
@@ -6167,15 +6659,25 @@ printf 'Next page: %s\n' "$THREAD_EVENTS_PAGE"
      -d "$payload"
 ```
 
-4. 对 `agent.custom_tool_use`，执行自定义工具并发送 `user.custom_tool_result`。请求需要携带当前 `session_thread_id` 和 `custom_tool_use_id`。详情请参见 [Tools](https://ark.volcengine.com/region:cn-beijing/docs/tools)。
+5. 对 `agent.custom_tool_use`，在你的应用中执行对应工具，再发送 `user.custom_tool_result`。请求必须携带 `custom_tool_use_id`。详情参见 [Tools](https://ark.volcengine.com/region:cn-beijing/docs/tools)。
 
-5. 处理全部 `event_ids` 后继续观察。任务可能再次进入 `requires_action`；只有 Session 最终以 `end_turn` 结束，本轮任务才完成。
+6. 处理全部 `event_ids` 后继续观察。任务可能再次进入 `requires_action`；只有 Session 最终以 `end_turn` 结束，本轮任务才完成。
 
-本页主流程使用云环境，不覆盖自托管 Environment 的 `user.tool_result` 流程。自托管流程请参见 [Tools](https://ark.volcengine.com/region:cn-beijing/docs/tools)。
+工具确认和工具结果必须携带原始调用 ID。发送新的 `user.message` 不能解除 `requires_action`。
 
-### 中断线程
+### 中断 Thread 和升级 Session
 
-只停止一个子线程时，运行 `export SESSION_THREAD_ID="<SESSION_THREAD_ID>"`。停止全部活跃线程时，运行 `unset SESSION_THREAD_ID`。
+**中断 Thread**
+
+只中断一个 Thread 时，设置 `SESSION_THREAD_ID`；中断 Session 中的全部活跃 Thread 时，省略该变量：
+
+```Bash
+# 中断指定 Thread
+export SESSION_THREAD_ID="<SESSION_THREAD_ID>"
+
+# 中断全部活跃 Thread
+# unset SESSION_THREAD_ID
+```
 
 **cURL**
 
@@ -6200,73 +6702,37 @@ curl -sS --fail-with-body \
   -d "$payload"
 ```
 
-中断指定子线程后等待该线程进入 `idle`；中断全部线程后等待 Session 进入 `idle`。
+中断不会回滚已经写入共享文件系统的内容，也不会删除 Thread。中断指定 Thread 后，等待该 Thread 进入 `idle`。中断全部 Thread 后，等待 Session 进入 `idle`。
 
-## 更新协作配置
+**升级 Session 配置**
 
-新增、移除子智能体或切换版本时，先调用 [查询智能体详情](https://ark.volcengine.com/region:cn-beijing/docs/get-agent-api) 查询协调器最新配置。更新请求需要携带当前 `version`，并整体提交匹配的系统提示词和 `multiagent.agents`。
+更新主 Agent 后，已有 Session 不会自动使用新配置。只有同时满足以下条件时，才升级 Session：
+
+- Session 当前为 `idle`，且上一轮以 `end_turn` 结束。
+
+- 所有 Thread 都已结束当前工作。
+
+- 没有等待处理的工具授权、工具结果，也没有子 Agent 等待其他 Thread 的回复。
+
+- 当前没有其他升级请求。
+
+> **注意**
+
+> 升级方向需要符合以下规则：
+
+- > 使用单 Agent 或 `coordinator` 的 Session 可以升级到 `multiagent_20261001`。
+
+- > 已使用 `multiagent_20261001` 的 Session 可以继续升级到该类型的新版本。
+
+- > 如需改回单 Agent，先将主 Agent 的 `multiagent` 设为 `null`，再把 Session 升级到这个新版本。
+
+- > 使用 `multiagent_20261001` 后，不能切回 `coordinator`。
+
+设置更新主 Agent 后得到的版本号，然后创建升级任务：
 
 ```Bash
-export COORDINATOR_AGENT_VERSION="<LATEST_VERSION>"
-
-COORDINATOR_AGENTS_JSON=$(
-  jq -n \
-    --arg reviewer_id "$REVIEWER_AGENT_ID" \
-    --argjson reviewer_version "$REVIEWER_AGENT_VERSION" \
-    --arg tester_id "$TESTER_AGENT_ID" \
-    --argjson tester_version "$TESTER_AGENT_VERSION" \
-    '[
-      {type: "agent", id: $reviewer_id, version: $reviewer_version},
-      {type: "agent", id: $tester_id, version: $tester_version}
-    ]'
-)
-export COORDINATOR_AGENTS_JSON
+export COORDINATOR_AGENT_VERSION="<TARGET_AGENT_VERSION>"
 ```
-
-通过 API 创建协调器时，创建脚本已导出 `COORDINATOR_SYSTEM`。如果通过控制台创建，请先将控制台使用的完整系统提示词配置到该变量。提示词必须与成员列表保持一致。
-
-**cURL**
-
-```Bash
-: "\\${ARK_BASE_URL:?Set ARK_BASE_URL}"
-: "\\${ARK_API_KEY:?Set ARK_API_KEY}"
-: "\\${COORDINATOR_AGENT_ID:?Set COORDINATOR_AGENT_ID}"
-: "\\${COORDINATOR_AGENT_VERSION:?Set COORDINATOR_AGENT_VERSION}"
-: "\\${COORDINATOR_SYSTEM:?Set COORDINATOR_SYSTEM}"
-: "\\${COORDINATOR_AGENTS_JSON:?Set COORDINATOR_AGENTS_JSON}"
-
-update_payload=$(
-  jq -n \
-    --argjson version "$COORDINATOR_AGENT_VERSION" \
-    --arg system "$COORDINATOR_SYSTEM" \
-    --argjson agents "$COORDINATOR_AGENTS_JSON" \
-    '{
-      version: $version,
-      system: $system,
-      multiagent: {
-        type: "coordinator",
-        agents: $agents
-      }
-    }'
-)
-
-coordinator=$(
-  curl -sS --fail-with-body \
-    "$ARK_BASE_URL/agents/$COORDINATOR_AGENT_ID" \
-    -H "Authorization: Bearer $ARK_API_KEY" \
-    -H "Content-Type: application/json" \
-    -d "$update_payload"
-)
-
-export COORDINATOR_AGENT_VERSION
-COORDINATOR_AGENT_VERSION=$(jq -er '.version' <<<"$coordinator")
-
-printf 'Coordinator Agent version: %s\n' "$COORDINATOR_AGENT_VERSION"
-```
-
-脚本将新版本号写入 `COORDINATOR_AGENT_VERSION`。如果返回 `version: conflict`，重新查询并合并最新配置后再提交。
-
-现有 Session 不会自动切换版本。只有 Session 处于 `idle`、上一轮以 `end_turn` 结束且没有其他升级请求时，才可以升级：
 
 **cURL**
 
@@ -6354,28 +6820,40 @@ if [[ $upgrade_result != "completed" ]]; then
 fi
 ```
 
-脚本默认每 2 秒查询一次，最多 60 次。只有状态为 `idle`，且 `agent.id` 和 `agent.version` 与目标一致时才返回成功；超时或进入失败状态时，请检查 Session 或创建新 Session。
+脚本默认每 2 秒查询一次，最多 60 次。只有状态为 `idle`，且 `agent.id` 和 `agent.version` 与目标一致时才返回成功。
 
-## 使用限制
+升级完成后，新建的 Thread 使用升级后的配置，已经存在的 Thread 保留创建时的配置。如果升级超时、进入失败状态或需要所有 Thread 统一切换配置，请创建新 Session。
 
-- **子智能体数量**：单个协调器最多配置 20 个子智能体，详情请参见 [创建智能体](https://ark.volcengine.com/region:cn-beijing/docs/create-agent-api)。
+## 限制与排障
 
-- **委派层级**：Multi Agent 只展开一层。`multiagent.agents[].type` 为 `self` 时复用协调器配置创建子线程，但不会继续复用协调器的 `multiagent` 列表。
+| 信号                                               | 含义                                 | 处理动作                                                        |
+| -------------------------------------------------- | ------------------------------------ | --------------------------------------------------------------- |
+| SSE 连接中断                                       | 中断期间的事件不会自动推送到当前连接 | 先重建连接，再查询历史并按事件 ID 去重                          |
+| `requires_action`                                  | 等待工具确认或外部工具结果           | 处理全部 `stop_reason.event_ids`                                |
+| `session.thread_status_rescheduled`                | Thread 正在从临时错误中自动恢复      | 继续等待自动恢复，不要同时发起手动重试                          |
+| `session.thread_status_terminated`                 | Thread 已终止                        | 查询 Thread 历史和错误事件，Session 空闲后重新派发任务          |
+| Thread 长时间保持 `running`                        | 当前执行未结束                       | 携带 `session_thread_id` 发送 `user.interrupt`                  |
+| `retries_exhausted`                                | 当前轮次重试次数已用尽               | 调整输入后重试；需要修改 Agent 配置时，更新后升级或新建 Session |
+| `InternalServiceError.MultiagentPolicyUnavailable` | Multi Agent 策略暂时不可用           | 保持请求参数不变，稍后重试                                      |
 
-- **版本快照**：更新协调器不会修改已有 Session 的 Agent 快照。
+使用自托管 Environment 时，不需要为每个子 Agent 单独配置工具执行能力。Worker 会监听 Session 事件流，接收主 Agent 和子 Agent 发起的内置工具调用，并按事件顺序执行。回传 `user.tool_result` 时必须携带 `tool_use_id`。详情参见 [Tools](https://ark.volcengine.com/region:cn-beijing/docs/tools)。
 
-- **资源消耗**：协调器和子智能体分别产生模型与运行资源用量，详情请参见 [Managed Agents 计费说明](https://ark.volcengine.com/region:cn-beijing/docs/model-pricing#ma_billing)。
+**运行限制**
+
+- 同一 Session 的 Thread 共享运行资源，但分别产生模型与运行资源用量。计费说明参见 [Managed Agents](https://ark.volcengine.com/region:cn-beijing/docs/model-pricing#ma_billing)。
+
+- 如果进程故障发生在补充消息处理完成之前，恢复后先查询 Thread 历史和任务状态。只有确认消息尚未处理时，才重新发送。
 
 ## 清理资源
 
-确认产物已转存后，使用精确 ID 删除本页创建的 Session。Session 仍在运行时，先中断全部线程并等待 `idle`。默认保留协调器：
+确认产物已转存后，使用精确 ID 删除本页创建的 Session。Session 仍在运行时，先中断全部 Thread 并等待 `idle`。默认保留主 Agent：
 
 ```Bash
 export CONFIRM_DELETE="yes"
 export DELETE_COORDINATOR="no"
 ```
 
-仅当协调器不再被任何 Session 使用时，才将 `DELETE_COORDINATOR` 改为 `yes`。执行删除：
+仅当主 Agent 不再被其他 Session 使用时，才将 `DELETE_COORDINATOR` 改为 `yes`：
 
 **cURL**
 
@@ -6405,21 +6883,25 @@ if [[ $DELETE_COORDINATOR == "yes" ]]; then
 fi
 ```
 
-命令不会删除子智能体或 Environment。
+命令不会删除成员 Agent 或 Environment。
 
 > **警告**
 
 > 删除 Session 或 Agent 后无法恢复。只使用本页记录的精确 ID，不要按名称模糊匹配或批量删除共享资源。
 
-## 相关文档
+**相关文档**
 
-- **定义 Agent**：[Agent](https://ark.volcengine.com/region:cn-beijing/docs/define-agent)
+- **Agent 工具**：参见 [Tools](https://ark.volcengine.com/region:cn-beijing/docs/tools)。
 
-- **Session 事件流**：[Session 事件流](https://ark.volcengine.com/region:cn-beijing/docs/session-event-stream)
+- **MCP**：参见 [MCP](https://ark.volcengine.com/region:cn-beijing/docs/mcp)。
 
-- **Tools**：[Tools](https://ark.volcengine.com/region:cn-beijing/docs/tools)
+- **Skills**：参见 [Skills](https://ark.volcengine.com/region:cn-beijing/docs/skills)。
 
-- **管理 Session**：[管理 Session](https://ark.volcengine.com/region:cn-beijing/docs/manage-session)
+- **Session 和 Thread 事件**：参见 [Session 事件流](https://ark.volcengine.com/region:cn-beijing/docs/session-event-stream)。
+
+- **查询 Thread**：参见 [查询线程列表](https://ark.volcengine.com/region:cn-beijing/docs/list-threads-api)。
+
+- **升级 Session**：参见 [升级会话](https://ark.volcengine.com/region:cn-beijing/docs/upgrade-session-api)。
 
 <a id="doc-2553731"></a>
 
@@ -6550,9 +7032,8 @@ curl "https://ark.cn-beijing.volces.com/api/v3/sessions/$SESSION_ID/events" \
   "explanation": "所有 12 条标准均已满足：收入预测使用了 5 年历史数据，WACC 假设已说明，包含敏感性分析表...",
   "iteration": 0,
   "usage": {
-    "cache_creation_input_tokens": 0,
     "cache_read_input_tokens": 22240,
-    "input_tokens": 2400,
+    "input_tokens": 24640,
     "output_tokens": 350
   },
   "processed_at": "2026-07-02T07:04:10Z"

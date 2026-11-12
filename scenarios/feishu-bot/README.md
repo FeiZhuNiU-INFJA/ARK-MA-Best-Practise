@@ -11,6 +11,7 @@
 | --- | --- | --- |
 | **客户A 四卡点 ABCD** | 身份鉴权(static_bearer) · OpenID 透传 · 岗位信息注入 · 跨 Session 记忆 | [cases/customer-a-4checkpoints/](cases/customer-a-4checkpoints/) |
 | **数字员工阿J** | 支持群聊话题协作与单聊个人协作；群话题一个 Session，启动参数可选串行或方舟原生队列 | [cases/digital-employee/](cases/digital-employee/) |
+| **Seedance 视觉创作** | Seedance MA 图片／视频生成 · 话题卡片 · 参考素材 · 连续创作 · 飞书产物回传 | [cases/seedance/](cases/seedance/) |
 
 > 客户A 是「文档型 case」：它的运行代码就是本场景共享的 `arkagent/` + `mock_mcp/`；数字员工
 > 是独立示例脚本，**复用** `arkagent` 的纯基础设施，不改主包。
