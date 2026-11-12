@@ -28,7 +28,7 @@ ark-agent-feishu-bot/
     │   ├── arkagent/                 # Gateway、CLI 与 MA 客户端
     │   ├── mock_mcp/                 # 客户 A 示例 MCP
     │   ├── node-helper/              # 扫码创建飞书应用
-    │   ├── cases/                    # Topicx 统一入口、Topic5/6、数字员工、客户 A
+    │   ├── cases/                    # Topicx 统一入口、Topic5/6、数字员工、Seedance、客户 A
     │   └── tests/
     ├── ma-replica/                   # 场景2：客户 Agent 轨迹在 MA 重放对比
     └── maimai-fde-browser/           # 场景3：MA × headless 浏览器扫码登录脉脉抓 FDE 职位
@@ -72,6 +72,7 @@ ark-agent-feishu-bot/
 
 - **场景1（MA × 飞书 Bot）**：conda 环境、`pip install -e .`（打包配置在仓库根，`package-dir` 把包目录指到 `scenarios/feishu-bot/`，import 名仍是 `arkagent` / `mock_mcp`，故安装/测试命令**从仓库根执行**）、扫码建应用及按 case 运行 Gateway —— 见 [scenarios/feishu-bot/README.md](scenarios/feishu-bot/README.md)。
 - **Topicx 统一入口**：环境配置、资源更新、启动及冒烟测试统一参考 [TOPICX_DEBUG_QUICKSTART.md](scenarios/feishu-bot/cases/topicx/TOPICX_DEBUG_QUICKSTART.md)。
+- **Seedance 视觉创作 Bot**：话题卡片、图片／视频创作、参考素材输入、产物回传及独立启动，见 [Seedance case](scenarios/feishu-bot/cases/seedance/README.md)。
 - **场景2（客户 Agent 轨迹重放）**：最小环境（仅依赖 `httpx`，不碰场景1 的包）、轨迹抽取 / mock / MA 实跑 / 对比报告 —— 见 [scenarios/ma-replica/README.md](scenarios/ma-replica/README.md)。
 
 > 外部一手文档（火山方舟 / 飞书官网链接）随场景收录在各自 README 的「参考资料」；跨场景权威出处是上面 `common/` 里的 MA 文档合集。

@@ -98,6 +98,10 @@ class ArkError(RuntimeError):
         self.body = body
 
 
+class ArkRunTimeout(ArkError):
+    """本地等待 Session 终态超时；不表示云端执行失败或任务已取消。"""
+
+
 def _now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -660,11 +664,31 @@ class ArkClient:
             after = next_after
         return files
 
-    async def download_file(self, download_url: str) -> bytes:
+    async def download_file(
+        self, download_url: str, *, max_bytes: Optional[int] = None,
+        timeout: float = REQUEST_TIMEOUT,
+    ) -> bytes:
         """Download one Files API object from its presigned URL."""
         if not download_url.startswith(("https://", "http://")):
             raise ValueError("download_url must be an HTTP(S) URL")
-        response = await self._client.get(download_url, timeout=REQUEST_TIMEOUT)
+        if max_bytes is not None:
+            if max_bytes <= 0:
+                raise ValueError("max_bytes must be positive")
+            chunks: list[bytes] = []
+            size = 0
+            # 预签名地址不携带方舟 API Key；在读取时限制大小，避免视频耗尽内存。
+            async with self._client.stream(
+                "GET", download_url, timeout=timeout, follow_redirects=True
+            ) as response:
+                if response.status_code >= 400:
+                    raise ArkError("产物下载失败", status_code=response.status_code)
+                async for chunk in response.aiter_bytes():
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise ValueError("产物超过回传大小上限")
+                    chunks.append(chunk)
+            return b"".join(chunks)
+        response = await self._client.get(download_url, timeout=timeout)
         if response.status_code >= 400:
             body = response.text[:300]
             raise ArkError(
@@ -860,7 +884,7 @@ class ArkClient:
             recovered = await self._recover_timed_out_run(session_id, started_at)
             if recovered:
                 return recovered
-            raise ArkError("Session 运行超时")
+            raise ArkRunTimeout("Session 运行超时")
 
     async def _recover_timed_out_run(self, session_id: str, started_at: int) -> Optional[RunResult]:
         for attempt in range(3):
