@@ -10,6 +10,8 @@ import time
 from dataclasses import replace
 from pathlib import PurePosixPath
 
+import httpx
+
 from arkagent.ark import ArkError, ArkRunTimeout, RunResult, event_progress, event_text, result_from_events
 from arkagent.feishu import IncomingMessage, normalize_history_item
 from arkagent.session_state import is_session_terminal
@@ -306,7 +308,6 @@ class SeedanceGateway:
             return
 
         old_session = self.store.get_session(key)
-        old_outputs: list[dict] = []
         if old_session:
             try:
                 session = await self.ark.get_session(old_session)
@@ -325,19 +326,11 @@ class SeedanceGateway:
         if len(inputs) > 100:
             raise ValueError("参考素材超过单 Session 的 100 个文件上限，请用 /new 开始新创作。")
         input_keys = {item["key"] for item in inputs}
-        needs_new = not old_session or self.store.snapshot(old_session) != input_keys
-        if old_session and needs_new:
-            await self._refresh_history(message, old_session)
-            old_outputs = select_files(
-                await self.ark.list_agent_files(old_session),
-                set(self.store.card(key).get("expected") or ()),
-            )
-        if len(inputs) + len(old_outputs) > 100:
-            raise ValueError("参考素材与上轮产物超过 100 个文件，请用 /new 缩小创作范围。")
+        needs_new = not old_session
 
         turn_id = message.message_id
         previous_user_id = ""
-        if old_session and not needs_new:
+        if old_session:
             previous_user_id = next((
                 str(event.get("id") or "")
                 for event in reversed(await self.ark.list_session_events(old_session))
@@ -345,6 +338,7 @@ class SeedanceGateway:
             ), "")
         await self._update(
             message, reset=True, phase="running", request=message.text,
+            attached_session=old_session,
             detail="正在准备创作，完成后会回传最终交付物。",
             **{"turn_id": turn_id, "previous_user_id": previous_user_id, "route": {
                 field: getattr(message, field) for field in (
@@ -368,12 +362,9 @@ class SeedanceGateway:
                 digest = hashlib.sha256(item["key"].encode()).hexdigest()[:12]
                 item["mount_path"] = f"/mnt/session/uploads/{digest}-{name}"
                 self.store.save_input(key, item["key"], item["file_id"], item["mount_path"])
-            resources.append({"type": "file", "file_id": item["file_id"], "mount_path": item["mount_path"]})
-        for index, item in enumerate(old_outputs):
-            name = safe_name(str(item.get("filename") or item.get("name") or item["id"]))
             resources.append({
-                "type": "file", "file_id": item["id"],
-                "mount_path": f"/mnt/session/uploads/previous-{index + 1}-{name}",
+                "type": "file", "file_id": item["file_id"],
+                "mount_path": item["mount_path"].removeprefix("/mnt/session/uploads/"),
             })
         session_id = old_session
         if needs_new:
@@ -383,6 +374,17 @@ class SeedanceGateway:
             )
             self.store.save_session(key, session_id, self.config.agent_id)
             self.store.save_snapshot(session_id, input_keys)
+        else:
+            try:
+                await self._append_inputs(session_id, key, inputs)
+            except (ArkError, httpx.HTTPError, TimeoutError) as error:
+                log.warning(
+                    "Seedance 参考素材追加未完成 type=%s status=%s",
+                    type(error).__name__, getattr(error, "status_code", None),
+                )
+                raise ValueError(
+                    "参考素材追加未完成，当前 Session 已保留。请重新发送创作要求重试。"
+                ) from error
         started_at = int(time.time() * 1000)
         await self._update(
             message, attached_session=session_id, started_at=started_at,
@@ -391,9 +393,9 @@ class SeedanceGateway:
         prompt = message.text
         if needs_new and self.store.context(key):
             prompt += "\n\n最近创作上下文（供继续创作）：\n" + self.store.context(key)
-        if resources:
+        if inputs:
             prompt += "\n\n已挂载参考素材（只读）：\n" + "\n".join(
-                resource["mount_path"] for resource in resources
+                item["mount_path"] for item in inputs
             )
         async def progress_update(label: str) -> None:
             await self._update(
@@ -425,6 +427,37 @@ class SeedanceGateway:
             self._track_if_active(message, session_id)
             return
         await self._complete(message, session_id, turn_id, result)
+
+    async def _append_inputs(self, session_id, key, inputs) -> None:
+        mounted = self.store.snapshot(session_id)
+        pending = [item for item in inputs if item["key"] not in mounted]
+        if not pending:
+            return
+        # POST 成功但响应超时／本地落库前退出时，按稳定路径对账，不能按会话副本 ID 匹配。
+        resources = await self.ark.list_session_resources(session_id)
+        files = [resource for resource in resources if resource.get("type") == "file"]
+        paths = {resource.get("mount_path") for resource in files}
+        remaining = []
+        for item in pending:
+            if item["mount_path"] in paths:
+                mounted.add(item["key"])
+                self.store.save_snapshot(session_id, mounted)
+            else:
+                remaining.append(item)
+        if len(files) + len(remaining) > 100:
+            raise ValueError("当前 Session 挂载文件将超过 100 个，已保留会话；请用 /new 开始新创作。")
+        for item in remaining:
+            resource = await self.ark.add_session_file(
+                session_id, item["file_id"],
+                item["mount_path"].removeprefix("/mnt/session/uploads/"),
+            )
+            # 保留上传文件 ID 供失效会话重建使用，响应的 file_id 是另一份会话副本。
+            path = resource.get("mount_path") or item["mount_path"]
+            if path != item["mount_path"]:
+                item["mount_path"] = path
+                self.store.save_input(key, item["key"], item["file_id"], path)
+            mounted.add(item["key"])
+            self.store.save_snapshot(session_id, mounted)
 
     def _current(self, message, session_id, turn_id=None) -> bool:
         key = conversation(message)

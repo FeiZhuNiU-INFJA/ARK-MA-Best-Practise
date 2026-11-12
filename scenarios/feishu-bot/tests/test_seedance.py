@@ -56,6 +56,9 @@ class FakeArk:
         self.created = []
         self.runs = []
         self.uploads = []
+        self.resources = {}
+        self.additions = []
+        self.resource_queries = []
         self.status = "idle"
         self.files = [artifact(), artifact("video-1", "teaser.mp4")]
         self.pages = []
@@ -69,7 +72,20 @@ class FakeArk:
 
     async def create_session(self, *args, **kwargs):
         self.created.append((args, kwargs))
-        return f"session-{len(self.created)}"
+        ident = f"session-{len(self.created)}"
+        self.resources[ident] = [
+            self._resource(ident, item["file_id"], item["mount_path"], index)
+            for index, item in enumerate(kwargs.get("resources") or [])
+        ]
+        return ident
+
+    def _resource(self, session_id, file_id, mount_path, index):
+        assert not mount_path.startswith("/") and ".." not in mount_path
+        return {
+            "id": f"resource-{session_id}-{index}", "type": "file",
+            "file_id": f"copy-{session_id}-{file_id}",
+            "mount_path": f"/mnt/session/uploads/{mount_path}",
+        }
 
     async def get_session(self, _ident):
         return {"status": self.status}
@@ -99,8 +115,17 @@ class FakeArk:
         self.uploads.append((name, mime, data))
         return f"input-{len(self.uploads)}"
 
-    async def add_session_file(self, *_args):
-        raise AssertionError("必须在创建 Session 时挂载，禁止动态添加")
+    async def list_session_resources(self, session_id):
+        self.resource_queries.append(session_id)
+        return list(self.resources[session_id])
+
+    async def add_session_file(self, session_id, file_id, mount_path):
+        self.additions.append((session_id, file_id, mount_path))
+        files = self.resources[session_id]
+        resource = self._resource(session_id, file_id, mount_path, len(files))
+        assert resource["mount_path"] not in {item["mount_path"] for item in files}
+        files.append(resource)
+        return resource
 
 
 class FakeSender:
@@ -224,22 +249,178 @@ async def test_generation_round_trip_reuse_dedup_and_explicit_files(tmp_path):
     assert len(sender.cards) == 1
 
 
-async def test_new_reference_recreates_session_and_carries_context(tmp_path):
+@pytest.mark.parametrize("in_group", [False, True])
+async def test_new_references_keep_session_history_and_mount_once_after_restart(tmp_path, in_group):
+    bot, ark, sender = gateway(tmp_path)
+    first = replace(message(), chat_type="group", mentioned_bot=True) if in_group else message()
+    await bot.handle(first)
+    for number in range(2, 6):
+        follow = replace(message(number), text=f"修改要求 {number}")
+        if in_group:
+            follow = replace(follow, chat_type="group", thread_id="topic-message-1")
+        await bot.handle(follow)
+    history = list(ark.events)
+
+    def follow(number, **updates):
+        result = replace(message(number), **updates)
+        return replace(result, chat_type="group", root_id=first.message_id) if in_group else result
+
+    reference = ResourceRef("ref-key", "../../brand.jpg", "image", message_id="message-6")
+    await bot.handle(follow(6, text="", content_type="image", resources=(reference,)))
+    assert len(ark.runs) == 5 and not ark.uploads
+    await bot.handle(follow(7, text="按新参考图重新创作"))
+    assert len(ark.created) == 1
+    assert len(ark.additions) == 1 and ark.additions[0][:2] == ("session-1", "input-1")
+    assert not ark.created[0][1]["resources"]  # 不复制上轮产物和中间素材。
+    assert ark.events[:len(history)] == history
+    assert "最近创作上下文" not in ark.runs[-1][1]
+    assert ark.resources["session-1"][0]["mount_path"] in ark.runs[-1][1]
+    assert ark.uploads[0][0] == "brand.jpg"
+    video = ResourceRef("video-ref", "reference.mp4", "file")
+    await bot.handle(follow(8, text="再参考这段视频", resources=(video,)))
+    assert len(ark.additions) == 2
+    restarted = SeedanceGateway(
+        bot.config, ark, sender, asyncio.get_running_loop(), SeedanceStore(str(tmp_path / "seedance.db")),
+    )
+    await restarted.handle(follow(9, text="重启后再改一次", resources=(reference,)))
+    assert len(ark.created) == 1 and len(ark.uploads) == len(ark.additions) == 2
+    assert {run[0] for run in ark.runs} == {"session-1"}
+    assert restarted.store.card(conversation(
+        replace(first, thread_id=first.message_id) if in_group else first
+    ))["attached_session"] == "session-1"
+    assert all("session-1" in text for text in sender.card_texts[1:])
+    assert len(sender.cards) == 1
+
+
+async def test_initial_reference_mount_path_and_explicit_new_session(tmp_path):
+    bot, ark, sender = gateway(tmp_path)
+    ref = ResourceRef("ref", "../reference.jpg", "image")
+    await bot.handle(replace(message(), resources=(ref,)))
+    relative = ark.created[0][1]["resources"][0]["mount_path"]
+    assert not relative.startswith("/") and relative.endswith("-reference.jpg")
+    assert f"/mnt/session/uploads/{relative}" in ark.runs[0][1]
+    assert not ark.additions
+    await bot.handle(replace(message(2), text="/new"))
+    await bot.handle(message(3))
+    assert len(ark.created) == 2 and ark.runs[-1][0] == "session-2"
+    assert not ark.created[-1][1]["resources"]
+    assert len(ark.uploads) == 1 and not bot.store.inputs(conversation(message()))
+
+
+async def test_partial_append_failure_keeps_session_and_only_retries_unmounted_file(tmp_path):
     bot, ark, sender = gateway(tmp_path)
     await bot.handle(message())
-    reference = ResourceRef("ref-key", "../../brand.jpg", "image")
-    await bot.handle(replace(message(2), text="", content_type="image", resources=(reference,)))
-    assert len(ark.runs) == 1 and not ark.uploads
-    await bot.handle(replace(message(3), text="按新参考图重新创作"))
-    assert len(ark.created) == 2
-    mounted = ark.created[-1][1]["resources"]
-    assert {item["file_id"] for item in mounted} == {"input-1", "image-1", "video-1"}
-    assert all(item["mount_path"].startswith("/mnt/session/uploads/") for item in mounted)
-    assert not any("../" in item["mount_path"] for item in mounted)
-    assert "最近创作上下文" in ark.runs[-1][1]
-    assert ark.uploads[0][0] == "brand.jpg"
-    await bot.handle(replace(message(4), text="再改一次"))
+    original = ark.add_session_file
+    calls = []
+
+    async def fail_second(*args):
+        calls.append(args)
+        if len(calls) == 2:
+            raise ArkError("temporary append failure", status_code=503)
+        return await original(*args)
+
+    ark.add_session_file = fail_second
+    refs = (ResourceRef("image", "same.jpg", "image"), ResourceRef("video", "same.mp4", "file"))
+    await bot.handle(replace(message(2), text="结合新参考修改", resources=refs))
+    key = conversation(message())
+    assert bot.store.get_session(key) == "session-1" and len(ark.created) == len(ark.runs) == 1
+    assert bot.store.snapshot("session-1") == {"message-2:image"}
+    assert "当前 Session 已保留" in sender.card_texts[-1]
+    assert bot.store.card(key)["attached_session"] == "session-1"
+    await bot.handle(replace(message(3), text="/files"))
+    assert len(sender.images) == len(sender.files) == 1  # 不把旧回合冒充本轮结果。
+    restarted = SeedanceGateway(
+        bot.config, ark, sender, asyncio.get_running_loop(), SeedanceStore(str(tmp_path / "seedance.db")),
+    )
+    await restarted.handle(replace(message(4), text="重试刚才的要求"))
+    assert len(ark.created) == 1 and len(ark.runs) == 2
+    assert [call[1] for call in calls] == ["input-1", "input-2", "input-2"]
+    assert len(ark.uploads) == len(ark.additions) == 2
+    assert restarted.store.snapshot("session-1") == {"message-2:image", "message-2:video"}
+    assert {item["file_id"] for item in restarted.store.inputs(key)} == {"input-1", "input-2"}
+
+
+@pytest.mark.parametrize("interruption", ["response_timeout", "snapshot_lost"])
+async def test_append_success_reconciles_remote_path_after_interruption(tmp_path, interruption):
+    bot, ark, sender = gateway(tmp_path)
+    await bot.handle(message())
+    original = ark.add_session_file
+
+    async def success_then_timeout(*args):
+        await original(*args)
+        raise httpx.ReadTimeout("append response lost")
+
+    if interruption == "response_timeout":
+        ark.add_session_file = success_then_timeout
+    await bot.handle(replace(message(2), text="增加图片参考", resources=(ResourceRef("ref", "new.jpg", "image"),)))
+    if interruption == "snapshot_lost":
+        bot.store.save_snapshot("session-1", set())
+    ark.add_session_file = original
+    restarted = SeedanceGateway(
+        bot.config, ark, sender, asyncio.get_running_loop(), SeedanceStore(str(tmp_path / "seedance.db")),
+    )
+    await restarted.handle(replace(message(3), text="用刚才的参考继续"))
+    assert len(ark.created) == len(ark.additions) == len(ark.uploads) == 1
+    assert len(ark.resource_queries) == 2
+    assert restarted.store.snapshot("session-1") == {"message-2:ref"}
+    assert ark.resources["session-1"][0]["mount_path"] in ark.runs[-1][1]
+
+
+async def test_append_cap_counts_legacy_mounts_and_allows_reconciliation_at_limit(tmp_path):
+    bot, ark, sender = gateway(tmp_path)
+    await bot.handle(message())
+    ark.resources["session-1"] = [
+        {"type": "file", "mount_path": f"/mnt/session/uploads/legacy-{i}.jpg"}
+        for i in range(100)
+    ] + [{"type": "memory_store", "id": "memory-test"}]
+    await bot.handle(replace(message(2), text="加参考", resources=(ResourceRef("ref", "new.jpg", "image"),)))
+    assert len(ark.created) == len(ark.runs) == 1 and not ark.additions
+    assert "100" in sender.card_texts[-1] and "已保留会话" in sender.card_texts[-1]
+    assert not bot.store.snapshot("session-1")
+    # 模拟末次挂载已成功，但本地没有快照：满额时也应对账后正常续创。
+    ark.resources["session-1"][-2]["mount_path"] = bot.store.inputs(conversation(message()))[0]["mount_path"]
+    await bot.handle(replace(message(3), text="继续"))
+    assert len(ark.created) == 1 and len(ark.runs) == 2 and not ark.additions
+    assert bot.store.snapshot("session-1") == {"message-2:ref"}
+
+
+@pytest.mark.parametrize("remote_status", ["terminated", "deleted"])
+async def test_unusable_session_recreates_with_reference_and_fallback_context(tmp_path, remote_status):
+    bot, ark, sender = gateway(tmp_path)
+    await bot.handle(replace(message(), resources=(ResourceRef("ref", "ref.jpg", "image"),)))
+    original = ark.get_session
+
+    async def get_session(ident):
+        if ident == "session-1":
+            if remote_status == "deleted":
+                raise ArkError("not found", status_code=404)
+            return {"status": "terminated"}
+        return await original(ident)
+
+    ark.get_session = get_session
+    await bot.handle(replace(message(2), text="继续"))
     assert len(ark.created) == 2 and len(ark.uploads) == 1
+    assert ark.runs[-1][0] == "session-2" and "最近创作上下文" in ark.runs[-1][1]
+    assert len(ark.created[-1][1]["resources"]) == 1 and not ark.additions
+
+
+async def test_session_resource_api_returns_copy_and_lists_full_paths():
+    requests = []
+    resource = {
+        "id": "resource-test", "type": "file", "file_id": "copy-test",
+        "mount_path": "/mnt/session/uploads/abc-reference.jpg",
+    }
+
+    def serve(request):
+        requests.append(request)
+        return httpx.Response(200, json=resource if request.method == "POST" else {"data": [resource]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(serve)) as http:
+        ark = ArkClient("test-key", "https://ark.example/api/v3", client=http)
+        assert await ark.add_session_file("session/test", "original-test", "abc-reference.jpg") == resource
+        assert await ark.list_session_resources("session/test") == [resource]
+    assert json.loads(requests[0].content)["mount_path"] == "abc-reference.jpg"
+    assert requests[1].url.raw_path == b"/api/v3/sessions/session%2Ftest/resources"
 
 
 async def test_explicit_quote_uses_current_chat_only(tmp_path):
@@ -569,7 +750,7 @@ async def test_old_files_cannot_overwrite_card_while_new_references_upload(tmp_p
     finally:
         finish.set()
         await task
-    assert bot.store.card(conversation(message()))["attached_session"] == "session-2"
+    assert bot.store.card(conversation(message()))["attached_session"] == "session-1"
 
 
 async def test_links_outside_card_budget_are_still_delivered_in_topic(tmp_path):
@@ -604,7 +785,8 @@ async def test_final_manifest_filters_eighty_work_files_and_reference_mounts(tmp
     assert not sender.images and len(sender.files) == 2
     await bot.handle(replace(message(3), text="", resources=(ResourceRef("ref", "new.jpg", "image"),)))
     await bot.handle(replace(message(4), text="用新素材修改"))
-    assert {item["file_id"] for item in ark.created[-1][1]["resources"]} == {"input-1", "final"}
+    assert len(ark.created) == 1
+    assert {item[1] for item in ark.additions} == {"input-1"}
 
 
 async def test_missing_manifest_does_not_send_media_or_guess_by_extension(tmp_path):

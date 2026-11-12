@@ -10,6 +10,8 @@ from urllib.parse import unquote
 from arkagent.ark import event_text
 
 TURN_CONTRACT = """本轮飞书交互要求：
+同一创作沿用当前 Session 的完整对话和工作目录；新增参考素材已追加挂载，
+使用消息提供的只读路径，结合此前要求和产物继续创作。
 开始实际执行及每次阶段切换时，先发一行 [stage] 阶段名称。
 阶段名称使用：检索素材、脚本分镜、生成图片、生成视频、制作字幕、合成视频、质检、失败恢复。
 长工具等待时保持真实状态，不编造百分比或预计完成时间。
