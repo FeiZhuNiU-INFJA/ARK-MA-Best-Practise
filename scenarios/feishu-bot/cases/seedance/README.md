@@ -92,13 +92,15 @@ python -m arkagent run --case seedance
 | --- | --- | --- |
 | 1 | 飞书 Channel SDK | WebSocket 接收并归一化消息，交给 case |
 | 2 | Seedance Gateway | 检查用户白名单、首次群 @ 或已登记话题、事件去重；归一话题根消息 ID 与真实话题 ID，按 `(chat_id, topic_root, user_open_id)` 隔离并串行处理创作；建立或复用创作卡片 |
-| 3 | Gateway + Files API | 下载用户明确提供的参考素材、上传方舟；在创建 Session 时通过 `resources` 挂载 |
+| 3 | Gateway + Files API | 下载用户明确提供的参考素材、上传方舟；首次创建时通过 `resources` 挂载，续创通过 Session Resources API 追加 |
 | 4 | Seedance MA | 通过 `ultra_vision_agent_preview`、基础工具集和多模态工具集编排任务；图片／视频写入 `/mnt/session/outputs/` |
 | 5 | Gateway | 先建立 SSE，再发送需求和本轮阶段／交付契约；默认等待 30 分钟，超时后每 15 秒只读回查事件，持续更新原卡片 |
 | 6 | Gateway + Files API | 仅匹配当前轮最终交付清单中的真实文件名，同名选择最新版本；默认最多轮询 10 次、间隔 2 秒，等待交付文件登记 |
 | 7 | Gateway + 飞书 OpenAPI | 有界下载后上传飞书图片／文件并回复到创作话题，卡片汇总文件；记录已回传的文件 ID，避免后续创作重复回传旧文件 |
 
-纯文本续创复用原 Session。**新增参考素材时创建替代 Session**：重新挂载已有输入、上轮最终交付物和新素材，并注入最近 3 轮创作文字；保留旧 Session 的远端产物。检索素材和工作文件不会占用替代 Session 的挂载额度。此策略遵守项目“运行时不动态增删文件挂载副本”的约束。单个 Session 最多挂载 100 个文件，超过时要求用 `/new` 缩小范围。
+同一话题中同一发送者的文字续创和**新增参考素材均复用原 Session**：新文件通过 `POST /sessions/{id}/resources` 追加，完整对话历史、已有产物与沙箱工作目录保留，卡片上的 Session ID 不变。附件仍先收集，收到文字需求后上传并追加；挂载成功逐个持久化，重启或请求超时后先查询已挂载路径，避免重复追加。追加失败保留当前 Session 并提示重新发送要求重试，不自动新建会话。
+
+单个 Session 最多挂载 100 个文件，按远端实际文件资源数量检查；超过时提示用 `/new` 开始新创作。请求中的 `mount_path` 使用相对 `/mnt/session/uploads/` 的路径，提供给 Agent 的路径为完整路径。平台支持创建后添加和查询文件，不支持更新或移除既有挂载。仅 `/new`、独立对话，或原 Session 已删除／终止时新建；原会话不可复用时才提供最近 3 轮文字摘要，不能恢复旧沙箱。
 
 默认不把飞书凭据、方舟 Key 注入云端环境，也不需要 MCP、Vault、OAuth 或其他 case 的 Skill。`SEEDANCE_AUTHORIZED_OPEN_IDS` 可以限制使用者；空值表示允许应用可见范围内的用户。
 

@@ -698,22 +698,28 @@ class ArkClient:
             )
         return response.content
 
-    async def add_session_resource(self, session_id: str, resource: dict) -> None:
+    async def list_session_resources(self, session_id: str) -> list[dict]:
+        """查询全部已挂载资源；此接口不分页，file_id 可能为会话内副本 ID。"""
+        return _items(await self._request(
+            "GET", f"/sessions/{quote(session_id, safe='')}/resources",
+        ))
+
+    async def add_session_resource(self, session_id: str, resource: dict) -> dict:
         """向运行中的 Session 追加一个文件资源（POST /sessions/{id}/resources）。
 
         用于「已有 Session」场景下追加挂载——create_session 只在首次建会话时带 resources，
         本方法覆盖会话已存在、后续消息又带附件的情况。resource 至少含 type 与 file_id
         （文件挂载还建议带 mount_path）。见 docs「在 Session 运行时管理文件 · 添加文件资源」。
         """
-        await self._request(
+        return _unwrap(await self._request(
             "POST",
             f"/sessions/{quote(session_id, safe='')}/resources",
             resource,
-        )
+        ))
 
-    async def add_session_file(self, session_id: str, file_id: str, mount_path: str) -> None:
+    async def add_session_file(self, session_id: str, file_id: str, mount_path: str) -> dict:
         """add_session_resource 的文件便捷封装：把 file_id 挂到 /mnt/session/uploads/{mount_path}。"""
-        await self.add_session_resource(
+        return await self.add_session_resource(
             session_id,
             {"type": "file", "file_id": file_id, "mount_path": mount_path},
         )
