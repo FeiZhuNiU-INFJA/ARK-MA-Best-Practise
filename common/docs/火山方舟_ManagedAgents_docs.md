@@ -206,7 +206,7 @@ $env:ARK_API_KEY = "your_api_key_here"
 
 ## 1. 创建 Agent
 
-创建一个Agent，定义其模型、系统提示和可用工具。
+创建一个 Agent，定义其模型、系统提示和可用工具。
 
 ```Bash
 agent=$(
@@ -261,7 +261,7 @@ echo "Environment ID: $ENVIRONMENT_ID"
 
 ## 3. 开启会话
 
-创建一个引用您的Agent和环境的会话。
+创建一个引用您的 Agent 和环境的会话。
 
 ```Bash
 session=$(
@@ -860,13 +860,13 @@ public class ManagedAgentsQuickStart {
 
 1. **配置沙箱**：您的环境配置决定了沙箱的构建方式。
 
-2. **运行Agent循环**：方舟根据您的消息确定要使用哪些工具。
+2. **运行 Agent 循环**：方舟根据您的消息确定要使用哪些工具。
 
 3. **执行工具**：启动沙箱，在沙箱内运行文件写入、bash 命令和其他工具调用。
 
-4. **流式传输事件**：您会在Agent工作时收到实时更新。
+4. **流式传输事件**：您会在 Agent 工作时收到实时更新。
 
-5. **进入空闲状态**：当Agent没有更多任务要执行时，会发出 `session.status_idle` 事件。
+5. **进入空闲状态**：当 Agent 没有更多任务要执行时，会发出 `session.status_idle` 事件。
 
 ## 设计建议
 
@@ -1033,7 +1033,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/sessions \
 
 ## Agent 定义字段
 
-Agent 的完整字段定义（包括名称、模型、System Prompt、Skills、Tools、MCP、多智能体协作、上下文压缩、元数据等），请参见[创建智能体](https://ark.volcengine.com/region:cn-beijing/docs/create-agent-api)。
+Agent 的完整字段定义（包括名称、模型、System Prompt、Skills、Tools、MCP、多智能体协作、上下文压缩、元数据等），请参见 [创建智能体](https://ark.volcengine.com/region:cn-beijing/docs/create-agent-api)。
 
 ## 准备工作
 
@@ -1043,7 +1043,7 @@ Agent 的完整字段定义（包括名称、模型、System Prompt、Skills、T
 
 2. 安装 `curl` 和 `jq`，并配置环境变量。API Key 是敏感信息，一旦意外泄露，可能会造成资金损失或安全风险，因此不要在代码中明文写入 API Key，应将其配置到环境变量中。
 
-   将以下命令中的 `your_api_key_here` 替换为你的 API Key，并在终端中运行命令，即可将 API Key 配置到环境变量中。详见[环境变量配置指南](https://ark.volcengine.com/region:cn-beijing/docs/environment-variable-configuration-guide)。
+   将以下命令中的 `your_api_key_here` 替换为你的 API Key，并在终端中运行命令，即可将 API Key 配置到环境变量中。详见 [环境变量配置指南](https://ark.volcengine.com/region:cn-beijing/docs/environment-variable-configuration-guide)。
 
    **macOS**
 
@@ -1438,7 +1438,7 @@ curl https://ark.cn-beijing.volces.com/api/v3/skills \
 
 ### `skills` 字段结构
 
-在 `CreateAgent` 或 `UpdateAgent` 请求中，每个 Skill 条目都通过 `skills` 数组声明。关于字段结构的详细信息，请参见[创建智能体](https://ark.volcengine.com/region:cn-beijing/docs/create-agent-api)。
+在 `CreateAgent` 或 `UpdateAgent` 请求中，每个 Skill 条目都通过 `skills` 数组声明。关于字段结构的详细信息，请参见 [创建智能体](https://ark.volcengine.com/region:cn-beijing/docs/create-agent-api)。
 
 ### 示例代码
 
@@ -2562,7 +2562,7 @@ echo "Environment ID: $ENVIRONMENT_ID"
 
 限定出网策略包含以下配置项：
 
-- `allowed_hosts`：允许沙箱直接访问的外部域名列表。只支持裸域名或最左侧通配符域名，例如 `api.example.com`、`*.example-cdn.com`。不要填写 URL、端口、路径、查询参数、IP 地址或 `localhost`。
+- `allowed_hosts`：允许沙箱直接访问的外部域名列表，最多 64 个域名。只支持裸域名或最左侧通配符域名，例如 `api.example.com`、`*.example-cdn.com`。不要填写 URL、端口、路径、查询参数、IP 地址或 `localhost`。
 
 - `allow_package_managers`：是否额外允许包管理器访问平台配置的软件源域名。开启后，沙箱可以为 `apt`、`cargo`、`gem`、`go`、`npm`、`pip` 依赖访问对应软件源；关闭或省略时，`packages` 不会自动放行外部软件源。
 
