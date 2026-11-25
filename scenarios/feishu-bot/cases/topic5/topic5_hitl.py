@@ -37,7 +37,7 @@ try:
         summarize_requirement,
     )
     from .topic5_runner import Topic5CardSenderProtocol, Topic5Runner
-    from .topic5_progress_card import format_review_lines, format_label_snapshot, label_snapshot
+    from .topic5_progress_card import format_review_lines, format_label_snapshot, label_snapshot, review_history_elements
 except ImportError:  # pragma: no cover - standalone compatibility
     from pipeline_store import HcEvent, PipelineJob, PipelineStore, STATUS_WAIT_HC
     from topic5_intake import (
@@ -49,7 +49,7 @@ except ImportError:  # pragma: no cover - standalone compatibility
         summarize_requirement,
     )
     from topic5_runner import Topic5CardSenderProtocol, Topic5Runner
-    from topic5_progress_card import format_review_lines, format_label_snapshot, label_snapshot
+    from topic5_progress_card import format_review_lines, format_label_snapshot, label_snapshot, review_history_elements
 
 log = logging.getLogger("arkagent.topic5.hitl")
 
@@ -704,18 +704,8 @@ def build_hc_card(
         },
     ]
     if review_lines:
-        elements.extend(
-            [
-                {
-                    "tag": "markdown",
-                    "content": (
-                        "**已完成审核**\n"
-                        + "\n".join(f"- {line}" for line in review_lines)
-                    ),
-                },
-                {"tag": "hr"},
-            ]
-        )
+        elements.extend(review_history_elements(review_lines, "已完成审核"))
+        elements.append({"tag": "hr"})
     if payload.get("__fallback__"):
         elements.append(
             {
@@ -1084,6 +1074,22 @@ class Topic5Hitl(Topic5CardSenderProtocol):
         return message_id
 
     # ---- HandleCardAction(orchestrator → hitl)----------------------------
+
+    async def submit_requirement_message(self, job: PipelineJob, message, answers: dict) -> None:
+        """将同话题的文字问卷绑定到当前待确认事件，沿用卡片的校验和原子确认。"""
+        if job.status != STATUS_WAIT_HC or job.current_phase != "G1":
+            return
+        event = self._store.latest_hc_for_job(job.job_id, "G1")
+        if not event or event.resolved_at or message.create_time // 1000 < event.created_at:
+            return
+        await self.handle_card_action({
+            "operator": {"open_id": message.user_open_id},
+            "chat_id": message.chat_id,
+            "action": {
+                "value": _action_value(job.job_id, "G1", event.id, DECISION_PASS),
+                "form_value": answers,
+            },
+        })
 
     async def handle_card_action(self, action: Any) -> None:
         payload = _extract_action_value(action)

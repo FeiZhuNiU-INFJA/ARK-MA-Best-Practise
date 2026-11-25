@@ -77,7 +77,10 @@ def test_progress_and_hc_cards_use_same_schema_version():
     hc = hitl_mod.build_hc_card(job, "HC1", 1, {"hc": "HC1", "mode": "demo"})
 
     assert progress["schema"] == hc["schema"] == "2.0"
-    assert progress["body"]["elements"][2]["tag"] == "markdown"
+    panel = next(e for e in progress["body"]["elements"] if e.get("element_id") == "recent_tool_calls")
+    assert panel["tag"] == "collapsible_panel"
+    assert panel["expanded"] is False
+    assert panel["elements"] == [{"tag": "markdown", "content": "正在执行 Phase A"}]
 
 
 def test_hc_card_uses_payload_hc_kind_instead_of_stale_job_phase():

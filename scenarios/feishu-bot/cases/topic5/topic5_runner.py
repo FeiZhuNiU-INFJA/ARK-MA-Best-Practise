@@ -964,32 +964,25 @@ class Topic5Runner:
                 f"业务 Session 状态为 {session_status or 'unknown'}，不能继续当前任务"
             )
         if job.retry_strategy == RETRY_STRATEGY_NODE:
-            bundle = (
-                Path(__file__).resolve().parent
-                / "tools" / "out" / "pipeline-orchestrator.zip"
-            )
-            if not bundle.is_file():
-                raise Topic5RunnerError(
-                    "缺少已验证的 pipeline-orchestrator 恢复包，请先部署 Topic5 Skill"
-                )
-            data = bundle.read_bytes()
-            digest = hashlib.sha256(data).hexdigest()
-            mount_name = (
-                f"topic5_retry_{digest[:12]}_{int(time.time())}.zip"
-            )
-            file_id = await self._ark.upload_file(
-                mount_name, "application/zip", data
-            )
-            await self._ark.add_session_file(
-                job.ma_session_id, file_id, mount_name
-            )
             match = re.search(
                 r"(?:^|/)tasks/([^/]+)/runs/([^/]+)(?:/|$)",
                 job.project_dir,
             )
-            if not match:
-                raise Topic5RunnerError("任务缺少可恢复的 durable run 路径")
-            task_id, run_id = match.groups()
+            if match:
+                task_id, run_id = match.groups()
+            else:
+                # 部分会话只在审核载荷中返回 task_id/run_id，没有独立的目录标记。
+                identities = set()
+                for gate in ("G2", "G1"):
+                    event = self._store.latest_hc_for_job(job.job_id, gate)
+                    if event:
+                        payload = event.payload or {}
+                        pair = (payload.get("task_id"), payload.get("run_id"))
+                        if all(isinstance(v, str) and re.fullmatch(r"[\w-]+", v) for v in pair):
+                            identities.add(pair)
+                if len(identities) != 1:
+                    raise Topic5RunnerError("无法从任务目录或审核记录唯一确定原沙箱运行")
+                task_id, run_id = identities.pop()
             replace_source = ""
             if (
                 job.current_phase == "n04_run_init"
@@ -1007,25 +1000,17 @@ class Topic5Runner:
                 replace_source = replace_source.removesuffix(" && ") + (
                     f" --source-json {shlex.quote(source_json)} && "
                 )
+            job_run_log = f"/workspace/ma-workspaces/projects/topic5/tasks/{task_id}/runs/{run_id}/retry.log"
             message = (
                 f"[topic5-control] retry_failed node={job.current_phase}\n"
-                "使用下面已验证的恢复包，只重试 durable run 当前失败节点；"
-                "保留既有产物、审核记录和 run_id。\n"
-                f"BUNDLE=/mnt/session/uploads/{mount_name}\n"
-                f"BUNDLE_SHA256={digest}\n"
-                "TARGET=/tmp/topic5-pipeline-retry-${BUNDLE_SHA256}\n"
-                "echo \"$BUNDLE_SHA256  $BUNDLE\" | sha256sum -c - && "
-                "rm -rf \"$TARGET\" && mkdir -p \"$TARGET\" && "
-                "unzip -q \"$BUNDLE\" -d \"$TARGET\"\n"
-                "cd \"$TARGET/pipeline-orchestrator\" && "
+                "在原沙箱中只重试当前失败节点，保留既有产物、审核记录和 run_id。\n"
+                "cd /mnt/skills/pipeline-orchestrator && "
                 f"{replace_source}"
                 "nohup python3 run_pipeline.py retry "
                 "--dag contracts/pipeline.v0.2.yaml "
                 "--workspace /workspace/ma-workspaces/projects/topic5 "
                 f"--task {shlex.quote(task_id)} --run {shlex.quote(run_id)} "
-                f"> /workspace/ma-workspaces/projects/topic5/tasks/{task_id}/"
-                f"runs/{run_id}/retry.log 2>&1 &\n"
-                "校验失败不得执行。"
+                f"> {shlex.quote(job_run_log)} 2>&1 &"
             )
         log.info(
             "topic5 /continue resume job=%s session=%s session_status=%s "
@@ -1498,7 +1483,7 @@ class Topic5Runner:
 
     def _maybe_update_phase(self, job_id: str, body: str) -> bool:
         """扫 body 里的 `[phase] X` 前缀更新 current_phase;有变化返回 True。"""
-        match = re.search(r"\[phase\]\s+([A-Za-z0-9_]+)", body)
+        match = re.search(r"\[phase\]\s+(\w+)", body)
         if not match:
             return False
         new_phase = match.group(1)

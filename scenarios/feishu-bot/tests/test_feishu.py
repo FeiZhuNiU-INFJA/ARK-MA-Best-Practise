@@ -258,6 +258,19 @@ def test_inbound_preserves_tenant_user_id():
     assert result.user_id == "u-user"
 
 
+def test_inbound_accepts_text_only_post_with_mention():
+    msg = _inbound(raw_content_type="post", content_text="@机器人 复盘报告")
+    result = _inbound_to_incoming(msg)
+    assert result is not None
+    assert result.text == "@机器人 复盘报告"
+    assert result.mentioned_bot
+    assert result.content_type == "post"
+
+
+def test_inbound_ignores_empty_post():
+    assert _inbound_to_incoming(_inbound(raw_content_type="post", content_text=" ")) is None
+
+
 def test_inbound_ignores_non_text():
     assert _inbound_to_incoming(_inbound(raw_content_type="image")) is None
 
@@ -815,3 +828,13 @@ def test_resolve_operator_name_without_chat_id_uses_contacts():
     sender._fetch_user_name = lambda oid: "赵四"
     assert sender.resolve_operator_name("ou_zhao") == "赵四"
 
+
+
+def test_post_body_drops_trailing_structured_mention_for_form_parser():
+    mention = SimpleNamespace(name="小助手: topicX", open_id="ou_bot", key="@_user_1")
+    body = "- 品牌名称：示例\n- 内容范围：全部"
+    text = body + "\n@小助手: topicX"
+    msg = _inbound(raw_content_type="post", content_text=text, body_text=text, mentions=[mention])
+    incoming = _inbound_to_incoming(msg)
+    assert incoming.body_text == body
+    assert incoming.text == text

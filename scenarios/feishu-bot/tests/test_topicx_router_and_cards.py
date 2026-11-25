@@ -1084,3 +1084,30 @@ async def test_topic6_routed_job_sets_title_env_and_activates_after_job(tmp_path
     assert ark.call[2]["env_overrides"]["FEISHU_USER_OPEN_ID"] == "ou-owner"
     assert ark.call[2]["vault_ids"] == ["base-vault", "user-vault"]
     assert job.task_id == "task-1"
+
+
+def test_g1_written_submission_preserves_queries_and_normalizes_options():
+    from cases.topic5.topic5_intake import IntakeValidationError, normalize_requirement, parse_requirement_submission
+
+    text = """@机器人 这条是文字版提交：请按这份内容确认进入方案
+- 品牌名称：示例
+- 活动名称：联名
+- 活动开始日期：2026-10-22
+- 活动结束日期：2026-11-04
+- 目标平台：小红书、抖音
+- 品牌取数关键词：示例
+- 品牌取数过滤词：(A+B)|C
+- 活动取数关键词：示例+pingu
+- 产品关键词：（留空）
+- 内容范围：全部"""
+    answers = normalize_requirement(parse_requirement_submission(text))
+    fields_only = text.split("\n", 1)[1].replace("\n", "\n\n")
+    assert normalize_requirement(parse_requirement_submission(fields_only)) == answers
+    assert answers["platforms"] == ["xiaohongshu", "douyin"]
+    assert answers["brand_filter"] == "(A+B)|C"
+    assert answers["product_query"] == ""
+    assert answers["content_scope"] == "all"
+    intro = "这是「示例联名」的复盘需求， 请按下面参数确认需求并开始出复盘报告："
+    assert normalize_requirement(parse_requirement_submission(intro + "\n" + fields_only)) == answers
+    with pytest.raises(IntakeValidationError, match="已识别到问卷字段"):
+        parse_requirement_submission(text.replace("这条是文字版提交：", "请看看草稿："))
