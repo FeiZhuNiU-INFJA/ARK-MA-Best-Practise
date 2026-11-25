@@ -153,7 +153,8 @@ class TestHandlerDispatch(unittest.TestCase):
         st = make_state(self.ws, params={"annotation_routing_threshold": 1000})
         st.write_artifact("cleaned_data", {"rows": _rows(2)})
         result = {
-            "rows": _rows(2),
+            "rows": [{"_annot_id": "1", "relevance": True},
+                     {"_annot_id": "2", "relevance": False, "ai_sentiment": 0}],
             "round": 1,
             "routed_via": "small_engine",
             "coverage": {
@@ -168,6 +169,24 @@ class TestHandlerDispatch(unittest.TestCase):
                     st,
                     {},
                 )
+
+    def test_round1_joint_coverage_boundary(self):
+        st = make_state(self.ws)
+        for total in (200, 199):
+            rows = [dict(_annot_id=str(i), ai_sentiment=0, relevance=False) for i in range(total)]
+            del rows[0]["ai_sentiment"], rows[0]["relevance"]
+            st.write_artifact("cleaned_data", {"rows": rows})
+            result = {"rows": rows, "coverage": annotate_mod._coverage_r1(rows)}
+            with patch("annotate.annotate_round1", return_value=result):
+                node = _node("n09_annotate_r1", ["annotated_round1"])
+                if total == 199:
+                    with self.assertRaisesRegex(ValueError, "99.5%"):
+                        handlers.annotate(node, st, {})
+                else:
+                    out = handlers.annotate(node, st, {})["artifacts"]["annotated_round1"]
+                    self.assertEqual(out["excluded_row_ids"], ["0"])
+                    self.assertEqual(out["rows"], rows[1:])
+                    self.assertEqual(out["coverage"]["complete"], 199)
 
 
 class TestRouting(unittest.TestCase):

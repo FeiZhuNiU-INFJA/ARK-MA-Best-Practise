@@ -226,7 +226,11 @@ def data_description(plan, stats):
                  f"{sampling.get('sample_size')} 条；仅供参考、不代表全量结论。\n\n")
     else:
         record = stats.get("clean_record") or {}
-        text += f"活动明细：导入 {record.get('total_in', '未记录')} 条，清洗后分析 {record.get('total_out', '未记录')} 条，无抽样。\n\n"
+        text += f"活动明细：导入 {record.get('total_in', '未记录')} 条，清洗后保留 {record.get('total_out', '未记录')} 条，无抽样。\n\n"
+    coverage = stats.get("round1_coverage") or {}
+    if coverage.get("excluded"):
+        text += (f"第一轮标注：{coverage['total']} 条中有 {coverage['complete']} 条标签完整，"
+                 f"{coverage['excluded']} 条缺少情感或相关性标签，已从后续活动明细分析中剔除。\n\n")
     rows = [["品牌大盘", plan.get("brand_query") or plan.get("brand"), plan.get("brand_filter")],
             ["活动", plan.get("activity_query") or plan.get("activity_name"), plan.get("activity_filter")],
             ["产品", plan.get("product_query"), ""]]

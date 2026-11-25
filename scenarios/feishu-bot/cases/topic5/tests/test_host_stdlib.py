@@ -556,6 +556,10 @@ class ProgressCardTest(unittest.TestCase):
         self.assertEqual(c["schema"], "2.0")
         self.assertEqual(c["header"]["template"], "blue")
         self.assertIn("运行中", c["header"]["title"]["content"])
+        panel = next(e for e in c["body"]["elements"] if e.get("element_id") == "recent_tool_calls")
+        self.assertEqual(panel["tag"], "collapsible_panel")
+        self.assertFalse(panel["expanded"])
+        self.assertIn("清洗完成", panel["elements"][0]["content"])
 
     def test_wait_hc_card(self) -> None:
         c = card.build_progress_card(
@@ -621,9 +625,11 @@ class ProgressCardTest(unittest.TestCase):
             tool_lines=[],
             review_lines=review_lines,
         )
-        text = "\n".join(
-            element.get("content", "") for element in c["body"]["elements"]
-        )
+        elements = c["body"]["elements"]
+        panels = [item for item in elements if item["tag"] == "collapsible_panel"]
+        self.assertTrue(panels)
+        self.assertTrue(all(panel["expanded"] is False for panel in panels))
+        text = json.dumps(elements, ensure_ascii=False)
         self.assertIn("G1 · ✅ 通过 · 俞麟", text)
         self.assertIn("瑞幸活动明细.xlsx（已挂载）", text)
         self.assertIn("活动取数关键词", text)
@@ -706,9 +712,11 @@ class ProgressCardTest(unittest.TestCase):
             tool_lines=[],
             review_lines=lines,
         )
-        text = "\n".join(
-            element.get("content", "") for element in c["body"]["elements"]
-        )
+        elements = c["body"]["elements"]
+        panels = [item for item in elements if item["tag"] == "collapsible_panel"]
+        self.assertTrue(panels)
+        self.assertTrue(all(panel["expanded"] is False for panel in panels))
+        text = json.dumps(elements, ensure_ascii=False)
         self.assertIn("G1 · snapshot", text)
         self.assertIn("G3 · round 7", text)
         self.assertNotIn("G3 · round 0", text)
@@ -1066,13 +1074,6 @@ class RunnerFinalResultParsingTest(unittest.TestCase):
                 async def get_session(self, _session_id):
                     return {"status": "idle"}
 
-                async def upload_file(self, name, content_type, data):
-                    self.upload = (name, content_type, len(data))
-                    return "bundle-file"
-
-                async def add_session_file(self, session_id, file_id, mount):
-                    self.mount = (session_id, file_id, mount)
-
             runner = self.runner.Topic5Runner(
                 Ark(),
                 object(),
@@ -1088,12 +1089,19 @@ class RunnerFinalResultParsingTest(unittest.TestCase):
             self.runner.is_session_resumable = lambda _status: True
             try:
                 asyncio.run(runner.continue_job("c", "thread", "u"))
+                store.update_project_dir(job.job_id, "")
+                ids = {"task_id": "task-1", "run_id": "run-1"}
+                store.append_hc_event(job.job_id, "G2", ids)
+                asyncio.run(runner.continue_job("c", "thread", "u"))
             finally:
                 self.runner.is_session_resumable = old_resumable
                 store.close()
 
-            self.assertEqual(len(sent), 1)
+            self.assertEqual(len(sent), 2)
+            self.assertEqual(sent[0], sent[1])
             command = sent[0]
+            self.assertIn("cd /mnt/skills/pipeline-orchestrator && ", command)
+            self.assertNotIn(".zip", command)
             replace_index = command.index("run_pipeline.py replace-source")
             retry_index = command.index("run_pipeline.py retry")
             self.assertLess(replace_index, retry_index)
@@ -1900,10 +1908,11 @@ class HitlActionParsingTest(unittest.TestCase):
                 "  - **活动明细文件**：瑞幸活动明细.xlsx（已挂载）",
             ),
         )
-        text = "\n".join(
-            element.get("content", "")
-            for element in card_json["body"]["elements"]
-        )
+        elements = card_json["body"]["elements"]
+        panels = [item for item in elements if item["tag"] == "collapsible_panel"]
+        self.assertTrue(panels)
+        self.assertTrue(all(panel["expanded"] is False for panel in panels))
+        text = json.dumps(elements, ensure_ascii=False)
         self.assertIn("已完成审核", text)
         self.assertIn("瑞幸活动明细.xlsx（已挂载）", text)
         self.assertIn("确认方案", text)

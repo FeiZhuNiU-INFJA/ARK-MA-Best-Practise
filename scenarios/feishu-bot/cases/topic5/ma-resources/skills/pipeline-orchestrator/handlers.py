@@ -553,6 +553,7 @@ def aggregate(node, state, ctx):
         },
         "campaigns": per_campaign,
         "relevance_missing": relevance_missing,
+        "round1_coverage": (state.read_artifact("annotated_round1") or {}).get("coverage", {}),
         "metric_whitelist": list(METRIC_WHITELIST),
         "baseline": (
             {"status": "unavailable", "total_volume": None,
@@ -867,16 +868,28 @@ def annotate(node, state, ctx):
         result = annotate_mod.annotate_round1(rows, threshold=threshold)
         if result.get("degraded"):
             raise RuntimeError("annotate r1: 标注能力不可用，禁止确定性伪标注")
-        coverage = result.get("coverage") or {}
-        if (
-            coverage.get("sentiment_missing", 0) > 0
-            or coverage.get("relevance_missing", 0) > 0
-        ):
+        total = len(rows)
+        if len(result["rows"]) != total:
+            raise ValueError("annotate r1: 标注返回行数与输入不一致")
+        complete = []
+        excluded = []
+        for row in result["rows"]:
+            if row.get("ai_sentiment") in (-1, 0, 1) and isinstance(row.get("relevance"), bool):
+                complete.append(row)
+            else:
+                excluded.append(row["_annot_id"])
+        coverage = result["coverage"]
+        # 每 200 条最多排除 1 条，两项标签都缺失也只计一条。
+        if len(excluded) * 200 > total:
             raise ValueError(
-                "annotate r1: 覆盖检查存在缺口；"
-                f"sentiment_missing={coverage.get('sentiment_missing', 0)}, "
-                f"relevance_missing={coverage.get('relevance_missing', 0)}"
+                "annotate r1: 完整标注覆盖率不足 99.5%；"
+                f"sentiment_missing={coverage['sentiment_missing']}, "
+                f"relevance_missing={coverage['relevance_missing']}, "
+                f"excluded={len(excluded)}, total={total}"
             )
+        result["rows"] = complete
+        result["excluded_row_ids"] = excluded
+        coverage.update(excluded=len(excluded), complete=len(complete))
         return {"artifacts": {"annotated_round1": result}}
 
     if "annotated_data" in out:

@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import re
 import zipfile
+from datetime import date
 from typing import Any, Callable, Optional
 
 PLATFORM_OPTIONS = (
@@ -335,6 +336,62 @@ def query_terms(expression: str) -> list[str]:
     """把 ``瑞幸+(暹罗厘普|多栋)`` 拆成可用于提及判定的字面词。"""
     parts = re.split(r"[+|｜(),（）\s]+", expression or "")
     return list(dict.fromkeys(part.strip() for part in parts if part.strip()))
+
+
+def parse_requirement_submission(text: str) -> Optional[dict]:
+    """识别明确提交的逐行 G1 答案，保留取数表达式原文。"""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return None
+
+    fields = {label: key for key, label in FIELD_LABELS.items()}
+    fields.update({"品牌取数过滤词": "brand_filter", "活动取数过滤词": "activity_filter",
+                   "预算限制": "budget_constraint"})
+    field_line = re.compile(r"\s*(?:[-*•]\s*)?([^:：]+)[:：](.*)")
+    # 群里的问卷常在字段前带说明或 @。先定位字段，再判断前言的提交意图。
+    for index, line in enumerate(lines):
+        first = field_line.fullmatch(line)
+        if first and first[1].strip() in fields:
+            break
+    else:
+        return None
+    intro = " ".join(lines[:index])
+    if intro:
+        if re.search(r"草稿|仅作示例|只是示例|不要|暂不|先不|勿提交|待确认", intro) or not re.search(
+            r"文字版提交|请[^。！？]*?(?:确认|提交)|确认需求并|确认进入方案", intro
+        ):
+            raise IntakeValidationError("已识别到问卷字段。要提交请注明“确认需求”，或直接发送字段列表。")
+    elif len(lines) == 1:
+        return None
+    lines = lines[index:]
+
+    answers = {}
+    for line in lines:
+        match = field_line.fullmatch(line)
+        if not match or match[1].strip() not in fields:
+            raise IntakeValidationError(f"无法识别问卷行：{line[:60]}")
+        key = fields[match[1].strip()]
+        if key in answers:
+            raise IntakeValidationError(f"重复字段：{match[1].strip()}")
+        value = match[2].strip()
+        if re.fullmatch(r"[（(]留空(?:[，,][^）)]*)?[）)]|留空", value):
+            value = ""
+        if key in ("period_start", "period_end") and value:
+            try:
+                value = date.fromisoformat(value).isoformat()
+            except ValueError as error:
+                raise IntakeValidationError("活动日期需使用有效的 YYYY-MM-DD 日期") from error
+        if key == "platforms":
+            options = dict(PLATFORM_OPTIONS)
+            platforms = [options.get(item, item) for item in _clean_list(value)]
+            if any(item not in PLATFORM_LABELS for item in platforms):
+                raise IntakeValidationError("目标平台包含问卷以外的选项")
+            answers[key] = platforms
+        elif key == "content_scope":
+            answers[key] = dict(CONTENT_SCOPE_OPTIONS).get(value, value)
+        else:
+            answers[key] = value
+    return answers
 
 
 def normalize_requirement(form_value: dict[str, Any]) -> dict:

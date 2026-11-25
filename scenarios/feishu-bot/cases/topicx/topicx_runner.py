@@ -12,6 +12,7 @@ from arkagent.ark import ArkClient
 from arkagent.feishu import FeishuSender, IncomingMessage
 
 from ..topic5.pipeline_store import PipelineStore as Topic5PipelineStore
+from ..topic5.topic5_intake import IntakeValidationError, parse_requirement_submission
 from ..topic5.topic5_hitl import Topic5Hitl
 from ..topic5.topic5_runner import Topic5AttachmentStateError, Topic5Runner, Topic5RunnerError
 from ..topic6.artifact_sync import Topic6ArtifactSync
@@ -480,6 +481,29 @@ class TopicxRunner:
         if text.lower() in ("/new", "/continue", "/resume", "/stop"):
             await self.reply(task, "请使用任务卡片上的操作按钮。")
             return
+        if (
+            task.scenario == "topic5" and text
+            and (task.status == "wait_hc" or "文字版提交" in text)
+            and message.mentioned_bot
+        ):
+            try:
+                answers = parse_requirement_submission(message.body_text if message.body_text is not None else text)
+            except IntakeValidationError as error:
+                await self.reply(task, f"需求问卷未通过校验：{error}")
+                return
+            if answers is not None:
+                if not message.user_open_id or (
+                    message.user_open_id != task.user_open_id
+                    and message.user_open_id not in self._config.authorized_open_ids
+                ):
+                    await self.reply(task, "请由任务发起账号或已授权账号提交文字版需求问卷。")
+                    return
+                if task.status != "wait_hc":
+                    return
+                await self._topic5_hitl.submit_requirement_message(
+                    self._topic5_job(task), message, answers
+                )
+                return
         if task.scenario == "topic5" and message.resources:
             unavailable = {
                 "paused": "任务已暂停。请先点击“继续任务”恢复流程；发送附件不会自动继续任务。",

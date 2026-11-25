@@ -104,18 +104,62 @@ def _header(status: str, phase: str, failure_scope: str = "") -> dict:
     return {"title": {"tag": "plain_text", "content": title}, "template": template}
 
 
-def _meta_line(job: PipelineJob, elapsed_sec: int) -> str:
-    parts = [
-        f"job=`{job.job_id}`",
-        f"mode=`{job.mode}`",
-        f"phase=`{job.current_phase}`",
-        f"已运行 {_format_elapsed(elapsed_sec)}",
-    ]
-    return " · ".join(parts)
+PHASE_LABELS = {
+    "intake": "梳理复盘需求",
+    "n00_intake": "准备需求问卷",
+    "G1": "需求确认",
+    "n01_hc_requirement": "需求确认",
+    "n02_plan": "编制分析方案",
+    "G2": "方案确认",
+    "n03_hc_plan": "方案确认",
+    "n04_run_init": "校验活动数据",
+    "n05_brand_pull": "获取品牌数据",
+    "n06_brand_baseline": "获取品牌基准数据",
+    "n07_clean": "清洗活动明细",
+    "clean": "清洗活动明细",
+    "n08_ugc_discovery": "识别 UGC 类别",
+    "n09_annotate_r1": "第一轮内容标注",
+    "n09b_opinion_candidates": "整理候选观点",
+    "n10_hc_opinion": "确认观点标签",
+    "N10": "确认观点标签",
+    "n11_annotate_r2": "第二轮内容标注",
+    "aggregate": "汇总统计数据",
+    "n12_aggregate": "汇总统计数据",
+    "n13_wordcloud_pull": "获取词云数据",
+    "n14_charts": "生成分析图表",
+    "n15_wordcloud_insight": "分析词云与议题",
+    "n16_report": "撰写复盘报告",
+    "n17_validate": "检查报告质量",
+    "G3": "报告质检",
+    "n18_qc_gate": "复核质检结果",
+    "n19_fix": "修订报告",
+    "n20_delivery_draft": "生成飞书报告",
+    "n20_delivery_gate": "检查交付文档",
+    "G4": "报告终验",
+    "n21_hc_user": "报告终验",
+    "n22_user_gate": "处理终验结果",
+    "HC7": "处理审核异常",
+    "USER_ESCALATE": "处理审核异常",
+    "n23_delivery_commit": "确认报告交付",
+    "n24_handoff": "完成报告交接",
+    "B_": "数据获取",
+}
 
 
-def _tool_lines_block(tool_lines: list[str], overflow: int) -> Optional[dict]:
-    """把 tool_lines(升序:老 → 新)渲染成一段 lark_md;空就返回 None。"""
+def _step_summary(job: PipelineJob, status: str, elapsed_sec: int) -> str:
+    phase = job.current_phase
+    step = PHASE_LABELS.get(phase, phase)
+    if "_" in phase and any("\u4e00" <= ch <= "\u9fff" for ch in phase):
+        step = phase.split("_", 1)[1]
+    if status == STATUS_WAIT_INPUT:
+        step = "等待上传活动明细"
+    if status == STATUS_DONE:
+        step = "报告交付完成"
+    return f"**当前步骤 · {step}**\n已运行 {_format_elapsed(elapsed_sec)}"
+
+
+def _tool_lines_block(tool_lines: list[str], overflow: int, title: str) -> Optional[dict]:
+    """按发生顺序展示工具调用，默认收起。"""
     if not tool_lines and overflow <= 0:
         return None
     body_lines: list[str] = []
@@ -123,19 +167,45 @@ def _tool_lines_block(tool_lines: list[str], overflow: int) -> Optional[dict]:
         body_lines.append(f"_(更早 {overflow} 条已省略)_")
     body_lines.extend(tool_lines)
     return {
-        "tag": "markdown",
-        "content": "**最近工具调用**\n" + "\n".join(body_lines),
+        "tag": "collapsible_panel",
+        "element_id": "recent_tool_calls",
+        "expanded": False,
+        "header": {
+            "title": {"tag": "plain_text", "content": title},
+            "icon": {"tag": "standard_icon", "token": "down-small-ccm_outlined"},
+            "icon_position": "right",
+            "icon_expanded_angle": -180,
+        },
+        "elements": [{"tag": "markdown", "content": "\n".join(body_lines)}],
     }
 
 
-def _review_lines_block(review_lines: list[str]) -> Optional[dict]:
-    """把已完成 HC 审核压成固定区块,避免与实时工具日志混在一起。"""
-    if not review_lines:
-        return None
-    return {
-        "tag": "markdown",
-        "content": "**审核记录**\n" + "\n".join(f"- {line}" for line in review_lines),
-    }
+def review_history_elements(review_lines: Iterable[str], heading: str = "审核记录") -> list[dict]:
+    stages: dict[str, list[str]] = {}
+    for line in review_lines:
+        stage = line.partition(" · ")[0]
+        stages.setdefault(stage, []).append(line)
+    if not stages:
+        return []
+
+    elements = [{"tag": "markdown", "content": f"**{heading}** · 点击阶段可展开或收起"}]
+    for stage, records in stages.items():
+        summary = records[-1].splitlines()[0].split(" · ", 2)
+        title = " · ".join(summary[:2])
+        if stage in PHASE_LABELS:
+            title += f" · {PHASE_LABELS[stage]}"
+        elements.append({
+            "tag": "collapsible_panel",
+            "expanded": False,
+            "header": {
+                "title": {"tag": "plain_text", "content": title},
+                "icon": {"tag": "standard_icon", "token": "down-small-ccm_outlined"},
+                "icon_position": "right",
+                "icon_expanded_angle": -180,
+            },
+            "elements": [{"tag": "markdown", "content": "\n\n".join(records)}],
+        })
+    return elements
 
 
 def _review_snapshot(review_lines: Iterable[str]) -> list[str]:
@@ -342,13 +412,15 @@ def build_progress_card(
     """
     tool_snapshot = list(tool_lines)[-MAX_TOOL_LINES:]
     elements: list[dict] = [
-        {"tag": "markdown", "content": _meta_line(job, elapsed_sec)},
+        {"tag": "markdown", "content": _step_summary(job, status, elapsed_sec)},
     ]
-    review_block = _review_lines_block(_review_snapshot(review_lines))
-    if review_block is not None:
-        elements.append(review_block)
+    elements.extend(review_history_elements(_review_snapshot(review_lines)))
     elements.append({"tag": "hr"})
-    tool_block = _tool_lines_block(tool_snapshot, overflow)
+    detail_title = "执行明细"
+    if status == STATUS_RUNNING:
+        indicator = "●" if elapsed_sec % 2 == 0 else "◉"
+        detail_title = f"{indicator} 执行中 · 执行明细"
+    tool_block = _tool_lines_block(tool_snapshot, overflow, detail_title)
     if tool_block is not None:
         elements.append(tool_block)
 

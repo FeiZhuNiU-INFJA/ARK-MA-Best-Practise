@@ -87,6 +87,8 @@ class IncomingMessage:
     # 飞书原始消息类型（text/file/image/post/share_* 等）。单聊只允许 text 主动触发 Agent；
     # 群聊仍允许用户显式 @bot 时携带图片/文件。
     content_type: str = "text"
+    # SDK 去掉当前机器人结构化 @ 后的正文，用于解析逐行问卷。
+    body_text: Optional[str] = None
 
     @property
     def employee_id(self) -> str:
@@ -1049,7 +1051,7 @@ def _extract_resources(msg: object) -> tuple[ResourceRef, ...]:
 def _inbound_to_incoming(msg: object) -> Optional[IncomingMessage]:
     """把 Channel SDK 的 `InboundMessage` 映射回本项目的 `IncomingMessage`。
 
-    处理文本与带图片/文件附件的消息。SDK 的 `content_text` **保留了渲染后的 @名字**（含对
+    处理普通文本、带正文的富文本与带图片/文件附件的消息。SDK 的 `content_text` **保留了渲染后的 @名字**（含对
     bot 自己的提及，见 lark_channel normalize/pipeline.py：“content_text itself keeps the
     rendered mention”）——所以当前触发消息里 `@小助手` 仍在，转录中「谁 @ 了谁」可见，与历史行
     口径一致。（SDK 另有剥掉 bot 提及的 body_text 视图，本项目不用它。）Channel SDK 未把
@@ -1063,11 +1065,11 @@ def _inbound_to_incoming(msg: object) -> Optional[IncomingMessage]:
     """
     content_type = str(getattr(msg, "raw_content_type", None) or "")
     resources = _extract_resources(msg)
-    if content_type != "text" and not resources:
+    text = (getattr(msg, "content_text", "") or "").strip()
+    if not resources and content_type != "text" and not (content_type == "post" and text):
         return None
     conversation = getattr(msg, "conversation", None)
     sender = getattr(msg, "sender", None)
-    text = (getattr(msg, "content_text", "") or "").strip()
     # 图片/文件消息的 content_text 是 SDK 的媒体占位（`![image](key)` / `<file .../>`），
     # 对转录无意义且会混淆模型——附件已由 resources 单独承载、挂到文件系统，故清掉占位文本。
     if resources and content_type in ("image", "file"):
@@ -1084,6 +1086,17 @@ def _inbound_to_incoming(msg: object) -> Optional[IncomingMessage]:
     # 话题群里它是「发起话题的那条主时间线消息」；用于 load_thread_context 补话题前情。
     raw = getattr(msg, "raw", None) or {}
     root_id = str(raw.get("root_id") or "") if isinstance(raw, dict) else ""
+    body_text = getattr(msg, "body_text", None)
+    if body_text and getattr(msg, "mentioned_bot", False):
+        # 部分 post 的 at 节点用 @_user_1 作 ID，SDK 的 body_text 仍有末行 @名字。
+        before, newline, last = body_text.rstrip().rpartition("\n")
+        mentions = getattr(msg, "mentions", ())
+        if newline and len(mentions) == 1:
+            mention = mentions[0]
+            if last.strip() in {
+                f"@{mention.name}", f"@{mention.open_id}", mention.key, f"@{mention.key}",
+            }:
+                body_text = before
     return IncomingMessage(
         event_id=getattr(msg, "id", "") or "",
         message_id=getattr(msg, "id", "") or "",
@@ -1103,6 +1116,7 @@ def _inbound_to_incoming(msg: object) -> Optional[IncomingMessage]:
         root_id=root_id,
         resources=resources,
         content_type=content_type or "unknown",
+        body_text=body_text,
     )
 
 
