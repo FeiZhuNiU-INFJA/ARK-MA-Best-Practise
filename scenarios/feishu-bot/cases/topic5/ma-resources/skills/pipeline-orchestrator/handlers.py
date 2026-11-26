@@ -27,6 +27,7 @@ import excel_source
 import feishu
 import validator as validator_mod
 import report_contract
+import report_language
 import label_review
 
 # ── 业务口径常量（源：飞书 wiki 活动复盘口径 + knowledge/_字段速查.md）────────
@@ -1284,7 +1285,9 @@ def write_report(node, state, ctx):
     sys_p = (
         "你是资深营销复盘报告撰写人。依据统计数据与词云议题，写出活动复盘报告的内容层 Markdown"
         "（不含飞书布局）。严格遵守口径：\n"
-        "1) 指标只用【条均互动量/品牌提及率/产品提及占比/NSR】，禁用“人均/转化/转化率/性价比”等无数据支撑说法；\n"
+        "1) 指标只用【条均互动量/品牌提及率/产品提及占比/NSR】，不得将人均或转化作为指标；"
+        "禁止无数据支撑的性价比结论。已确认观点标签和有来源的用户原文保留，"
+        "可以描述用户对性价比的评价，但不能把用户评价当作产品或合作效能已获证实；\n"
         "2) 活动层指标只统计活动相关内容，多活动逐个处理、不相加为合计声量；\n"
         "3) 提及漏斗只讲“提及”不讲“转化”；竞品分析已下线，不要写竞品章；\n"
         f"4) 报告结构={chapters}，必须包含：数据说明、整体洞察、1.1传播概况、1.2口碑分析、"
@@ -1327,11 +1330,11 @@ def write_report(node, state, ctx):
         md = semantic.chat(sys_p, user_p, max_tokens=16384)
         if not md.strip():
             raise ValueError("模型返回空报告")
-        md, removed_sentences = _strip_forbidden_sentences(md)
+        md, removed_sentences = _strip_forbidden_sentences(md, stats=stats)
         source = "llm"
         guardrail_reason = ""
         try:
-            _assert_no_forbidden_terms(md)
+            _assert_no_forbidden_terms(md, stats=stats)
             _assert_report_structure(
                 md, list((stats.get("campaigns") or {}).keys())
             )
@@ -1341,7 +1344,7 @@ def write_report(node, state, ctx):
             md, plan=state.read_artifact("confirmed_plan") or {}, stats=stats,
             charts=charts, insight=wc_insight,
         )
-        _assert_no_forbidden_terms(md)
+        _assert_no_forbidden_terms(md, stats=stats)
         _assert_report_structure(md, list((stats.get("campaigns") or {}).keys()))
         return {"artifacts": {"report_md": {
             "markdown": md,
@@ -1429,9 +1432,9 @@ def fix_report(node, state, ctx):
             try:
                 if not md.strip():
                     raise ValueError("模型返回空修订")
-                md, removed_sentences = _strip_forbidden_sentences(md)
+                md, removed_sentences = _strip_forbidden_sentences(md, stats=stats)
                 md = report_contract.assemble(md, **assembly_args)
-                _assert_no_forbidden_terms(md)
+                _assert_no_forbidden_terms(md, stats=stats)
                 _assert_report_structure(
                     md, list((stats.get("campaigns") or {}).keys()),
                 )
@@ -1492,21 +1495,21 @@ def fix_report(node, state, ctx):
         raise
 
 
-def _strip_forbidden_sentences(md: str) -> tuple[str, list[str]]:
-    """删除含禁用措辞的整句；不做同义改写，避免制造无数据支撑的新表述。"""
+def _strip_forbidden_sentences(md: str, *, stats=None) -> tuple[str, list[str]]:
+    """删除错误指标表述；保留有来源的标签/引文及需语义判断的价格评价。"""
     cleaned_lines: list[str] = []
     removed: list[str] = []
-    for line in md.splitlines():
-        if not any(term in line for term in FORBIDDEN_METRIC_TERMS):
+    for _, line, analysis in report_language.analysis_lines(md, stats=stats):
+        if not any(term in analysis for term in report_language.METRIC_TERMS):
             cleaned_lines.append(line)
             continue
         if line.lstrip().startswith("#"):
             cleaned_lines.append(line)
             continue
-        parts = re.split(r"(?<=[。！？；])", line)
         kept = []
-        for part in parts:
-            if any(term in part for term in FORBIDDEN_METRIC_TERMS):
+        for match in re.finditer(r"[^。！？；]*[。！？；]|[^。！？；]+$", line):
+            part = match.group()
+            if any(term in analysis[match.start():match.end()] for term in report_language.METRIC_TERMS):
                 if part.strip():
                     removed.append(part.strip())
             else:
@@ -1517,11 +1520,12 @@ def _strip_forbidden_sentences(md: str) -> tuple[str, list[str]]:
     return "\n".join(cleaned_lines), removed
 
 
-def _assert_no_forbidden_terms(md: str) -> None:
-    """报告正文禁用措辞硬校验：命中“人均/转化率/转化/性价比”直接报错。"""
-    for bad in FORBIDDEN_METRIC_TERMS:
-        if bad in md:
-            raise ValueError(f"report: 正文命中禁用措辞 '{bad}'")
+def _assert_no_forbidden_terms(md: str, *, stats=None) -> None:
+    """指标硬检查；性价比判断由独立 Validator 按证据执行语义 P0 规则。"""
+    violations = report_language.metric_violations(md, stats=stats)
+    if violations:
+        line, term, text = violations[0]
+        raise ValueError(f"report: 分析正文命中禁用指标措辞 '{term}'，L{line}: {text.strip()[:240]}")
 
 
 def _assert_report_structure(md: str, campaign_ids: list[str]) -> None:

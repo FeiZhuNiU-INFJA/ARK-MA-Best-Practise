@@ -16,6 +16,7 @@ Topic5 复盘报告流水线的确定性执行引擎。读取包内 `contracts/p
 | `engine.py` | DAG 加载 + 节点调度 + 续跑（`Dag.load` / `create_run` / `run` / `resume`）；含幂等执行层（render→ledger 重放/对账） |
 | `handlers.py` | 各业务节点 handler、质检返修及原生飞书交付 |
 | `report_contract.py` / `REPORT_CONTRACT.md` | 固定报告模块、数据说明、PGC/UGC Top10、观点与代表内容、正确图片装配及写作规范 |
+| `report_language.py` | 生成、返修与独立Validator共用的措辞边界；核对标签/引文来源，价格评价交语义质检 |
 | `validator_scan.py` | 打包时注入独立Validator权威扫描器，供协调器内N19使用同一规则预检 |
 | `feishu.py` | N20 原生文档发布、表格扩容、图片回填及回读校验 |
 | `excel_source.py` | 按飞书附件引用下载、校验并缓存用户活动明细 `.xlsx`，兼容旧挂载输入，映射为 n07 `clean_campaign` 行结构 |

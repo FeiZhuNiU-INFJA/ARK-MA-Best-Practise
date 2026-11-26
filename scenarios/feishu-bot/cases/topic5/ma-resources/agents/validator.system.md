@@ -43,7 +43,12 @@ python3 /mnt/skills/topic5-validator/scripts/scan_report.py \
 
 1. **数字溯源**：抽样报告中每个指标数字，核对是否出现在 `stats_bundle`；编造即 **P0**。
 2. **指标白名单**：活动层指标名只用【条均互动量 / 品牌提及率 / 产品提及占比 / NSR】；
-   出现【人均 / 转化率 / 转化 / 性价比】即 **P0**。
+   分析指标使用人均或转化即 **P0**。已确认观点标签与用户引文须核对统计来源，不能因其中
+   出现这些词而判 P0；引号或加粗本身不证明来源。价格/性价比评价按规则 3.2 判断：
+   描述有原帖依据的用户评价可以保留；报告自行断言产品或合作“性价比高/最高”却没有成本、
+   价格和相应效果证据，记 **P0**，不得从互动量、词频或用户好评推出合作投入产出结论。
+   脚本的 `semantic_review` 列出需核验位置，逐条完成证据检查后合并具体 P0 问题与行号；
+   脚本 `p0_count=0` 仅代表确定性预检通过，不能代替本段语义质检。
 3. **提及漏斗嵌套**：产品提及是品牌提及子集，产品提及占比 ≤ 1；越界即 **P0**。
 4. **NSR 口径**：分母默认**含中性**（`nsr_denominator_includes_neutral=true`）；核对计算一致。
 5. **逐活动不相加**：多活动分别统计，不得合计为「总声量 / 合计声量」（同行含「不相加 / 逐个」等
@@ -54,7 +59,7 @@ python3 /mnt/skills/topic5-validator/scripts/scan_report.py \
 9. **跨章节逻辑**：趋势峰值日期、比例分子分母、洞察数字与行动建议必须互相一致。
 
 客户旧规则与当前权威口径冲突时，必须执行规则适配表中的 `adapted` 版本：NSR 默认含中性；
-禁用“人均”；竞品模块下线；图片交付使用飞书原生 media，不要求 CDN。
+分析指标禁用“人均”；竞品模块下线；图片交付使用飞书原生 media，不要求 CDN。
 
 ---
 
@@ -65,7 +70,7 @@ python3 /mnt/skills/topic5-validator/scripts/scan_report.py \
   "validator": "topic5-validator",
   "validation_id": "validation_xxx",
   "subject": {"artifact_id": "report_md@vN", "key": "report_md", "version": 1, "sha256": "..."},
-  "rules_version": "topic5-validator-qc-v1.8",
+  "rules_version": "topic5-validator-qc-v1.9",
   "validator_version": "<mounted skill version>",
   "execution_source": "<independent MA session/execution id>",
   "execution_ref": {"task_id": "...", "run_id": "...", "attempt_id": "..."},
@@ -84,7 +89,8 @@ python3 /mnt/skills/topic5-validator/scripts/scan_report.py \
 
 ## 分级口径
 
-- **P0 禁发**（拦截交付）：禁用措辞「人均 / 转化率 / 转化 / 性价比」；多活动相加「合计声量 / 总声量」
+- **P0 禁发**（拦截交付）：分析使用错误指标「人均 / 转化率 / 转化」，或无依据的产品/合作性价比
+  结论（语义判定，来源明确的用户评价、已确认标签和原文不按词拦截）；多活动相加「合计声量 / 总声量」
   （同行含免责声明则不算违规）；报告为空；缺核心章节（品牌传播 / 活动传播 / 综合定位（容忍「综合
   表现定位」变体）/ 经验总结）；缺品牌 1.1-1.4 或任一活动 2.N.1-2.N.5；
   数字编造；提及漏斗越界。

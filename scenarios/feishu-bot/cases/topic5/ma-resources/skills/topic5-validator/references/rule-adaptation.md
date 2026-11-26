@@ -1,6 +1,6 @@
 # Topic5 Validator 规则适配表
 
-版本：`topic5-validator-qc-v1.8`
+版本：`topic5-validator-qc-v1.9`
 来源：客户 `Topic5_营销活动复盘检查清单.md` v1.5。  
 判定层：`deterministic`=脚本全量检查；`semantic`=独立 Validator Agent 全文语义检查；
 `post_publish`=飞书文档创建后检查；`human_authority`=只能由用户确认。
@@ -27,7 +27,7 @@
 | 3.1 | applicable | semantic | 议题解读只做归纳，不逐条泄漏原帖 |
 | 3.1b | applicable | semantic | 广告、地理定位等噪音词不得作为正式议题 |
 | 3.1c | applicable | deterministic+semantic | 关键词行内列示；解读为一段连贯叙事，不输出内部结构 |
-| 3.2 | applicable | semantic | 主观评价必须有明确数据证据 |
+| 3.2 | applicable | semantic | 主观评价必须有明确数据证据；有来源的用户价格/性价比评价与报告自行判断产品或合作效能分开；无成本/价格及效果证据的性价比结论为P0，不按词拦截标签和引文 |
 | 3.3 | applicable | semantic | 有负面样本时必须正视并给有边界的建议 |
 | 3.4 | applicable | deterministic+semantic | 基准期对比只表述相关变化，不写活动导致增长 |
 | 3.5 | applicable | semantic | 节假日高基数且差异显著时披露不可直接比较 |
@@ -85,3 +85,9 @@
 数字片段；独立手机号以及链接参数中的完整手机号仍须拦截。
 小样本规则针对报告实际展示的分维 NSR（正文指标或 NSR 表格行），普通议题中的
 “口感、功能、效果”等词不等于展示了该维度 NSR。
+
+措辞边界依据客户 `04_报告结构.md` 的“无数据支撑的说法”与 `KS_Writing_Standards.md`
+的用户评价示例。指标命名仍按白名单检查；有来源的标签、用户引文和热门表原文须保留，
+来源在统计产物中精确核验，不能只因引号或加粗跳过。性价比评价属于语义规则 3.2，
+不是全文词语黑名单；脚本给出 `semantic_review` 位置，由独立 Validator 全文核验证据，
+未做语义判断不得直接拿脚本无 P0 结果放行。

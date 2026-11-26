@@ -13,9 +13,9 @@
   python3 scan_report.py --markdown-file /path/report.md --out /path/qc_report.json
 
 分级（severity）：
-  P0 禁发（has_p0=True → 必须返修）：出现禁用措辞（人均/转化率/转化/性价比）、
+  P0 禁发（has_p0=True → 必须返修）：分析正文使用错误指标措辞（人均/转化率/转化）、
       出现非白名单“合计声量/总声量”相加口径、内部 JSON/标注字段泄漏、
-      报告为空/缺核心章节。
+      报告为空/缺核心章节。性价比评价的证据充分性由独立 Agent 执行语义 P0 规则。
   P1 可披露放行：图表引用缺失、降级产物标注、字数偏短等（记录但不拦截交付）。
   P2 提示：风格/措辞建议。
 """
@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -34,7 +35,13 @@ from typing import Optional
 
 
 # ── 口径红线常量（与 handlers.py 对齐，单一事实源在 DAG params + knowledge/）──
-FORBIDDEN_TERMS = ("人均", "转化率", "转化", "性价比")
+_policy_path = Path(__file__).with_name("report_language.py")
+if not _policy_path.is_file():
+    _policy_path = Path(__file__).resolve().parents[2] / "pipeline-orchestrator" / "report_language.py"
+_policy_spec = importlib.util.spec_from_file_location("topic5_report_language", _policy_path)
+report_language = importlib.util.module_from_spec(_policy_spec)
+_policy_spec.loader.exec_module(report_language)
+FORBIDDEN_TERMS = report_language.METRIC_TERMS
 METRIC_WHITELIST = ("条均互动量", "品牌提及率", "产品提及占比", "NSR")
 # 相加合计声量：多活动“不相加”，出现这些措辞视为口径违规（P0）。
 AGGREGATE_SUM_PATTERNS = ("合计声量", "总声量", "声量总和", "累计声量", "声量合计")
@@ -191,13 +198,11 @@ def scan_markdown(
     md = markdown or ""
     lines = md.splitlines()
 
-    # 1) 禁用措辞（P0）——逐行定位，给行号证据。
-    for ln_no, line in enumerate(lines, 1):
-        for term in FORBIDDEN_TERMS:
-            if term in line:
-                issues.append(_issue(
-                    f"P0-forbidden-{term}", "P0", f"出现禁用措辞「{term}」",
-                    f"L{ln_no}: {line.strip()}", locus=f"L{ln_no}"))
+    # 1) 错误指标（P0）。标签/引文须绑定 stats；性价比按证据做语义判断。
+    for ln_no, term, line in report_language.metric_violations(md, stats=stats):
+        issues.append(_issue(
+            f"P0-forbidden-{term}", "P0", f"分析正文出现禁用指标措辞「{term}」",
+            f"L{ln_no}: {line.strip()}", locus=f"L{ln_no}"))
 
     # 2) 多活动相加/合计声量（P0）——同行含“不相加/逐个”等免责标记则视为口径声明，跳过。
     single_campaign = len((stats or {}).get("campaigns") or {}) == 1 or len(expected_campaigns or []) == 1
@@ -473,9 +478,11 @@ def scan_markdown(
         "issues": issues,
         "metric_whitelist": list(METRIC_WHITELIST),
         "forbidden_terms": list(FORBIDDEN_TERMS),
+        "semantic_terms": list(report_language.SEMANTIC_TERMS),
+        "semantic_review": report_language.semantic_review(md, stats=stats),
         "scan_mode": "full_scan",
         "degraded": bool(degraded),
-        "rules_version": "topic5-validator-qc-v1.8",
+        "rules_version": "topic5-validator-qc-v1.9",
     }
 
 
@@ -560,7 +567,7 @@ def main() -> int:
         "validator": "topic5-validator",
         "validation_id": f"validation_{uuid.uuid4().hex}",
         "subject": subject,
-        "rules_version": "topic5-validator-qc-v1.8",
+        "rules_version": "topic5-validator-qc-v1.9",
         "execution_source": args.execution_source,
         "validator_version": args.validator_version,
         "execution_ref": {

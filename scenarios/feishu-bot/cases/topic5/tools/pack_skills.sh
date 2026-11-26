@@ -84,6 +84,10 @@ pack_one() {
         "$src/" "$stage/$top_name/"
 
   local staged_root="$stage/$top_name"
+  if [[ "$top_name" == "topic5-validator" ]]; then
+    cp "$ROOT/ma-resources/skills/pipeline-orchestrator/report_language.py" \
+       "$staged_root/scripts/report_language.py"
+  fi
   if [[ "$top_name" == "wordcloud-insight" || "$top_name" == "blueai-yuqing-echarts-skill-new" ]]; then
     if ! "${TOPIC5_DEPLOY_PYTHON:-python3}" "$ROOT/tools/prepare_fonts.py" \
         --skill "$top_name" --stage-root "$staged_root"; then

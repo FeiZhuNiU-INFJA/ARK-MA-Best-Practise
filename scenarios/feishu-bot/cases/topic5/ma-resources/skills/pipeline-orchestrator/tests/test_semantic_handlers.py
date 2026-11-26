@@ -144,8 +144,10 @@ class TestSemanticDegradedContract(unittest.TestCase):
         self.assertIn("品牌提及率保持稳定。", cleaned)
         self.assertIn("NSR 表现积极。", cleaned)
         self.assertNotIn("转化", cleaned)
-        self.assertNotIn("性价比", cleaned)
-        self.assertEqual(len(removed), 2)
+        # Price/value judgements need independent semantic review, not deletion
+        # based on the presence of a word.
+        self.assertIn("性价比是主要优势", cleaned)
+        self.assertEqual(len(removed), 1)
         handlers._assert_no_forbidden_terms(cleaned)
 
     def test_write_report_rejects_invalid_structure_without_fallback(self):

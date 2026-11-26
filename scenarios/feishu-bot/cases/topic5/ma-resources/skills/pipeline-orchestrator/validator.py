@@ -15,11 +15,11 @@ from __future__ import annotations
 import importlib.util
 import os
 import re
+import report_language
 from pathlib import Path
 from typing import Any, Optional
 
 # 兜底红线（与 skill scan_report.py 对齐；仅在脚本不可定位时使用）。
-_FORBIDDEN = ("人均", "转化率", "转化", "性价比")
 _AGG_SUM = ("合计声量", "总声量", "声量总和", "累计声量", "声量合计")
 _AGG_DISCLAIMER = ("不相加", "不合计", "逐个", "分别统计", "不得相加", "勿")
 _INTERNAL_FIELDS = (
@@ -100,13 +100,12 @@ def validate_report(
 def _builtin_scan(md: str, *, degraded: bool) -> dict:
     """脚本不可定位时的兜底扫描（口径子集，标 degraded 以示降级）。"""
     issues: list[dict] = []
+    for ln_no, term, line in report_language.metric_violations(md):
+        issues.append({"id": f"P0-forbidden-{term}", "severity": "P0",
+                       "title": f"分析正文出现禁用指标措辞「{term}」",
+                       "evidence": f"L{ln_no}: {line.strip()}"[:300],
+                       "locus": f"L{ln_no}"})
     for ln_no, line in enumerate((md or "").splitlines(), 1):
-        for term in _FORBIDDEN:
-            if term in line:
-                issues.append({"id": f"P0-forbidden-{term}", "severity": "P0",
-                               "title": f"出现禁用措辞「{term}」",
-                               "evidence": f"L{ln_no}: {line.strip()}"[:300],
-                               "locus": f"L{ln_no}"})
         if any(mk in line for mk in _AGG_DISCLAIMER):
             continue
         for pat in _AGG_SUM:
